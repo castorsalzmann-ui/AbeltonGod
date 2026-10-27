@@ -1,0 +1,64 @@
+"""Checks that every contract is a valid JSON Schema and that the capability registry obeys it."""
+
+import json
+from pathlib import Path
+
+import pytest
+from jsonschema import Draft202012Validator
+from jsonschema.exceptions import ValidationError
+
+CONTRACTS = Path(__file__).resolve().parent.parent / "contracts"
+
+
+def load(name: str) -> dict:
+    return json.loads((CONTRACTS / name).read_text(encoding="utf-8"))
+
+
+@pytest.mark.parametrize("path", sorted(CONTRACTS.glob("*.schema.json")), ids=lambda p: p.name)
+def test_schema_is_valid(path: Path) -> None:
+    Draft202012Validator.check_schema(json.loads(path.read_text(encoding="utf-8")))
+
+
+def test_capabilities_match_schema() -> None:
+    Draft202012Validator(load("capabilities.schema.json")).validate(load("capabilities.json"))
+
+
+def test_capability_ids_are_unique() -> None:
+    ids = [c["id"] for c in load("capabilities.json")["capabilities"]]
+    assert len(ids) == len(set(ids))
+
+
+def test_tested_capability_requires_evidence() -> None:
+    validator = Draft202012Validator(load("capabilities.schema.json"))
+    doc = {
+        "schema_version": "1",
+        "live_version_tested": "12.1",
+        "capabilities": [
+            {"id": "x", "kind": "read", "target": "/x", "status": "tested", "notes": ""}
+        ],
+    }
+    with pytest.raises(ValidationError):
+        validator.validate(doc)
+
+
+def test_kick_params_defaults_are_within_bounds() -> None:
+    schema = load("kick-params.schema.json")
+    for name, prop in schema["properties"].items():
+        if "default" not in prop:
+            continue
+        default = prop["default"]
+        if "minimum" in prop:
+            assert default >= prop["minimum"], name
+        if "maximum" in prop:
+            assert default <= prop["maximum"], name
+        if "enum" in prop:
+            assert default in prop["enum"], name
+
+
+def test_kick_params_rejects_unknown_and_out_of_range() -> None:
+    validator = Draft202012Validator(load("kick-params.schema.json"))
+    validator.validate({"schema_version": "0.1", "seed": 1})
+    with pytest.raises(ValidationError):
+        validator.validate({"schema_version": "0.1", "seed": 1, "pitch_end_hz": 5})
+    with pytest.raises(ValidationError):
+        validator.validate({"schema_version": "0.1", "seed": 1, "wobble": 3})

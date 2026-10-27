@@ -1,0 +1,78 @@
+{
+  "schema_version": "1",
+  "live_version_tested": null,
+  "capabilities": [
+    {
+      "id": "app.version",
+      "kind": "read",
+      "target": "/live/application/get/version",
+      "status": "supported",
+      "reversible": true,
+      "notes": "AbletonOSC README (checked 2026-10-28). Returns major_version, minor_version only - no patch level, so the 12.0.5 check for create_audio_clip needs Help > About Live."
+    },
+    {
+      "id": "song.tempo.get",
+      "kind": "read",
+      "target": "/live/song/get/tempo",
+      "status": "supported",
+      "reversible": true,
+      "notes": "AbletonOSC README (checked 2026-10-28). Response: tempo_bpm."
+    },
+    {
+      "id": "song.signature.get",
+      "kind": "read",
+      "target": "/live/song/get/signature_numerator, /live/song/get/signature_denominator",
+      "status": "supported",
+      "reversible": true,
+      "notes": "AbletonOSC README (checked 2026-10-28)."
+    },
+    {
+      "id": "song.track_names.get",
+      "kind": "read",
+      "target": "/live/song/get/track_names",
+      "status": "supported",
+      "reversible": true,
+      "notes": "AbletonOSC README (checked 2026-10-28). Optional params: index_min, index_max."
+    },
+    {
+      "id": "track.mute.set",
+      "kind": "write",
+      "target": "/live/track/set/mute",
+      "status": "supported",
+      "reversible": true,
+      "notes": "AbletonOSC README (checked 2026-10-28). Params: track_id, mute (1/0). Phase 02 harmless write test."
+    },
+    {
+      "id": "song.undo",
+      "kind": "action",
+      "target": "/live/song/undo",
+      "status": "supported",
+      "reversible": true,
+      "notes": "AbletonOSC README (checked 2026-10-28). Covers LOM changes, not file operations."
+    },
+    {
+      "id": "song.create_audio_track",
+      "kind": "write",
+      "target": "/live/song/create_audio_track",
+      "status": "supported",
+      "reversible": true,
+      "notes": "AbletonOSC README (checked 2026-10-28). Param: index (-1 = end). Needed for Phase 03."
+    },
+    {
+      "id": "clip_slot.create_audio_clip",
+      "kind": "write",
+      "target": "LOM ClipSlot.create_audio_clip(path)",
+      "status": "unknown",
+      "reversible": true,
+      "notes": "In the LOM reference; forum reports it works from Live 12.0.5. NOT in the AbletonOSC README (only /live/clip_slot/create_clip for empty MIDI clips) - needs a small handler in our own remote-script extension. See docs/research/2026-10-28_ableton-integration.md."
+    },
+    {
+      "id": "song.export_audio",
+      "kind": "action",
+      "target": "File > Export Audio/Video",
+      "status": "unsupported",
+      "reversible": true,
+      "notes": "No known API route. Use resampling or manual export."
+    }
+  ]
+}

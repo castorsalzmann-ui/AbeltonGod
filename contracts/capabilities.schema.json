@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/castorsalzmann-ui/AbeltonGod/contracts/capabilities.schema.json",
+  "title": "Ableton capability registry",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "live_version_tested", "capabilities"],
+  "properties": {
+    "schema_version": { "const": "1" },
+    "live_version_tested": { "type": ["string", "null"], "description": "Exact Live version the 'tested' entries were verified on, e.g. '12.1.5'." },
+    "capabilities": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "kind", "target", "status", "notes"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^[a-z0-9_.]+$" },
+          "kind": { "enum": ["read", "write", "action"] },
+          "target": { "type": "string", "description": "AbletonOSC address or LOM path/function." },
+          "status": { "enum": ["unknown", "supported", "tested", "unsupported"] },
+          "evidence": { "type": "string", "description": "Required when status is 'tested': link to the issue comment with the user's output." },
+          "reversible": { "type": "boolean" },
+          "notes": { "type": "string" }
+        },
+        "if": { "properties": { "status": { "const": "tested" } } },
+        "then": { "required": ["evidence"] }
+      }
+    }
+  }
+}

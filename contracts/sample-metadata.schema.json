@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/castorsalzmann-ui/AbeltonGod/contracts/sample-metadata.schema.json",
+  "title": "Sample sidecar metadata",
+  "description": "Draft v0.1 - finalised in Phase 01. Written next to every generated WAV as <name>.json. Must be sufficient to re-render the identical file.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "file", "category", "engine", "parameters", "features", "created_at"],
+  "properties": {
+    "schema_version": { "const": "0.1" },
+    "file": { "type": "string", "pattern": "\\.wav$" },
+    "category": { "enum": ["kick"] },
+    "description": { "type": "string", "maxLength": 500 },
+    "engine": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "version"],
+      "properties": {
+        "name": { "type": "string" },
+        "version": { "type": "string" }
+      }
+    },
+    "parameters": { "type": "object", "description": "Exact kick-params object used, including the variant's derived seed." },
+    "features": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["peak_dbfs", "length_ms"],
+      "properties": {
+        "peak_dbfs": { "type": "number" },
+        "length_ms": { "type": "number" },
+        "fundamental_hz": { "type": ["number", "null"] },
+        "decay_20db_ms": { "type": ["number", "null"] },
+        "decay_40db_ms": { "type": ["number", "null"] },
+        "dc_offset": { "type": ["number", "null"] }
+      }
+    },
+    "bpm": { "type": ["number", "null"] },
+    "key": { "type": ["string", "null"] },
+    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "created_at": { "type": "string", "format": "date-time" }
+  }
+}

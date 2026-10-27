@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/castorsalzmann-ui/AbeltonGod/contracts/kick-params.schema.json",
+  "title": "Kick synthesis parameters",
+  "description": "Draft v0.1 - finalised in Phase 01. Input to the deterministic kick engine. Out-of-range values are rejected, never clamped.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "seed"],
+  "properties": {
+    "schema_version": { "const": "0.1" },
+    "seed": { "type": "integer", "minimum": 0, "maximum": 4294967295 },
+    "variants": { "type": "integer", "minimum": 1, "maximum": 8, "default": 1 },
+    "bpm": { "type": "number", "minimum": 60, "maximum": 200, "description": "Context only; used for naming/metadata and length hints." },
+    "sample_rate": { "enum": [44100, 48000], "default": 48000 },
+    "bit_depth": { "enum": [16, 24], "default": 24 },
+    "length_ms": { "type": "number", "minimum": 80, "maximum": 2000, "default": 450 },
+    "pitch_start_hz": { "type": "number", "minimum": 60, "maximum": 600, "default": 220 },
+    "pitch_end_hz": { "type": "number", "minimum": 30, "maximum": 120, "default": 48 },
+    "pitch_decay_ms": { "type": "number", "minimum": 2, "maximum": 300, "default": 40 },
+    "amp_attack_ms": { "type": "number", "minimum": 0, "maximum": 20, "default": 0.5 },
+    "amp_decay_ms": { "type": "number", "minimum": 20, "maximum": 2000, "default": 320 },
+    "click_level": { "type": "number", "minimum": 0, "maximum": 1, "default": 0.35 },
+    "click_tone_hz": { "type": "number", "minimum": 500, "maximum": 12000, "default": 3500 },
+    "drive": { "type": "number", "minimum": 0, "maximum": 1, "default": 0.2 },
+    "tone": { "type": "number", "minimum": -1, "maximum": 1, "default": 0, "description": "-1 dark ... +1 bright (post-shaping tilt)." },
+    "peak_ceiling_dbfs": { "type": "number", "minimum": -12, "maximum": -0.1, "default": -0.3 },
+    "preset": { "type": "string", "maxLength": 64, "description": "Name of the preset these values came from, if any." }
+  }
+}

@@ -1,0 +1,54 @@
+name: Task
+description: One clearly bounded piece of work for one agent
+labels: ["status:ready"]
+body:
+  - type: dropdown
+    id: phase
+    attributes:
+      label: Phase
+      options: ["00", "01", "02", "03", "04", "later"]
+    validations:
+      required: true
+  - type: dropdown
+    id: agent
+    attributes:
+      label: Agent
+      options: [main session, audio-engineer, bridge-engineer, reviewer]
+    validations:
+      required: true
+  - type: textarea
+    id: goal
+    attributes:
+      label: Goal
+      description: One or two sentences. What exists when this is done?
+    validations:
+      required: true
+  - type: textarea
+    id: scope
+    attributes:
+      label: Scope
+      description: Files/folders that may change.
+    validations:
+      required: true
+  - type: textarea
+    id: out_of_scope
+    attributes:
+      label: Out of scope
+  - type: textarea
+    id: contracts
+    attributes:
+      label: Contracts and specs to read
+      value: "- docs/phases/PHASE_XX_....md\n- contracts/..."
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: Checkable. Mark which ones need the user's machine.
+      value: "- [ ] (CI) \n- [ ] (user) "
+    validations:
+      required: true
+  - type: input
+    id: depends
+    attributes:
+      label: Depends on
+      placeholder: "#12, #13"

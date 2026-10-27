@@ -1,0 +1,66 @@
+# AbeltonGod — Agent Instructions
+
+AI music production copilot for **Ableton Live 12 Standard on Windows** (Techno/Trance focus).
+First goal: generate, refine and import a **kick** sample. Everything else comes later.
+
+Keep this file short. It is loaded into every session; details live in the files below.
+
+## Source of truth (read only what your task needs)
+
+| File | What it holds |
+| --- | --- |
+| `docs/CURRENT_STATE.md` | What works, what is open, what is next. **Read at the start of every task.** |
+| `docs/DECISIONS.md` | Binding architecture decisions. Do not contradict them; propose a new decision instead. |
+| `docs/phases/PHASE_XX_*.md` | Scope, out-of-scope, deliverables and acceptance criteria per phase. |
+| `docs/INTERFACES.md` + `contracts/` | Shared formats between modules. Never invent a parallel format. |
+| `contracts/capabilities.json` | Which Ableton functions are `tested`, `supported`, `unknown` or `unsupported`. |
+| `docs/ARCHITECTURE.md` | Layers and data flow. |
+| `docs/PRODUCT_SPEC.md` | Full product vision (long, German). Read only when a task needs product context. |
+| `docs/research/` | Dated research notes with sources. Check here before researching again. |
+
+GitHub Issues are work assignments. Pull Requests carry the evidence and the review.
+
+## Hard constraints
+
+- **No Max for Live.** The user has Live 12 *Standard*. The Ableton bridge is a Python Remote Script based on AbletonOSC.
+- **Claude decides, local code executes.** No AI call ever sits in a real-time audio path.
+- **Capability rule.** Only build tools/actions on Ableton functions with status `tested` in `contracts/capabilities.json`. Anything else stays behind a clear "not yet verified" path.
+- **Test boundary.** CI (GitHub Actions) has no Ableton. Anything touching Live is tested on the user's Windows machine. Never report a mock or CI run as an Ableton integration test.
+- **Technical honesty.** Never claim something is implemented, tested or compatible without evidence. Never invent test results or listening impressions.
+- **Deterministic DSP first.** No generative audio model in the MVP. Same parameters + same seed must give byte-identical output.
+- Secrets (API keys, tokens) never go into the repo. Use `.env` (git-ignored).
+
+## Workflow
+
+1. Start a fresh session per issue: run `/start-task <issue-number>`.
+2. Work on a branch `phase-XX/<short-name>` (or a worktree for parallel work).
+3. Implement only the issue's scope. Stop and comment on the issue if scope or a contract must change.
+4. Run `pytest` and `ruff check .`; report the real output.
+5. Finish with `/finish-task` → opens a PR with `Closes #<n>`.
+6. The `reviewer` subagent reviews before the user merges.
+
+## Who writes what
+
+- `docs/CURRENT_STATE.md` and `docs/DECISIONS.md`: **only the lead session on `main` after a merge.** Implementers put a "State update proposal" in their PR body instead, to avoid merge conflicts.
+- `contracts/`: changes need their own PR, labelled `contract-change`, reviewed before dependent work continues.
+- `contracts/capabilities.json`: a status may only become `tested` with evidence from the user's machine (log excerpt or user confirmation in the issue).
+
+## Agents
+
+Use few agents. Default: this main session plus, when useful, one implementer and the reviewer.
+
+- `audio-engineer` — DSP, kick synthesis, audio analysis, WAV/metadata output.
+- `bridge-engineer` — AbletonOSC remote script, OSC client, capability checks, sample import.
+- `reviewer` — independent review against the phase acceptance criteria. Never reviews its own code.
+
+## Commands
+
+```
+pip install -e ".[dev]"   # setup (inside a venv)
+pytest                     # all automated tests
+ruff check .               # lint
+```
+
+## Language
+
+Code, comments, commits and agent docs: English. Talk to the user in German unless they write in English.
