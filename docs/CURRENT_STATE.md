@@ -18,7 +18,8 @@ _Last updated: 2026-10-28 · Written only by the lead session on `main` after a 
 - Kick synthesis engine (Phase 01)
 - Ableton bridge / AbletonOSC setup (Phase 02)
 - Sample import into Live (Phase 03)
-- Claude orchestrator / chat (Phase 04)
+- Agent Resource Guard (Phase 04a) — policy contract and defaults exist, no code
+- Claude orchestrator / chat (Phase 04b)
 
 ## Environment facts (from the user, 2026-10-28)
 
@@ -37,6 +38,7 @@ _Last updated: 2026-10-28 · Written only by the lead session on `main` after a 
 
 - User: finish issue #1 (pytest on Windows, exact Live version, occupied control-surface slots, `gh auth login`).
 - Ready to start in parallel: #2 (kick core, `audio-engineer`) and #4 (OSC client, `bridge-engineer`).
+- Also ready, lower priority: #6 (Agent Resource Guard, D-011). Must land before Phase 04b makes a real Claude call.
 - Blocked until their dependencies land: #3 (needs #2), #5 (needs #4 and #1).
 
 ## Open questions
