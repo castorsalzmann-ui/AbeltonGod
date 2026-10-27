@@ -10,6 +10,10 @@ Status markers: **[planned]** not built · **[building]** in progress · **[done
 ┌──────────────▼────────────────┐
 │ Orchestrator  [planned, 04]   │  Claude: chooses tools + parameters,
 │                               │  validated against contracts/*.schema.json
+├───────────────────────────────┤
+│ Resource guard [planned, 04a] │  every model + tool call passes here:
+│                               │  tokens, calls, cost, time, loops,
+│                               │  file/Ableton writes (D-011)
 └───┬───────────────┬───────────┘
     │               │
 ┌───▼──────────┐ ┌──▼──────────────────────┐
@@ -33,7 +37,9 @@ Status markers: **[planned]** not built · **[building]** in progress · **[done
 | `src/audio_engine/` | Kick synthesis, later other elements; analysis; WAV + metadata writing | 01 |
 | `src/bridge/` | OSC client, capability checks, action log, undo helpers | 02 |
 | `src/library/` | Project folder layout, safe file naming, import workflow | 03 |
-| `src/orchestrator/` | Claude tool definitions, schema validation, approval levels | 04 |
+| `src/guard/` | Agent Resource Guard: limits, loop detection, usage log | 04a |
+| `src/orchestrator/` | Claude tool definitions, schema validation, approval levels | 04b |
+| `config/` | Runtime policies (`guard-policy.json`) | 04a |
 | `contracts/` | JSON schemas and the capability registry shared by all modules | 00+ |
 
 ## Rules

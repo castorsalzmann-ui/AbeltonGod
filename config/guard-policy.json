@@ -1,0 +1,35 @@
+{
+  "schema_version": "1",
+  "global": {
+    "session_budget_usd": 3.0,
+    "daily_budget_usd": 10.0,
+    "max_concurrent_requests": 1,
+    "cost_basis_note": "Starting values, not tuned. With subscription auth, USD figures are the SDK's API-equivalent estimate, not money charged; the real limit is the subscription usage window."
+  },
+  "profiles": {
+    "kick_generation": {
+      "description": "Text request -> kick parameters -> render variants -> optional import.",
+      "max_output_tokens": 1500,
+      "max_model_calls": 8,
+      "max_tool_calls": 15,
+      "max_budget_usd": 0.25,
+      "timeout_s": 90,
+      "max_identical_tool_calls": 3,
+      "max_files_written": 12,
+      "max_live_writes": 2,
+      "warn_at_fraction": 0.8
+    },
+    "mentor_answer": {
+      "description": "Explain or advise; may read project context, never writes.",
+      "max_output_tokens": 2000,
+      "max_model_calls": 4,
+      "max_tool_calls": 6,
+      "max_budget_usd": 0.15,
+      "timeout_s": 60,
+      "max_identical_tool_calls": 2,
+      "max_files_written": 0,
+      "max_live_writes": 0,
+      "warn_at_fraction": 0.8
+    }
+  }
+}

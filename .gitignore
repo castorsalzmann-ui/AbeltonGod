@@ -9,6 +9,9 @@ venv/
 build/
 dist/
 
+# Local usage logs (resource guard)
+logs/
+
 # Secrets
 .env
 *.key

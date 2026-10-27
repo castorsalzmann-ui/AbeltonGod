@@ -7,7 +7,9 @@ import pytest
 from jsonschema import Draft202012Validator
 from jsonschema.exceptions import ValidationError
 
-CONTRACTS = Path(__file__).resolve().parent.parent / "contracts"
+ROOT = Path(__file__).resolve().parent.parent
+CONTRACTS = ROOT / "contracts"
+CONFIG = ROOT / "config"
 
 
 def load(name: str) -> dict:
@@ -39,6 +41,23 @@ def test_tested_capability_requires_evidence() -> None:
     }
     with pytest.raises(ValidationError):
         validator.validate(doc)
+
+
+def test_default_guard_policy_matches_schema() -> None:
+    policy = json.loads((CONFIG / "guard-policy.json").read_text(encoding="utf-8"))
+    Draft202012Validator(load("guard-policy.schema.json")).validate(policy)
+    for name, profile in policy["profiles"].items():
+        assert profile["max_budget_usd"] <= policy["global"]["session_budget_usd"], name
+    assert policy["profiles"]["mentor_answer"]["max_live_writes"] == 0
+    assert policy["profiles"]["mentor_answer"]["max_files_written"] == 0
+
+
+def test_guard_policy_rejects_missing_limit() -> None:
+    validator = Draft202012Validator(load("guard-policy.schema.json"))
+    policy = json.loads((CONFIG / "guard-policy.json").read_text(encoding="utf-8"))
+    del policy["profiles"]["kick_generation"]["timeout_s"]
+    with pytest.raises(ValidationError):
+        validator.validate(policy)
 
 
 def test_kick_params_defaults_are_within_bounds() -> None:

@@ -71,3 +71,19 @@ Format: ID · date · status · decision · reason · consequences.
 **Decision.** Main session + `audio-engineer`, `bridge-engineer`, `reviewer`. Only the lead session on `main` edits `CURRENT_STATE.md` and `DECISIONS.md`.
 
 **Reason.** Each subagent starts without context and consumes the shared subscription usage window; parallel edits to one state file cause constant merge conflicts.
+
+## D-011 · 2026-10-28 · accepted — Agent Resource Guard for every product Claude call
+
+**Decision.** All Claude calls made by the product go through one guard module (`src/guard/`). It enforces, per request profile (`config/guard-policy.json`, schema in `contracts/`): output tokens per call, model calls, tool calls, cost estimate, wall-clock timeout, identical-tool-call loops, files written and Ableton writes; plus session and daily budgets. It records estimated and actual usage per call in a local log.
+
+**How.** Use the Claude Agent SDK's own limits (`max_turns`, `max_budget_usd`) as the first line; the guard adds what the SDK does not cover (tool-call counts, loop detection, timeout, action budget, session/daily totals) and wraps every tool the model can call, including tools used by sub-agents.
+
+**Levels.** Green: normal. Warn (≥ `warn_at_fraction` of any limit): no new sub-tasks, shorter answers. Stop: no further model calls; the user gets what was finished and what is still open. A request stopped by the guard is never reported as successful.
+
+**Scope.** Product runtime only. Development sessions in Claude Code are kept small by process (one issue per fresh session, few subagents), not by this module.
+
+**Not in the MVP.** Automatic model downgrade, automatic context summarisation, compute (CPU/GPU) budgets, dashboard. Reconsider when generative audio or multi-agent product features arrive.
+
+**Reason.** `max_tokens` alone does not bound a request: input tokens, tool loops and repeated requests add up. Cheap but uncontrolled agents can still do damage through file and Ableton writes.
+
+**Consequences.** Built and tested in CI before the orchestrator makes its first real Claude call (Phase 04a). With subscription auth, USD values are API-equivalent estimates; the real constraint is the usage window.

@@ -8,9 +8,10 @@ One phase at a time. A phase starts only after the previous phase's acceptance c
 | 01 | `phases/PHASE_01_KICK_ENGINE.md` | Deterministic kick synthesis, 3 variants, WAV + metadata, no Claude | CI + user listening test |
 | 02 | `phases/PHASE_02_ABLETON_BRIDGE.md` | AbletonOSC in Live 12 Standard: read, one harmless write, undo, capability registry filled | User's machine |
 | 03 | `phases/PHASE_03_SAMPLE_IMPORT.md` | Generated kick lands in the Live project | User's machine |
-| 04 | `phases/PHASE_04_CLAUDE_ORCHESTRATOR.md` | Natural language → validated kick parameters → engine → import | CI (schemas, fake bridge) + user's machine |
+| 04a | `phases/PHASE_04A_RESOURCE_GUARD.md` | Agent Resource Guard: limits for tokens, calls, cost, time, loops, file and Ableton writes | CI |
+| 04b | `phases/PHASE_04B_CLAUDE_ORCHESTRATOR.md` | Natural language → validated kick parameters → engine → import, all through the guard | CI (schemas, fake bridge) + user's machine |
 
-Phases 01 and 02 are independent and may run in parallel (different agents, different folders).
+Phases 01, 02 and 04a are independent and may run in parallel (different agents, different folders). 04b needs all of 01–04a.
 
 ## Later (no spec yet)
 
