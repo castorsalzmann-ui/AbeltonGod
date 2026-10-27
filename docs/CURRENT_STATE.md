@@ -10,7 +10,8 @@ _Last updated: 2026-10-28 · Written only by the lead session on `main` after a 
 
 | Item | Evidence |
 | --- | --- |
-| Repo scaffold, contracts, contract tests | `pytest` passes locally in the scaffold commit; CI status: see Actions tab |
+| Repo scaffold, contracts, contract tests | `pytest`: 8 passed (lead session, Linux); [CI run 40604382687](https://github.com/castorsalzmann-ui/AbeltonGod/actions/runs/40604382687) green on ubuntu-latest and windows-latest |
+| Labels and issues #1–#5 | Created on GitHub 2026-10-28 |
 
 ## What does not exist yet
 
@@ -34,7 +35,9 @@ _Last updated: 2026-10-28 · Written only by the lead session on `main` after a 
 
 ## Next step
 
-Close Phase 00 (confirm CI green on GitHub), then start Phase 01: `docs/phases/PHASE_01_KICK_ENGINE.md`.
+- User: finish issue #1 (pytest on Windows, exact Live version, occupied control-surface slots, `gh auth login`).
+- Ready to start in parallel: #2 (kick core, `audio-engineer`) and #4 (OSC client, `bridge-engineer`).
+- Blocked until their dependencies land: #3 (needs #2), #5 (needs #4 and #1).
 
 ## Open questions
 
