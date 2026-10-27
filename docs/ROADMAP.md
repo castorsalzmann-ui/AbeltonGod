@@ -13,6 +13,19 @@ One phase at a time. A phase starts only after the previous phase's acceptance c
 
 Phases 01, 02 and 04a are independent and may run in parallel (different agents, different folders). 04b needs all of 01–04a.
 
-## Later (no spec yet)
+## Non-goals for the MVP (Phases 00–04b)
 
-Stabilisation (action log, error handling) · more sample categories (bass, percussion, hats) · reference sample analysis · MIDI and arrangement engine with energy curve · mix analysis (needs a validated audio capture path) · mastering · Max for Live UI if the user upgrades to Suite · own VST3 plugins (JUCE) · personal sound profile · generative audio backend.
+- No sample types other than kick — one element must sound good first.
+- No desktop UI — a terminal chat is enough to prove the workflow.
+- No arrangement, MIDI generation, mixing or mastering — they need a working bridge and audio capture first.
+- No generative audio models — D-005.
+- No Max for Live — D-001.
+- No changes to the user's real projects — tests run against a dedicated test set.
+- No cloud services besides Claude — everything else runs locally.
+- No multi-user, accounts or sharing — personal tool.
+
+## Parking lot (no spec yet)
+
+Ideas live here or as GitHub issues labelled `parking-lot`. Revisit after the MVP.
+
+Stabilisation (action log, error handling) · more sample categories (bass, percussion, hats) · reference sample analysis · MIDI and arrangement engine with energy curve · mix analysis (needs a validated audio capture path) · mastering · desktop UI with circular sample picker · Max for Live UI if the user upgrades to Suite · own VST3 plugins (JUCE) · personal sound profile · generative audio backend · guard extras (model downgrade, context summarisation, dashboard).

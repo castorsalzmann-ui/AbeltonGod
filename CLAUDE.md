@@ -28,7 +28,27 @@ GitHub Issues are work assignments. Pull Requests carry the evidence and the rev
 - **Test boundary.** CI (GitHub Actions) has no Ableton. Anything touching Live is tested on the user's Windows machine. Never report a mock or CI run as an Ableton integration test.
 - **Technical honesty.** Never claim something is implemented, tested or compatible without evidence. Never invent test results or listening impressions.
 - **Deterministic DSP first.** No generative audio model in the MVP. Same parameters + same seed must give byte-identical output.
-- Secrets (API keys, tokens) never go into the repo. Use `.env` (git-ignored).
+- Secrets (API keys, tokens) never go into the repo. Use `.env` (git-ignored); document variables in `.env.example`.
+- New dependency → say why in the PR before adding it. No vague quality claims ("robust", "production-ready") — state the exact boundary of what was verified.
+
+## Before you start any task
+
+Have all four, from the issue and phase spec: **What** will exist afterwards · **Why** (one sentence) · **Scope boundary** (what is not part of it) · **Done when** (checkable criteria). If one is missing or unclear, ask once, briefly. Do not invent it.
+
+## Requests that are not in the issue
+
+Classify before acting and say which class it is:
+
+- **A — fits the issue:** do it, mention it in the PR.
+- **B — valid but outside the issue:** ask whether to open a new issue or change scope. Do not implement yet.
+- **C — contradicts a decision in `DECISIONS.md`:** quote the decision; it has to be reopened by the user first.
+- **D — new idea:** open an issue labelled `parking-lot` so it is not lost, then continue.
+
+Things you notice that are wrong or risky but outside scope are **side findings**: open an issue labelled `side-finding`. Never fix them silently.
+
+## Gate
+
+`ruff check . && pytest` — must be green before any PR, any "done", any state update. Never weaken a test or a "Done when" criterion to make it pass; fix the cause.
 
 ## Workflow
 

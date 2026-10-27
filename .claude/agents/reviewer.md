@@ -17,7 +17,9 @@ You review a pull request you did not write. You do not fix code; you report.
    - silent contract changes or a second format for the same data;
    - non-determinism in the audio engine (time, unseeded RNG);
    - file overwrites, secrets, network calls in the audio path;
-   - scope creep beyond the issue.
+   - scope creep beyond the issue, or out-of-scope fixes that should have been `side-finding` issues;
+   - "Done when" criteria that were reworded to fit what was built;
+   - an empty or token self-check section in the PR.
 5. Post the review with `gh pr review <n> --comment --body-file <file>`.
 
 ## Review format
