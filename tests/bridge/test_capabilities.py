@@ -17,7 +17,7 @@ from bridge.capabilities import (
     CapabilityRegistryError,
     UnknownCapabilityError,
 )
-from bridge.osc_client import ADDRESSES, AbletonBridge
+from bridge.osc_client import ADDRESSES, PENDING_REGISTRY, AbletonBridge
 
 RAW = json.loads(CAPABILITIES_FILE.read_text(encoding="utf-8"))
 
@@ -36,6 +36,27 @@ def test_bridge_addresses_match_registry_targets():
         assert cap_id in targets, cap_id
         recorded = {a.strip() for a in targets[cap_id].split(",")}
         assert set(addresses) == recorded, cap_id
+
+
+def test_every_address_the_bridge_sends_is_registered_or_pending():
+    """No OSC address in osc_client.py outside ADDRESSES, PENDING_REGISTRY and the marker (#39)."""
+    source = (ROOT / "src" / "bridge" / "osc_client.py").read_text(encoding="utf-8")
+    literals = set(re.findall(r'"(/live/[a-z_/]+)"', source))
+    known = {a for addrs in ADDRESSES.values() for a in addrs}
+    known |= {a for addrs, _ in PENDING_REGISTRY.values() for a in addrs}
+    known |= {"/live/error", "/live/song/get/tempo"}  # reply error address; request marker
+    assert literals - known == set()
+
+
+def test_pending_entries_are_not_yet_in_the_registry_and_borrow_a_real_gate():
+    """Pending ids must move into ADDRESSES (and the registry) in the contract-change PR."""
+    targets = {c["id"]: c["target"] for c in RAW["capabilities"]}
+    for cap_id, (addresses, borrowed) in PENDING_REGISTRY.items():
+        assert cap_id not in targets, f"{cap_id} is registered now: move it into ADDRESSES"
+        assert cap_id not in ADDRESSES
+        assert borrowed in ADDRESSES
+        assert not set(addresses) & {a for v in ADDRESSES.values() for a in v}
+    assert set(PENDING_REGISTRY) == {"track.mute.get"}
 
 
 @pytest.mark.parametrize("status", ["unknown", "supported"])

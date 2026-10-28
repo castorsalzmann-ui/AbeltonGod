@@ -153,17 +153,20 @@ def test_empty_set_skips_writes_without_prompting(fake):
 def test_yes_path_sends_exactly_the_announced_writes_in_order(fake):
     code, out, _ = run(fake, ["y", "1", "y"])
     assert code == 0, out
+    snapshot = [("/live/song/get/track_names", ()), get_mute(0), get_mute(1)]
     assert fake.payload() == READS + [
-        get_mute(1),
+        get_mute(1),  # R0, shown in the plan
+        *snapshot,  # S0, after the confirmation
         set_mute(1, 1), get_mute(1),
         set_mute(1, 0), get_mute(1),
         set_mute(1, 1), get_mute(1),
         UNDO, get_mute(1),
+        *snapshot,  # S1
     ]
     assert [t["mute"] for t in fake.tracks] == [False, False]  # set left as it was
     block = result_block(out)
     assert block["track.mute.set"].startswith("PASS raw=R1=(True,); R2=(False,); R3=(True,)")
-    assert block["song.undo"] == "PASS raw=R4=(False,)"
+    assert block["song.undo"] == "PASS raw=R4=(False,); S1=['1-Kick':0, '2-Bass':0]"
     assert block["test_track"] == "1 '2-Bass'"
     assert block["error"] == "-"
     assert "Geplante Änderungen an Spur 1 '2-Bass'" in out
@@ -255,7 +258,9 @@ def test_write_timeout_sends_no_undo_and_reports_unknown_outcome():
         assert code == 1
         assert writes(fake.payload()) == [set_mute(0, 1)]
         assert "UNBEKANNT" in out and "KEIN Undo" in out
-        assert "ursprünglich war sie nicht stumm" in out
+        assert "Ursprünglicher Zustand: Spur 0 '1-Kick' war nicht stumm." in out
+        assert "after-abort read failed" in out  # replies still held
+        assert "von Hand auf nicht stumm stellen" in out
         block = result_block(out)
         assert "W1 timed out" in block["error"]
         assert block["song.undo"].startswith("SKIPPED")
