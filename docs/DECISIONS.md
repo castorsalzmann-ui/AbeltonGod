@@ -159,3 +159,19 @@ _2026-10-28: "Rejected" lines added to D-001–D-011 as a clarification; no deci
 **Rejected.** Two parallel lead sessions. The lead merging PRs itself (offered; user keeps merging).
 
 **Consequences.** D-010's single-writer rule for state files stays. Every agent and helper uses the shared Max 5x usage window; the lead starts agents only for independent work. Merge requests to the user name the PR in words first, with a direct link.
+
+## D-016 · 2026-10-28 · accepted — Team structure: lead, up to 3 sub-agents, one QA tester (user decision at lead handover; supersedes the agent-count part of D-015)
+
+**Decision.**
+- **Lead** (one cloud session, D-015): coordinates, sets order and ownership, gives merge go-aheads, and is the only writer of `CURRENT_STATE.md` and `DECISIONS.md` (on `main`, after a merge, gate green). The lead does not implement.
+- **At most 3 sub-agents at once** (`audio-engineer`, `bridge-engineer`, `reviewer`). Each may start up to **2 helpers**, only when the lead allows it in the prompt and only for clearly separable work (e.g. independent tests + fault injection, docs).
+- **One QA tester**, used continuously, not counted in the 3. Goal: less test and review time without less test depth — test pyramid and runtime overview (`pytest --durations`), targeted fast test selection per PR (the full suite stays the gate), reusable check tools (mutation runner, fake-bridge scenarios, property generators), lessons from review findings, and a pre-check before each review (gate, CI status, `mergeable_state`, diff size). The QA tester never changes product code and never weakens a test or a limit; its tools land through normal PRs with review.
+- **Every agent works in its own git worktree.** Only the lead uses the main clone.
+- Per task: issue (what / why / boundary / done when) → implementer PR → QA pre-check → independent `reviewer` (max. 2 rounds, a third needs the user's yes; comment/doc-only PRs: lead's own diff check) → findings from "minor" up fixed, nits collected as an issue → merge go-ahead → state update.
+- The user merges only after a message starting with "Bereit zum Mergen: <name> (PR <n>)" with link, 1–3 sentences and "CI auf Ubuntu und Windows grün"; one go-ahead at a time.
+
+**Reason.** The user wants fewer parallel agents than D-015 allowed (shared Max 5x usage window) and a dedicated role that shortens review cycles, which took up to six rounds (PR #8).
+
+**Rejected.** Up to 10 sub-agents (D-015). The QA tester editing product code or relaxing tests to save time.
+
+**Consequences.** D-015's single lead session and the user's merge rule stay. Agents in worktrees must run `python -m pytest -o pythonpath=src` and check `audio_engine.__file__` / `bridge.__file__`, because the editable install points at the main clone.
