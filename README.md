@@ -43,6 +43,8 @@ gh auth login
 
 Bei jedem neuen PowerShell-Fenster vorher: `cd $HOME\Documents\AbeltonGod` und `.venv\Scripts\Activate.ps1`.
 
+`pytest` verteilt die Tests automatisch auf alle CPU-Kerne (Zeile `created: N/N workers` in der Ausgabe). Nach einem `git pull` mit neuen Abhängigkeiten einmal `pip install -e ".[dev]"` wiederholen. Zum Fehlersuchen seriell laufen lassen: `pytest -n 0`.
+
 **Typische Stolpersteine**
 
 - *„Ausführung von Skripts ist deaktiviert“* bei `Activate.ps1`: einmalig `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` ausführen und mit `J` bestätigen.
