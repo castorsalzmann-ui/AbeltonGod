@@ -76,7 +76,7 @@ pip install -e ".[dev]"
 python scripts/bridge_check.py
 ```
 
-Nach `git status` sollte oben `On branch main` stehen. Bricht `git switch main` mit einem Hinweis auf lokale Änderungen ab, nichts erzwingen, sondern die Meldung in Issue #5 kopieren.
+Nach `git status` sollte oben `On branch main` stehen (bei deutscher Sprache: `Auf Branch main`). Bricht `git switch main` mit einem Hinweis auf lokale Änderungen ab, nichts erzwingen, sondern die Meldung in Issue #5 kopieren.
 
 Das Script fragt dreimal:
 
@@ -123,7 +123,7 @@ In Live siehst du den Mute-Knopf der Spur kurz an- und ausgehen. Die Live-Versio
 
 Den Exit-Code zeigt PowerShell direkt danach mit `$LASTEXITCODE`. Schreib bitte ins Issue, ob die Meldungen für dich verständlich waren.
 
-**Wenn etwas schiefgeht:** Bei einem Fehler, einer `ABWEICHUNG` oder wenn du mit *Strg + C* abbrichst, sendet das Script keine weiteren Änderungen und kein (weiteres) Undo. Es nennt den ursprünglichen Zustand der Spur, liest den jetzigen einmal zurück und sagt dir, ob du den Mute-Knopf von Hand zurückstellen musst. Der Ergebnis-Block wird trotzdem ausgegeben (Exit-Code 130 bei *Strg + C* — auch an einer der drei Fragen; dann wurde noch nichts geändert). Unterscheiden sich nach dem Undo **nur** Tempo und/oder Taktart, meldet das Script `FAIL` ohne Schuldzuweisung: Entweder hat sich das Tempo von selbst geändert (Tempo-Automation, Link, externe MIDI-Clock), oder Undo hat eine frühere Tempo-Änderung zurückgenommen. Dann die Vorbereitung (Punkt 3) prüfen, das Set neu öffnen und den Check wiederholen. Meldet es nach dem Undo Unterschiede bei Spuren oder Namen, zeigt der Undo-Verlauf (*Strg + Alt + Z*; im englischen Handbuch *View → Undo History*) in Live, welcher Schritt zurückgenommen wurde; dort lässt er sich wiederherstellen. *Strg + Z* in Live nur verwenden, wenn du sicher bist, was es zurücknimmt.
+**Wenn etwas schiefgeht:** Bei einem Fehler, einer `ABWEICHUNG` oder wenn du mit *Strg + C* abbrichst, sendet das Script keine weiteren Änderungen und kein (weiteres) Undo. Es nennt den ursprünglichen Zustand der Spur, liest den jetzigen einmal zurück und sagt dir, ob du den Mute-Knopf von Hand zurückstellen musst. Der Ergebnis-Block wird trotzdem ausgegeben (Exit-Code 130 bei *Strg + C* — auch an einer der drei Fragen; dann wurde noch nichts geändert). Noch nicht geprüft ist, ob *Strg + C* an einer Frage unter Python 3.14 auf Windows wirklich zu Exit-Code 130 führt: Manche ältere Python-Versionen werten *Strg + C* in einer Eingabe als Eingabe-Ende, dann endet das Script wie bei „nein“ mit Exit-Code 0. Sicher ist beides, denn an den Fragen wurde noch nichts gesendet. Optional prüfen: an der ersten Frage *Strg + C* drücken, danach `echo $LASTEXITCODE` eingeben (erwartet `130`) und das Ergebnis in Issue #5 notieren. Unterscheiden sich nach dem Undo **nur** Tempo und/oder Taktart, meldet das Script `FEHLER` (im Ergebnis-Block `song.undo: FAIL`) ohne Schuldzuweisung: Entweder hat sich das Tempo von selbst geändert (Tempo-Automation, Link, externe MIDI-Clock), oder Undo hat eine frühere Tempo-Änderung zurückgenommen. Dann die Vorbereitung (Punkt 3) prüfen, das Set neu öffnen und den Check wiederholen. Meldet es nach dem Undo Unterschiede bei Spuren oder Namen, zeigt der Undo-Verlauf (*Strg + Alt + Z*; im englischen Handbuch *View → Undo History*) in Live, welcher Schritt zurückgenommen wurde; dort lässt er sich wiederherstellen. *Strg + Z* in Live nur verwenden, wenn du sicher bist, was es zurücknimmt.
 
 ## 6. Wo die Logs liegen
 

@@ -85,7 +85,8 @@ from bridge.osc_client import (
 # 0.3.0: tempo/signature in the snapshot, undo scope note, EOF at track prompt aborts (#44)
 # 0.3.1: mute read-back gated as its own capability track.mute.get (#42); output unchanged
 # 0.4.0: neutral FAIL for tempo/signature-only changes, Ctrl+C at a prompt exits 130 (#43)
-SCRIPT_VERSION = "0.4.0"
+# 0.4.1: tempo/signature-only message starts with FEHLER: like the other errors (#52)
+SCRIPT_VERSION = "0.4.1"
 
 # The only capabilities this script may call, through the explicit override.
 READ_CAPABILITIES = ("app.version", "song.tempo.get", "song.signature.get",
@@ -368,7 +369,7 @@ TEMPO_ONLY_NOTE = ("only tempo/signature differ after undo: possible drift (auto
                    "external clock) or an undone tempo/signature edit")
 
 TEMPO_ONLY_TEXT = (
-    "FAIL: Nach dem Undo unterscheiden sich nur Tempo und/oder Taktart vom Stand vor dem Test.\n"
+    "FEHLER: Nach dem Undo unterscheiden sich nur Tempo und/oder Taktart vom Stand vor dem Test.\n"
     "Spurnamen und Mute-Zustände aller Spuren sind wie vorher. Unterschiede:"
 )
 
