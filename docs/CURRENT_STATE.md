@@ -6,6 +6,7 @@ _Last updated: 2026-10-28 · Written only by the lead session on `main` after a 
 
 - **Phase 00 — Setup:** DONE (#1 closed 2026-10-28).
 - **Phase 01 — Kick engine:** core merged (#2 via PR #8); drive anti-aliased (#13 via PR #20). Open: #11, #12, #7, #16, then #3.
+- **Phase 02 — Ableton bridge:** OSC client and capability gate merged (#4 via PR #25). Open: #5 (bridge check on the user's machine).
 - **Phase 04a — Agent Resource Guard:** DONE (#6 via PR #15).
 
 ## What works (with evidence)
@@ -19,6 +20,12 @@ _Last updated: 2026-10-28 · Written only by the lead session on `main` after a 
 | Tests run in parallel (pytest-xdist, `-n auto`, fixed temp folder `.pytest_tmp`); `pytest -n 0` runs serially | [PR #22](https://github.com/castorsalzmann-ui/AbeltonGod/pull/22), merged as c6ddf9b; user's Windows PC: 12 workers, `1008 passed, 2 skipped in 6.41s` ([#21](https://github.com/castorsalzmann-ui/AbeltonGod/issues/21#issuecomment-6468776786)) |
 | Kick Gen 2 research note (prototype lessons, taste range from 77 reference kicks, market candidates, analysis pitfalls, agent rules) | [PR #10](https://github.com/castorsalzmann-ui/AbeltonGod/pull/10), merged as 2c13642: `docs/research/2026-10-28_kick-gen2-learnings.md`, required reading for kick-engine work |
 | Budget watch for development sessions (`.claude/hooks/waste_watch.py`, warn only) | [PR #18](https://github.com/castorsalzmann-ui/AbeltonGod/pull/18), merged as 00485b1 after one review round (3 findings fixed); CI ubuntu + windows. Windows user test still open. |
+| Bug workflow: issue form "Bug" (required repro), labels `severity:blocker/major/minor/nit`, regression corpus `tests/regressions/` (1 case from PR #8 review 1), "Bugs" rules in `CLAUDE.md` | [PR #24](https://github.com/castorsalzmann-ui/AbeltonGod/pull/24), merged as 9b0b5a9 after one review round (3 minor fixed); `1132 passed, 2 skipped`; [CI run 40691016877](https://github.com/castorsalzmann-ui/AbeltonGod/actions/runs/40691016877) ubuntu + windows. User check of the form on GitHub open. |
+| AbletonOSC Windows guide (`docs/setup/ABLETONOSC_WINDOWS.md`), OSC client with nonce-marker bracketing per request, capability gate (`src/bridge/`), fake AbletonOSC server for CI | [PR #25](https://github.com/castorsalzmann-ui/AbeltonGod/pull/25), merged as ddef95a after three review rounds (7, 3, then no findings); 28/28 fault injections caught; merged tree `1252 passed, 2 skipped`; bridge tests 10/10 green under CPU load; CI on 1ff93e4 ubuntu + windows. **Not yet run against Live.** No capability status changed. |
+
+**Known limits of the bridge** (details in `docs/research/2026-10-28_abletonosc-protocol-and-create-audio-clip.md`):
+- A timed-out write has an unknown outcome and may still be applied later; read back before any undo (rule for #5).
+- The marker echo the bracketing relies on is read from AbletonOSC source, not yet confirmed in Live.
 
 **Measured limits of the kick core** (details in PR #8):
 - Pitch accuracy: ±3 % for windows ≥ 80 ms, ±5 % below (user decision).
@@ -35,7 +42,7 @@ _Last updated: 2026-10-28 · Written only by the lead session on `main` after a 
 ## What does not exist yet
 
 - Kick presets, variants, CLI (#3)
-- Ableton bridge / AbletonOSC setup (Phase 02: #4, #5)
+- Bridge check against Live and capability evidence (#5)
 - Sample import into Live (Phase 03)
 - Claude orchestrator / chat (Phase 04b)
 
@@ -63,13 +70,15 @@ _Last updated: 2026-10-28 · Written only by the lead session on `main` after a 
   3. #7 — contract semantics.
   4. #16 — user decision: should `drive` start continuously at 0? Decide before the listening test.
   5. Then #3 — presets, variants, CLI and the first listening test, which includes #9.
-- **Bridge track, in parallel:** #4 (OSC client, `bridge-engineer`), then #5 (needs the user's machine; #1 is done).
+- **Bridge track, in parallel:** #5 — `bridge_check.py` (`bridge-engineer`), then the user installs AbletonOSC per `docs/setup/ABLETONOSC_WINDOWS.md`, runs the ping and the check on a test set. Live version known: 12.4.5.
 - **Phase 04b** (Claude orchestrator, #23): blocked until Phases 01–03 are accepted and the auth method (D-008) is confirmed with the user.
-- **Process:** #19 — budget watch blind spots (cloud reviewer runs, permission denials).
+- **Process:** #19 — budget watch blind spots (cloud reviewer runs, permission denials). New bugs: Bug form + a failing case in `tests/regressions/` first (#14 done).
 - **User:**
   - Windows test of the budget watch (PR #18): let Claude Code run `git status` three times; a "Budget: …" message should appear.
   - Decide #16 (drive continuity at 0).
-  - After pulling: `pip install -e ".[dev]"` once (new dev dependency pytest-xdist).
+  - GitHub → New issue → **Bug**: check that the form appears with "Repro" required (PR #24).
+  - After pulling: `pip install -e ".[dev]"` once (new dependencies pytest-xdist and python-osc).
+  - PR #25 user tests (AbletonOSC install, ping, Live closed, port 11001 in use, firewall prompt) — can be done together with #5.
 
 ## Open questions
 
