@@ -1,11 +1,12 @@
 # Current State
 
-_Last updated: 2026-10-28 · Written only by the lead session on `main` after a merge._
+_Last updated: 2026-10-28 (evening) · Written only by the lead session on `main` after a merge._
 
 ## Phase
 
 - **Phase 00 — Setup:** DONE (#1 closed 2026-10-28).
-- **Phase 01 — Kick engine:** core merged (#2 via PR #8); drive anti-aliased (#13 via PR #20); contract semantics (#7 via PR #28). WAV/sidecar nits (#12 via PRs #26, #33); tone/drive/envelope tests (#11 via PR #34). Drive continuous from 0 (#16 via PR #38); ENGINE_VERSION rule (#35 via PR #40, D-013). Analysis limits #27, #32 documented (PR #49); crest-factor mechanisms #30, #31 documented (PR #51). Presets, variants, CLI (#3 via PRs #54, #56); user listening test done. Open for acceptance: #59 (default `pitch_decay_ms` → 40).
+- **Phase 03 — Sample import:** starting (#50).
+- **Phase 01 — Kick engine:** core merged (#2 via PR #8); drive anti-aliased (#13 via PR #20); contract semantics (#7 via PR #28). WAV/sidecar nits (#12 via PRs #26, #33); tone/drive/envelope tests (#11 via PR #34). Drive continuous from 0 (#16 via PR #38); ENGINE_VERSION rule (#35 via PR #40, D-013). Analysis limits #27, #32 documented (PR #49); crest-factor mechanisms #30, #31 documented (PR #51). Presets, variants, CLI (#3 via PRs #54, #56); user listening test done; `centre` pitch decay 40 ms (#59 via PR #60). **DONE 2026-10-28.**
 - **Phase 02 — Ableton bridge:** DONE (#5 via PR #42, 2026-10-28). Seven capabilities `tested` on Live 12.4.5. Open follow-up: PR #48 (setup-guide fixes, #43).
 - **Phase 04a — Agent Resource Guard:** DONE (#6 via PR #15).
 
@@ -32,6 +33,7 @@ _Last updated: 2026-10-28 · Written only by the lead session on `main` after a 
 | Budget watch counts reviewer runs (word match `\breview`) and `PermissionDenied` events; `.claude/settings.json` pinned by a test (only the hook block allowed) | [PR #46](https://github.com/castorsalzmann-ui/AbeltonGod/pull/46), merged as 8111731 after one review round (2 minor fixed); 12/12 mutants caught; CI ubuntu + windows. User test open (Windows auto mode: warning after 4 denials, no "hook error"). |
 | Research note: Claude auth options for Phase 04b (fact-checked against official sources) | [PR #47](https://github.com/castorsalzmann-ui/AbeltonGod/pull/47), merged as 3f8edb0; decision D-014 |
 | Analysis limits documented: `fundamental_hz` on kicks with `amp_decay_ms` < ~110 ms (#27, DC-blocker tail + mean correction); `decay_20db_ms` offsets and drive effect (#32) | [PR #49](https://github.com/castorsalzmann-ui/AbeltonGod/pull/49), merged as 844ff46; comments only, golden hashes unchanged; triage comments on #27 and #32 |
+| Preset `centre` `pitch_decay_ms` 8 → 40 (user's ear, #59 option c): schema default stays 15 ms; centre and all its variants follow the pitch-settle guideline (reviewer: 4000 variants on fresh seeds, worst +4.9997 % vs. 5 % limit); no `ENGINE_VERSION` bump (engine unchanged, golden cases use no preset; old sidecars re-render byte-identically) | [PR #60](https://github.com/castorsalzmann-ui/AbeltonGod/pull/60), merged as 94ea1a4 after one independent review (approve-ready, 3 nits; nit 1 → #63); `2089 passed, 2 skipped`; CI on 537df14 ubuntu + windows green. Note: the #3 listening files `centre_s1001_v*` were rendered with 8 ms and differ from today's `--preset centre`. |
 | Independent tests for tone, drive and the amplitude envelope (#11), 282 tests | [PR #34](https://github.com/castorsalzmann-ui/AbeltonGod/pull/34), merged as eb14b8d after one pre-PR review round (3 findings fixed); `1659 passed, 2 skipped`; 11 fault injections, all caught (drive × 0.5 by only 2 tests); CI on `main` eb14b8d green |
 
 **Known limits of the bridge** (details in `docs/research/2026-10-28_abletonosc-protocol-and-create-audio-clip.md`):
@@ -46,7 +48,6 @@ _Last updated: 2026-10-28 · Written only by the lead session on `main` after a 
 - Render with `drive > 0` costs ~3× more than before anti-aliasing (2 s kick ≈ 54 ms on the CI-like Linux box); every WAV with `drive > 0` differs from pre-#20 renders.
 - Sidecars from engine 0.0.1 (all written before #35) no longer re-render without `allow_engine_mismatch=True`; they are not migrated.
 - No crest-factor test covers click + tone > 0 (cause of the excess not established, #31). The 10 Hz DC blocker skews attack fits on the shipped output by up to 1.7 ms (PR #34) and raises the crest factor at high drive (#30).
-- No listening test yet.
 - The pitch-settle guideline describes the pitch curve. The measured `fundamental_hz` can still be up to ~17 % above `pitch_end_hz` for kicks that follow it (review of #7).
 - `fundamental_hz` is approximate (±5 %) or `None` for very short kicks; never derive `amp_decay_ms` as 3 × `decay_20db_ms` (with drive up to +87 %). Causes in PR #49.
 
@@ -78,10 +79,10 @@ _Last updated: 2026-10-28 · Written only by the lead session on `main` after a 
 
 ## Next step
 
-Lead: one cloud lead session (D-015); the PC session only runs commands and Live tests. Lead handover to a new Scrum Master lead on 2026-10-28 evening.
+Lead: one cloud lead session (D-015); the PC session only runs commands and Live tests. Team: flat, specialised roles, no helper agents (D-017); agent definitions for the new roles in PR #62 (#61, in review). The lead also keeps the project cockpit (dashboard) current after every merge or state change.
 
-- **Kick track:** #3 implemented (PRs #54, #56), user listening test done ([#3](https://github.com/castorsalzmann-ui/AbeltonGod/issues/3#issuecomment-6477768472)): all five presets usable, clean, different characters, "rather generic". Remaining for Phase 01 acceptance: **#59** (contract default `pitch_decay_ms` 15 → 40, user's ear; audio-engineer PR in progress) → review → merge → close #3, mark Phase 01 DONE, unblock #50.
-- **Bridge track:** done (Phase 02 DONE; follow-ups #43 via PR #48, #52 via PR #53). Phase 03 (#50, sample import) starts after Phase 01 is DONE.
+- **Kick track:** Phase 01 DONE. Open nit #63 (centre description names a fixed value). Next kick work comes from the parking lot (#57, #58) via the `sound-designer` once PR #62 is merged.
+- **Phase 03 (#50, sample import):** unblocked. Split by D-017 file ownership: `src/library/` (layout, naming, no overwrite) → `audio-engineer`; import handler, check script, setup guide → `bridge-engineer`. `clip_slot.create_audio_clip` is still `unknown` and needs a Live run by the user.
 - **Phase 04b** (#23): auth decided (D-014: subscription login, Opus 5.5); research note PR #47. Blocked until Phases 01–03 are accepted.
 - **Parking lot from the listening test:** #57 kick layering (fuse two kicks), #58 own reference samples to steer synthesis ("main character").
 - **User:**

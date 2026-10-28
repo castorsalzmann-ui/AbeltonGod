@@ -1,6 +1,6 @@
 # PHASE 01 — Deterministic kick engine (no Claude)
 
-**Status:** PLANNED · **Agent:** `audio-engineer` · **Tested in:** CI + user listening test
+**Status:** DONE (2026-10-28) · **Agent:** `audio-engineer` · **Tested in:** CI + user listening test
 
 ## Objective
 
@@ -36,9 +36,9 @@ Claude, Ableton, UI, other instruments, generative models, real-time playback.
 
 ## Acceptance criteria
 
-- [ ] All CI tests above pass on Ubuntu and Windows.
-- [ ] The user ran the CLI on Windows, listened to all presets in Ableton, and noted in the issue which ones are usable. **The agent must not claim a listening result.**
-- [ ] Known limitations documented in the PR.
+- [x] All CI tests above pass on Ubuntu and Windows. (PRs #8–#56, #60; CI ubuntu + windows green on each merge.)
+- [x] The user ran the CLI on Windows, listened to all presets in Ableton, and noted in the issue which ones are usable. **The agent must not claim a listening result.** (All five usable: [#3](https://github.com/castorsalzmann-ui/AbeltonGod/issues/3#issuecomment-6477768472). The lead rendered the files from main 05fbb96 instead of the user's own CLI run; the CLI sequence itself was run in review.)
+- [x] Known limitations documented in the PR. (PR #8 and follow-ups; collected in `docs/CURRENT_STATE.md` → "Measured limits of the kick core".)
 
 ## Handoff
 
