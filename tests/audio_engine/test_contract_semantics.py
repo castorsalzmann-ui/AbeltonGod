@@ -253,12 +253,21 @@ def test_v01_sidecar_from_engine_001_is_refused() -> None:
         io_mod.rerender_from_sidecar(V01_SIDECAR)
 
 
+V01_SHA_ENGINE_001 = "edb09d1594868dded2ae4ec1e84fc0b5564b64d54e9a2c058465ae764ba2e455"
+# The same parameters rendered by engine 0.1.0 (continuous drive, #16), Linux.
+V01_SHA_ENGINE_010 = "3db3c8a837f091698385ef7e63730ef04a3684851be0c2de5fe8586fc89af8c3"
+
+
 @pytest.mark.skipif(sys.platform != "linux", reason="fixture sha256 was rendered on Linux")
 def test_v01_sidecar_bytes_really_changed() -> None:
-    """Why the refusal above is needed: rendered anyway, the bytes differ from the sidecar's."""
-    expected = json.loads(V01_SIDECAR.read_text(encoding="utf-8"))["sha256"]
+    """Why the refusal above is needed: rendered anyway, the bytes are those of engine 0.1.0,
+    not the ones the 0.0.1 sidecar records. Both hashes are literal."""
+    meta = json.loads(V01_SIDECAR.read_text(encoding="utf-8"))
+    assert meta["sha256"] == V01_SHA_ENGINE_001
+    assert meta["engine"]["version"] == "0.0.1"
     wav = io_mod.rerender_from_sidecar(V01_SIDECAR, allow_engine_mismatch=True)
-    assert hashlib.sha256(wav).hexdigest() != expected
+    assert len(wav) == 44 + 3 * 21600  # 450 ms at 48 kHz, 24-bit, even: no pad byte
+    assert hashlib.sha256(wav).hexdigest() == V01_SHA_ENGINE_010
 
 
 def test_v01_sidecar_renders_like_the_same_params_under_v02() -> None:

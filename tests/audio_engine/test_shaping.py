@@ -257,11 +257,9 @@ STEADY_SETS = [
 
 @pytest.mark.parametrize("p", STEADY_SETS)
 def test_drive_adds_third_harmonic_at_every_step(p: dict) -> None:
-    """Measured over these 12 sets: -108 ... -128 dB clean; at drive 0.25 -18.2 ... -25.1 dB
-    (lower for shorter amp_decay_ms, because the saturation depends on the level); every step
-    adds at least 1.4 dB. Re-measured in #16 with this file's helpers: main's drive gives a
-    smallest step of 0.99 dB (not 1.4; the older figure's method is not recorded), the
-    continuous drive (gain 10 * drive**0.8) -18.0 ... -24.9 dB at 0.25 and 0.87 dB."""
+    """Measured over these 12 sets with the continuous drive of #16 (gain 10 * drive**0.8):
+    -108 dB or lower clean; at drive 0.25 -18.0 ... -24.9 dB (lower for shorter amp_decay_ms,
+    because the saturation depends on the level); smallest step 0.87 dB (limit 0.5 dB)."""
     levels = [_third_harmonic_db(*_render(p, drive=d), p["pitch_end_hz"]) for d in DRIVES]
     assert levels[0] < -80.0, levels
     assert levels[1] > -30.0, levels
