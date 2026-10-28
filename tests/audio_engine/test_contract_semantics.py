@@ -136,8 +136,13 @@ def _settle_time_s(p: dict) -> float:
 
 MEASURE_TOLERANCE = 0.015
 # Cycles quieter than this (relative to the render's peak) are not measured: on very fast
-# decays (amp_decay_ms ~20-50 ms) the zero crossings there no longer follow the body pitch
-# (review of #7: -36.8 dB, +6.5 % vs an ideal sine; cause not established).
+# decays the zero crossings there no longer follow the body pitch (review of #7: -36.8 dB,
+# +6.5 % vs an ideal sine). Cause (#27, triage comment): below amp_decay_ms ~110 ms the body
+# decays faster than the 10 Hz DC blocker's tail (tau 15.9 ms). That tail, plus the Hann mean
+# correction in the cases where the signal never crosses zero again, moves the crossings. With
+# both stages switched off the deviation is 0.00 %. -30 dB is not a safe floor in general
+# (fast-decay cycles at -20 to -30 dB reach 13 %). This test passes because it only uses
+# cycles near the settle time.
 LEVEL_FLOOR_DB = -30.0
 OVERSHOOT = 1.3
 
