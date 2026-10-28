@@ -47,13 +47,15 @@ Dieser Test ändert nichts im Set. Der ausführliche Check mit Tempo, Spuren und
 
 ## 5. Bridge-Check ausführen (Issue #5)
 
-Der Check liest ein paar Werte aus Live. Danach — nur wenn du zweimal mit `y` bestätigst — schaltet er eine Spur kurz stumm, wieder laut, wieder stumm und schickt dann einmal **Undo** an Live. Vorher und nachher liest er alle Spurnamen und den Mute-Zustand aller Spuren und vergleicht sie.
+Der Check liest ein paar Werte aus Live. Danach — nur wenn du zweimal mit `y` bestätigst — schaltet er eine Spur kurz stumm, wieder laut, wieder stumm und schickt dann einmal **Undo** an Live. Vorher und nachher liest er Tempo, Taktart, alle Spurnamen und den Mute-Zustand aller Spuren und vergleicht sie.
 
-**Undo-Risiko:** Undo nimmt den *letzten* Schritt in Lives Undo-Verlauf zurück. Ob Live die Mute-Änderung des Scripts dort einträgt, ist genau das, was der Check prüft. Wenn nicht, nimmt Undo deine letzte eigene Aktion zurück (z. B. eine eingefügte Spur). Das Script erkennt das an Spuranzahl, Namen und Mute-Zuständen, meldet `FAIL` und schickt nichts mehr — rückgängig machen kann es das aber nicht. Darum die Vorbereitung unten genau so machen.
+**Undo-Risiko:** Undo nimmt den *letzten* Schritt in Lives Undo-Verlauf zurück. Ob Live die Mute-Änderung des Scripts dort einträgt, ist genau das, was der Check prüft. Wenn nicht, nimmt Undo deine letzte eigene Aktion zurück (z. B. eine eingefügte Spur). Das Script erkennt das an Tempo, Taktart, Spuranzahl, Namen und Mute-Zuständen, meldet `FAIL` und schickt nichts mehr — rückgängig machen kann es das aber nicht. Darum die Vorbereitung unten genau so machen.
+
+**Was der Vergleich nicht sieht:** Clips, Geräte und Automation; Return- und Master-Spuren (AbletonOSC liefert nur die normalen Spuren); das Vertauschen zweier Spuren mit gleichem Namen und gleichem Mute-Zustand. Bei vielen Spuren dauert der Vergleich länger (zweimal eine Anfrage pro Spur, in Live nicht gemessen) — für ein Test-Set mit 2–3 Spuren unerheblich.
 
 **Vorbereitung:**
 1. In Live ein **neues Test-Set** anlegen (*Datei → Neues Live-Set*), zwei oder drei Spuren genügen, und es z. B. als `AbeltonGod-Test` speichern. Nicht mit einem echten Projekt ausführen.
-2. Das Set **schließen und neu öffnen** (*Datei → Zuletzt verwendete Sets öffnen*). Beim Öffnen leert Live den Undo-Verlauf (Live-Handbuch, Abschnitt „Undo-Verlauf“).
+2. Das Set **schließen und neu öffnen** (über das Datei-Menü, z. B. die Liste der zuletzt verwendeten Sets; die genaue deutsche Menübezeichnung ist hier nicht geprüft). Laut Live-12-Handbuch (Abschnitt „Undo History“ / Undo-Verlauf) leert Live beim Öffnen eines Sets den Undo-Verlauf. In diesem Projekt ist das noch nicht in Live geprüft — schau nach dem Öffnen kurz in den Undo-Verlauf (*Strg + Alt + Z*; im englischen Handbuch *View → Undo History*), ob die Liste leer ist.
 3. Danach **nichts mehr am Set ändern**, bis das Script fertig ist.
 
 In PowerShell, im Projektordner:
@@ -88,8 +90,11 @@ Spuren (2):
   R2: Spur 0 ist nicht stumm (erwartet: nicht stumm) OK
   R3: Spur 0 ist stumm (erwartet: stumm) OK
   R4: Spur 0 ist nicht stumm (erwartet: nicht stumm) OK
-Undo hat die letzte Mute-Änderung zurückgenommen. Spuranzahl, Spurnamen und Mute-Zustand aller Spuren sind wie vorher.
+Undo hat die letzte Mute-Änderung zurückgenommen. Tempo, Taktart, Spuranzahl, Spurnamen und Mute-Zustand aller Spuren sind wie vorher.
+(Nicht prüfen kann das Script: Clips, Geräte, Automation sowie Return- und Master-Spuren.)
 ```
+
+Im Ergebnis-Block steht hinter `song.undo: PASS …` ein `note=checked: …`, der genau sagt, was verglichen wurde.
 
 Bei einem großen Set kann eine Anfrage länger als 1 Sekunde dauern. Meldet das Script „antwortet nicht“, obwohl Live offen ist, einmal mit `python scripts/bridge_check.py --timeout 3` wiederholen.
 
@@ -107,7 +112,7 @@ In Live siehst du den Mute-Knopf der Spur kurz an- und ausgehen. Die Live-Versio
 
 Den Exit-Code zeigt PowerShell direkt danach mit `$LASTEXITCODE`. Schreib bitte ins Issue, ob die Meldungen für dich verständlich waren.
 
-**Wenn etwas schiefgeht:** Bei einem Fehler, einer `ABWEICHUNG` oder wenn du mit *Strg + C* abbrichst, sendet das Script keine weiteren Änderungen und kein (weiteres) Undo. Es nennt den ursprünglichen Zustand der Spur, liest den jetzigen einmal zurück und sagt dir, ob du den Mute-Knopf von Hand zurückstellen musst. Der Ergebnis-Block wird trotzdem ausgegeben (Exit-Code 130 bei *Strg + C*). Meldet es nach dem Undo Unterschiede bei Spuren oder Namen, zeigt *Ansicht → Undo-Verlauf* (*Strg + Alt + Z*) in Live, welcher Schritt zurückgenommen wurde; dort lässt er sich wiederherstellen. *Strg + Z* in Live nur verwenden, wenn du sicher bist, was es zurücknimmt.
+**Wenn etwas schiefgeht:** Bei einem Fehler, einer `ABWEICHUNG` oder wenn du mit *Strg + C* abbrichst, sendet das Script keine weiteren Änderungen und kein (weiteres) Undo. Es nennt den ursprünglichen Zustand der Spur, liest den jetzigen einmal zurück und sagt dir, ob du den Mute-Knopf von Hand zurückstellen musst. Der Ergebnis-Block wird trotzdem ausgegeben (Exit-Code 130 bei *Strg + C*). Meldet es nach dem Undo Unterschiede bei Spuren oder Namen, zeigt der Undo-Verlauf (*Strg + Alt + Z*; im englischen Handbuch *View → Undo History*) in Live, welcher Schritt zurückgenommen wurde; dort lässt er sich wiederherstellen. *Strg + Z* in Live nur verwenden, wenn du sicher bist, was es zurücknimmt.
 
 ## 6. Wo die Logs liegen
 

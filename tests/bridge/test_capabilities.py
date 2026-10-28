@@ -38,10 +38,30 @@ def test_bridge_addresses_match_registry_targets():
         assert set(addresses) == recorded, cap_id
 
 
+# Any single- or double-quoted string literal that starts with /live/ (also f-strings and
+# literals with digits, '*' or '{...}'), so an address cannot hide behind a quoting style (#44).
+OSC_LITERAL = re.compile(r"""["'](/live/[^"'\s]*)["']""")
+
+
+def scanned_address_literals() -> set[str]:
+    files = [*(ROOT / "src" / "bridge").glob("*.py"), *(ROOT / "scripts").glob("*.py")]
+    return {m for f in files for m in OSC_LITERAL.findall(f.read_text(encoding="utf-8"))}
+
+
+def test_address_scan_finds_every_quoting_style():
+    found = set(OSC_LITERAL.findall(
+        """a = '/live/track/get/solo'\nb = "/live/x/y"\nc = f"/live/track/{i}/z"\n"""
+        """d = '/live/clip_slot/*'\n"""
+    ))
+    assert found == {"/live/track/get/solo", "/live/x/y", "/live/track/{i}/z",
+                     "/live/clip_slot/*"}
+
+
 def test_every_address_the_bridge_sends_is_registered_or_pending():
-    """No OSC address in osc_client.py outside ADDRESSES, PENDING_REGISTRY and the marker (#39)."""
-    source = (ROOT / "src" / "bridge" / "osc_client.py").read_text(encoding="utf-8")
-    literals = set(re.findall(r'"(/live/[a-z_/]+)"', source))
+    """No /live/ literal in src/bridge/ or scripts/ outside ADDRESSES, PENDING_REGISTRY and
+    the marker/error addresses (#39, #44)."""
+    literals = scanned_address_literals()
+    assert literals, "scan found nothing: the pattern or the paths are broken"
     known = {a for addrs in ADDRESSES.values() for a in addrs}
     known |= {a for addrs, _ in PENDING_REGISTRY.values() for a in addrs}
     known |= {"/live/error", "/live/song/get/tempo"}  # reply error address; request marker

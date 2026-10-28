@@ -153,7 +153,9 @@ def test_empty_set_skips_writes_without_prompting(fake):
 def test_yes_path_sends_exactly_the_announced_writes_in_order(fake):
     code, out, _ = run(fake, ["y", "1", "y"])
     assert code == 0, out
-    snapshot = [("/live/song/get/track_names", ()), get_mute(0), get_mute(1)]
+    snapshot = [("/live/song/get/tempo", ()), ("/live/song/get/signature_numerator", ()),
+                ("/live/song/get/signature_denominator", ()),
+                ("/live/song/get/track_names", ()), get_mute(0), get_mute(1)]
     assert fake.payload() == READS + [
         get_mute(1),  # R0, shown in the plan
         *snapshot,  # S0, after the confirmation
@@ -166,7 +168,13 @@ def test_yes_path_sends_exactly_the_announced_writes_in_order(fake):
     assert [t["mute"] for t in fake.tracks] == [False, False]  # set left as it was
     block = result_block(out)
     assert block["track.mute.set"].startswith("PASS raw=R1=(True,); R2=(False,); R3=(True,)")
-    assert block["song.undo"] == "PASS raw=R4=(False,); S1=['1-Kick':0, '2-Bass':0]"
+    assert block["song.undo"] == (
+        "PASS raw=R4=(False,); S1=tempo=136 sig=4/4 tracks=['1-Kick':0, '2-Bass':0] "
+        "note=checked: tempo, signature, track count/names/order, all track mutes; "
+        "not checked: clips, devices, automation, return/master tracks"
+    )
+    assert ("(Nicht prüfen kann das Script: Clips, Geräte, Automation sowie Return- und "
+            "Master-Spuren.)") in out
     assert block["test_track"] == "1 '2-Bass'"
     assert block["error"] == "-"
     assert "Geplante Änderungen an Spur 1 '2-Bass'" in out

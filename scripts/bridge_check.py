@@ -13,7 +13,8 @@ What it does:
    No): a reversible mute sequence on one track, ending with ``/live/song/undo``:
 
        R0 read mute            -> M0 (original state; shown in the plan)
-       S0 snapshot             -> all track names + every track's mute (after confirmation)
+       S0 snapshot             -> tempo, signature, all track names, every track's mute
+                                  (after confirmation)
        W1 set mute = not M0    -> R1 expect not M0
        W2 set mute = M0        -> R2 expect M0
        W3 set mute = not M0    -> R3 expect not M0
@@ -23,13 +24,16 @@ What it does:
    ``/live/song/undo`` reverts Live's *last undo step*. Whether Live records a LOM mute change
    as one is unverified (#39); if not, undo reverts the user's last action instead. So the
    plan warns about this before the final confirmation and asks for a freshly reopened test
-   set (opening a set clears Live's undo history - Live manual, "Undo History").
+   set (per the Live 12 manual, "Undo History", opening a set clears the undo history; not
+   yet verified in Live by this project).
    Outcomes after the undo:
-   - S1 == S0: undo PASS (as far as tracks and mutes can show; clips/devices are not visible).
+   - S1 == S0: undo PASS, with a scope note in the result block (clips, devices, automation
+     and return/master tracks are not visible to the script).
    - Only the test track's mute differs (undo did not revert W3): undo FAIL; one direct
      restore W4 + read-back R5; a failed restore is reported with a hand-fix instruction.
-   - Anything else differs (track count, names, order, another track's mute): undo FAIL with
-     the differences listed; nothing more is written (indices may have shifted).
+   - Anything else differs (tempo, signature, track count, names, order, another track's
+     mute): undo FAIL with the differences listed; nothing more is written.
+   EOF or Ctrl+C at any prompt means "no" / abort, never a default choice.
    A second undo is never sent. A read-back mismatch at R1-R3 stops before undo. Any bridge
    error or Ctrl+C in the sequence stops writing; the script reads the test track once, tells
    the user its original state and prints the result block (exit 130 on Ctrl+C).
@@ -70,7 +74,9 @@ from bridge.osc_client import (
     ReceivePortInUseError,
 )
 
-SCRIPT_VERSION = "0.2.0"  # 0.2.0: whole-set check around undo, Ctrl+C handling (#39)
+# 0.2.0: whole-set check around undo, Ctrl+C handling (#39)
+# 0.3.0: tempo/signature in the snapshot, undo scope note, EOF at track prompt aborts (#44)
+SCRIPT_VERSION = "0.3.0"
 
 # The only capabilities this script may call, through the explicit override.
 READ_CAPABILITIES = ("app.version", "song.tempo.get", "song.signature.get",
@@ -186,15 +192,16 @@ def render_result_block(report: Report) -> str:
 # -- interaction -----------------------------------------------------------------------------
 
 
-def ask(prompt: str, input_fn: Callable[[str], str]) -> str:
+def ask(prompt: str, input_fn: Callable[[str], str]) -> str | None:
+    """The stripped answer, or None on EOF / Ctrl+C (the user wants out, not a default)."""
     try:
         return input_fn(prompt).strip()
     except (EOFError, KeyboardInterrupt):
-        return ""
+        return None
 
 
 def ask_yes(prompt: str, input_fn: Callable[[str], str]) -> bool:
-    return ask(prompt, input_fn).lower() in YES
+    return (ask(prompt, input_fn) or "").lower() in YES
 
 
 def choose_track(names: list[str], input_fn: Callable[[str], str], out: TextIO) -> int | None:
@@ -204,6 +211,9 @@ def choose_track(names: list[str], input_fn: Callable[[str], str], out: TextIO) 
             f"[Enter = 0 '{names[0]}']: ",
             input_fn,
         )
+        if answer is None:  # EOF / Ctrl+C: abort, never fall back to the default track
+            print("Abgebrochen.", file=out)
+            return None
         if answer == "":
             return 0
         # ASCII digits only: str.isdigit() also accepts '²' or Arabic-Indic digits.
@@ -223,19 +233,33 @@ class WriteAborted(Exception):
 
 @dataclass(frozen=True)
 class Snapshot:
-    """What the script can check of the set: track names (count and order) and every mute."""
+    """What the script can check of the set: tempo, time signature, track names (count and
+    order) and every track's mute. Blind spots: return/master tracks, clips, devices,
+    automation, and a move between tracks with identical names and mutes."""
 
+    tempo: float
+    signature: tuple[int, int]
     names: tuple[str, ...]
     mutes: tuple[bool, ...]
 
     def render(self) -> str:
-        return "[" + ", ".join(f"{n!r}:{int(m)}" for n, m in zip(self.names, self.mutes,
-                                                                    strict=True)) + "]"
+        tracks = ", ".join(f"{n!r}:{int(m)}" for n, m in zip(self.names, self.mutes,
+                                                               strict=True))
+        return (f"tempo={self.tempo:g} sig={self.signature[0]}/{self.signature[1]} "
+                f"tracks=[{tracks}]")
+
+
+# Scope note for the song.undo line of the result block: what an undo PASS is based on.
+UNDO_SCOPE_NOTE = ("checked: tempo, signature, track count/names/order, all track mutes; "
+                   "not checked: clips, devices, automation, return/master tracks")
 
 
 def take_snapshot(bridge: AbletonBridge) -> Snapshot:
+    tempo = bridge.get_tempo()
+    signature = bridge.get_signature()
     names = tuple(bridge.get_track_names())
-    return Snapshot(names, tuple(bridge.get_track_mute(i) for i in range(len(names))))
+    return Snapshot(tempo, signature, names,
+                    tuple(bridge.get_track_mute(i) for i in range(len(names))))
 
 
 def mute_word(value: bool) -> str:
@@ -244,6 +268,12 @@ def mute_word(value: bool) -> str:
 
 def describe_changes(before: Snapshot, after: Snapshot) -> list[str]:
     """German lines describing how ``after`` differs from ``before`` (empty if equal)."""
+    song: list[str] = []
+    if after.tempo != before.tempo:
+        song.append(f"Tempo: vorher {before.tempo:g} BPM, jetzt {after.tempo:g} BPM")
+    if after.signature != before.signature:
+        song.append(f"Taktart: vorher {before.signature[0]}/{before.signature[1]}, jetzt "
+                    f"{after.signature[0]}/{after.signature[1]}")
     if before.names != after.names:
         lines = [f"Spuren vorher ({len(before.names)}): {list(before.names)}",
                  f"Spuren jetzt  ({len(after.names)}): {list(after.names)}"]
@@ -252,8 +282,8 @@ def describe_changes(before: Snapshot, after: Snapshot) -> list[str]:
                             f"{len(after.names)}.")
         else:
             lines.insert(0, "Spurnamen oder Reihenfolge haben sich geändert.")
-        return lines
-    return [
+        return song + lines
+    return song + [
         f"Spur {i} '{name}': vorher {mute_word(b)}, jetzt {mute_word(a)}"
         for i, (name, b, a) in enumerate(zip(before.names, before.mutes, after.mutes,
                                              strict=True))
@@ -293,9 +323,15 @@ def run_reads(bridge: AbletonBridge, report: Report, out: TextIO) -> list[str] |
     return names  # type: ignore[return-value]
 
 
+UNDO_PASS_TEXT = (
+    "Undo hat die letzte Mute-Änderung zurückgenommen. Tempo, Taktart, Spuranzahl, Spurnamen "
+    "und Mute-Zustand aller Spuren sind wie vorher.\n"
+    "(Nicht prüfen kann das Script: Clips, Geräte, Automation sowie Return- und Master-Spuren.)"
+)
+
 UNDO_HISTORY_HINT = (
-    "In Live zeigt Ansicht -> Undo-Verlauf (Strg+Alt+Z), welcher Schritt zurückgenommen wurde; "
-    "dort lässt er sich wiederherstellen."
+    "In Live zeigt der Undo-Verlauf (Strg+Alt+Z; im Handbuch: View -> Undo History), welcher "
+    "Schritt zurückgenommen wurde; dort lässt er sich wiederherstellen."
 )
 
 
@@ -378,10 +414,8 @@ def run_writes(bridge: AbletonBridge, report: Report, idx: int, m0: bool, names:
         undo_check.raw = "; ".join(reads[undo_reads_start:]) + f"; S1={s1.render()}"
 
         if not changes:
-            undo_check.result = PASS
-            print("Undo hat die letzte Mute-Änderung zurückgenommen. Spuranzahl, Spurnamen und "
-                  "Mute-Zustand aller Spuren sind wie vorher.\n(Andere Eigenschaften wie Clips, "
-                  "Geräte oder Automation kann das Script nicht prüfen.)", file=out)
+            undo_check.result, undo_check.note = PASS, UNDO_SCOPE_NOTE
+            print(UNDO_PASS_TEXT, file=out)
             return
 
         undo_check.result = FAIL
@@ -535,18 +569,20 @@ def plan_text(idx: int, name: str, m0: bool) -> str:
         f"  2. Spur auf {now} setzen, zurücklesen\n"
         f"  3. Spur auf {other} setzen, zurücklesen\n"
         f"  4. Undo in Live (/live/song/undo), zurücklesen - erwartet: {now}\n"
-        "Vorher und nach dem Undo liest das Script alle Spurnamen und den Mute-Zustand aller\n"
-        "Spuren und vergleicht sie.\n"
+        "Vorher und nach dem Undo liest das Script Tempo, Taktart, alle Spurnamen und den\n"
+        "Mute-Zustand aller Spuren und vergleicht sie.\n"
         "\n"
         "WICHTIG - Undo-Risiko: Schritt 4 nimmt den LETZTEN Schritt in Lives Undo-Verlauf\n"
         "zurück. Ob Live eine Mute-Änderung über AbletonOSC dort einträgt, ist noch nicht\n"
         "geprüft - genau das testet dieser Check. Wenn nicht, nimmt Undo stattdessen deine\n"
         "letzte eigene Aktion zurück (z. B. eine eingefügte oder umbenannte Spur).\n"
-        "Darum: Test-Set speichern, schließen und neu öffnen (Datei -> Zuletzt verwendete\n"
-        "Sets), dann NICHTS mehr daran ändern und erst danach hier bestätigen. Beim Öffnen\n"
-        "leert Live den Undo-Verlauf (Live-Handbuch, \"Undo-Verlauf\").\n"
+        "Darum: Test-Set speichern, schließen und neu öffnen (über das Datei-Menü), dann\n"
+        "NICHTS mehr daran ändern und erst danach hier bestätigen. Laut Live-12-Handbuch\n"
+        "(\"Undo History\") leert Live beim Öffnen eines Sets den Undo-Verlauf; in diesem\n"
+        "Projekt ist das noch nicht geprüft.\n"
         "\n"
-        "Erkennt das Script nach dem Undo eine Änderung an Spuren oder Mute-Zuständen, meldet\n"
+        "Erkennt das Script nach dem Undo eine Änderung an Tempo, Taktart, Spuren oder\n"
+        "Mute-Zuständen, meldet\n"
         "es Undo als FAIL, nennt die Unterschiede und sendet nichts mehr. Hat Undo nur die\n"
         f"Mute-Änderung nicht zurückgenommen, setzt es Spur {idx} einmal direkt auf {now}\n"
         "zurück. Ein zweites Undo wird nie gesendet."
