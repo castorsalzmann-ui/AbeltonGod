@@ -99,3 +99,102 @@ def test_kick_params_rejects_unknown_and_out_of_range() -> None:
         validator.validate({"schema_version": "0.2", "seed": 1, "pitch_end_hz": 5})
     with pytest.raises(ValidationError):
         validator.validate({"schema_version": "0.2", "seed": 1, "wobble": 3})
+
+
+# --- sample-metadata instances (#70) ---------------------------------------------------------
+
+# Written by hand from the contract, not by the engine, so the instance does not inherit an
+# engine bug. Every optional field is present once.
+SAMPLE_METADATA = {
+    "schema_version": "0.1",
+    "file": "kick.wav",
+    "category": "kick",
+    "description": "hand-written test instance",
+    "engine": {"name": "abeltongod-audio-engine", "version": "0.1.0"},
+    "parameters": {"schema_version": "0.2", "seed": 7},
+    "features": {
+        "peak_dbfs": -0.3,
+        "length_ms": 450.0,
+        "fundamental_hz": 48.6,
+        "decay_20db_ms": 168.0,
+        "decay_40db_ms": 279.0,
+        "dc_offset": 0.0,
+    },
+    "bpm": 128,
+    "key": None,
+    "sha256": "0123456789abcdef" * 4,
+    "created_at": "2026-10-28T12:00:00+00:00",
+}
+SAMPLE_METADATA_REQUIRED = (
+    "schema_version", "file", "category", "engine", "parameters", "features", "created_at",
+)
+
+
+def _sample_metadata(**changes) -> dict:
+    """Deep copy of SAMPLE_METADATA; a value of ``...`` deletes the key."""
+    doc = json.loads(json.dumps(SAMPLE_METADATA))
+    for key, value in changes.items():
+        if value is ...:
+            del doc[key]
+        else:
+            doc[key] = value
+    return doc
+
+
+def test_sample_metadata_valid_instances() -> None:
+    validator = Draft202012Validator(load("sample-metadata.schema.json"))
+    validator.validate(_sample_metadata())
+    # Only the required fields; null for every nullable feature.
+    minimal = {k: v for k, v in _sample_metadata().items() if k in SAMPLE_METADATA_REQUIRED}
+    minimal["features"] = {"peak_dbfs": -6.0, "length_ms": 80.0, "fundamental_hz": None,
+                           "decay_20db_ms": None, "decay_40db_ms": None, "dc_offset": None}
+    validator.validate(minimal)
+    # The fixture sidecar from engine 0.0.1 still matches the contract (only its engine differs).
+    fixture = ROOT / "tests" / "fixtures" / "sidecars" / "kick-v01.json"
+    validator.validate(json.loads(fixture.read_text(encoding="utf-8")))
+
+
+def test_sample_metadata_required_list_is_the_one_tested_here() -> None:
+    """If the contract's required list changes, the negative cases below must follow."""
+    assert tuple(load("sample-metadata.schema.json")["required"]) == SAMPLE_METADATA_REQUIRED
+
+
+SAMPLE_METADATA_INVALID = {
+    **{f"missing {key}": _sample_metadata(**{key: ...}) for key in SAMPLE_METADATA_REQUIRED},
+    "unknown top-level field": _sample_metadata(wobble=1),
+    "schema_version 0.2": _sample_metadata(schema_version="0.2"),
+    "schema_version as number": _sample_metadata(schema_version=0.1),
+    "file without .wav": _sample_metadata(file="kick.aiff"),
+    "file not a string": _sample_metadata(file=1),
+    "category snare": _sample_metadata(category="snare"),
+    "description too long": _sample_metadata(description="x" * 501),
+    "engine is a string": _sample_metadata(engine="abeltongod-audio-engine 0.1.0"),
+    "engine is null": _sample_metadata(engine=None),
+    "engine without version": _sample_metadata(engine={"name": "abeltongod-audio-engine"}),
+    "engine without name": _sample_metadata(engine={"version": "0.1.0"}),
+    "engine version as number": _sample_metadata(
+        engine={"name": "abeltongod-audio-engine", "version": 0.1}
+    ),
+    "engine unknown field": _sample_metadata(
+        engine={"name": "abeltongod-audio-engine", "version": "0.1.0", "build": "x"}
+    ),
+    "parameters is a list": _sample_metadata(parameters=[]),
+    "features without peak_dbfs": _sample_metadata(features={"length_ms": 80.0}),
+    "features peak_dbfs null": _sample_metadata(features={"peak_dbfs": None, "length_ms": 80.0}),
+    "features unknown field": _sample_metadata(
+        features={"peak_dbfs": -1.0, "length_ms": 80.0, "loudness": -9.0}
+    ),
+    "bpm as string": _sample_metadata(bpm="128"),
+    "key as number": _sample_metadata(key=5),
+    "sha256 upper case": _sample_metadata(sha256="0123456789ABCDEF" * 4),
+    "sha256 too short": _sample_metadata(sha256="0" * 63),
+    "created_at as number": _sample_metadata(created_at=1761652800),
+    "root is a list": [SAMPLE_METADATA],
+}
+
+
+@pytest.mark.parametrize("doc", SAMPLE_METADATA_INVALID.values(), ids=SAMPLE_METADATA_INVALID)
+def test_sample_metadata_invalid_instances(doc) -> None:
+    validator = Draft202012Validator(load("sample-metadata.schema.json"))
+    with pytest.raises(ValidationError):
+        validator.validate(doc)
