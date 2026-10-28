@@ -24,6 +24,9 @@ dev = [
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.setuptools.package-data]
+"audio_engine.presets" = ["*.json"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 # -n auto: pytest-xdist on all cores (`pytest -n 0` runs serially).

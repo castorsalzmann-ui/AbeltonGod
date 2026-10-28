@@ -206,3 +206,9 @@ def _normalise(x: np.ndarray, ceiling_dbfs: float, bit_depth: int) -> np.ndarray
     full_scale = 2 ** (bit_depth - 1) - 1
     target = 10.0 ** (ceiling_dbfs / 20.0) - 0.5 / full_scale
     return x * (target / peak)
+
+
+if __name__ == "__main__":  # python -m audio_engine.kick … (CLI in audio_engine/cli.py, #3)
+    from audio_engine.cli import main
+
+    raise SystemExit(main())

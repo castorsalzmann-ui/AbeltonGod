@@ -1,0 +1,18 @@
+{
+  "schema_version": "0.2",
+  "preset": "rumble-ready",
+  "seed": 1004,
+  "sample_rate": 48000,
+  "bit_depth": 24,
+  "peak_ceiling_dbfs": -0.3,
+  "length_ms": 750,
+  "pitch_start_hz": 180,
+  "pitch_end_hz": 49,
+  "pitch_decay_ms": 10,
+  "amp_attack_ms": 1.0,
+  "amp_decay_ms": 800,
+  "click_level": 0.2,
+  "click_tone_hz": 3000,
+  "drive": 0.0,
+  "tone": -0.2
+}
