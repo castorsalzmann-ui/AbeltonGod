@@ -80,9 +80,18 @@ def safe_name(session_id: str) -> str:
 
 
 def git_branch(root: Path) -> str | None:
+    git_dir = root / ".git"
     try:
-        head = (root / ".git" / "HEAD").read_text(encoding="utf-8").strip()
-    except OSError:
+        # In a git worktree, .git is a file "gitdir: <path>" pointing at the real git dir.
+        if git_dir.is_file():
+            pointer = git_dir.read_text(encoding="utf-8").strip()
+            if not pointer.startswith("gitdir:"):
+                return None
+            git_dir = Path(pointer.removeprefix("gitdir:").strip())
+            if not git_dir.is_absolute():
+                git_dir = root / git_dir
+        head = (git_dir / "HEAD").read_text(encoding="utf-8").strip()
+    except (OSError, UnicodeDecodeError):
         return None
     return head.removeprefix("ref: refs/heads/") if head.startswith("ref:") else head[:12]
 
@@ -205,16 +214,21 @@ def file_lock(lock_path: Path):
         try:
             fd = os.open(lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
         except FileExistsError:
+            # Check the deadline first: if a stale lock cannot be removed (file held open on
+            # Windows, no permission), the loop must still end instead of spinning until the
+            # hook's 10 s timeout.
+            if time.monotonic() > deadline:
+                raise TimeoutError("lock busy") from None
             try:
                 stale = time.time() - lock_path.stat().st_mtime > 30
             except OSError:
                 stale = False
             if stale:
-                with contextlib.suppress(OSError):
+                try:
                     lock_path.unlink()
-                continue
-            if time.monotonic() > deadline:
-                raise TimeoutError("lock busy") from None
+                    continue  # removed: retry at once
+                except OSError:
+                    pass  # could not remove: wait like for a busy lock
             time.sleep(0.02)
     try:
         yield
@@ -303,12 +317,18 @@ def handle(event: dict) -> dict | None:
 
 def main() -> int:
     try:
-        event = json.loads(sys.stdin.read() or "null")
+        # Read bytes as UTF-8 (Claude Code sends UTF-8 JSON). The default text stream would
+        # use the locale encoding, cp1252 on Windows, and fail on some non-ASCII input.
+        raw = sys.stdin.buffer.read().decode("utf-8", errors="replace")
+        event = json.loads(raw or "null")
         out = handle(event)
     except Exception:  # noqa: BLE001 - a watcher must never break the session
         return 0
     if out:
-        sys.stdout.write(json.dumps(out, ensure_ascii=False))
+        # ensure_ascii: pure ASCII output (umlauts as ä) is valid JSON in any encoding.
+        with contextlib.suppress(Exception):
+            sys.stdout.buffer.write(json.dumps(out, ensure_ascii=True).encode("ascii"))
+            sys.stdout.buffer.flush()
     return 0
 
 

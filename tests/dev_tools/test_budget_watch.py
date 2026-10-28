@@ -301,6 +301,81 @@ def test_unwritable_project_dir_still_exits_zero(tmp_path):
     assert result.stdout == ""
 
 
+# --- review of PR #18 (pullrequestreview-5682180564) ---------------------------
+
+
+def test_undeletable_stale_lock_ends_at_the_deadline(tmp_path, monkeypatch):
+    # Review P1: a stale lock that cannot be removed (held open on Windows) made the loop
+    # spin until Claude Code's 10 s hook timeout.
+    sessions = tmp_path / "sessions"
+    sessions.mkdir()
+    lock = sessions / "s.lock"
+    lock.write_text("", encoding="utf-8")
+    os.utime(lock, (0, 0))
+    real_unlink = Path.unlink
+
+    def refuse_lock(self, *args, **kwargs):
+        if self.suffix == ".lock":
+            raise PermissionError("held open")
+        return real_unlink(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "unlink", refuse_lock)
+    monkeypatch.setattr(ww, "LOCK_WAIT_S", 0.2)
+    outcome = []
+
+    def attempt():
+        try:
+            with ww.file_lock(lock):
+                outcome.append("acquired")
+        except TimeoutError:
+            outcome.append("timeout")
+
+    worker = threading.Thread(target=attempt, daemon=True)
+    worker.start()
+    worker.join(timeout=3)
+    assert not worker.is_alive(), "lock loop did not end"
+    assert outcome == ["timeout"]
+
+
+def test_windows_encoding_input_and_output(tmp_path):
+    # Review P2: with a cp1252 locale the hook could not read some UTF-8 input and wrote
+    # umlauts as invalid UTF-8. Bytes in, bytes out, as Claude Code sends and reads them.
+    env = {**os.environ, "CLAUDE_PROJECT_DIR": str(tmp_path), "PYTHONIOENCODING": "cp1252"}
+    payload = json.dumps(
+        ev(tool_input={"command": "echo Á"}, session_id="enc"), ensure_ascii=False
+    ).encode("utf-8")
+    outputs = [
+        subprocess.run([sys.executable, str(HOOK)], input=payload, capture_output=True, env=env)
+        for _ in range(3)
+    ]
+    assert [o.returncode for o in outputs] == [0, 0, 0]
+    assert outputs[2].stdout, "the third identical call was not counted"
+    text = outputs[2].stdout.decode("ascii")  # pure ASCII is valid in any encoding
+    message = json.loads(text)["systemMessage"]
+    assert "Dateiänderung" in message and "echo Á" in message
+
+
+def test_git_branch_in_a_worktree(tmp_path):
+    # Review P3: in a worktree .git is a file, so every event was logged with branch null.
+    real_git = tmp_path / "main" / ".git" / "worktrees" / "wt"
+    real_git.mkdir(parents=True)
+    (real_git / "HEAD").write_text("ref: refs/heads/phase-00/x\n", encoding="utf-8")
+    wt = tmp_path / "wt"
+    wt.mkdir()
+    (wt / ".git").write_text(f"gitdir: {real_git}\n", encoding="utf-8")
+    assert ww.git_branch(wt) == "phase-00/x"
+    (wt / ".git").write_text("gitdir: ../main/.git/worktrees/wt\n", encoding="utf-8")
+    assert ww.git_branch(wt) == "phase-00/x"
+    (wt / ".git").write_text("garbage\n", encoding="utf-8")
+    assert ww.git_branch(wt) is None
+
+
+def test_git_branch_in_a_normal_checkout(tmp_path):
+    (tmp_path / ".git").mkdir()
+    (tmp_path / ".git" / "HEAD").write_text("ref: refs/heads/main\n", encoding="utf-8")
+    assert ww.git_branch(tmp_path) == "main"
+
+
 def test_settings_register_the_hook_for_all_three_events():
     settings = json.loads((ROOT / ".claude" / "settings.json").read_text(encoding="utf-8"))
     for event in ("PostToolUse", "PostToolUseFailure", "Stop"):
