@@ -33,7 +33,7 @@ Steht dort stattdessen „Couldn't bind to port 11000“, benutzt schon ein ande
 
 ## 4. Verbindung prüfen
 
-Im Projektordner, im aktivierten venv (siehe README):
+Im Projektordner, im aktivierten venv (siehe README). Der Projektordner muss auf dem Branch `main` und aktuell sein (`git branch --show-current` zeigt `main`; sonst erst die `git`-Befehle aus Abschnitt 5 ausführen) — sonst endet der Test mit `ModuleNotFoundError`.
 
 ```powershell
 python -c "from bridge.osc_client import AbletonBridge; AbletonBridge.connect().ping(); print('AbletonOSC antwortet')"
@@ -56,21 +56,32 @@ Der Check liest ein paar Werte aus Live. Danach — nur wenn du zweimal mit `y` 
 **Vorbereitung:**
 1. In Live ein **neues Test-Set** anlegen (*Datei → Neues Live-Set*), zwei oder drei Spuren genügen, und es z. B. als `AbeltonGod-Test` speichern. Nicht mit einem echten Projekt ausführen.
 2. Das Set **schließen und neu öffnen** (über das Datei-Menü, z. B. die Liste der zuletzt verwendeten Sets; die genaue deutsche Menübezeichnung ist hier nicht geprüft). Laut Live-12-Handbuch (Abschnitt „Undo History“ / Undo-Verlauf) leert Live beim Öffnen eines Sets den Undo-Verlauf. In diesem Projekt ist das noch nicht in Live geprüft — schau nach dem Öffnen kurz in den Undo-Verlauf (*Strg + Alt + Z*; im englischen Handbuch *View → Undo History*), ob die Liste leer ist.
-3. Danach **nichts mehr am Set ändern**, bis das Script fertig ist.
+3. **Transport gestoppt, keine Tempo-Automation, Link/Sync aus:** Wiedergabe stoppen, im Test-Set keine Tempo-Automation, und in Live *Link* sowie externen Sync (MIDI-Clock) ausschalten. Sonst kann sich das Tempo während des Checks von selbst ändern, und der Vergleich nach dem Undo meldet `FAIL`, obwohl Undo funktioniert hat.
+4. Danach **nichts mehr am Set ändern**, bis das Script fertig ist.
 
-In PowerShell, im Projektordner:
+In PowerShell, im Projektordner. Zuerst prüfen, auf welchem Branch der Projektordner steht:
 
 ```powershell
+git branch --show-current
+```
+
+Steht dort etwas anderes als `main` (z. B. `phase-00/pytest-xdist`), holt `git pull` **nicht** den aktuellen Stand — dann meldet es „Already up to date“, und das Script findet später Module nicht (z. B. `ModuleNotFoundError: No module named 'bridge.osc_client'`). Darum immer erst auf `main` wechseln:
+
+```powershell
+git switch main
+git status
 git pull
 .\.venv\Scripts\Activate.ps1
 pip install -e ".[dev]"
 python scripts/bridge_check.py
 ```
 
+Nach `git status` sollte oben `On branch main` stehen (bei deutscher Sprache: `Auf Branch main`). Bricht `git switch main` mit einem Hinweis auf lokale Änderungen ab, nichts erzwingen, sondern die Meldung in Issue #5 kopieren.
+
 Das Script fragt dreimal:
 
 1. `Ist das geöffnete Set ein eigenes TEST-Set (kein echtes Projekt)? [y/N]` — nur `y`, wenn es wirklich das Test-Set ist. Alles andere (auch Enter) beendet das Script nach dem Lesen, ohne etwas zu ändern.
-2. `Welche Spur soll kurz stummgeschaltet werden? Index 0-… [Enter = 0 '…']` — Nummer der Spur oder Enter für die erste.
+2. `Welche Spur soll kurz stummgeschaltet werden? Index 0-… [Enter = 0 '…']` — Nummer der Spur oder Enter für die erste. Nach drei ungültigen Eingaben überspringt das Script die Änderung.
 3. Es zeigt die geplanten Schritte und den Undo-Hinweis an. `Diese Änderungen jetzt ausführen? [y/N]` — `y` nur, wenn du das Set wie oben frisch geöffnet und nicht verändert hast.
 
 **Erwartete Ausgabe (gekürzt):**
@@ -112,7 +123,7 @@ In Live siehst du den Mute-Knopf der Spur kurz an- und ausgehen. Die Live-Versio
 
 Den Exit-Code zeigt PowerShell direkt danach mit `$LASTEXITCODE`. Schreib bitte ins Issue, ob die Meldungen für dich verständlich waren.
 
-**Wenn etwas schiefgeht:** Bei einem Fehler, einer `ABWEICHUNG` oder wenn du mit *Strg + C* abbrichst, sendet das Script keine weiteren Änderungen und kein (weiteres) Undo. Es nennt den ursprünglichen Zustand der Spur, liest den jetzigen einmal zurück und sagt dir, ob du den Mute-Knopf von Hand zurückstellen musst. Der Ergebnis-Block wird trotzdem ausgegeben (Exit-Code 130 bei *Strg + C*). Meldet es nach dem Undo Unterschiede bei Spuren oder Namen, zeigt der Undo-Verlauf (*Strg + Alt + Z*; im englischen Handbuch *View → Undo History*) in Live, welcher Schritt zurückgenommen wurde; dort lässt er sich wiederherstellen. *Strg + Z* in Live nur verwenden, wenn du sicher bist, was es zurücknimmt.
+**Wenn etwas schiefgeht:** Bei einem Fehler, einer `ABWEICHUNG` oder wenn du mit *Strg + C* abbrichst, sendet das Script keine weiteren Änderungen und kein (weiteres) Undo. Es nennt den ursprünglichen Zustand der Spur, liest den jetzigen einmal zurück und sagt dir, ob du den Mute-Knopf von Hand zurückstellen musst. Der Ergebnis-Block wird trotzdem ausgegeben (Exit-Code 130 bei *Strg + C* — auch an einer der drei Fragen; dann wurde noch nichts geändert). Noch nicht geprüft ist, ob *Strg + C* an einer Frage unter Python 3.14 auf Windows wirklich zu Exit-Code 130 führt: Manche ältere Python-Versionen werten *Strg + C* in einer Eingabe als Eingabe-Ende, dann endet das Script wie bei „nein“ mit Exit-Code 0. Sicher ist beides, denn an den Fragen wurde noch nichts gesendet. Optional prüfen: an der ersten Frage *Strg + C* drücken, danach `echo $LASTEXITCODE` eingeben (erwartet `130`) und das Ergebnis in Issue #5 notieren. Unterscheiden sich nach dem Undo **nur** Tempo und/oder Taktart, meldet das Script `FEHLER` (im Ergebnis-Block `song.undo: FAIL`) ohne Schuldzuweisung: Entweder hat sich das Tempo von selbst geändert (Tempo-Automation, Link, externe MIDI-Clock), oder Undo hat eine frühere Tempo-Änderung zurückgenommen. Dann die Vorbereitung (Punkt 3) prüfen, das Set neu öffnen und den Check wiederholen. Meldet es nach dem Undo Unterschiede bei Spuren oder Namen, zeigt der Undo-Verlauf (*Strg + Alt + Z*; im englischen Handbuch *View → Undo History*) in Live, welcher Schritt zurückgenommen wurde; dort lässt er sich wiederherstellen. *Strg + Z* in Live nur verwenden, wenn du sicher bist, was es zurücknimmt.
 
 ## 6. Wo die Logs liegen
 

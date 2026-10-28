@@ -173,17 +173,35 @@ DRIVE_SETS = _sets(
 )
 # Crest factor over drive 0 ... 1, tone 0 and no click. Late steps can rise slightly: on
 # random-12011 1.2341 -> 1.2354; with the engine's 10 Hz DC blocker switched off the same kick
-# falls monotonically to 1.085, so the high-pass is the cause (it raises the crest of a nearly
-# square, heavily driven waveform). Undoing the high-pass in the test is not exact, because the
-# fade-out and the mean correction run after it (review of this PR, random-32154). Measured over
+# falls monotonically to 1.085. Undoing the high-pass in the test is not exact, because the
+# fade-out and the mean correction run after it (review of #11, random-32154). Measured over
 # 800 fresh sets: largest step ratio 1.0206, largest crest(drive 1) / crest(drive 0) 0.708.
+# Mechanism (#30, established): the PHASE response of the one-pole high-pass, not its
+# magnitude. On a flat-topped, heavily driven body each half-cycle sags with tau = 15.9 ms and
+# the edges overshoot (square-wave droop), so the peak rises while the RMS stays put
+# (random-12011, drive 1: peak +1.06 dB, RMS -0.06 dB; phase-only HP +1.46 dB crest,
+# magnitude-only +0.31 dB; steady tanh(10x) sine: peak +2.1 dB at 40 Hz, +0.8 dB at 120 Hz).
+# Frequency (200 fresh sets): a rising step on 2 sets, at most +0.04 dB; at drive 1 the crest
+# is +0.55 dB (median, max +2.42 dB) above the same chain without the high-pass. Kept by lead
+# decision; high-pass before drive is to be revisited after the #3 listening test.
 DRIVE_STEP_CREST_MAX = 1.03
 DRIVE_TOTAL_CREST_MAX = 0.85
 # Endpoints for any click level and tone <= 0: crest(drive 1) / crest(drive 0) at most 0.706
 # over 373 fresh sets. With a click and tone > 0 the ratio exceeded 1 on about 1 % of sets
-# (review: random-72067 gives 1.156; 0.646 without the click, 0.662 with tone 0); cause not
-# established, so that region is not covered by a crest test. The residual and third-harmonic
-# tests below still cover drive there.
+# (review: random-72067 gives 1.156; 0.646 without the click, 0.662 with tone 0), so that
+# region is not covered by a crest test. The residual and third-harmonic tests below still
+# cover drive there.
+# Mechanism (#31, established for most cases): the tone tilt runs after the saturation
+# ("post-shaping tilt" in the contract) and boosts the steep edges drive makes from click and
+# attack in the first 15 ms; the RMS barely moves (random-72067, drive 1: click-zone peak 1.27
+# after drive, 2.24 after the tilt; body peak 1.05). The DC blocker is not the cause there.
+# Frequency (300 fresh full-range sets): a rising step on 64 sets (worst +1.51 dB), ratio
+# > 0.95 on 7; all 64 peak in the first 15 ms, 62 have tone > 0. Tone before drive removes
+# the rise on 53 of 64, the DC blocker off on 4. Not established: the ~11 remaining sets with
+# small rises that no single switch removes; candidate (untested): the drive stage alone
+# already overshoots above 1 in the click zone (drive 1: median 1.14, max 1.53 of input
+# scale). Kept by lead decision; tone before drive or a post-tilt soft clip is to be
+# revisited after the #3 listening test.
 DRIVE_END_CREST_MAX = 0.85
 # Distance from the clean render (least-squares residual share) rises with drive; measured
 # smallest step 0.024 over 40 random sets (34 sets here: main 0.0219, after #16 0.0195).
