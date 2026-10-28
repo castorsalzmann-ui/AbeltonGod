@@ -11,6 +11,7 @@ requires-python = ">=3.11"
 dependencies = [
   "numpy>=1.26",       # sample buffers and vector maths for the audio engine
   "jsonschema>=4.20",  # runtime validation against contracts/ (was dev-only)
+  "python-osc>=1.9",   # OSC message encoding/decoding for the AbletonOSC bridge (#4)
 ]
 
 [project.optional-dependencies]

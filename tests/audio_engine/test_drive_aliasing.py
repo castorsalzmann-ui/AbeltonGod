@@ -84,7 +84,7 @@ def _alias_db(monkeypatch, params, drive_fn=None) -> float:
 
 
 WORST = {
-    "schema_version": "0.1", "seed": 7, "drive": 1.0, "click_level": 1.0,
+    "schema_version": "0.2", "seed": 7, "drive": 1.0, "click_level": 1.0,
     "click_tone_hz": 12000.0,
 }
 
@@ -92,7 +92,7 @@ WORST = {
 def _random_params(rng: np.random.Generator) -> dict:
     start = float(rng.uniform(60, 600))
     return {
-        "schema_version": "0.1",
+        "schema_version": "0.2",
         "seed": int(rng.integers(0, 2**32)),
         "sample_rate": int(rng.choice([44100, 48000])),
         "length_ms": float(rng.uniform(80, 2000)),
@@ -139,7 +139,7 @@ def test_onset_is_not_reshaped(monkeypatch) -> None:
     Bound 0.05 x peak; during development the shipped code deviated by 0.014 x peak
     here, while an 8-sample fade-in deviated by 0.43 x peak.
     """
-    params = {"schema_version": "0.1", "seed": 1, "drive": 1.0, "click_level": 0.0,
+    params = {"schema_version": "0.2", "seed": 1, "drive": 1.0, "click_level": 0.0,
               "amp_attack_ms": 0.0, "pitch_start_hz": 600.0}
     with monkeypatch.context() as m:
         m.setattr(K, "_normalise", lambda x, ceiling, bits: x)
@@ -173,7 +173,7 @@ def test_metric_detects_one_sample_shift(monkeypatch) -> None:
     def late(x, drive):
         return np.concatenate([[0.0], real_drive(x, drive)[:-1]])
 
-    params = {"schema_version": "0.1", "seed": 3, "drive": 0.5}
+    params = {"schema_version": "0.2", "seed": 3, "drive": 0.5}
     assert _alias_db(monkeypatch, params, late) > LIMIT_DB
 
 
