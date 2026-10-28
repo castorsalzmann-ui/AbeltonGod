@@ -383,14 +383,16 @@ def test_body_pitch_follows_parameters_independently(extra: dict) -> None:
     assert checked >= 3
 
 
-def test_dc_correction_is_small_so_real_dc_faults_stay_visible(monkeypatch) -> None:
+@pytest.mark.parametrize("p", all_sets())
+def test_dc_correction_is_small_so_real_dc_faults_stay_visible(monkeypatch, p: dict) -> None:
     """The mean is removed by construction, so the DC test alone cannot catch a DC bug.
     This checks the size of the correction: without it, |mean| stays below 2 % of full scale
-    for every tested set (worst seen in review: 1.73 % for short-cut-off)."""
+    for every tested set (worst seen in review: 1.73 % for short-cut-off). One case per set
+    (#77; was one loop asserting the maximum, which is the same condition)."""
     import audio_engine.kick as kick_mod
 
     monkeypatch.setattr(kick_mod, "_remove_mean", lambda x: x)
-    worst = max(abs(float(np.mean(render_kick(p.values[0])[0]))) for p in all_sets())
+    worst = abs(float(np.mean(render_kick(p)[0])))
     assert worst < 0.02
 
 
