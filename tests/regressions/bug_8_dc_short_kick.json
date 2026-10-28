@@ -2,7 +2,7 @@
   "issue": "https://github.com/castorsalzmann-ui/AbeltonGod/pull/8#pullrequestreview-5676278198",
   "finding": "Review 1, problem 4: a valid short kick (length 150 ms, amp decay 400 ms) had a DC offset of -1.38e-3, above the 1e-3 threshold. Fixed by the exact mean removal in render_kick.",
   "params": {
-    "schema_version": "0.1",
+    "schema_version": "0.2",
     "seed": 7,
     "sample_rate": 48000,
     "bit_depth": 24,

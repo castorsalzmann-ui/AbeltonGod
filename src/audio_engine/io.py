@@ -94,6 +94,10 @@ def write_kick(
     """
     stamp = _created_at_text(created_at)
     wav_bytes, audio, resolved = render_kick_wav(params)
+    features = analyse(audio, resolved["sample_rate"])
+    if features["peak_dbfs"] is None:
+        # Issue #7: a sidecar always carries a real level. Silence is a bug, not a sample.
+        raise ValueError("Render is silent (peak 0); refusing to write a WAV and sidecar.")
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
     stem = safe_stem(name)
@@ -103,7 +107,7 @@ def write_kick(
         "category": "kick",
         "engine": {"name": ENGINE_NAME, "version": ENGINE_VERSION},
         "parameters": resolved,
-        "features": analyse(audio, resolved["sample_rate"]),
+        "features": features,
         "bpm": resolved.get("bpm"),
         "key": None,
         "sha256": hashlib.sha256(wav_bytes).hexdigest(),
@@ -168,7 +172,7 @@ def rerender_from_sidecar(json_path: str | Path) -> bytes:
     """
     meta = json.loads(Path(json_path).read_text(encoding="utf-8"))
     Draft202012Validator(load_schema(METADATA_SCHEMA_FILE)).validate(meta)
-    wav_bytes, _, _ = render_kick_wav(meta["parameters"])
+    wav_bytes, _, _ = render_kick_wav(_upgrade_sidecar_params(meta["parameters"]))
     return wav_bytes
 
 
@@ -191,6 +195,20 @@ def _created_at_text(created_at: datetime | None) -> str:
 def _taken(path: Path) -> bool:
     # lexists: a dangling symlink also blocks the name (open(..., "x") refuses it).
     return os.path.lexists(path)
+
+
+def _upgrade_sidecar_params(params: Any) -> Any:
+    """kick-params 0.1 -> 0.2 changed only a default (pitch_decay_ms 40 -> 15, issue #7).
+    A sidecar stores the fully resolved parameters, so a 0.1 sidecar that names
+    pitch_decay_ms renders the same samples under 0.2. Anything else is left for validation
+    to reject, never guessed."""
+    if (
+        isinstance(params, dict)
+        and params.get("schema_version") == "0.1"
+        and "pitch_decay_ms" in params
+    ):
+        return {**params, "schema_version": "0.2"}
+    return params
 
 
 def _unique_pair(out: Path, stem: str) -> tuple[Path, Path]:

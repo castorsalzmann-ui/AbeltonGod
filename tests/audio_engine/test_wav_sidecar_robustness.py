@@ -24,7 +24,7 @@ from audio_engine.io import encode_wav, render_kick_wav, write_kick
 from audio_engine.kick import render_kick
 from audio_engine.params import KICK_SCHEMA_FILE, KickParamsError, load_schema
 
-BASE = {"schema_version": "0.1", "seed": 7}
+BASE = {"schema_version": "0.2", "seed": 7}
 FIXED_TIME = datetime(2026, 10, 28, 12, 0, tzinfo=UTC)
 
 
