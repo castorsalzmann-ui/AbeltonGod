@@ -201,20 +201,22 @@ def test_allow_list_names_existing_read_only_tests() -> None:
 
 # --- render counter: determinism and golden tests call the engine directly -------------------
 
-COUNTED = [
-    # (node id, real renders the test body asks for)
-    ("tests/audio_engine/test_engine_version.py::test_golden_sha256", None),
-    ("tests/audio_engine/test_kick.py::test_same_params_and_seed_give_identical_wav", None),
-    ("tests/audio_engine/test_kick.py::test_signal_properties", None),
-    ("tests/audio_engine/test_kick.py::test_analysis_measures_the_real_signal", None),
-]
+GOLDEN = "tests/audio_engine/test_engine_version.py::test_golden_sha256"
+DETERMINISM = "tests/audio_engine/test_kick.py::test_same_params_and_seed_give_identical_wav"
+SIGNAL = "tests/audio_engine/test_kick.py::test_signal_properties"
+ANALYSIS = "tests/audio_engine/test_kick.py::test_analysis_measures_the_real_signal"
+# Three cases of the two cached tests are enough to show the cache is active where listed;
+# all 161 would re-render 161 kicks in the subprocess for no extra evidence.
+CACHED_CASES = ("defaults", "random-0", "random-1")
+COUNTED = [GOLDEN, DETERMINISM] + [f"{t}[{c}]" for t in (SIGNAL, ANALYSIS) for c in CACHED_CASES]
 
 
 def test_render_counter_shows_direct_engine_calls(tmp_path) -> None:
-    """Runs the 5 golden hashes, the 20 determinism cases and two cached tests in one fresh
-    process with the render counter. Golden: 1 real render each, determinism: 2 real renders
-    each, no cache hit in either. The cached tests share renders (signal_properties renders,
-    analysis_measures hits) so the counter also proves the cache is active where listed."""
+    """Runs all 5 golden hashes, all 20 determinism cases and three cases of two cached tests
+    in one fresh process with the render counter. Golden: 1 real render each, determinism: 2
+    real renders each, no cache hit in either (they sit next to cached tests that share their
+    inputs: defaults and random-0/1 are among the 20 determinism sets). The cached tests share
+    renders (signal_properties renders, analysis_measures only hits)."""
     out = tmp_path / "counter.json"
     # The plugin loads before any conftest, so src/ and tests/ go on PYTHONPATH explicitly.
     path = os.pathsep.join([str(ROOT / "src"), str(ROOT / "tests")])
@@ -224,7 +226,7 @@ def test_render_counter_shows_direct_engine_calls(tmp_path) -> None:
         sys.executable, "-m", "pytest", "-n", "0", "-q", "-p", "no:cacheprovider",
         "-p", "support.render_counter",
         "--basetemp", str(tmp_path / "bt"),
-        *(c[0] for c in COUNTED),
+        *COUNTED,
     ]
     run = subprocess.run(cmd, cwd=ROOT, env=env, capture_output=True, text=True, timeout=600)
     assert run.returncode == 0, run.stdout[-2000:] + run.stderr[-2000:]
@@ -233,16 +235,15 @@ def test_render_counter_shows_direct_engine_calls(tmp_path) -> None:
     def rows(prefix: str) -> list[dict]:
         return [r for node, r in tests.items() if node.startswith(prefix + "[")]
 
-    golden = rows(COUNTED[0][0])
+    golden = rows(GOLDEN)
     assert len(golden) == 5
     assert all(r["renders"] == 1 and r["cache_hits"] == 0 for r in golden)
-    determinism = rows(COUNTED[1][0])
+    determinism = rows(DETERMINISM)
     assert len(determinism) == 20
     assert all(r["renders"] == 2 and r["cache_hits"] == 0 for r in determinism)
-    signal, analysis = rows(COUNTED[2][0]), rows(COUNTED[3][0])
-    assert len(signal) == len(analysis) == 161
-    # The 20 determinism sets come first in all_sets(), but they render through
-    # render_kick_wav without the cache, so signal_properties renders all 161 once.
-    assert sum(r["renders"] for r in signal) == 161
-    assert sum(r["cache_hits"] for r in analysis) == 161
-    assert sum(r["renders"] for r in analysis) == 0
+    signal, analysis = rows(SIGNAL), rows(ANALYSIS)
+    assert len(signal) == len(analysis) == len(CACHED_CASES)
+    # The determinism tests run first and render the same sets, but outside the cache, so
+    # signal_properties still renders each once and analysis_measures only gets hits.
+    assert all(r["renders"] == 1 and r["cache_hits"] == 0 for r in signal)
+    assert all(r["renders"] == 0 and r["cache_hits"] == 1 for r in analysis)
