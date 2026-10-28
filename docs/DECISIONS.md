@@ -175,3 +175,30 @@ _2026-10-28: "Rejected" lines added to D-001–D-011 as a clarification; no deci
 **Rejected.** Up to 10 sub-agents (D-015). The QA tester editing product code or relaxing tests to save time.
 
 **Consequences.** D-015's single lead session and the user's merge rule stay. Agents in worktrees must run `python -m pytest -o pythonpath=src` and check `audio_engine.__file__` / `bridge.__file__`, because the editable install points at the main clone.
+
+## D-017 · 2026-10-28 · accepted — Flat team of specialised roles, no helper agents (user decision; supersedes D-016 and the agent-count part of D-015)
+
+**Decision.** The lead assigns specialised agents directly. No agent starts helpers or sub-agents of its own. At most **10 agents active at once**; the lead activates only what the current phase needs and does short lookups itself instead of starting an agent.
+
+| Role | Job | Writes to | Active |
+| --- | --- | --- | --- |
+| `audio-engineer` | Kick engine, DSP, presets, variants, analysis, WAV/sidecars | `src/audio_engine/`, `src/library/`, their tests | now (#59), later layering (#57) |
+| `bridge-engineer` | AbletonOSC, capability registry, import into Live | `src/bridge/`, `scripts/` (except `scripts/qa/`), `docs/setup/`, their tests | now (Phase 03, #50) |
+| `orchestrator-engineer` | Claude copilot: tool definitions from `contracts/`, orchestrator loop, approval levels, guard wiring | `src/orchestrator/`, `src/guard/`, their tests | from Phase 04b (#23) |
+| `reviewer` | Independent review of every PR against spec, decisions and contracts; fault injection, own seeds | nothing in the repo: review comments and finding issues only | always, never on its own work |
+| `qa-tester` | Less check time without less check depth: runtime analysis, targeted test selection per PR (full suite stays the gate), reusable mutation runner and fake scenarios, pre-check before every review (gate, CI, `mergeable_state`, diff size), test gaps from review findings | test infrastructure in `tests/`, `scripts/qa/` (by PR with review) | permanent |
+| `sound-designer` | Turns the user's musical feedback ("generic", "main character missing", "punch only when layered") into measurable hypotheses and parameter proposals; reference analysis; plans listening tests | no code: issue comments, `docs/research/` | now for #57/#58, before every listening test |
+| `researcher` (optional) | Feasibility and documentation before new phases (Ableton LOM, AbletonOSC, Anthropic SDK), dated and sourced | `docs/research/` | before Phase 03 details and 04b |
+
+**Rules.**
+- Each role writes only to its own files. Anything a role needs outside them becomes an issue for the owning role.
+- The reviewer and the qa-tester never check their own work. The sound-designer gives hypotheses, never listening judgments; those come only from the user.
+- Every agent works in its own git worktree; the main clone belongs to the lead. The lead coordinates, gives merge go-aheads and alone writes `CURRENT_STATE.md` and `DECISIONS.md`; it does not implement product code.
+- Per task (unchanged from D-016): issue → implementer PR → qa-tester pre-check → independent `reviewer` (max. 2 rounds; a third needs the user's yes) → findings from "minor" up fixed → merge go-ahead ("Bereit zum Mergen: …") → state update.
+- Agent definitions for `qa-tester`, `sound-designer`, `orchestrator-engineer` and `researcher` live in `.claude/agents/`, in the style of the existing three, added by a PR with review.
+
+**Reason.** Every extra layer costs context and time, and implementers in this environment sometimes had no tool to start helpers at all. Specialised roles with fixed file ownership avoid overlapping edits.
+
+**Rejected.** Three sub-agents with two helpers each plus a QA tester (D-016). Helpers or sub-sub-agents of any kind.
+
+**Consequences.** D-015's single lead session and the user's merge rule stay. Worktree agents keep using `python -m pytest -o pythonpath=src` and check `audio_engine.__file__` / `bridge.__file__`. Phase 03 library work (`src/library/`) belongs to the `audio-engineer`, the Live import to the `bridge-engineer`.
