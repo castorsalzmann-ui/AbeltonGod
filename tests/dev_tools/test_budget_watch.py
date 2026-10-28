@@ -34,7 +34,7 @@ LIMITS = {
     "edits_same_file": 15,
     "tool_calls_first_warn": 300,
     "tool_calls_warn_every": 150,
-    "subagents_per_session": 4,
+    "subagents_per_session": 10,
     "reviewer_runs_per_session": 3,
 }
 
@@ -160,8 +160,92 @@ def test_subagent_and_reviewer_limits():
     keys, state = run(reviews)
     assert kinds(keys) == ["reviewer"]
     assert state["reviewer_runs"] == 3
-    keys, _ = run(agents + reviews[:1])
+    # Reviewer runs are Agent calls too: they count toward the subagent total (D-019: > 10).
+    more = [ev("Agent", {"subagent_type": "Explore", "prompt": f"m{i}"}) for i in range(7)]
+    keys, state = run(agents + more + reviews[:1])
+    assert state["subagents"] == 11
     assert kinds(keys) == ["subagents"]
+
+
+# --- D-019: subagent warning above 10, repeated on every further start ------
+
+
+def agent_starts(n):
+    return [ev("Agent", {"subagent_type": "Explore", "prompt": f"a{i}"}) for i in range(n)]
+
+
+def subagent_keys(n, limits=LIMITS):
+    keys, _ = run(agent_starts(n), limits)
+    return [k for k in keys if k.startswith("subagents:")]
+
+
+def test_d019_no_subagent_warning_up_to_the_10th_start():
+    assert subagent_keys(10, ww.DEFAULTS) == []
+    assert subagent_keys(10, ww.load_limits(ROOT)) == []
+
+
+def test_d019_warning_at_11th_and_again_at_12th_and_13th():
+    # Expected keys written out by hand: one new warning per start above 10, none before.
+    for limits in (ww.DEFAULTS, ww.load_limits(ROOT)):
+        assert subagent_keys(11, limits) == ["subagents:11"]
+        assert subagent_keys(12, limits) == ["subagents:11", "subagents:12"]
+        assert subagent_keys(13, limits) == ["subagents:11", "subagents:12", "subagents:13"]
+
+
+def test_d019_each_start_above_10_yields_exactly_one_new_warning():
+    state = ww.new_state()
+    per_start = [
+        [k for k, _, _ in ww.evaluate(e, state, ww.DEFAULTS) if k.startswith("subagents")]
+        for e in agent_starts(30)
+    ]
+    assert per_start[:10] == [[]] * 10
+    assert per_start[10:] == [[f"subagents:{n}"] for n in range(11, 31)]
+
+
+def test_d019_warning_names_count_and_limit():
+    state = ww.new_state()
+    found = []
+    for e in agent_starts(11):
+        found = ww.evaluate(e, state, ww.DEFAULTS)
+    (key, de, en) = found[0]
+    assert key == "subagents:11"
+    assert "11 Subagents" in de and "bis 10" in de
+    assert "11 subagents" in en and "up to 10" in en
+
+
+def test_d019_failed_and_denied_agent_calls_do_not_count():
+    events = agent_starts(10) + [
+        ev("Agent", {"subagent_type": "Explore", "prompt": "f"}, name="PostToolUseFailure"),
+        ev("Agent", {"subagent_type": "Explore", "prompt": "d"}, name="PermissionDenied"),
+    ]
+    keys, state = run(events)
+    assert state["subagents"] == 10
+    assert [k for k in keys if k.startswith("subagents")] == []
+
+
+def test_d019_warn_only_end_to_end(tmp_path):
+    # 13 agent starts through the real script: every run exits 0, starts 1-10 print nothing,
+    # 11-13 print a warning and never a blocking field (decision/continue/permission).
+    env = {**os.environ, "CLAUDE_PROJECT_DIR": str(tmp_path)}
+    outputs = []
+    for e in agent_starts(13):
+        result = subprocess.run(
+            [sys.executable, str(HOOK)],
+            input=json.dumps({**e, "session_id": "d019"}),
+            capture_output=True,
+            text=True,
+            env=env,
+        )
+        assert result.returncode == 0
+        outputs.append(result.stdout)
+    assert outputs[:10] == [""] * 10
+    for n, out in zip((11, 12, 13), outputs[10:], strict=True):
+        parsed = json.loads(out)
+        assert set(parsed) == {"systemMessage", "hookSpecificOutput"}
+        assert set(parsed["hookSpecificOutput"]) == {"hookEventName", "additionalContext"}
+        assert f"{n} Subagents" in parsed["systemMessage"]
+    lines = (tmp_path / "logs" / "dev-usage" / "waste-events.jsonl").read_text(encoding="utf-8")
+    assert [json.loads(x)["kind"] for x in lines.splitlines()] == ["subagents"] * 3
 
 
 def test_non_tool_events_and_missing_tool_change_nothing():
