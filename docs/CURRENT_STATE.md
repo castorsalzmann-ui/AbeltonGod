@@ -5,8 +5,8 @@ _Last updated: 2026-10-28 · Written only by the lead session on `main` after a 
 ## Phase
 
 - **Phase 00 — Setup:** DONE (#1 closed 2026-10-28).
-- **Phase 01 — Kick engine:** core merged (#2 via PR #8); drive anti-aliased (#13 via PR #20); contract semantics (#7 via PR #28). WAV/sidecar nits (#12 via PRs #26, #33); tone/drive/envelope tests (#11 via PR #34). Drive continuous from 0 (#16 via PR #38); ENGINE_VERSION rule (#35 via PR #40, D-013). Open: side findings #27, #30, #31, #32 (triage running), then #3.
-- **Phase 02 — Ableton bridge:** OSC client and capability gate merged (#4 via PR #25). `bridge_check.py` merged (PR #37; review fixes #39 via PR #41, undo scope #44 via PR #45). User ran it against Live 12.4.5: all PASS, error cases understood ([#5](https://github.com/castorsalzmann-ui/AbeltonGod/issues/5#issuecomment-6474540867)). Open: PR #42 (capabilities → `tested`, rework running), #43 (setup-guide fixes).
+- **Phase 01 — Kick engine:** core merged (#2 via PR #8); drive anti-aliased (#13 via PR #20); contract semantics (#7 via PR #28). WAV/sidecar nits (#12 via PRs #26, #33); tone/drive/envelope tests (#11 via PR #34). Drive continuous from 0 (#16 via PR #38); ENGINE_VERSION rule (#35 via PR #40, D-013). Analysis limits #27, #32 documented (PR #49). Open: side findings #30, #31 (triage running), then #3 (design accepted by the user).
+- **Phase 02 — Ableton bridge:** DONE (#5 via PR #42, 2026-10-28). Seven capabilities `tested` on Live 12.4.5. Open follow-up: PR #48 (setup-guide fixes, #43).
 - **Phase 04a — Agent Resource Guard:** DONE (#6 via PR #15).
 
 ## What works (with evidence)
@@ -28,6 +28,10 @@ _Last updated: 2026-10-28 · Written only by the lead session on `main` after a 
 | `scripts/bridge_check.py` 0.3.0: reads version/tempo/signature/tracks; after two default-No prompts mutes, unmutes, re-mutes a test track, calls Live undo and compares a whole-set snapshot (tempo, signature, track count/names/order, all mutes) before/after; Ctrl+C and write errors abort with a result block | PRs [#37](https://github.com/castorsalzmann-ui/AbeltonGod/pull/37) (merged as bc3809e **before its review finished**; review found a false undo PASS → #39), [#41](https://github.com/castorsalzmann-ui/AbeltonGod/pull/41) (ded4876, 1 re-review round), [#45](https://github.com/castorsalzmann-ui/AbeltonGod/pull/45) (bbce65e, approve-ready review); `1791 passed, 2 skipped`, 278 bridge+regression tests; CI ubuntu + windows. **User run in Live 12.4.5 with script 0.1.0** (pre-#41): all PASS, set restored ([#5](https://github.com/castorsalzmann-ui/AbeltonGod/issues/5#issuecomment-6474540867)); error cases Live closed / script not selected (exit 2) and port busy shown and understood ([#5](https://github.com/castorsalzmann-ui/AbeltonGod/issues/5#issuecomment-6474653513)). User decision: accept the 0.1.0 undo result with a documented limitation (PR #42). |
 | Drive continuous from 0 (#16, user decision): gain `10·drive^0.8`, shaper `tanh(gx)/tanh(g)` applied as residual through the 8× oversampler, Taylor fallback below g = 0.01. drive 1e-6 differs from drive 0 by −161 dB (was −12 dB); drive ≥ 0.2 keeps gain within 4.5 % of before | [PR #38](https://github.com/castorsalzmann-ui/AbeltonGod/pull/38), merged as 04f264c after one independent review (approve-ready; reviewer reproduced continuity on 26 fresh sets, −159.5 dB at 1e-6, aliasing −78 dB worst on 24 new cases); 12/12 fault injections caught; `1797 passed, 2 skipped`; CI ubuntu + windows |
 | ENGINE_VERSION rule (#35, D-013): `ENGINE_VERSION` 0.1.0; 5 literal golden SHA-256s (48k/24-bit odd, even, drive 0.6; 44.1k/16-bit tone 0.7 + click; 44.1k/24-bit tone −0.7 + attack), hard failure on Linux **and Windows**; coverage-guard test; `rerender_from_sidecar` raises `EngineVersionMismatch` unless `allow_engine_mismatch=True`; PR-template checkbox | [PR #40](https://github.com/castorsalzmann-ui/AbeltonGod/pull/40) (`contract-change`), merged as c10020f after two review rounds (1 major: tone path uncovered → fixed); `1821 passed, 2 skipped`; Windows CI matched all 5 hashes ([run 40731270024](https://github.com/castorsalzmann-ui/AbeltonGod/actions/runs/40731270024)) |
+| Capability registry filled from the user's Live run: `app.version`, `song.tempo.get`, `song.signature.get`, `song.track_names.get`, `track.mute.set`, `track.mute.get`, `song.undo` = `tested` (`live_version_tested` 12.4.5); `song.undo` notes carry the user-accepted limitation of script 0.1.0; `track.mute.get` has its own gate; contract tests pin the version and the limitation | [PR #42](https://github.com/castorsalzmann-ui/AbeltonGod/pull/42) (`contract-change`), merged as 43df818 after one review round (1 minor fixed); `1949 passed, 2 skipped`; CI ubuntu + windows. Evidence: [#5](https://github.com/castorsalzmann-ui/AbeltonGod/issues/5#issuecomment-6474540867) |
+| Budget watch counts reviewer runs (word match `\breview`) and `PermissionDenied` events; `.claude/settings.json` pinned by a test (only the hook block allowed) | [PR #46](https://github.com/castorsalzmann-ui/AbeltonGod/pull/46), merged as 8111731 after one review round (2 minor fixed); 12/12 mutants caught; CI ubuntu + windows. User test open (Windows auto mode: warning after 4 denials, no "hook error"). |
+| Research note: Claude auth options for Phase 04b (fact-checked against official sources) | [PR #47](https://github.com/castorsalzmann-ui/AbeltonGod/pull/47), merged as 3f8edb0; decision D-014 |
+| Analysis limits documented: `fundamental_hz` on kicks with `amp_decay_ms` < ~110 ms (#27, DC-blocker tail + mean correction); `decay_20db_ms` offsets and drive effect (#32) | [PR #49](https://github.com/castorsalzmann-ui/AbeltonGod/pull/49), merged as 844ff46; comments only, golden hashes unchanged; triage comments on #27 and #32 |
 | Independent tests for tone, drive and the amplitude envelope (#11), 282 tests | [PR #34](https://github.com/castorsalzmann-ui/AbeltonGod/pull/34), merged as eb14b8d after one pre-PR review round (3 findings fixed); `1659 passed, 2 skipped`; 11 fault injections, all caught (drive × 0.5 by only 2 tests); CI on `main` eb14b8d green |
 
 **Known limits of the bridge** (details in `docs/research/2026-10-28_abletonosc-protocol-and-create-audio-clip.md`):
@@ -44,7 +48,7 @@ _Last updated: 2026-10-28 · Written only by the lead session on `main` after a 
 - No crest-factor test covers click + tone > 0 (cause of the excess not established, #31). The 10 Hz DC blocker skews attack fits on the shipped output by up to 1.7 ms (PR #34) and raises the crest factor at high drive (#30).
 - No listening test yet.
 - The pitch-settle guideline describes the pitch curve. The measured `fundamental_hz` can still be up to ~17 % above `pitch_end_hz` for kicks that follow it (review of #7).
-- #27: on very fast decays (amp_decay ≈ 20–50 ms) the zero crossings drift from the body pitch around −37 dB; cause not established.
+- `fundamental_hz` is approximate (±5 %) or `None` for very short kicks; never derive `amp_decay_ms` as 3 × `decay_20db_ms` (with drive up to +87 %). Causes in PR #49.
 
 **Known limits of the guard** (details in `docs/research/2026-10-28_guard-sdk-mapping.md`):
 - One copilot process at a time: calls in flight in another process are invisible to the daily budget.
@@ -54,7 +58,6 @@ _Last updated: 2026-10-28 · Written only by the lead session on `main` after a 
 ## What does not exist yet
 
 - Kick presets, variants, CLI (#3)
-- Capability statuses `tested` in `contracts/capabilities.json` (PR #42)
 - Sample import into Live (Phase 03)
 - Claude orchestrator / chat (Phase 04b)
 
@@ -78,10 +81,9 @@ _Last updated: 2026-10-28 · Written only by the lead session on `main` after a 
 
 Lead: this cloud session (user decision 2026-10-28); the PC session only runs commands and Live tests. Up to 10 sub-agents in parallel (user, 2026-10-28).
 
-- **Kick track:** triage of #27/#32 and #30/#31 running (investigation comments on the issues); preset/variant/CLI design proposal for #3 running. Then #3 implementation and the first listening test (includes #9).
-- **Bridge track:** PR #42 rework (rebase, `track.mute.get`, undo limitation note) → review → merge closes #5 and Phase 02. #43 setup-guide fixes in a PR. Then Phase 03 (import) once Phase 01 is accepted.
+- **Kick track:** triage of #30/#31 (crest factor) running → then #3 implementation (presets `dark-dry`, `punchy`, `rumble-ready`, `centre`, `driven`; variants; CLI) with helper agents, then the user's listening test (includes #9 and τ 8/15/40).
+- **Bridge track:** PR #48 (setup-guide fixes) being updated onto main → review → merge. Phase 03 (#50, sample import) waits for Phase 01 acceptance.
 - **Phase 04b** (#23): auth decided (D-014: subscription login, Opus 5.5); research note PR #47. Still blocked until Phases 01–03 are accepted.
-- **Process:** #19 budget watch gaps in a PR.
 - **User:**
   - Windows test of the budget watch (PR #18): let Claude Code run `git status` three times; a "Budget: …" message should appear.
   - GitHub → New issue → **Bug**: check that the form appears with "Repro" required (PR #24).

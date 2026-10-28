@@ -1,6 +1,6 @@
 # PHASE 02 — Ableton bridge (AbletonOSC, Live 12 Standard)
 
-**Status:** PLANNED · **Agent:** `bridge-engineer` · **Tested in:** user's Windows machine (+ CI with a fake OSC server)
+**Status:** DONE (PR #42, 2026-10-28) · **Agent:** `bridge-engineer` · **Tested in:** user's Windows machine (+ CI with a fake OSC server)
 
 ## Objective
 
