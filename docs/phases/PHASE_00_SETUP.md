@@ -1,6 +1,6 @@
 # PHASE 00 — Repository & workflow setup
 
-**Status:** IN PROGRESS · **Owner:** lead session · **Tested in:** CI
+**Status:** DONE (2026-10-28) · **Owner:** lead session · **Tested in:** CI
 
 ## Objective
 
@@ -19,10 +19,10 @@ Any audio, Ableton or Claude-API code.
 
 ## Acceptance criteria
 
-- [ ] `pytest` and `ruff check .` pass locally.
-- [ ] CI is green on `main` (Ubuntu + Windows).
-- [ ] Labels and the Phase 01 and Phase 02 issues exist on GitHub.
-- [ ] The user has cloned the repo on Windows and `pytest` passes there (user confirms in the Phase 00 issue).
+- [x] `pytest` and `ruff check .` pass locally.
+- [x] CI is green on `main` (Ubuntu + Windows).
+- [x] Labels and the Phase 01 and Phase 02 issues exist on GitHub.
+- [x] The user has cloned the repo on Windows and `pytest` passes there (user confirms in the Phase 00 issue). Evidence: [#1 comment](https://github.com/castorsalzmann-ui/AbeltonGod/issues/1#issuecomment-6467168168), Windows, Python 3.14.4: `899 passed, 2 skipped`.
 
 ## Handoff
 

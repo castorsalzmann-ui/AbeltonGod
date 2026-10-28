@@ -4,14 +4,14 @@ _Last updated: 2026-10-28 · Written only by the lead session on `main` after a 
 
 ## Phase
 
-- **Phase 00 — Setup:** done except the user's local check (#1).
+- **Phase 00 — Setup:** DONE (#1 closed 2026-10-28).
 - **Phase 01 — Kick engine:** core merged (#2 via PR #8). Open: #11, #12, then #3.
 
 ## What works (with evidence)
 
 | Item | Evidence |
 | --- | --- |
-| Repo scaffold, contracts, contract tests | [CI run 40604382687](https://github.com/castorsalzmann-ui/AbeltonGod/actions/runs/40604382687) |
+| Repo scaffold, contracts, contract tests | [CI run 40604382687](https://github.com/castorsalzmann-ui/AbeltonGod/actions/runs/40604382687); user's Windows machine (Python 3.14.4): `ruff` clean, `899 passed, 2 skipped` ([#1](https://github.com/castorsalzmann-ui/AbeltonGod/issues/1#issuecomment-6467168168)) |
 | Deterministic kick engine core: `render_kick`, `analyse`, `write_kick`, `rerender_from_sidecar` (`src/audio_engine/`) | [PR #8](https://github.com/castorsalzmann-ui/AbeltonGod/pull/8), merged as 7316f85 after six independent review rounds; `899 passed, 2 skipped`; [CI run 40666798325](https://github.com/castorsalzmann-ui/AbeltonGod/actions/runs/40666798325) ubuntu + windows. ffmpeg decodes the WAVs bit-identically (round-6 review). |
 
 **Measured limits of the kick core** (details in PR #8):
@@ -33,6 +33,7 @@ _Last updated: 2026-10-28 · Written only by the lead session on `main` after a 
 | Fact | Value |
 | --- | --- |
 | OS | Windows |
+| Local Python | 3.14.4 (CI uses 3.12) |
 | Ableton | Live 12 **Standard** (no Max for Live), always updated to the latest release → well above 12.0.5; exact number to note at Phase 02 start |
 | Project sample rate | 48 kHz (engine default 48 kHz / 24-bit) |
 | GPU | NVIDIA RTX 5070 |
@@ -49,10 +50,9 @@ _Last updated: 2026-10-28 · Written only by the lead session on `main` after a 
   2. #12 — WAV/sidecar nits, incl. the 24-bit pad byte that matters for the Ableton import.
   3. #7 — contract semantics.
   4. Then #3 — presets, variants, CLI and the first listening test, which includes #9.
-- **Bridge track, in parallel:** #4 (OSC client, `bridge-engineer`), then #5 (needs #1 and the user's machine).
+- **Bridge track, in parallel:** #4 (OSC client, `bridge-engineer`), then #5 (needs the user's machine; #1 is done).
 - **Lower priority:** #6 (resource guard), before Phase 04b.
 - **User:**
-  - #1 (`pytest` locally, `gh auth login`).
   - Decide on PR #10 (reference-kick note from another session). It also proposes D-012 "genre-fluid kick engine" and renaming the `hard-trance` example preset; these are not adopted until merged.
 
 ## Open questions
