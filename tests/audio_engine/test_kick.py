@@ -29,7 +29,7 @@ from audio_engine.io import (
     safe_stem,
     write_kick,
 )
-from audio_engine.kick import body_phase, render_kick
+from audio_engine.kick import render_kick
 from audio_engine.params import (
     KICK_SCHEMA_FILE,
     METADATA_SCHEMA_FILE,
@@ -177,22 +177,97 @@ def test_first_sample_is_zero_for_any_seed(seed: int) -> None:
 # --- fundamental: measurement equals theory --------------------------------------------------
 
 
-@pytest.mark.parametrize("p", all_sets())
-def test_measured_tail_pitch_matches_theoretical_body_pitch(p: dict) -> None:
-    """Criterion (user decisions on PR #8, 2026-10-28): in the measurement window, the measured
-    tail frequency equals the frequency of an ideal sine with the engine's analytic body phase
-    in the same window — ±3 % for windows ≥ 80 ms, ±5 % below. pitch_end_hz is the
-    asymptote, not a promise."""
+ANALYSIS_ACCURACY = 0.01
+
+
+def crossing_interval(audio: np.ndarray, sr: int, start: int, end: int) -> tuple[float, float]:
+    """Times (s) of the first and last positive-going crossing that analyse() uses."""
+    seg = audio[start:end]
+    nz = np.nonzero(seg)[0]
+    seg, offset = seg[nz[0] : nz[-1] + 1], start + nz[0]
+    idx = np.nonzero((seg[:-1] < 0) & (seg[1:] >= 0))[0]
+    frac = seg[idx] / (seg[idx] - seg[idx + 1])
+    return (offset + idx[0] + frac[0]) / sr, (offset + idx[-1] + frac[-1]) / sr
+
+
+def theoretical_mean_frequency(r: dict, t1: float, t2: float) -> float:
+    """Mean of f(t) = f_end + (f_start - f_end) * exp(-t / tau) over [t1, t2], from the
+    parameters alone (closed-form integral written here; does not use the engine's code)."""
+    f_start, f_end, tau = r["pitch_start_hz"], r["pitch_end_hz"], r["pitch_decay_ms"] / 1000
+
+    def cycles(t: float) -> float:
+        return f_end * t + (f_start - f_end) * tau * (1 - math.exp(-t / tau))
+
+    return (cycles(t2) - cycles(t1)) / (t2 - t1)
+
+
+def analytic_signal_frequency(audio: np.ndarray, sr: int, t1: float, t2: float) -> float:
+    """Independent reference measurement: mean frequency over [t1, t2] from the unwrapped phase
+    of the analytic signal (FFT Hilbert transform over the whole, zero-padded file). Uses no
+    zero-crossing counting."""
+    n = len(audio)
+    m = 1 << int(math.ceil(math.log2(4 * n)))
+    h = np.zeros(m)
+    h[0], h[1 : m // 2], h[m // 2] = 1.0, 2.0, 1.0
+    phase = np.unwrap(np.angle(np.fft.ifft(np.fft.fft(audio, m) * h)[:n]))
+    t = np.arange(n) / sr
+    return (np.interp(t2, t, phase) - np.interp(t1, t, phase)) / (2 * math.pi * (t2 - t1))
+
+
+def _measure(p: dict):
     audio, r = render_kick(p)
     sr = r["sample_rate"]
-    start, end = tail_window(audio, sr)
-    ideal = np.sin(body_phase(np.arange(len(audio)) / sr, r))
     measured = analyse(audio, sr)["fundamental_hz"]
-    expected = zero_crossing_frequency(ideal[start:end], sr)
     if measured is None:
+        return None
+    start, end = tail_window(audio, sr)
+    t1, t2 = crossing_interval(audio, sr, start, end)
+    return audio, r, sr, measured, (end - start) / sr * 1000, t1, t2
+
+
+def analysis_reference_sets() -> list:
+    """All sets; 'short' is a documented limit of the *reference*, not of the analyser: at the
+    end of its window the body has fallen ~40 dB and the sub-bass bump of the DC correction is
+    about as loud, so the analytic-signal phase mixes both (82 Hz) while the crossings still
+    follow the body (103 Hz; theory 105 Hz, checked by test_measured_tail_pitch_matches_
+    parameters). strict=True: if this starts passing, the test reports it."""
+    marked = []
+    for n in PARAM_SETS:
+        marks = (
+            [pytest.mark.xfail(strict=True, reason="reference limit, see docstring / #9")]
+            if n == "short"
+            else []
+        )
+        marked.append(pytest.param(params(n), id=n, marks=marks))
+    return marked + [pytest.param(p, id=f"random-{i}") for i, p in enumerate(RANDOM_SETS)]
+
+
+@pytest.mark.parametrize("p", analysis_reference_sets())
+def test_analysis_measures_the_real_signal(p: dict) -> None:
+    """Check 1 of 2 (split decided by the user on PR #8): the analyser reports the frequency
+    the rendered signal really has. Reference: analytic-signal phase over the same interval,
+    ±1 %. Full signal chain (click, drive, tone on)."""
+    m = _measure(p)
+    if m is None:
         pytest.skip("tail too short or too quiet to measure (bounded by the share test below)")
-    assert expected is not None
-    window_ms = (end - start) / sr * 1000
+    audio, r, sr, measured, _, t1, t2 = m
+    reference = analytic_signal_frequency(audio, sr, t1, t2)
+    assert abs(measured - reference) <= ANALYSIS_ACCURACY * reference
+
+
+@pytest.mark.parametrize("p", all_sets())
+def test_measured_tail_pitch_matches_parameters(p: dict) -> None:
+    """Check 2 of 2: the pitch follows the parameters. The measured tail frequency equals the
+    theoretical mean frequency over exactly the interval the measurement used — ±3 % for
+    windows ≥ 80 ms, ±5 % below (user decisions on PR #8). pitch_end_hz is the asymptote.
+    Full signal chain. (An earlier version compared crossing counts of two signals in the same
+    window; when they differed by one crossing the two means covered different stretches of
+    a falling pitch, which produced false failures of up to 13 %.)"""
+    m = _measure(p)
+    if m is None:
+        pytest.skip("tail too short or too quiet to measure (bounded by the share test below)")
+    _, r, _, measured, window_ms, t1, t2 = m
+    expected = theoretical_mean_frequency(r, t1, t2)
     tol = FUNDAMENTAL_TOLERANCE if window_ms >= SHORT_WINDOW_MS else FUNDAMENTAL_TOLERANCE_SHORT
     assert abs(measured - expected) <= tol * expected
 
@@ -208,14 +283,9 @@ def test_measured_tail_pitch_matches_theoretical_body_pitch(p: dict) -> None:
 def test_short_window_cases_from_review_stay_within_short_tolerance(extra: dict) -> None:
     """The two re-review cases (−3.44 %, −3.03 % at the time) are in the short-window regime and
     must stay within ±5 %. They may improve; only the regime and the bound are pinned."""
-    audio, r = render_kick({**BASE, **extra})
-    sr = r["sample_rate"]
-    start, end = tail_window(audio, sr)
-    assert (end - start) / sr * 1000 < SHORT_WINDOW_MS
-    expected = zero_crossing_frequency(
-        np.sin(body_phase(np.arange(len(audio)) / sr, r))[start:end], sr
-    )
-    measured = analyse(audio, sr)["fundamental_hz"]
+    _, r, _, measured, window_ms, t1, t2 = _measure({**BASE, **extra})
+    assert window_ms < SHORT_WINDOW_MS
+    expected = theoretical_mean_frequency(r, t1, t2)
     assert abs(measured - expected) <= FUNDAMENTAL_TOLERANCE_SHORT * expected
 
 
@@ -303,10 +373,11 @@ def test_tail_window_stays_out_of_the_fade_out() -> None:
     sr = r["sample_rate"]
     start, end = tail_window(audio, sr)
     assert end <= len(audio) - round(kick_mod.FADE_OUT_MS * sr / 1000)
-    expected = zero_crossing_frequency(
-        np.sin(body_phase(np.arange(len(audio)) / sr, r))[start:end], sr
+    _, _, _, measured, _, t1, t2 = _measure(p)
+    assert abs(measured - analytic_signal_frequency(audio, sr, t1, t2)) <= (
+        ANALYSIS_ACCURACY * measured
     )
-    measured = analyse(audio, sr)["fundamental_hz"]
+    expected = theoretical_mean_frequency(r, t1, t2)
     assert abs(measured - expected) <= FUNDAMENTAL_TOLERANCE * expected
 
 
