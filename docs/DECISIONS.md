@@ -262,3 +262,11 @@ The researchers for 04b clusters 1 (Agent SDK behaviour) and 2 (tool-schema gene
 **Rejected.** Starting 04b tool definitions before the Live result (the import route depends on it).
 
 **Consequences.** The SDK-specific parts of step 1 stay behind the model-client interface until the cluster-1 note is merged; anything it marks "to verify" becomes an issue. Phase 04b is accepted only after Phase 03 is accepted and the user's end-to-end test (#23).
+
+## D-021 · 2026-10-28 · accepted — Lead merges overnight until 2026-10-29 09:00 (user decision 22:33; temporary exception to D-015)
+
+**Decision.** Until **2026-10-29 09:00 Berlin time** the lead may merge PRs itself, only when all hold: an independent `reviewer` verdict APPROVE-READY on the current head (or approve-ready with every finding from "minor" up fixed and the fix diff checked by the lead), CI green on ubuntu-latest and windows-latest for that head, `mergeable_state` clean. **Never** self-merged: PRs labelled `contract-change`, and any change that sets a capability to `tested`. From 09:00 the user merges again (D-015).
+
+**Reason.** The user wants the night used without merges waiting for them.
+
+**Consequences.** The lead lists every self-merge (PR, head SHA, review link) for the user in the morning. Phase 03 still needs the user's Live test before it is accepted; it is prepared overnight as one test with ready PowerShell commands.
