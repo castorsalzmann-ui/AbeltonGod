@@ -11,6 +11,8 @@ These are **lessons**, not a parameter table. They come from two sources, and ne
 
 Use this note to choose defaults, variant axes and analysis methods. Derive your own values and verify them with tests and the user's ears (Phase 01 acceptance criteria).
 
+**Standing guidance from the user (2026-10-28): keep everything genre-fluid for now.** No genre-keyed presets, fingerprints, parameter ranges or code paths. Name presets by sound character (e.g. `dark-dry`, `punchy`), not by genre. The reference set stays one group. This is the user's instruction in chat, not yet a recorded decision; a decision entry is proposed in the PR body.
+
 ## 1. Lessons from the prototype
 
 | # | Lesson | Consequence for AbeltonGod |
@@ -44,7 +46,7 @@ Accuracy check on synthetic kicks with known values: tail pitch within 4 %, pitc
 
 - **Different beyond chance, also without the 8 loop files:** tail pitch (55.9 vs 49.9 Hz, Mann–Whitney p = 0.001), pitch settle (34 vs 19 ms, p = 0.02), sub share (0.81 vs 0.89, p = 0.0004), crest factor (p = 0.01) and decay (p = 0.002).
 - **Not different without the loop files:** onset brightness (p = 0.22). The low click in set 2 comes from the 8 loop first-hits, which also have a high crest factor (median 4.0).
-- **Cause not established.** Candidates: different genre mix, different packs, or a change in what the user was looking for between the two uploads. The data cannot tell them apart without per-file labels.
+- **Cause not established.** Candidates: different genre mix, different packs, or a change in what the user was looking for between the two uploads. The data cannot tell them apart, and under the genre-fluid guidance this is not pursued for now.
 
 So the "taste" is **a range, not a point**. Tail pitch 45–60 Hz, sub-dominant, clean tails, click amount free.
 
@@ -80,4 +82,4 @@ The first pass of this analysis (not in the repo) reported a pitch-sweep ratio o
 ## Open questions for the user
 
 - Do the medians above match the kicks you would actually use in your own tracks?
-- Why do the two uploads differ (tail ≈ 56 vs ≈ 49 Hz)? Different genres, different packs, or a changed target? Per-file genre labels would answer this and would allow per-genre fingerprints. Without them, the set stays one group.
+- None blocking. The two uploads differ (tail ≈ 56 vs ≈ 49 Hz); if the user ever wants to know why, per-file notes would be needed. Not requested while everything stays genre-fluid.
