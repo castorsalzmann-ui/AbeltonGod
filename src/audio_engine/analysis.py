@@ -19,6 +19,10 @@ ENV_WINDOW_MS = 40.0  # longer than one period at 30 Hz (33.3 ms), so the envelo
 ENV_HOP_MS = 1.0
 TAIL_WINDOW_MS = 100.0
 TAIL_EARLIEST_MS = 20.0  # after any click transient (15 ms in the kick engine)
+# The window never reaches into the last TAIL_END_MARGIN_MS of the file: the kick engine's
+# fade-out (5 ms) plus DC blocker can add a spurious zero crossing there (review 3, R1: -9.8 %
+# on a cut-off kick). Must stay >= audio_engine.kick.FADE_OUT_MS (checked by a test).
+TAIL_END_MARGIN_MS = 6.0
 
 
 def analyse(audio: np.ndarray, sr: int) -> dict[str, float | None]:
@@ -44,7 +48,8 @@ def tail_window(audio: np.ndarray, sr: int) -> tuple[int, int]:
     end_ms = _decay_time(times_ms, env_db, 40.0)
     if end_ms is None:
         end_ms = len(audio) / sr * 1000.0
-    end = min(len(audio), int(round(end_ms * sr / 1000.0)))
+    last_usable = len(audio) - int(round(TAIL_END_MARGIN_MS * sr / 1000.0))
+    end = max(0, min(last_usable, int(round(end_ms * sr / 1000.0))))
     earliest = int(round(TAIL_EARLIEST_MS * sr / 1000.0))
     start = max(earliest, end - int(round(TAIL_WINDOW_MS * sr / 1000.0)))
     return min(start, end), end

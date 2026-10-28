@@ -206,8 +206,8 @@ def test_measured_tail_pitch_matches_theoretical_body_pitch(p: dict) -> None:
     ids=["review-n2-a", "review-n2-b"],
 )
 def test_short_window_cases_from_review_stay_within_short_tolerance(extra: dict) -> None:
-    """The two re-review cases (−3.44 %, −3.03 %) are in the short-window regime and must stay
-    within ±5 %, so the relaxed tolerance only covers what it was decided for."""
+    """The two re-review cases (−3.44 %, −3.03 % at the time) are in the short-window regime and
+    must stay within ±5 %. They may improve; only the regime and the bound are pinned."""
     audio, r = render_kick({**BASE, **extra})
     sr = r["sample_rate"]
     start, end = tail_window(audio, sr)
@@ -217,7 +217,6 @@ def test_short_window_cases_from_review_stay_within_short_tolerance(extra: dict)
     )
     measured = analyse(audio, sr)["fundamental_hz"]
     assert abs(measured - expected) <= FUNDAMENTAL_TOLERANCE_SHORT * expected
-    assert abs(measured - expected) > FUNDAMENTAL_TOLERANCE * expected  # documents the gap
 
 
 def test_tail_pitch_is_measurable_for_almost_all_kicks() -> None:
@@ -285,6 +284,30 @@ def test_dc_correction_is_small_so_real_dc_faults_stay_visible(monkeypatch) -> N
     monkeypatch.setattr(kick_mod, "_remove_mean", lambda x: x)
     worst = max(abs(float(np.mean(render_kick(p.values[0])[0]))) for p in all_sets())
     assert worst < 0.02
+
+
+def test_tail_window_stays_out_of_the_fade_out() -> None:
+    """Review 3, R1: a crossing inside the 5 ms fade-out pulled a cut-off kick to -9.77 %."""
+    import audio_engine.analysis as analysis_mod
+    import audio_engine.kick as kick_mod
+
+    assert analysis_mod.TAIL_END_MARGIN_MS >= kick_mod.FADE_OUT_MS
+    p = {
+        "schema_version": "0.1", "seed": 3905736558, "sample_rate": 44100, "bit_depth": 16,
+        "length_ms": 143.07, "amp_decay_ms": 1703.56, "amp_attack_ms": 15.54,
+        "pitch_start_hz": 469.66, "pitch_end_hz": 35.86, "pitch_decay_ms": 32.35,
+        "click_level": 0.72, "click_tone_hz": 2483, "drive": 0.078, "tone": 0.051,
+        "peak_ceiling_dbfs": -6.52,
+    }
+    audio, r = render_kick(p)
+    sr = r["sample_rate"]
+    start, end = tail_window(audio, sr)
+    assert end <= len(audio) - round(kick_mod.FADE_OUT_MS * sr / 1000)
+    expected = zero_crossing_frequency(
+        np.sin(body_phase(np.arange(len(audio)) / sr, r))[start:end], sr
+    )
+    measured = analyse(audio, sr)["fundamental_hz"]
+    assert abs(measured - expected) <= FUNDAMENTAL_TOLERANCE * expected
 
 
 def test_settled_kick_reaches_pitch_end() -> None:
@@ -524,7 +547,9 @@ def test_wav_write_error_cleans_up(tmp_path, monkeypatch, interrupt) -> None:
 
 
 @pytest.mark.parametrize(
-    "value", [np.float32("nan"), np.float16("inf"), np.float64("-inf")], ids=["f32", "f16", "f64"]
+    "value",
+    [np.float32("nan"), np.float16("inf"), np.float64("-inf"), np.longdouble("nan")],
+    ids=["f32", "f16", "f64", "longdouble"],
 )
 def test_numpy_non_finite_scalars_are_rejected(value) -> None:
     with pytest.raises(KickParamsError):

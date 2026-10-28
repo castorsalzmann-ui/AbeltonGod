@@ -44,7 +44,8 @@ def resolve_kick_params(params: dict[str, Any]) -> dict[str, Any]:
         raise KickParamsError(f"Kick parameters must be an object, got {type(params).__name__}.")
     # NumPy scalars (np.float32, np.int64 …) become plain Python numbers first, so the finite
     # check below and JSON serialisation of the sidecar treat them like any other number.
-    params = {k: (v.item() if isinstance(v, np.generic) else v) for k, v in params.items()}
+    # np.longdouble.item() stays a NumPy type on Linux, so floating types go through float().
+    params = {k: _to_python(v) for k, v in params.items()}
     schema = load_schema(KICK_SCHEMA_FILE)
     lines = [
         f"- {key}: must be a finite number, got {value!r}"
@@ -71,3 +72,11 @@ def resolve_kick_params(params: dict[str, Any]) -> dict[str, Any]:
             f"({resolved['pitch_end_hz']} > {resolved['pitch_start_hz']})"
         )
     return resolved
+
+
+def _to_python(value: Any) -> Any:
+    if isinstance(value, np.floating):
+        return float(value)
+    if isinstance(value, np.generic):
+        return value.item()
+    return value
