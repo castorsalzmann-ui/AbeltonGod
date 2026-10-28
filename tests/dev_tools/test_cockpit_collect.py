@@ -121,7 +121,8 @@ CANNED_ISSUES = [
     _issue(17, "Loop", ["status:in-review", "agent:orchestrator"]),
     _issue(18, "Notes", ["agent:research"]),
     _issue(19, "Other", ["agent:unknownrole"]),
-    _issue(20, "Review", ["agent:reviewer", "needs:user-test"], state="closed"),
+    _issue(20, "Review", ["agent:review", "needs:user-test"], state="closed"),
+    _issue(21, "Legacy key", ["agent:reviewer"]),
 ]
 
 
@@ -147,7 +148,7 @@ def issues(tmp_path, monkeypatch):
 
 def test_issue_rows_sorted_and_bodies(issues):
     by_num, rows, bodies = issues
-    assert [r["number"] for r in rows] == list(range(10, 21))
+    assert [r["number"] for r in rows] == list(range(10, 22))
     assert {b["number"]: b["kind"] for b in bodies}[12] == "PR"
     assert {b["number"]: b["kind"] for b in bodies}[16] == "Issue"
     assert next(b["text"] for b in bodies if b["number"] == 10).startswith("Text")
@@ -165,6 +166,7 @@ def test_issue_rows_sorted_and_bodies(issues):
     (18, "Issue", "—", "Sonstiges", "Offen", "researcher", False),
     (19, "Issue", "—", "Sonstiges", "Offen", "unknownrole", False),
     (20, "Issue", "—", "Sonstiges", "Fertig", "reviewer", False),
+    (21, "Issue", "—", "Sonstiges", "Offen", "reviewer", False),
 ])
 def test_issue_status_and_owner(issues, n, kind, phase, track, status, owner, needs_user):
     r = issues[0][n]
@@ -178,9 +180,9 @@ def test_d017_agent_labels_mapped():
         "orchestrator": "orchestrator-engineer", "research": "researcher",
     }
     # the pre-D-017 mapping is unchanged
-    assert {k: cc.AGENT[k] for k in ("audio", "bridge", "main", "reviewer")} == {
+    assert {k: cc.AGENT[k] for k in ("audio", "bridge", "main", "reviewer", "review")} == {
         "audio": "audio-engineer", "bridge": "bridge-engineer", "main": "main session",
-        "reviewer": "reviewer",
+        "reviewer": "reviewer", "review": "reviewer",
     }
 
 
@@ -208,7 +210,7 @@ REVIEW_1 = (
     "Inline **5. [blocker] not at line start** is not counted.\n"
     "## Fault injection\n\n| mutant | result |\n"
 )
-REVIEW_2 = "Verdict: **APPROVE-READY** by a fresh reviewer.\n\nNo findings.\n"
+REVIEW_2 = "Verdict: **APPROVE-READY** by a Fresh Reviewer.\n\nNo findings.\n"
 
 
 @pytest.fixture

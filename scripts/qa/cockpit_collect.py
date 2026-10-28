@@ -14,6 +14,10 @@ Usage:
                           current SHA is replaced
 
 Needs: gh with REST access to castorsalzmann-ui/abeltongod, git, python3.11+.
+
+Run it on a dedicated clone, not on a checkout you work in: it runs `pip install -e .` and
+`pytest` inside <repo_dir>, which writes `*.egg-info` and wipes `.pytest_tmp/`, so a
+concurrent pytest run in the same checkout collides with it.
 Runs `ruff check .` and `pytest -q` in a throwaway venv to record the gate (takes minutes).
 Prints a one-line JSON summary (sha and row counts) at the end.
 """
@@ -121,7 +125,7 @@ def collect_phases(repo: Path) -> list[dict]:
 # `agent:<key>` label -> owner shown in the cockpit. Unknown keys are shown as they are.
 AGENT = {
     "audio": "audio-engineer", "bridge": "bridge-engineer", "main": "main session",
-    "reviewer": "reviewer",
+    "reviewer": "reviewer", "review": "reviewer",  # the GitHub label is `agent:review`
     # D-017 roles
     "qa": "qa-tester", "sound": "sound-designer", "orchestrator": "orchestrator-engineer",
     "research": "researcher",
