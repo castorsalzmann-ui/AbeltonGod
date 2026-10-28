@@ -6,15 +6,16 @@ accident (round-6 review of PR #8). Every test here measures the rendered audio 
 written in this file and compares it with an expectation written here, never with a helper
 from ``audio_engine.kick``.
 
-What the parameters are expected to do (from the ``kick.py`` docstring; the contract's
-semantics are open in #7):
+What the parameters are expected to do. Attack and decay come from the contract
+(kick-params v0.2, #7); tone and drive are not defined in the contract yet, so they come from
+the ``kick.py`` docstring:
 
 - ``tone``: -1 darker ... +1 brighter, a tilt that leaves the low band alone.
 - ``drive``: 0 clean ... 1 heavy saturation; a memoryless curve, so a steady sine gains odd
   harmonics and the waveform gets flatter (lower crest factor).
-- ``amp_attack_ms``: linear rise from 0 to the envelope peak.
-- ``amp_decay_ms``: time for the envelope to fall by 60 dB after the attack, i.e. an
-  exponential decay of ``60 / amp_decay_ms`` dB per ms; -20 dB after a third of it.
+- ``amp_attack_ms``: linear rise from 0 to full level, starting at t = 0.
+- ``amp_decay_ms``: time for the level to fall by 60 dB, measured from the end of the attack,
+  i.e. an exponential decay of ``60 / amp_decay_ms`` dB per ms; -20 dB after a third of it.
 
 Measured margins (lead session, 2026-10-28, numbers from probe runs over the random sets
 below) are noted next to each limit.
@@ -34,7 +35,8 @@ from audio_engine.analysis import analyse
 from audio_engine.kick import render_kick
 from audio_engine.params import resolve_kick_params
 
-BASE = {"schema_version": "0.1", "seed": 11}
+SCHEMA_VERSION = "0.2"
+BASE = {"schema_version": SCHEMA_VERSION, "seed": 11}
 TONES = (-1.0, -0.5, 0.0, 0.5, 1.0)
 DRIVES = (0.0, 0.25, 0.5, 0.75, 1.0)
 N_RANDOM = 30
@@ -43,7 +45,7 @@ N_RANDOM = 30
 def _draw(rng: random.Random) -> dict:
     """Uniform draw over the whole kick-params contract range (pitch_end <= pitch_start)."""
     p = {
-        "schema_version": "0.1",
+        "schema_version": SCHEMA_VERSION,
         "seed": rng.randrange(2**32),
         "sample_rate": rng.choice([44100, 48000]),
         "bit_depth": rng.choice([16, 24]),
@@ -234,7 +236,7 @@ def _third_harmonic_db(x: np.ndarray, sr: int, f0: float) -> float:
 STEADY_SETS = [
     pytest.param(
         {
-            "schema_version": "0.1",
+            "schema_version": SCHEMA_VERSION,
             "seed": rng.randrange(2**32),
             "sample_rate": rng.choice([44100, 48000]),
             "bit_depth": rng.choice([16, 24]),
