@@ -10,6 +10,8 @@ Generate techno/trance kicks from a bounded parameter set, reproducibly, and wri
 
 Phase 00 done. `contracts/kick-params.schema.json` and `contracts/sample-metadata.schema.json` exist as drafts.
 
+Read `docs/research/2026-10-28_kick-gen2-learnings.md` once before starting (lessons from the earlier prototype, the measured taste range, market candidates, analysis pitfalls). It is input, not scope: nothing in it changes this phase's scope or acceptance criteria.
+
 ## Scope
 
 1. `src/audio_engine/kick.py`: kick synthesis from `kick-params` (sine body with pitch envelope, amplitude envelope, transient/click layer, optional drive/saturation, DC-safe, no clipping above the configured ceiling).

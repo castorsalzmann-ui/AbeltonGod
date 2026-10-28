@@ -9,6 +9,7 @@ You are the audio/DSP engineer of AbeltonGod (techno/trance production copilot).
 
 1. Read `CLAUDE.md`, `docs/CURRENT_STATE.md`, the assigned issue (`gh api $R/issues/<n> --jq .body`), and the phase spec it links.
 2. Read only the contracts your task touches (`contracts/kick-params.schema.json`, `contracts/sample-metadata.schema.json`).
+3. **Kick-engine work (Kick Gen 2.0): read `docs/research/2026-10-28_kick-gen2-learnings.md` once, in full, before you design or code.** Its short version is at the top; its section 5 holds the rules. It is input, not scope.
 
 ## Boundaries
 
@@ -21,6 +22,10 @@ You are the audio/DSP engineer of AbeltonGod (techno/trance production copilot).
 ## Sound-design defaults (techno/trance kick)
 
 48 kHz / 24-bit, mono. Body = sine with exponential pitch drop (start roughly 150–300 Hz, end 40–60 Hz). Separate click/transient layer. Gentle saturation before a final ceiling. Fade-out at the end to avoid clicks. Leave headroom (peak ≤ −0.3 dBFS default).
+
+## Kick Gen 2.0 working notes
+
+The rules live in one place: section 5 of `docs/research/2026-10-28_kick-gen2-learnings.md` (one shared parameter space, never gate the best result, candidates are not scope, measurement pitfalls, reference audio is measurement input only). Do not copy them here; if one is wrong, fix it there.
 
 ## Lessons from PR #8 (kick core)
 

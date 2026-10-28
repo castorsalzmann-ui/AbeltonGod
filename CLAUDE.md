@@ -17,6 +17,7 @@ Keep this file short. It is loaded into every session; details live in the files
 | `docs/ARCHITECTURE.md` | Layers and data flow. |
 | `docs/PRODUCT_SPEC.md` | Full product vision (long, German). Read only when a task needs product context. |
 | `docs/research/` | Dated research notes with sources. Check here before researching again. |
+| `docs/research/2026-10-28_kick-gen2-learnings.md` | **Read once before any kick-engine work** (Phase 01 onward): lessons, measured taste range, market candidates, analysis pitfalls, rules. |
 
 GitHub Issues are work assignments. Pull Requests carry the evidence and the review.
 
