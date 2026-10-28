@@ -74,6 +74,39 @@ def resolve_kick_params(params: dict[str, Any]) -> dict[str, Any]:
     return resolved
 
 
+# Pitch-settle guideline (issue #7, user decision 2026-10-28). Not enforced by the schema:
+# presets (#3) and the Claude orchestrator (Phase 04b) call max_settled_pitch_decay_ms().
+PITCH_SETTLE_LEVEL_DB = 20.0
+PITCH_SETTLE_TOLERANCE = 0.05
+
+
+def max_settled_pitch_decay_ms(params: dict[str, Any]) -> float:
+    """Largest ``pitch_decay_ms`` for which the body pitch is within 5 % of ``pitch_end_hz``
+    by the time the level has fallen 20 dB (or at ``length_ms``, if the file ends earlier).
+
+    With the contract's pitch curve ``f(t) = f_end + (f_start - f_end) * exp(-t / tau)`` the
+    condition ``f(t) <= 1.05 * f_end`` gives ``tau <= t / ln((f_start - f_end) / (0.05 * f_end))``.
+    ``t = amp_attack_ms + amp_decay_ms / 3`` (−20 dB of a 60 dB decay), capped at ``length_ms``.
+    ``pitch_decay_ms`` in ``params`` is ignored. The result is capped at the schema maximum; it
+    can be below the schema minimum (2 ms), which means no allowed value settles in time.
+    """
+    p = resolve_kick_params(params)
+    limit = float(load_schema(KICK_SCHEMA_FILE)["properties"]["pitch_decay_ms"]["maximum"])
+    t_ms = min(
+        p["amp_attack_ms"] + p["amp_decay_ms"] * PITCH_SETTLE_LEVEL_DB / 60.0, p["length_ms"]
+    )
+    drop = p["pitch_start_hz"] - p["pitch_end_hz"]
+    allowed = PITCH_SETTLE_TOLERANCE * p["pitch_end_hz"]
+    if drop <= allowed:
+        return limit
+    return min(limit, t_ms / math.log(drop / allowed))
+
+
+def pitch_settles(params: dict[str, Any]) -> bool:
+    """True if ``pitch_decay_ms`` follows the guideline of :func:`max_settled_pitch_decay_ms`."""
+    return resolve_kick_params(params)["pitch_decay_ms"] <= max_settled_pitch_decay_ms(params)
+
+
 def _to_python(value: Any) -> Any:
     if isinstance(value, np.floating):
         return float(value)

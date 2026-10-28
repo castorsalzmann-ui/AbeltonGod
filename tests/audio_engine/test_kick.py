@@ -37,7 +37,7 @@ from audio_engine.params import (
     load_schema,
 )
 
-BASE = {"schema_version": "0.1", "seed": 7}
+BASE = {"schema_version": "0.2", "seed": 7}
 
 PARAM_SETS = {
     "defaults": {},
@@ -49,7 +49,9 @@ PARAM_SETS = {
     "slow-pitch-long": {"pitch_decay_ms": 120, "amp_decay_ms": 1200, "length_ms": 1200},
     "wide-sweep": {"pitch_start_hz": 600, "pitch_end_hz": 30, "pitch_decay_ms": 40},
     "44k1-16bit": {"sample_rate": 44100, "bit_depth": 16},
-    "short": {"length_ms": 80, "amp_decay_ms": 60},
+    # pitch_decay_ms pinned to the pre-#7 default: with 15 ms the pitch settles to ~50 Hz and
+    # the 30 ms tail window holds only 2 positive crossings (None, measured on this branch).
+    "short": {"length_ms": 80, "amp_decay_ms": 60, "pitch_decay_ms": 40},
     "short-cut-off": {"length_ms": 80, "amp_attack_ms": 20, "amp_decay_ms": 2000},
 }
 
@@ -71,7 +73,7 @@ def params(name: str) -> dict:
 def random_params(rng: random.Random) -> dict:
     """Uniform draw over the whole kick-params schema range (pitch_end <= pitch_start)."""
     p = {
-        "schema_version": "0.1",
+        "schema_version": "0.2",
         "seed": rng.randrange(2**32),
         "sample_rate": rng.choice([44100, 48000]),
         "bit_depth": rng.choice([16, 24]),
@@ -274,7 +276,7 @@ def test_short_window_cases_from_review_stay_within_short_tolerance(extra: dict)
 
 FAST_DECAY_SETS = [
     {
-        "schema_version": "0.1", "seed": 2099157591, "sample_rate": 44100, "length_ms": 85.018,
+        "schema_version": "0.2", "seed": 2099157591, "sample_rate": 44100, "length_ms": 85.018,
         "amp_decay_ms": 40.784, "amp_attack_ms": 18.071, "pitch_start_hz": 79.845,
         "pitch_end_hz": 64.007, "pitch_decay_ms": 263.2, "click_level": 0.757,
         "click_tone_hz": 662.3, "drive": 0.214, "tone": -0.703,
@@ -349,9 +351,12 @@ INDEPENDENT_PITCH_TOLERANCE = 0.02
 @pytest.mark.parametrize("extra", INDEPENDENT_PITCH_SETS)
 def test_body_pitch_follows_parameters_independently(extra: dict) -> None:
     """Does NOT use body_phase: the expected frequency is computed here from the parameters,
-    f(t) = f_end + (f_start - f_end) * exp(-t / tau), and compared with the period between
-    each pair of consecutive positive zero crossings (from 20 ms until the signal is 40 dB
-    down). Click, drive and tone are off so only the body is measured. During development
+    f(t) = f_end + (f_start - f_end) * exp(-t / tau), averaged over the interval between
+    each pair of consecutive positive zero crossings (one period is exactly one cycle, so
+    1 / period equals the mean of f over that interval), from 20 ms until the signal is 40 dB
+    down. Click, drive and tone are off so only the body is measured. Issue #7: with
+    pitch_decay_ms 15 the value of f at the period's midpoint was 2.7 % below the mean
+    (f is convex), so the expectation is now the interval mean. During development
     this test failed when body_phase was mutated (pitch_end_hz * 1.02 -> 2.5 %,
     * 1.04 -> 4.1 %, pitch_decay_ms * 2 -> 174 %); the clean engine measured 1.06 % worst."""
     p = {**BASE, "click_level": 0.0, "drive": 0.0, "tone": 0.0, **extra}
@@ -364,12 +369,15 @@ def test_body_pitch_follows_parameters_independently(extra: dict) -> None:
     tau = r["pitch_decay_ms"] / 1000
     checked = 0
     for a, b in zip(crossings[:-1], crossings[1:], strict=True):
-        t_mid = (a + b) / 2 / sr
+        t_a, t_b = a / sr, b / sr
+        t_mid = (t_a + t_b) / 2
         if t_mid < 0.02:
             continue
         if np.max(np.abs(audio[int(a) : int(b) + 1])) < floor:
             break
-        expected = f_end + (f_start - f_end) * math.exp(-t_mid / tau)
+        expected = f_end + (f_start - f_end) * tau * (
+            math.exp(-t_a / tau) - math.exp(-t_b / tau)
+        ) / (t_b - t_a)
         assert abs(sr / (b - a) - expected) <= INDEPENDENT_PITCH_TOLERANCE * expected, t_mid
         checked += 1
     assert checked >= 3
@@ -393,7 +401,7 @@ def test_tail_window_stays_out_of_the_fade_out() -> None:
 
     assert analysis_mod.TAIL_END_MARGIN_MS >= kick_mod.FADE_OUT_MS
     p = {
-        "schema_version": "0.1", "seed": 3905736558, "sample_rate": 44100, "bit_depth": 16,
+        "schema_version": "0.2", "seed": 3905736558, "sample_rate": 44100, "bit_depth": 16,
         "length_ms": 143.07, "amp_decay_ms": 1703.56, "amp_attack_ms": 15.54,
         "pitch_start_hz": 469.66, "pitch_end_hz": 35.86, "pitch_decay_ms": 32.35,
         "click_level": 0.72, "click_tone_hz": 2483, "drive": 0.078, "tone": 0.051,
@@ -464,7 +472,7 @@ def test_analysis_rejects_stereo() -> None:
 @pytest.mark.parametrize(
     ("bad", "fragment"),
     [
-        ({"schema_version": "0.1"}, "seed"),
+        ({"schema_version": "0.2"}, "seed"),
         ({**BASE, "pitch_end_hz": 5}, "pitch_end_hz"),
         ({**BASE, "drive": 1.5}, "drive"),
         ({**BASE, "sample_rate": 96000}, "sample_rate"),

@@ -76,8 +76,8 @@ def test_kick_params_defaults_are_within_bounds() -> None:
 
 def test_kick_params_rejects_unknown_and_out_of_range() -> None:
     validator = Draft202012Validator(load("kick-params.schema.json"))
-    validator.validate({"schema_version": "0.1", "seed": 1})
+    validator.validate({"schema_version": "0.2", "seed": 1})
     with pytest.raises(ValidationError):
-        validator.validate({"schema_version": "0.1", "seed": 1, "pitch_end_hz": 5})
+        validator.validate({"schema_version": "0.2", "seed": 1, "pitch_end_hz": 5})
     with pytest.raises(ValidationError):
-        validator.validate({"schema_version": "0.1", "seed": 1, "wobble": 3})
+        validator.validate({"schema_version": "0.2", "seed": 1, "wobble": 3})

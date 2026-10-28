@@ -76,6 +76,10 @@ def write_kick(
     no orphan is left. Returns ``(wav_path, json_path)``.
     """
     wav_bytes, audio, resolved = render_kick_wav(params)
+    features = analyse(audio, resolved["sample_rate"])
+    if features["peak_dbfs"] is None:
+        # Issue #7: a sidecar always carries a real level. Silence is a bug, not a sample.
+        raise ValueError("Render is silent (peak 0); refusing to write a WAV and sidecar.")
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
     stem = safe_stem(name)
@@ -85,7 +89,7 @@ def write_kick(
         "category": "kick",
         "engine": {"name": ENGINE_NAME, "version": ENGINE_VERSION},
         "parameters": resolved,
-        "features": analyse(audio, resolved["sample_rate"]),
+        "features": features,
         "bpm": resolved.get("bpm"),
         "key": None,
         "sha256": hashlib.sha256(wav_bytes).hexdigest(),
