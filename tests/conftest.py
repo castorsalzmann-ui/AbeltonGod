@@ -4,6 +4,10 @@ read from the check-run annotations even when job logs are not accessible.
 ``test_golden_sha256`` stores ``("golden", "<platform> <name> match|MISMATCH <sha256>")`` in
 ``user_properties``; that travels from pytest-xdist workers to the controller, which prints
 one ``::notice`` line per case at the end of the run. Only under GitHub Actions.
+
+It lives in ``tests/`` (the rootdir's test root), not ``tests/audio_engine/``: a sub-folder
+conftest is only loaded by the controller once that folder is collected there, and under
+``pytest -n auto`` its terminal-summary hook was not called (0 notices in a full run).
 """
 
 from __future__ import annotations

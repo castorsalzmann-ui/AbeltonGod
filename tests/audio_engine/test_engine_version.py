@@ -11,7 +11,7 @@ Hashes recorded on Linux (CPython 3.13, NumPy 2.5) for ``ENGINE_VERSION`` 0.1.0,
 the continuous drive of #16; ubuntu CI (Python 3.12) reproduces them. Byte identity is proven
 per platform only (PR #8): on platforms not in ``GOLDEN_PLATFORMS`` the hash is still
 computed, a match passes and a mismatch is an ``xfail`` that names the actual hash, so CI
-collects the evidence (and ``conftest.py`` turns either outcome into a GitHub annotation).
+collects the evidence (and ``tests/conftest.py`` turns either outcome into a GitHub annotation).
 Sample count and file size are checked on every platform.
 """
 
