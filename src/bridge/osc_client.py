@@ -72,6 +72,13 @@ ADDRESSES: dict[str, tuple[str, ...]] = {
     "song.undo": ("/live/song/undo",),
 }
 
+# Read-back for the mute write (#5). README "Track API": ``/live/track/get/mute track_id`` ->
+# ``track_id, mute``; source: ``abletonosc/track.py`` ``properties_rw`` contains "mute".
+# Not a registry entry of its own yet: it is gated as part of ``track.mute.set``, whose
+# verification it is. A separate ``track.mute.get`` entry is proposed for the contract-change
+# PR that follows the user's run.
+TRACK_MUTE_READBACK_ADDRESS = "/live/track/get/mute"
+
 OscArg = int | float | str
 Message = tuple[str, tuple]
 
@@ -344,6 +351,14 @@ class AbletonBridge:
     def __init__(self, transport: OscTransport, gate: CapabilityGate) -> None:
         self._transport = transport
         self.gate = gate
+        # Reply arguments of the last read, exactly as received (for the check script's report).
+        self.last_reply: tuple | None = None
+
+    def _query(self, address: str, params: tuple = (), expect_prefix: tuple = ()) -> tuple:
+        self.last_reply = None
+        reply = self._transport.query(address, params, expect_prefix=expect_prefix)
+        self.last_reply = reply
+        return reply
 
     @classmethod
     def connect(
@@ -411,14 +426,14 @@ class AbletonBridge:
     def get_version(self) -> tuple[int, int]:
         """(major, minor). AbletonOSC does not expose the patch level."""
         self.gate.check("app.version")
-        reply = self._transport.query(ADDRESSES["app.version"][0])
+        reply = self._query(ADDRESSES["app.version"][0])
         if len(reply) != 2 or not all(type(v) is int for v in reply):
             raise BridgeProtocolError(f"version reply must be two ints, got {reply!r}")
         return reply[0], reply[1]
 
     def get_tempo(self) -> float:
         self.gate.check("song.tempo.get")
-        reply = self._transport.query(ADDRESSES["song.tempo.get"][0])
+        reply = self._query(ADDRESSES["song.tempo.get"][0])
         if len(reply) != 1 or isinstance(reply[0], bool) or not isinstance(reply[0], int | float):
             raise BridgeProtocolError(f"tempo reply must be one number, got {reply!r}")
         tempo = float(reply[0])
@@ -429,17 +444,20 @@ class AbletonBridge:
     def get_signature(self) -> tuple[int, int]:
         self.gate.check("song.signature.get")
         values = []
+        raw: list = []
         for addr in ADDRESSES["song.signature.get"]:
-            reply = self._transport.query(addr)
+            reply = self._query(addr)
+            raw.extend(reply)
             if len(reply) != 1 or type(reply[0]) is not int or reply[0] < 1:
                 raise BridgeProtocolError(f"{addr} reply must be one positive int, got {reply!r}")
             values.append(reply[0])
+        self.last_reply = tuple(raw)  # numerator reply + denominator reply
         return values[0], values[1]
 
     def get_track_names(self) -> list[str]:
         """All track names in one reply. Very large sets may exceed one UDP datagram."""
         self.gate.check("song.track_names.get")
-        reply = self._transport.query(ADDRESSES["song.track_names.get"][0])
+        reply = self._query(ADDRESSES["song.track_names.get"][0])
         if not all(isinstance(n, str) for n in reply):
             raise BridgeProtocolError(f"track names must be strings, got {reply!r}")
         return list(reply)
@@ -452,6 +470,24 @@ class AbletonBridge:
             raise ValueError(f"mute must be a bool (got {mute!r})")
         self.gate.check("track.mute.set")
         self._transport.send_confirmed(ADDRESSES["track.mute.set"][0], (track_index, int(mute)))
+
+    def get_track_mute(self, track_index: int) -> bool:
+        """Read back a track's mute state.
+
+        Gated as ``track.mute.set``: it is the read-back that verifies that write (#5); the
+        registry has no separate mute-read entry yet. AbletonOSC replies
+        ``track_id, mute`` (README "Track API"); Live's bool arrives as OSC T/F, a 0/1 int is
+        accepted too.
+        """
+        _require_int(track_index, "track_index", minimum=0)
+        self.gate.check("track.mute.set")
+        reply = self._query(
+            TRACK_MUTE_READBACK_ADDRESS, (track_index,), expect_prefix=(track_index,)
+        )
+        if len(reply) != 1 or not (type(reply[0]) is bool or (type(reply[0]) is int
+                                                              and reply[0] in (0, 1))):
+            raise BridgeProtocolError(f"mute reply must be one bool or 0/1, got {reply!r}")
+        return bool(reply[0])
 
     def undo(self) -> None:
         self.gate.check("song.undo")
