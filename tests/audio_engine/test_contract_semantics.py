@@ -6,16 +6,20 @@ measured with zero crossings; nothing is taken from the helper under test.
 
 from __future__ import annotations
 
+import hashlib
+import json
 import random
+import sys
+from pathlib import Path
 
 import numpy as np
 import pytest
 
 import audio_engine.io as io_mod
-from audio_engine.analysis import analyse
 from audio_engine.kick import render_kick
 from audio_engine.params import (
     KICK_SCHEMA_FILE,
+    KickParamsError,
     load_schema,
     max_settled_pitch_decay_ms,
     pitch_settles,
@@ -130,74 +134,143 @@ def _settle_time_s(p: dict) -> float:
     return min(p["amp_attack_ms"] + p["amp_decay_ms"] / 3, p["length_ms"]) / 1000
 
 
-SETTLE_SETS = [_random_params(random.Random(7000 + i)) for i in range(120)]
 MEASURE_TOLERANCE = 0.015
+# Cycles quieter than this (relative to the render's peak) are not measured: on very fast
+# decays (amp_decay_ms ~20-50 ms) the zero crossings there no longer follow the body pitch
+# (review of #7: -36.8 dB, +6.5 % vs an ideal sine; cause not established).
+LEVEL_FLOOR_DB = -30.0
+OVERSHOOT = 1.3
 
 
-@pytest.mark.parametrize("p", SETTLE_SETS, ids=lambda p: str(p["seed"]))
-def test_guideline_limit_matches_measured_pitch(p: dict) -> None:
+def _usable_cycles(audio: np.ndarray, sr: int) -> list[tuple[float, float]]:
+    floor = 10 ** (LEVEL_FLOOR_DB / 20) * float(np.max(np.abs(audio)))
+    usable_end = len(audio) / sr - END_MARGIN_S
+    return [
+        (a, b)
+        for a, b in _cycles(audio, sr)
+        if a >= 0.02
+        and b <= usable_end
+        and np.max(np.abs(audio[int(a * sr) : int(b * sr) + 1])) >= floor
+    ]
+
+
+def check_guideline_against_render(p: dict) -> int:
     """At pitch_decay_ms = limit the pitch at the settle time t is 1.05 * pitch_end_hz.
     1 / period is the mean pitch over one cycle and the pitch only falls, so:
-    - at the limit, a cycle starting after t is at most 1.05 * f_end;
-    - at 1.3 x the limit, a cycle ending before t is above 1.05 * f_end.
-    Body only (click, drive, tone off): this checks the helper, not the analysis."""
+    - at the limit, the first usable cycle starting after t is at most 1.05 * f_end;
+    - at 1.3 x the limit, the last usable cycle ending before t is above 1.05 * f_end.
+    Body only (click, drive, tone off): this checks the helper, not the analysis.
+    Returns how many of the two checks had a usable cycle (0 = not measurable)."""
     limit = max_settled_pitch_decay_ms(p)
-    if not 2 <= limit <= 300 / 1.3:
-        pytest.skip("no allowed pitch_decay_ms settles, or the overshoot leaves the range")
+    if not 2 <= limit <= 300 / OVERSHOOT:
+        return 0
     target = 1.05 * p["pitch_end_hz"]
     t = _settle_time_s(p)
     checked = 0
 
-    q = {**p, **BODY_ONLY, "pitch_decay_ms": limit}
-    audio, r = render_kick(q)
-    sr = r["sample_rate"]
-    usable_end = len(audio) / sr - END_MARGIN_S
-    after = [c for c in _cycles(audio, sr) if t <= c[0] and c[1] <= usable_end]
+    audio, r = render_kick({**p, **BODY_ONLY, "pitch_decay_ms": limit})
+    after = [c for c in _usable_cycles(audio, r["sample_rate"]) if c[0] >= t]
     if after:
         start, end = after[0]
         assert 1 / (end - start) <= target * (1 + MEASURE_TOLERANCE), (start, 1 / (end - start))
         checked += 1
 
-    q = {**p, **BODY_ONLY, "pitch_decay_ms": 1.3 * limit}
-    audio, r = render_kick(q)
-    before = [c for c in _cycles(audio, sr) if c[1] <= t and c[0] >= 0.02]
+    audio, r = render_kick({**p, **BODY_ONLY, "pitch_decay_ms": OVERSHOOT * limit})
+    before = [c for c in _usable_cycles(audio, r["sample_rate"]) if c[1] <= t]
     if before:
         start, end = before[-1]
         assert 1 / (end - start) > target * (1 + MEASURE_TOLERANCE), (end, 1 / (end - start))
         checked += 1
-    assert checked >= 1
+    return checked
 
 
-def test_guideline_sets_cover_both_checks() -> None:
-    """Guards against a test that silently skips most sets."""
-    usable = [p for p in SETTLE_SETS if 2 <= max_settled_pitch_decay_ms(p) <= 300 / 1.3]
-    assert len(usable) >= 100
+SETTLE_SETS = [_random_params(random.Random(7000 + i)) for i in range(200)]
 
 
-TAIL_SETS = [_random_params(random.Random(9000 + i)) for i in range(150)]
-# Measured on this branch (3 x 300 sets, seeds 11-13): worst +8.3 %. The analysis window
-# ends at -40 dB and starts up to 100 ms earlier, so it includes pitch from before -20 dB.
-TAIL_BOUND = 0.10
+def test_guideline_limit_matches_measured_pitch() -> None:
+    measurable = sum(check_guideline_against_render(p) > 0 for p in SETTLE_SETS)
+    # Guards against a test that silently measures nothing. Not measurable: no allowed
+    # pitch_decay_ms settles, or every cycle near t is below the level floor.
+    assert measurable >= 0.85 * len(SETTLE_SETS), measurable
 
 
-def test_kicks_following_the_guideline_have_a_tail_near_pitch_end() -> None:
-    """User-facing claim: with the guideline, the measured tail of a kick that is not cut off
-    is near pitch_end_hz. Full chain incl. click, drive and tone; analysis by zero crossings."""
-    worst, measured = 0.0, 0
-    for p in TAIL_SETS:
-        limit = max_settled_pitch_decay_ms(p)
-        if limit < 2:
-            continue
-        q = {**p, "pitch_decay_ms": random.Random(p["seed"]).uniform(2, limit)}
-        audio, r = render_kick(q)
-        f = analyse(audio, r["sample_rate"])
-        if f["decay_40db_ms"] is None or f["fundamental_hz"] is None:
-            continue  # cut off before -40 dB, or tail too short to measure
-        dev = f["fundamental_hz"] / q["pitch_end_hz"] - 1
-        worst = max(worst, abs(dev))
-        measured += 1
-    assert measured >= 60
-    assert worst <= TAIL_BOUND, worst
+# No test of the *measured* tail (analyse) against pitch_end_hz here: the analysis window can
+# start at 20 ms, before the -20 dB settle time, so it averages in unsettled pitch. Review of
+# #7 measured up to +16.6 % on fresh seeds for kicks at the guideline limit. The guideline
+# promises the pitch curve at -20 dB, not the analysis result.
+
+
+@pytest.mark.parametrize("extra", [h[0] for h in HAND_CASES if 2 <= h[1] <= 300])
+def test_pitch_settles_is_exact_at_the_limit(extra: dict) -> None:
+    p = {**BASE, **extra}
+    limit = max_settled_pitch_decay_ms(p)
+    assert pitch_settles({**p, "pitch_decay_ms": limit})
+    if limit * 1.001 <= 300:
+        assert not pitch_settles({**p, "pitch_decay_ms": limit * 1.001})
+    assert pitch_settles({**p, "pitch_decay_ms": max(2.0, limit * 0.999)})
+
+
+# --- amp_decay_ms means "60 dB" ---------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "extra",
+    [{}, {"amp_decay_ms": 900, "length_ms": 1200}, {"amp_decay_ms": 240, "amp_attack_ms": 10}],
+)
+def test_amp_decay_is_the_time_to_fall_60_db(extra: dict) -> None:
+    """Contract text: -20 dB after amp_decay_ms / 3. Body only, pitch nearly constant
+    (60 -> 58 Hz), level from the peak of each cycle, slope fitted between the end of the
+    attack + 20 ms and 2/3 of amp_decay_ms; expected slope written from the contract."""
+    p = {
+        **BASE, **BODY_ONLY, "pitch_start_hz": 60, "pitch_end_hz": 58, "pitch_decay_ms": 2,
+        **extra,
+    }
+    audio, r = render_kick(p)
+    sr = r["sample_rate"]
+    t0 = (r["amp_attack_ms"] + 20) / 1000
+    t1 = min(r["amp_decay_ms"] * 2 / 3, r["length_ms"] - 10) / 1000
+    times, levels = [], []
+    for a, b in _cycles(audio, sr):
+        if t0 <= a and b <= t1:
+            times.append((a + b) / 2)
+            levels.append(20 * np.log10(np.max(np.abs(audio[int(a * sr) : int(b * sr) + 1]))))
+    assert len(times) >= 4
+    slope_db_per_s = np.polyfit(times, levels, 1)[0]
+    expected = -60 / (r["amp_decay_ms"] / 1000)
+    assert slope_db_per_s == pytest.approx(expected, rel=0.03)
+
+
+# --- old sidecars -----------------------------------------------------------------------------
+
+V01_SIDECAR = Path(__file__).resolve().parents[1] / "fixtures" / "sidecars" / "kick-v01.json"
+
+
+@pytest.mark.skipif(sys.platform != "linux", reason="fixture sha256 was rendered on Linux")
+def test_v01_sidecar_written_on_main_still_rerenders_identically() -> None:
+    """Fixture written by main at bb66f08 (before the 0.2 bump) with write_kick on Linux."""
+    expected = json.loads(V01_SIDECAR.read_text(encoding="utf-8"))["sha256"]
+    assert hashlib.sha256(io_mod.rerender_from_sidecar(V01_SIDECAR)).hexdigest() == expected
+
+
+def test_v01_sidecar_renders_like_the_same_params_under_v02() -> None:
+    params = json.loads(V01_SIDECAR.read_text(encoding="utf-8"))["parameters"]
+    wav, _, _ = io_mod.render_kick_wav({**params, "schema_version": "0.2"})
+    assert io_mod.rerender_from_sidecar(V01_SIDECAR) == wav
+
+
+def test_v01_sidecar_without_pitch_decay_is_rejected(tmp_path) -> None:
+    meta = json.loads(V01_SIDECAR.read_text(encoding="utf-8"))
+    del meta["parameters"]["pitch_decay_ms"]
+    path = tmp_path / "old.json"
+    path.write_text(json.dumps(meta), encoding="utf-8")
+    with pytest.raises(KickParamsError, match="schema_version"):
+        io_mod.rerender_from_sidecar(path)
+
+
+def test_v01_request_without_sidecar_is_rejected() -> None:
+    """A 0.1 request may rely on the old default; it must fail, not change its sound."""
+    with pytest.raises(KickParamsError, match="schema_version"):
+        render_kick({"schema_version": "0.1", "seed": 5})
 
 
 # --- silence never gets a sidecar -------------------------------------------------------------

@@ -356,9 +356,9 @@ def test_body_pitch_follows_parameters_independently(extra: dict) -> None:
     1 / period equals the mean of f over that interval), from 20 ms until the signal is 40 dB
     down. Click, drive and tone are off so only the body is measured. Issue #7: with
     pitch_decay_ms 15 the value of f at the period's midpoint was 2.7 % below the mean
-    (f is convex), so the expectation is now the interval mean. During development
-    this test failed when body_phase was mutated (pitch_end_hz * 1.02 -> 2.5 %,
-    * 1.04 -> 4.1 %, pitch_decay_ms * 2 -> 174 %); the clean engine measured 1.06 % worst."""
+    (f is convex), so the expectation is now the interval mean. Fault injection with the
+    interval mean (#7): pitch_end_hz * 1.02 fails 5 of 6 sets, * 1.04 and pitch_decay_ms * 1.1
+    fail 6 of 6; the review of #7 measured 1.06 % worst on the clean engine."""
     p = {**BASE, "click_level": 0.0, "drive": 0.0, "tone": 0.0, **extra}
     audio, r = render_kick(p)
     sr = r["sample_rate"]

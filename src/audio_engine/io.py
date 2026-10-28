@@ -154,8 +154,22 @@ def rerender_from_sidecar(json_path: str | Path) -> bytes:
     """
     meta = json.loads(Path(json_path).read_text(encoding="utf-8"))
     Draft202012Validator(load_schema(METADATA_SCHEMA_FILE)).validate(meta)
-    wav_bytes, _, _ = render_kick_wav(meta["parameters"])
+    wav_bytes, _, _ = render_kick_wav(_upgrade_sidecar_params(meta["parameters"]))
     return wav_bytes
+
+
+def _upgrade_sidecar_params(params: Any) -> Any:
+    """kick-params 0.1 -> 0.2 changed only a default (pitch_decay_ms 40 -> 15, issue #7).
+    A sidecar stores the fully resolved parameters, so a 0.1 sidecar that names
+    pitch_decay_ms renders the same samples under 0.2. Anything else is left for validation
+    to reject, never guessed."""
+    if (
+        isinstance(params, dict)
+        and params.get("schema_version") == "0.1"
+        and "pitch_decay_ms" in params
+    ):
+        return {**params, "schema_version": "0.2"}
+    return params
 
 
 def _unique_pair(out: Path, stem: str) -> tuple[Path, Path]:
