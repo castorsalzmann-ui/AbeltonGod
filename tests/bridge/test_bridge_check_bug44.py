@@ -173,6 +173,7 @@ def test_eof_at_track_prompt_aborts_without_plan(fake, answers):
 
 
 def test_ctrl_c_at_track_prompt_aborts_without_plan(fake):
+    """Since #43 Ctrl+C here exits 130 like everywhere else (was 0 in #44)."""
     calls = []
 
     def input_fn(prompt):
@@ -186,7 +187,7 @@ def test_ctrl_c_at_track_prompt_aborts_without_plan(fake):
     out = io.StringIO()
     code = bridge_check.main(["--send-port", str(fake.port), "--receive-port", str(receive),
                               "--timeout", "0.3"], input_fn=input_fn, out=out)
-    assert code == 0
+    assert code == 130
     assert len(calls) == 2
     assert "Geplante Änderungen" not in out.getvalue()
     assert writes(fake.payload()) == []
