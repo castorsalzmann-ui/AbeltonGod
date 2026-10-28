@@ -71,7 +71,8 @@ def test_undo_reverting_a_rename_is_fail_lists_the_change_and_writes_nothing_mor
     assert code == 1
     assert writes(fake.payload()) == [set_mute(0, 1), set_mute(0, 0), set_mute(0, 1), UNDO]
     block = result_block(out)
-    assert block["song.undo"].startswith("FAIL raw=R4=(True,); S1=['1-Kick':1, '2-Bass-OLD':0]")
+    assert block["song.undo"].startswith(
+        "FAIL raw=R4=(True,); S1=tempo=136 sig=4/4 tracks=['1-Kick':1, '2-Bass-OLD':0]")
     assert "reverted another action" in block["song.undo"]
     assert block["error"] != "-"
     assert "Spurnamen oder Reihenfolge haben sich geändert." in out
@@ -139,7 +140,8 @@ def test_plan_warns_about_undo_history_before_the_final_confirmation(fake):
     assert "WICHTIG - Undo-Risiko" in shown
     assert "letzte eigene Aktion" in shown
     assert "schließen und neu öffnen" in shown
-    assert "alle Spurnamen und den Mute-Zustand aller" in shown
+    assert "Tempo, Taktart, alle Spurnamen und den\nMute-Zustand aller Spuren" in shown
+    assert "in diesem\nProjekt ist das noch nicht geprüft" in shown
     assert "nichts anderes verändert" not in out.getvalue()
     assert writes(fake.payload()) == []
 
@@ -172,9 +174,12 @@ class _NoopUndoFake(FakeAbletonOSC):
 
 
 # Bridge calls after the final confirmation, no-op-undo path (adds W4/R5):
-# S0 = names + 2 mutes (3), W1 R1 W2 R2 W3 R3 (6), U (1), R4 (1), S1 (3), W4 R5 (2) = 16.
-STEPS_NOOP_UNDO = 16
-STEPS_GOOD_UNDO = 14
+# S0 = tempo + signature + names + 2 mutes (5), W1 R1 W2 R2 W3 R3 (6), U (1), R4 (1),
+# S1 (5), W4 R5 (2) = 20.
+STEPS_NOOP_UNDO = 20
+STEPS_GOOD_UNDO = 18
+# Kind of each call on the working-undo path (r = read, w = write or undo).
+CALL_KINDS_GOOD = ["r"] * 5 + ["w", "r"] * 3 + ["w", "r"] + ["r"] * 5
 
 
 def _run_with_interrupt(fake, at: int, when: str, monkeypatch):
@@ -197,7 +202,8 @@ def _run_with_interrupt(fake, at: int, when: str, monkeypatch):
 
         monkeypatch.setattr(AbletonBridge, name, wrapper)
 
-    for name in ("get_track_names", "get_track_mute", "set_track_mute", "undo"):
+    for name in ("get_tempo", "get_signature", "get_track_names", "get_track_mute",
+                 "set_track_mute", "undo"):
         wrap(name)
 
     answers = iter(["y", "0", "y"])
@@ -240,11 +246,11 @@ def test_ctrl_c_with_working_undo_never_writes_after_the_interrupt(monkeypatch, 
     with closing(FakeAbletonOSC) as fake:
         code, out, fired = _run_with_interrupt(fake, at, "before", monkeypatch)
     assert fired and code == 130
-    # Steps 0-2 are S0 reads: no write at all. Afterwards the wire holds at most the writes
+    # Steps 0-4 are S0 reads: no write at all. Afterwards the wire holds exactly the writes
     # that came before the interrupted call.
+    assert len(CALL_KINDS_GOOD) == STEPS_GOOD_UNDO
     expected_writes = [set_mute(0, 1), set_mute(0, 0), set_mute(0, 1), UNDO]
-    call_kinds = ["r", "r", "r", "w", "r", "w", "r", "w", "r", "w", "r", "r", "r", "r"]
-    sent_before = call_kinds[:at].count("w")
+    sent_before = CALL_KINDS_GOOD[:at].count("w")
     assert writes(fake.payload()) == expected_writes[:sent_before]
 
 
