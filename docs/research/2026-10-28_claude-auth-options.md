@@ -2,6 +2,8 @@
 
 _Date: 2026-10-28 · All sources opened on 2026-10-28. Prepares the D-008 confirmation the user has to give before Phase 04b (#23) starts. Prices and policy change often: re-check rows 1–9 and 12–15 on the day 04b starts._
 
+> **Decided 2026-10-28 in D-014: subscription login, default model Opus 5.5 (the recommendation below was not chosen). The questions at the end are answered there.**
+
 Question: one user, Claude Max subscription, Windows, a local personal Python tool that calls Claude with tool use (`kick_generation`). Which auth routes are officially supported, what does each cost, and do the SDK limits from D-011 behave as `docs/research/2026-10-28_guard-sdk-mapping.md` assumed?
 
 This note states what the sources say. It is not legal advice. Rows marked **interpretation** are my reading of the sources, not something they state directly.
@@ -76,6 +78,8 @@ Arithmetic only, from list prices; real cost depends on measured input size, cac
 - The user's Max tier (5x or 20x) and whether the API credits are already claimed.
 
 ## Entscheidungsvorlage für dich
+
+> **Decided 2026-10-28 in D-014: subscription login, default model Opus 5.5 (the recommendation below was not chosen). The questions at the end are answered there.**
 
 **Empfehlung: API-Key aus einer Console-Organisation, die du mit deinem Max-Abo verknüpfst (monatliche API-Credits), Modell Sonnet 5.5 als Standard. Subscription-Login bleibt als zweite Einstellung im selben Schalter (D-008).**
 
