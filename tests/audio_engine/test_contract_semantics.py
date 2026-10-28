@@ -245,21 +245,27 @@ def test_amp_decay_is_the_time_to_fall_60_db(extra: dict) -> None:
 V01_SIDECAR = Path(__file__).resolve().parents[1] / "fixtures" / "sidecars" / "kick-v01.json"
 
 
-@pytest.mark.skipif(sys.platform != "linux", reason="fixture sha256 was rendered on Linux")
-def test_v01_sidecar_written_on_main_still_rerenders_identically() -> None:
-    """Fixture written by main at bb66f08 (before the 0.2 bump) with write_kick on Linux.
+def test_v01_sidecar_from_engine_001_is_refused() -> None:
+    """Fixture written by main at bb66f08 (before the 0.2 bump) with write_kick on Linux, by
+    engine 0.0.1. Its bytes cannot be reproduced any more (drive changed in #20 and #16), so
+    since #35 a re-render must fail instead of silently giving different bytes."""
+    with pytest.raises(io_mod.EngineVersionMismatch, match="0.0.1"):
+        io_mod.rerender_from_sidecar(V01_SIDECAR)
 
-    Its ``sha256`` and ``decay_40db_ms`` (279 -> 280) were updated in #16: the fixture has
-    drive 0.4, and the continuous drive curve changes its samples. The parameters are the
-    original ones, so the 0.1 -> 0.2 upgrade path is still what this test exercises."""
+
+@pytest.mark.skipif(sys.platform != "linux", reason="fixture sha256 was rendered on Linux")
+def test_v01_sidecar_bytes_really_changed() -> None:
+    """Why the refusal above is needed: rendered anyway, the bytes differ from the sidecar's."""
     expected = json.loads(V01_SIDECAR.read_text(encoding="utf-8"))["sha256"]
-    assert hashlib.sha256(io_mod.rerender_from_sidecar(V01_SIDECAR)).hexdigest() == expected
+    wav = io_mod.rerender_from_sidecar(V01_SIDECAR, allow_engine_mismatch=True)
+    assert hashlib.sha256(wav).hexdigest() != expected
 
 
 def test_v01_sidecar_renders_like_the_same_params_under_v02() -> None:
+    """The 0.1 -> 0.2 parameter upgrade still works (with the explicit opt-in)."""
     params = json.loads(V01_SIDECAR.read_text(encoding="utf-8"))["parameters"]
     wav, _, _ = io_mod.render_kick_wav({**params, "schema_version": "0.2"})
-    assert io_mod.rerender_from_sidecar(V01_SIDECAR) == wav
+    assert io_mod.rerender_from_sidecar(V01_SIDECAR, allow_engine_mismatch=True) == wav
 
 
 def test_v01_sidecar_without_pitch_decay_is_rejected(tmp_path) -> None:
@@ -268,7 +274,7 @@ def test_v01_sidecar_without_pitch_decay_is_rejected(tmp_path) -> None:
     path = tmp_path / "old.json"
     path.write_text(json.dumps(meta), encoding="utf-8")
     with pytest.raises(KickParamsError, match="schema_version"):
-        io_mod.rerender_from_sidecar(path)
+        io_mod.rerender_from_sidecar(path, allow_engine_mismatch=True)
 
 
 def test_v01_request_without_sidecar_is_rejected() -> None:

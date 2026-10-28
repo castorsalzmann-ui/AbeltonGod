@@ -24,6 +24,7 @@ Closes #
 - [ ] No contract changed — or this PR is labelled `contract-change` and `docs/INTERFACES.md` is updated
 - [ ] No capability set to `tested` without user evidence
 - [ ] No new dependency — or the reason is stated above
+- [ ] Rendered bytes unchanged — or: rendered bytes changed → `ENGINE_VERSION` bumped and golden hashes updated (`tests/audio_engine/test_engine_version.py`)
 
 ## Self-check: what did I do wrong, miss, or assume without saying?
 
