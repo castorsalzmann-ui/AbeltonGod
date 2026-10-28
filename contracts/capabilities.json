@@ -1,54 +1,69 @@
 {
   "schema_version": "1",
-  "live_version_tested": null,
+  "live_version_tested": "12.4.5",
   "capabilities": [
     {
       "id": "app.version",
       "kind": "read",
       "target": "/live/application/get/version",
-      "status": "supported",
+      "status": "tested",
+      "evidence": "https://github.com/castorsalzmann-ui/AbeltonGod/issues/5#issuecomment-6474540867",
       "reversible": true,
-      "notes": "AbletonOSC README (checked 2026-10-28). Returns major_version, minor_version only - no patch level, so the 12.0.5 check for create_audio_clip needs Help > About Live."
+      "notes": "AbletonOSC README (checked 2026-10-28). Returns major_version, minor_version only - no patch level, so the 12.0.5 check for create_audio_clip needs Help > About Live. User run 2026-10-28: raw=(12, 4)."
     },
     {
       "id": "song.tempo.get",
       "kind": "read",
       "target": "/live/song/get/tempo",
-      "status": "supported",
+      "status": "tested",
+      "evidence": "https://github.com/castorsalzmann-ui/AbeltonGod/issues/5#issuecomment-6474540867",
       "reversible": true,
-      "notes": "AbletonOSC README (checked 2026-10-28). Response: tempo_bpm."
+      "notes": "AbletonOSC README (checked 2026-10-28). Response: tempo_bpm. User run 2026-10-28: raw=(120.0,); also used as the request-bracketing marker (marker_echo PASS)."
     },
     {
       "id": "song.signature.get",
       "kind": "read",
       "target": "/live/song/get/signature_numerator, /live/song/get/signature_denominator",
-      "status": "supported",
+      "status": "tested",
+      "evidence": "https://github.com/castorsalzmann-ui/AbeltonGod/issues/5#issuecomment-6474540867",
       "reversible": true,
-      "notes": "AbletonOSC README (checked 2026-10-28)."
+      "notes": "AbletonOSC README (checked 2026-10-28). User run 2026-10-28: raw=(4, 4)."
     },
     {
       "id": "song.track_names.get",
       "kind": "read",
       "target": "/live/song/get/track_names",
-      "status": "supported",
+      "status": "tested",
+      "evidence": "https://github.com/castorsalzmann-ui/AbeltonGod/issues/5#issuecomment-6474540867",
       "reversible": true,
-      "notes": "AbletonOSC README (checked 2026-10-28). Optional params: index_min, index_max."
+      "notes": "AbletonOSC README (checked 2026-10-28). Optional params: index_min, index_max (not exercised). User run 2026-10-28: 4 tracks read correctly."
     },
     {
       "id": "track.mute.set",
       "kind": "write",
       "target": "/live/track/set/mute",
-      "status": "supported",
+      "status": "tested",
+      "evidence": "https://github.com/castorsalzmann-ui/AbeltonGod/issues/5#issuecomment-6474540867",
       "reversible": true,
-      "notes": "AbletonOSC README (checked 2026-10-28). Params: track_id, mute (1/0). Phase 02 harmless write test."
+      "notes": "AbletonOSC README (checked 2026-10-28). Params: track_id, mute (1/0). User run 2026-10-28: both directions written and read back via /live/track/get/mute (R1-R3 ok) on a MIDI track of a test set."
+    },
+    {
+      "id": "track.mute.get",
+      "kind": "read",
+      "target": "/live/track/get/mute",
+      "status": "tested",
+      "evidence": "https://github.com/castorsalzmann-ui/AbeltonGod/issues/5#issuecomment-6474540867",
+      "reversible": true,
+      "notes": "AbletonOSC README 'Track API' (checked 2026-10-28): /live/track/get/mute track_id -> track_id, mute; source abletonosc/track.py properties_rw contains 'mute'. Read-back for track.mute.set; until #42 it borrowed that gate. User run 2026-10-28 (script 0.1.0): read R0-R4 on track 1 '2-MIDI', raw=(False,)/(True,) matching each preceding write."
     },
     {
       "id": "song.undo",
       "kind": "action",
       "target": "/live/song/undo",
-      "status": "supported",
+      "status": "tested",
+      "evidence": "https://github.com/castorsalzmann-ui/AbeltonGod/issues/5#issuecomment-6474540867",
       "reversible": true,
-      "notes": "AbletonOSC README (checked 2026-10-28). Covers LOM changes, not file operations."
+      "notes": "AbletonOSC README (checked 2026-10-28). Covers LOM changes, not file operations. User run 2026-10-28: one undo reverted the last mute write (R4 ok). Only a single undo after a single write was verified; multi-step undo is not. Limitation (user decision, PR #42): script 0.1.0 did not re-read the whole set after undo (bug #39), so an undo that reverted an unrelated action could not be excluded; run was on Live's default 4-track set, R4 = unmuted."
     },
     {
       "id": "song.create_audio_track",

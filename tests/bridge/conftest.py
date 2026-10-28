@@ -13,12 +13,19 @@ TEST_TIMEOUT_S = 0.25
 
 
 def registry_with(tmp_path: Path, tested: set[str]) -> CapabilityRegistry:
-    """Copy of the real registry with the given ids marked ``tested`` (fake evidence)."""
+    """Copy of the real registry where exactly the given ids are ``tested`` (fake evidence).
+
+    Entries that are ``tested`` in the real registry but not listed are set back to
+    ``supported``, so gate tests do not depend on what the user has verified so far.
+    """
     doc = json.loads(CAPABILITIES_FILE.read_text(encoding="utf-8"))
     for cap in doc["capabilities"]:
         if cap["id"] in tested:
             cap["status"] = "tested"
             cap["evidence"] = "test fixture - not real evidence"
+        elif cap["status"] == "tested":
+            cap["status"] = "supported"
+            cap.pop("evidence", None)
     path = tmp_path / "capabilities.json"
     path.write_text(json.dumps(doc), encoding="utf-8")
     return CapabilityRegistry.from_file(path)

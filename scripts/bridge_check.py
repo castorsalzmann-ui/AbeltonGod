@@ -44,13 +44,12 @@ What it does:
    the user its original state and prints the result block (exit 130 on Ctrl+C).
 4. Prints a fenced result block to paste into issue #5.
 
-Capability gate: the script lists every capability it touches in ``ALLOWED`` and passes them
-to the gate's explicit check-script override (``allow_untested``). A capability that is
-already ``tested`` in ``contracts/capabilities.json`` passes the gate without the override; one
-that is not yet ``tested`` is called through the override and listed under
-``capability_overrides_used`` in the result block. The script never changes the registry;
-statuses change only in a separate contract-change PR, with the user's pasted output as
-evidence.
+Capability gate: the capabilities this script touches are ``tested`` since #42 (evidence: the
+user's 0.1.0 run in #5). The script still passes them to the gate's explicit check-script
+override (``allow_untested``), so it keeps working if one is set back to ``supported`` for a
+re-test; ``capability_overrides_used`` in the result block shows which were needed. It never
+changes the registry. Statuses change only in a separate contract-change PR, with the pasted
+output as evidence.
 
 Never sends destructive commands. User-facing text is German; code and comments are English.
 """
@@ -84,6 +83,7 @@ from bridge.osc_client import (
 
 # 0.2.0: whole-set check around undo, Ctrl+C handling (#39)
 # 0.3.0: tempo/signature in the snapshot, undo scope note, EOF at track prompt aborts (#44)
+# 0.3.1: mute read-back gated as its own capability track.mute.get (#42); output unchanged
 # 0.4.0: neutral FAIL for tempo/signature-only changes, Ctrl+C at a prompt exits 130 (#43)
 SCRIPT_VERSION = "0.4.0"
 
@@ -91,7 +91,10 @@ SCRIPT_VERSION = "0.4.0"
 READ_CAPABILITIES = ("app.version", "song.tempo.get", "song.signature.get",
                      "song.track_names.get")
 WRITE_CAPABILITIES = ("track.mute.set", "song.undo")
-ALLOWED = READ_CAPABILITIES + WRITE_CAPABILITIES
+# Read-back used inside the write sequence and the undo snapshots; it has no result line of
+# its own (its reads are the R0-R5 lines of write_sequence).
+READBACK_CAPABILITIES = ("track.mute.get",)
+ALLOWED = READ_CAPABILITIES + WRITE_CAPABILITIES + READBACK_CAPABILITIES
 
 PASS, FAIL, SKIPPED = "PASS", "FAIL", "SKIPPED"
 
@@ -164,7 +167,7 @@ class Report:
         return any(c.result == FAIL for c in self.checks.values())
 
 
-CHECK_ORDER = ("bridge.marker_echo",) + ALLOWED
+CHECK_ORDER = ("bridge.marker_echo",) + READ_CAPABILITIES + WRITE_CAPABILITIES
 
 
 def now_iso() -> str:

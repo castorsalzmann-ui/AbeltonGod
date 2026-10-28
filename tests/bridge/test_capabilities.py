@@ -59,7 +59,11 @@ def test_address_scan_finds_every_quoting_style():
 
 def test_every_address_the_bridge_sends_is_registered_or_pending():
     """No /live/ literal in src/bridge/ or scripts/ outside ADDRESSES, PENDING_REGISTRY and
-    the marker/error addresses (#39, #44)."""
+    the marker/error addresses (#39, #44).
+
+    This also flags a quoted /live/ path in future user-facing text (e.g. a German hint
+    naming an OSC address). That is on purpose: such text must take the address from
+    ADDRESSES, not repeat it as a literal (nit from the PR #45 review)."""
     literals = scanned_address_literals()
     assert literals, "scan found nothing: the pattern or the paths are broken"
     known = {a for addrs in ADDRESSES.values() for a in addrs}
@@ -76,7 +80,9 @@ def test_pending_entries_are_not_yet_in_the_registry_and_borrow_a_real_gate():
         assert cap_id not in ADDRESSES
         assert borrowed in ADDRESSES
         assert not set(addresses) & {a for v in ADDRESSES.values() for a in v}
-    assert set(PENDING_REGISTRY) == {"track.mute.get"}
+    # track.mute.get moved into ADDRESSES and the registry in #42; nothing is pending now.
+    # A new pending entry must be added here deliberately.
+    assert set(PENDING_REGISTRY) == set()
 
 
 @pytest.mark.parametrize("status", ["unknown", "supported"])
@@ -123,6 +129,7 @@ def test_unknown_capability_is_refused(tmp_path):
 def test_registry_rejects_tested_without_evidence(tmp_path):
     doc = json.loads(json.dumps(RAW))
     doc["capabilities"][0]["status"] = "tested"
+    doc["capabilities"][0].pop("evidence", None)
     path = tmp_path / "caps.json"
     path.write_text(json.dumps(doc), encoding="utf-8")
     with pytest.raises(CapabilityRegistryError, match="schema"):
@@ -147,14 +154,15 @@ def test_registry_rejects_duplicate_ids(tmp_path):
         CapabilityRegistry.from_file(path)
 
 
-# With the committed registry nothing is tested yet, so every bridge call must be refused
-# before anything reaches the network.
+# With no bridge capability tested, every bridge call must be refused before anything
+# reaches the network. Uses a fixture registry: the committed one has them tested (#5).
 BRIDGE_CALLS = {
     "app.version": lambda b: b.get_version(),
     "song.tempo.get": lambda b: b.get_tempo(),
     "song.signature.get": lambda b: b.get_signature(),
     "song.track_names.get": lambda b: b.get_track_names(),
     "track.mute.set": lambda b: b.set_track_mute(0, True),
+    "track.mute.get": lambda b: b.get_track_mute(0),
     "song.undo": lambda b: b.undo(),
 }
 
@@ -164,8 +172,8 @@ def test_every_bridge_capability_has_a_gate_test():
 
 
 @pytest.mark.parametrize("cap_id", sorted(BRIDGE_CALLS))
-def test_bridge_refuses_untested_before_any_network_io(fake, transport, cap_id):
-    bridge = AbletonBridge(transport, CapabilityGate(CapabilityRegistry.from_file()))
+def test_bridge_refuses_untested_before_any_network_io(fake, transport, tmp_path, cap_id):
+    bridge = AbletonBridge(transport, CapabilityGate(registry_with(tmp_path, set())))
     with pytest.raises(CapabilityNotTestedError) as err:
         BRIDGE_CALLS[cap_id](bridge)
     assert err.value.capability_id == cap_id
@@ -184,8 +192,8 @@ def test_bridge_refuses_when_only_other_capabilities_are_tested(fake, transport,
 
 
 @pytest.mark.parametrize("cap_id", sorted(BRIDGE_CALLS))
-def test_bridge_override_lets_check_script_call(fake, transport, cap_id):
-    gate = CapabilityGate(CapabilityRegistry.from_file(), allow_untested={cap_id})
+def test_bridge_override_lets_check_script_call(fake, transport, tmp_path, cap_id):
+    gate = CapabilityGate(registry_with(tmp_path, set()), allow_untested={cap_id})
     BRIDGE_CALLS[cap_id](AbletonBridge(transport, gate))
     assert gate.overrides_used and set(gate.overrides_used) == {cap_id}
 

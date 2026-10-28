@@ -5,6 +5,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import os
+import random
 import subprocess
 import sys
 import threading
@@ -376,11 +377,178 @@ def test_git_branch_in_a_normal_checkout(tmp_path):
     assert ww.git_branch(tmp_path) == "main"
 
 
-def test_settings_register_the_hook_for_all_three_events():
+HOOK_COMMAND = (
+    'python3 "$CLAUDE_PROJECT_DIR/.claude/hooks/waste_watch.py" 2>/dev/null'
+    ' || python "$CLAUDE_PROJECT_DIR/.claude/hooks/waste_watch.py" || exit 0'
+)
+HOOK_ENTRY = {"type": "command", "command": HOOK_COMMAND, "timeout": 10}
+
+
+def test_settings_pin_exactly_the_budget_hook():
+    # The file configures the user's own sessions: pin it whole, so a narrowed matcher, a
+    # changed timeout or an added setting (e.g. permission rules) fails here (review of #46).
     settings = json.loads((ROOT / ".claude" / "settings.json").read_text(encoding="utf-8"))
-    for event in ("PostToolUse", "PostToolUseFailure", "Stop"):
-        commands = [h["command"] for group in settings["hooks"][event] for h in group["hooks"]]
-        assert any("waste_watch.py" in c for c in commands), event
+    tool_group = {"matcher": "*", "hooks": [HOOK_ENTRY]}
+    assert settings == {
+        "hooks": {
+            "PostToolUse": [tool_group],
+            "PostToolUseFailure": [tool_group],
+            "PermissionDenied": [tool_group],
+            "Stop": [{"hooks": [HOOK_ENTRY]}],
+        }
+    }
+
+
+# --- #19: cloud reviewer runs and permission denials ------------------------
+# The PermissionDenied payloads below are synthetic, shaped like the published SDK type
+# (`@anthropic-ai/claude-agent-sdk@0.3.312` sdk.d.ts `PermissionDeniedHookInput`: tool_name,
+# tool_input, tool_use_id, reason). The parser stays tolerant, so the tests also cover payloads
+# without those fields.
+
+
+def denied(tool="Bash", tool_input=None, **extra):
+    return ev(tool, tool_input or {"command": "rm -rf build"}, name="PermissionDenied", **extra)
+
+
+def agent(description, subagent_type="general-purpose", i=0):
+    return ev(
+        "Agent",
+        {"subagent_type": subagent_type, "description": description, "prompt": f"p{i}"},
+    )
+
+
+@pytest.mark.parametrize(
+    "description",
+    ["Review PR #18", "independent review of branch", "REVIEWER pass", "pre-PR Review"],
+)
+def test_general_purpose_agent_described_as_review_counts_as_reviewer(description):
+    keys, state = run([agent(description, i=i) for i in range(3)])
+    assert state["reviewer_runs"] == 3
+    assert kinds(keys) == ["reviewer"]
+
+
+@pytest.mark.parametrize(
+    "tool_input",
+    [
+        {"subagent_type": "general-purpose", "description": "Explore the bridge code"},
+        {"subagent_type": "general-purpose", "description": "Rev iew"},
+        {"subagent_type": "general-purpose", "description": "Preview the WAV render"},
+        {"subagent_type": "general-purpose", "description": "PREVIEW kick variants"},
+        {"subagent_type": "general-purpose", "description": None},
+        {"subagent_type": "general-purpose", "description": ["review"]},
+        {"subagent_type": "general-purpose", "prompt": "please review"},  # prompt not used
+        {"subagent_type": "Explore"},
+    ],
+)
+def test_other_agent_calls_are_not_reviewer_runs(tool_input):
+    _, state = run([ev("Agent", tool_input)])
+    assert state["reviewer_runs"] == 0
+    assert state["subagents"] == 1
+
+
+def test_reviewer_type_and_review_description_mix_and_count_once_each():
+    events = [
+        ev("Agent", {"subagent_type": "reviewer", "description": "Review round 1"}),
+        agent("Review round 2", i=2),
+        ev("Task", {"subagent_type": "general-purpose", "description": "review round 3"}),
+    ]
+    keys, state = run(events)
+    assert state["reviewer_runs"] == 3
+    assert kinds(keys) == ["reviewer"]
+
+
+def test_failed_agent_call_described_as_review_is_not_counted():
+    _, state = run([ev("Agent", {"description": "Review"}, name="PostToolUseFailure")])
+    assert state["reviewer_runs"] == 0
+
+
+def test_permission_denials_count_toward_failure_streak():
+    keys, state = run([denied(tool_input={"command": f"d{i}"}) for i in range(3)])
+    assert keys == [] and state["fail_streak"] == 3
+    keys, _ = run([denied(tool_input={"command": f"d{i}"}) for i in range(4)])
+    assert kinds(keys) == ["fail_streak"]
+
+
+def test_denials_and_failures_form_one_streak_and_success_breaks_it():
+    fail = ev(tool_input={"command": "x"}, name="PostToolUseFailure")
+    ok = ev(tool_input={"command": "ok"})
+    keys, _ = run([denied(), fail, denied("mcp__x__add_repo", {}), fail])
+    assert kinds(keys) == ["fail_streak"]
+    keys, state = run([denied(), denied(), denied(), ok, denied()])
+    assert keys == [] and state["fail_streak"] == 1
+
+
+@pytest.mark.parametrize(
+    "event",
+    [
+        {"hook_event_name": "PermissionDenied"},
+        {"hook_event_name": "PermissionDenied", "tool_name": None, "tool_input": "x"},
+        {"hook_event_name": "PermissionDenied", "tool_name": "Bash", "reason": {"a": 1}},
+    ],
+)
+def test_denial_payload_without_known_fields_still_counts(event):
+    _, state = run([event] * 4)
+    assert state["fail_streak"] == 4
+    assert state["tool_calls"] == 4
+
+
+def test_denied_calls_do_not_count_as_repeats_edits_or_subagents():
+    events = [denied()] * 5 + [denied("Edit", {"file_path": "/x/a.py"})] * 20
+    events += [denied("Agent", {"subagent_type": "reviewer", "description": "Review"})] * 5
+    _, state = run(events)
+    assert state["since_change"] == {}
+    assert state["edits"] == {}
+    assert state["subagents"] == 0 and state["reviewer_runs"] == 0
+
+
+def test_failure_streak_matches_independent_reference_on_random_sequences():
+    # Reference written here, not taken from the hook: a run of failures/denials ending at
+    # the first success; a warning per run that reaches the limit.
+    rng = random.Random(19)
+    kinds_pool = ["PostToolUse", "PostToolUseFailure", "PermissionDenied"]
+    for _ in range(200):
+        names = [rng.choice(kinds_pool) for _ in range(rng.randint(0, 40))]
+        events = [ev(tool_input={"command": f"c{i}"}, name=n) for i, n in enumerate(names)]
+        expected, run_len = 0, 0
+        for n in names:
+            run_len = 0 if n == "PostToolUse" else run_len + 1
+            if run_len == LIMITS["failure_streak"]:
+                expected += 1
+        keys, state = run(events)
+        assert kinds(keys).count("fail_streak") == expected, names
+        assert state["fail_streak"] == run_len
+
+
+def test_handle_permission_denied_prints_only_system_message(tmp_path, monkeypatch):
+    monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(tmp_path))
+    outs = [ww.handle(denied(tool_input={"command": f"d{i}"}, session_id="pd")) for i in range(4)]
+    assert outs[:3] == [None, None, None]
+    assert set(outs[3]) == {"systemMessage"}
+    assert "fehlgeschlagene" in outs[3]["systemMessage"]
+    stop = ww.handle({"hook_event_name": "Stop", "session_id": "pd"})
+    assert "fail_streak" in stop["systemMessage"]
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"hook_event_name": "PermissionDenied"},
+        {"hook_event_name": "PermissionDenied", "tool_name": 5, "tool_input": [1]},
+        {"hook_event_name": "PermissionDenied", "session_id": None, "tool_name": "Bash"},
+    ],
+)
+def test_script_never_fails_on_permission_denied_payloads(tmp_path, payload):
+    env = {**os.environ, "CLAUDE_PROJECT_DIR": str(tmp_path)}
+    for _ in range(5):
+        result = subprocess.run(
+            [sys.executable, str(HOOK)],
+            input=json.dumps(payload),
+            capture_output=True,
+            text=True,
+            env=env,
+        )
+        assert result.returncode == 0
+        assert result.stdout == "" or set(json.loads(result.stdout)) == {"systemMessage"}
 
 
 # --- report -----------------------------------------------------------------
