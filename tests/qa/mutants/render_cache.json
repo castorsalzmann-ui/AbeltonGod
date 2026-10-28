@@ -1,0 +1,92 @@
+{
+  "description": "#77: faults in the render cache (tests/support/render_cache.py) and its installation (tests/conftest.py). STALE_* return a render made for other parameters; each must turn red both in the cache's own tests and in the product tests that use the cache.",
+  "mutants": [
+    {
+      "id": "STALE_FIRST_ENTRY_KICK",
+      "file": "tests/support/render_cache.py",
+      "old": "    hit = _store.get(key)\n",
+      "new": "    hit = next(iter(_store.values()), None)\n",
+      "tests": ["tests/audio_engine/test_kick.py"],
+      "expected": "killed",
+      "note": "every hit returns the oldest stored render; product tests only"
+    },
+    {
+      "id": "STALE_FIRST_ENTRY_QA",
+      "file": "tests/support/render_cache.py",
+      "old": "    hit = _store.get(key)\n",
+      "new": "    hit = next(iter(_store.values()), None)\n",
+      "tests": ["tests/qa/test_render_cache.py"],
+      "expected": "killed",
+      "note": "same fault, cache-on == cache-off test"
+    },
+    {
+      "id": "STALE_KEY_FIELD_NAMES_KICK",
+      "file": "tests/support/render_cache.py",
+      "old": "    return json.dumps(params, sort_keys=True, allow_nan=True)\n",
+      "new": "    return json.dumps(sorted(params), allow_nan=True)\n",
+      "tests": ["tests/audio_engine/test_kick.py"],
+      "expected": "killed",
+      "note": "key ignores the values: sets with the same fields share one render"
+    },
+    {
+      "id": "STALE_KEY_FIELD_NAMES_QA",
+      "file": "tests/support/render_cache.py",
+      "old": "    return json.dumps(params, sort_keys=True, allow_nan=True)\n",
+      "new": "    return json.dumps(sorted(params), allow_nan=True)\n",
+      "tests": ["tests/qa/test_render_cache.py"],
+      "expected": "killed"
+    },
+    {
+      "id": "PATCH_NOT_DETECTED",
+      "file": "tests/support/render_cache.py",
+      "old": "    return _snapshot() == _PRISTINE\n",
+      "new": "    return True\n",
+      "tests": ["tests/qa/test_render_cache.py"],
+      "expected": "killed",
+      "note": "a patched engine would be served clean renders and vice versa"
+    },
+    {
+      "id": "MONKEYPATCH_NOT_BYPASSED",
+      "file": "tests/support/render_cache.py",
+      "old": " and \"monkeypatch\" not in fixturenames",
+      "new": "",
+      "tests": ["tests/qa/test_render_cache.py"],
+      "expected": "killed"
+    },
+    {
+      "id": "NOT_READ_ONLY",
+      "file": "tests/support/render_cache.py",
+      "old": "    frozen.setflags(write=False)\n",
+      "new": "",
+      "tests": ["tests/qa/test_render_cache.py"],
+      "expected": "killed"
+    },
+    {
+      "id": "RESOLVED_SHARED",
+      "file": "tests/support/render_cache.py",
+      "old": "        return hit[0], dict(hit[1])\n",
+      "new": "        return hit[0], hit[1]\n",
+      "tests": ["tests/qa/test_render_cache.py"],
+      "expected": "killed",
+      "note": "a test that edits the returned dict would change what the next test sees"
+    },
+    {
+      "id": "HIT_NOT_CHECKED",
+      "file": "tests/support/render_cache.py",
+      "old": "        _check_hit(params, hit[1])\n",
+      "new": "",
+      "tests": ["tests/qa/test_render_cache.py"],
+      "expected": "killed",
+      "note": "the self-check is what kills STALE_KEY_FIELD_NAMES_KICK in test_kick.py"
+    },
+    {
+      "id": "CACHE_FOR_EVERY_TEST",
+      "file": "tests/support/render_cache.py",
+      "old": "    return enabled() and test_key in CACHED_TESTS and",
+      "new": "    return enabled() and",
+      "tests": ["tests/qa/test_render_cache.py"],
+      "expected": "killed",
+      "note": "determinism and golden tests would get cached renders; the render counter must see it"
+    }
+  ]
+}

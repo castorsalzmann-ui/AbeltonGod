@@ -19,6 +19,9 @@ How it stays honest:
 - **Exact key.** The key is the canonical JSON of the parameter dict. Only plain
   ``str``/``int``/``float``/``bool``/``None`` values are accepted; anything else (numpy
   scalars, nested objects) renders directly. ``7`` and ``7.0`` are different keys.
+- **Self-checking.** Every hit compares the stored resolved params with
+  ``resolve_kick_params(params)`` and raises ``StaleRenderError`` on a mismatch, so a wrong
+  key can never hand a test another set's render.
 - **Read-only.** The cached array is marked non-writeable, and every hit returns a fresh copy
   of the resolved-params dict, so no test can change what the next one sees.
 - **Switch off:** ``ABELTONGOD_RENDER_CACHE=0`` disables it for a whole run (cache-off
@@ -111,6 +114,24 @@ def clear() -> None:
         stats[k] = 0
 
 
+class StaleRenderError(AssertionError):
+    """A cache hit belongs to other parameters than the ones asked for."""
+
+
+def _check_hit(params: dict[str, Any], stored: dict[str, Any]) -> None:
+    """Every hit is checked against the engine's own resolver (independent of the key code).
+
+    Needed because a stale hit carries its own resolved params: tests that read everything
+    from the returned ``(audio, resolved)`` pair stay self-consistent and cannot see that they
+    got the wrong render (mutant STALE_KEY_FIELD_NAMES survived test_kick.py without this).
+    """
+    expected = _params.resolve_kick_params(params)
+    for name in _kick.BATCH_ONLY_PARAMS:
+        expected.pop(name, None)
+    if expected != stored:
+        raise StaleRenderError(f"cache hit for other parameters: {expected} != {stored}")
+
+
 def _engine(params: dict[str, Any]) -> tuple[np.ndarray, dict[str, Any]]:
     # Looked up at call time, so a render counter wrapped around the engine still counts.
     return _kick.render_kick(params)
@@ -125,6 +146,7 @@ def cached_render_kick(params: dict[str, Any]) -> tuple[np.ndarray, dict[str, An
         return _engine(params)
     hit = _store.get(key)
     if hit is not None:
+        _check_hit(params, hit[1])
         _store.move_to_end(key)
         stats["hits"] += 1
         return hit[0], dict(hit[1])

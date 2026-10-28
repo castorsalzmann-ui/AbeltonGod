@@ -75,15 +75,36 @@ def test_cache_on_equals_cache_off() -> None:
 
 
 def test_hits_are_read_only_and_isolated() -> None:
-    audio, resolved = rc.cached_render_kick(BASE)
-    assert not audio.flags.writeable
-    with pytest.raises(ValueError):
-        audio[0] = 1.0
-    resolved["drive"] = 99.0
-    again, resolved_again = rc.cached_render_kick(BASE)
+    """Miss and hit results: the array cannot be written, and editing a returned dict does
+    not change what the next call gets."""
+    reference = kick_mod.render_kick(BASE)
+    for expected_hits in (1, 2, 3):
+        audio, resolved = rc.cached_render_kick(BASE)
+        assert not audio.flags.writeable
+        with pytest.raises(ValueError):
+            audio[0] = 1.0
+        resolved["drive"] = 99.0
+        again, resolved_again = rc.cached_render_kick(BASE)
+        assert rc.stats["hits"] == expected_hits * 2 - 1
+        assert _same((again, resolved_again), reference)
+        resolved_again["seed"] = -1
+
+
+def test_planted_stale_entry_is_refused() -> None:
+    """Fault injection inside the store: the entry for BASE holds the render of seed 8. A hit
+    must raise, never hand out the other render."""
+    rc.cached_render_kick({**BASE, "seed": 8})
+    rc._store[rc.cache_key(BASE)] = rc._store[rc.cache_key({**BASE, "seed": 8})]
+    with pytest.raises(rc.StaleRenderError):
+        rc.cached_render_kick(BASE)
+    assert rc.stats["hits"] == 0
+
+
+def test_hit_check_ignores_batch_only_params() -> None:
+    p = {**BASE, "variants": 3}
+    rc.cached_render_kick(p)
+    assert _same(rc.cached_render_kick(p), kick_mod.render_kick(p))
     assert rc.stats["hits"] == 1
-    assert resolved_again["drive"] != 99.0
-    assert _same((again, resolved_again), kick_mod.render_kick(BASE))
 
 
 def test_input_dict_is_not_stored_by_reference() -> None:
