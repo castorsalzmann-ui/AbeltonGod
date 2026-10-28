@@ -4,13 +4,13 @@ _Date: 2026-10-28 · Status: **required reading, once, before any kick-engine wo
 
 ## Short version
 
-1. **Genre-fluid.** No genre-keyed presets, fingerprints, ranges or code paths. Name presets by sound character. (User instruction, 2026-10-28.)
+1. **One shared parameter space, free by values.** Every kick is reachable by setting values directly. The user wants **both** later: free synthesis by values **and** genre-specific starting points. Genre profiles may come later as optional data on top of the same parameter space (start values and ranges), never as a separate synthesis code path. No genre presets or genre fingerprints for now. Not a recorded decision. (User instruction, 2026-10-28.)
 2. **Never gate the best result.** The best-balanced version of a preset is always directly reachable. `variants` add range, never rarity.
 3. **The measured taste is a range, not a point:** tail fundamental about 45–60 Hz, 80–90 % of the energy below 100 Hz, clean sine tails, click amount the freest axis. These are hypotheses until the user has listened.
 4. **Market features are candidates, not scope.** Each one needs a `parking-lot` issue and, if it adds a parameter, a `contract-change` PR first (section 3.2).
 5. **Aliasing has no requirement and no test yet.** Anything that adds `drive` should get one (section 3.2, M9).
 6. **Nine measurement pitfalls** already cost wrong numbers once. Use them when writing or reading analysis code (section 4).
-7. **Reference audio is measurement input only.** Never commit it, never copy prototype or commercial parameter tables, count each kick once.
+7. **Reference audio is measurement input only, and only its content counts.** File, pack and preset names never carry meaning. Never commit reference audio, never copy prototype or commercial parameter tables, count each kick once.
 8. **Say what is documented and what is derived.** Write "not established" instead of guessing.
 
 ## How to use this note
@@ -23,7 +23,7 @@ These are **lessons and findings**, not a parameter table. Three sources, none o
 
 Use this note to choose defaults, variant axes and analysis methods. Derive your own values and verify them with tests and the user's ears (Phase 01 acceptance criteria). Keep the source's habit of labelling a claim *documented* (comes from a source) or *derived* (an inference).
 
-**Standing guidance from the user (2026-10-28): keep everything genre-fluid for now.** The reference set stays one group. This is the user's instruction in chat, not yet a recorded decision; a decision entry is proposed in the PR body.
+**Standing guidance from the user (2026-10-28): genre does not matter for now, but must stay possible later.** The reference set stays one group. Later the user wants to synthesise both genre-specific and freely by values; keep the engine one continuous parameter space so genre profiles can be added as data without a second code path. This is the user's instruction in chat. It is deliberately **not** recorded as a decision.
 
 ## 1. Lessons from the prototype
 
@@ -58,7 +58,7 @@ Accuracy check on synthetic kicks with known values: tail pitch within 4 %, pitc
 
 - **Different beyond chance, also without the 8 loop files:** tail pitch (55.9 vs 49.9 Hz, Mann–Whitney p = 0.001), pitch settle (34 vs 19 ms, p = 0.02), sub share (0.81 vs 0.89, p = 0.0004), crest factor (p = 0.01) and decay (p = 0.002).
 - **Not different without the loop files:** onset brightness (p = 0.22). The low click in set 2 comes from the 8 loop first-hits, which also have a high crest factor (median 4.0).
-- **Cause not established.** Candidates: different genre mix, different packs, or a change in what the user was looking for between the two uploads. The data cannot tell them apart, and under the genre-fluid guidance this is not pursued for now.
+- **Cause not established.** Candidates: different genre mix, different packs, or a change in what the user was looking for between the two uploads. The data cannot tell them apart, and while genre does not matter this is not pursued.
 
 So the "taste" is **a range, not a point**. Tail pitch 45–60 Hz, sub-dominant, clean tails, click amount free.
 
@@ -143,7 +143,7 @@ The first pass of this analysis (not in the repo) reported a pitch-sweep ratio o
 
 **Scope and design**
 - Everything in 3.2 except "Core" is **not scope** until an issue says so. A new engine parameter needs a `parking-lot` issue, then a `contract-change` PR.
-- Genre-fluid. Never gate the best result. Every exposed parameter must measurably change an analysis value, and a test must show it.
+- One shared parameter space; genre profiles only later and only as data on top of it. Never gate the best result. Every exposed parameter must measurably change an analysis value, and a test must show it.
 - Use the measured taste as a range, not a point (section 2).
 
 **Measuring and testing**
@@ -166,4 +166,4 @@ The first pass of this analysis (not in the repo) reported a pitch-sweep ratio o
 ## Open questions for the user
 
 - Do the medians above match the kicks you would actually use in your own tracks?
-- None blocking. The two uploads differ (tail ≈ 56 vs ≈ 49 Hz); if the user ever wants to know why, per-file notes would be needed. Not requested while everything stays genre-fluid.
+- None blocking. The two uploads differ (tail ≈ 56 vs ≈ 49 Hz); if the user ever wants to know why, per-file notes would be needed. Not requested while genre does not matter.
