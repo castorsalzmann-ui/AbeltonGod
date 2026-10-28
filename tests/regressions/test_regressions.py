@@ -122,6 +122,10 @@ def load_case(path: Path) -> dict[str, Any]:
     if missing:
         raise fail(f"params must list every engine field; missing: {', '.join(missing)}")
     lo, hi = case["expected"].get("min"), case["expected"].get("max")
+    before = case["before_fix"]["value"]
+    for label, x in (("expected min", lo), ("expected max", hi), ("before_fix value", before)):
+        if x is not None and not math.isfinite(x):  # json.loads turns 1e999 into inf
+            raise fail(f"{label} must be finite, got {x}")
     if lo is None and hi is None:
         raise fail("expected needs at least one of min or max")
     if lo is not None and hi is not None and lo > hi:
@@ -188,7 +192,9 @@ def measure(case: dict[str, Any]) -> float | None:
     return analyse(audio, r["sample_rate"])[kind.removeprefix("analysis.")]
 
 
-CASE_FILES = sorted(CASE_DIR.glob("*.json"))
+# Not glob("*.json"): that is case-sensitive on Linux but not on Windows. Every .json file,
+# whatever its case, is collected, so a misnamed one fails the name check on every OS.
+CASE_FILES = sorted(p for p in CASE_DIR.iterdir() if p.is_file() and p.suffix.lower() == ".json")
 
 
 def test_corpus_is_not_empty() -> None:
@@ -247,6 +253,7 @@ MALFORMED = [
     ("bug_9.json", lambda c: None, "file name says #9"),
     ("regression_8.json", lambda c: None, "file name must be bug_<issue>"),
     ("bug_8.json", _edit("extra", 1), "Additional properties are not allowed"),
+    ("bug_8.JSON", lambda c: None, "file name must be bug_<issue>"),
 ]
 
 
@@ -269,6 +276,20 @@ def test_invalid_json_is_rejected_with_clear_message(tmp_path, text: str) -> Non
     path = tmp_path / "bug_8.json"
     path.write_text(text, encoding="utf-8")
     with pytest.raises(CaseError, match=r"^bug_8\.json: not valid JSON"):
+        load_case(path)
+
+
+@pytest.mark.parametrize(
+    ("field", "label"),
+    [("expected.max", "expected max"), ("before_fix.value", "before_fix value")],
+)
+def test_overflowing_number_is_rejected_as_non_finite(tmp_path, field: str, label: str) -> None:
+    """json.loads reads the literal 1e999 as inf without calling parse_constant (review of #24)."""
+    case = _good_case()
+    _edit(field, "__HUGE__")(case)
+    path = tmp_path / "bug_8.json"
+    path.write_text(json.dumps(case).replace('"__HUGE__"', "-1e999"), encoding="utf-8")
+    with pytest.raises(CaseError, match=rf"^bug_8\.json: {label} must be finite"):
         load_case(path)
 
 
