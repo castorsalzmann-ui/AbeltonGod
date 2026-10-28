@@ -23,7 +23,7 @@ foreach ($p in "centre", "dark-dry", "punchy", "rumble-ready", "driven") {
   if ($LASTEXITCODE) { "Fehler bei $p (Exit-Code $LASTEXITCODE)" }
 }
 python -m audio_engine.kick --preset centre --set pitch_decay_ms=15 --out $out
-python -m audio_engine.kick --preset centre --set pitch_decay_ms=40 --out $out
+python -m audio_engine.kick --preset centre --set pitch_decay_ms=8 --out $out
 python -m audio_engine.kick --preset driven --set drive=0 --out $out
 python -m audio_engine.kick --preset centre --set length_ms=450.02 --out $out
 python -m audio_engine.kick --preset punchy --set length_ms=80 --set amp_decay_ms=60 --out $out
@@ -39,7 +39,7 @@ Danach sollte der Ordner diese Dateien enthalten (jeweils `.wav` + `.json`):
 | Datei | Wofür |
 | --- | --- |
 | `centre_s1001_v0` … `v3`, ebenso `dark-dry_s1002_*`, `punchy_s1003_*`, `rumble-ready_s1004_*`, `driven_s1005_*` | Punkte 1 und 2 |
-| `centre_s1001_v0_custom` (pitch_decay 15), `centre_s1001_v0_custom_002` (40) | Punkt 3 |
+| `centre_s1001_v0_custom` (pitch_decay 15), `centre_s1001_v0_custom_002` (8) | Punkt 3 |
 | `driven_s1005_v0_custom` (drive 0) | Punkt 4 |
 | `centre_s1001_v0_custom_003` (450,02 ms, 21601 Samples) | Punkt 5 |
 | `punchy_s1003_v0_custom` (80 ms) | Punkt 6 |
@@ -57,7 +57,7 @@ Welche `_custom`-Datei welche ist, steht in ihrer `.json` unter `description` ("
 
 1. **Presets** (`*_v0`): Welche sind brauchbar, welche nicht? Was soll sich ändern (z. B. „mehr Klick“, „Schwanz zu lang“)?
 2. **Varianten** (`v1`–`v3` je Preset gegen `v0`): Hörst du einen Unterschied? Zu wenig, passend oder zu viel?
-3. **pitch_decay 8 / 15 / 40** auf `centre`: `centre_s1001_v0` (8 ms) gegen die `_custom`-Dateien mit 15 und 40. Welcher Wert klingt richtig? Das entscheidet den Standardwert im Vertrag (heute 15).
+3. **pitch_decay 8 / 15 / 40** auf `centre`: `centre_s1001_v0` (40 ms) gegen die `_custom`-Dateien mit 15 und 8. Welcher Wert klingt richtig? Der erste Hörtest (2026-10-28) lief noch mit `centre` = 8 ms und `--set pitch_decay_ms=40`; du hast 40 gewählt. Seit #59 hat `centre` deshalb 40 ms; der Standardwert im Vertrag bleibt 15 ms.
 4. **Drive** (anti-aliased #20, stetig ab 0 #38): `driven_s1005_v0` (drive 0,45) gegen `driven_s1005_v0_custom` (drive 0). Klingt der Drive in Ordnung, oder hörst du Artefakte (Kratzen, metallische Obertöne)? Die alte Version ohne Anti-Aliasing gibt es nicht mehr; beurteile nur, ob er so in Ordnung ist.
 5. **WAV-Format** (Format-Tag 1, 24 bit, ungerade Samplezahl): die 450,02-ms-Datei in Live ziehen. Lädt und spielt sie ohne Warnung?
 6. **Sub-Bass-Schwanz kurzer Kicks (#9):** die 80-ms-Datei (`punchy_s1003_v0_custom`). Hörst du ein Grummeln, oder siehst du im Spectrum-Analyzer etwas unter 20 Hz? Pumpt ein Limiter im Master darauf?
