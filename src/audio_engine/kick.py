@@ -10,7 +10,12 @@ Signal chain (all mono, float64, sample-exact for given parameters and seed):
    ``amp_decay_ms`` is the time to fall by 60 dB.
 3. Click: band-pass filtered noise burst (seeded RNG) centred on ``click_tone_hz``, mixed at
    ``click_level``; raised-cosine edges so it starts and ends at exactly zero.
-4. Drive: normalised tanh saturation, ``drive`` 0 = clean, 1 = heavy.
+4. Drive: normalised tanh saturation, ``drive`` 0 = clean, 1 = heavy. Computed at
+   ``DRIVE_OVERSAMPLE`` times the sample rate with a linear-phase low-pass, so the partials
+   tanh creates above the Nyquist frequency are removed instead of aliasing back into the
+   audible band. Sample 0 is then set to exactly zero: the band-limited result is slightly
+   non-zero there (up to a few percent of peak with ``amp_attack_ms`` 0), and every kick
+   starts at exactly zero, as it did with the base-rate tanh.
 5. Tone: tilt around a one-pole low-pass at 1.5 kHz; ``tone`` -1 = darker, +1 = brighter.
 6. DC blocker (one-pole high-pass, 10 Hz), 5 ms cosine fade-out, then the remaining mean is
    removed with a Hann-shaped correction so the first and last samples stay exactly zero.
@@ -31,8 +36,10 @@ import numpy as np
 
 from .dsp import (
     biquad_bandpass,
+    kaiser_lowpass,
     one_pole_highpass,
     one_pole_lowpass,
+    oversampled,
     raised_cosine,
 )
 from .params import resolve_kick_params
@@ -45,6 +52,12 @@ CLICK_Q = 0.9
 TONE_PIVOT_HZ = 1500.0
 DC_BLOCK_HZ = 10.0
 FADE_OUT_MS = 5.0
+# Drive anti-aliasing: 8x oversampling, Kaiser low-pass with ~100 dB stop band and a
+# transition of 8 % of the sample rate centred on Nyquist (48 kHz: 22.1-25.9 kHz).
+DRIVE_OVERSAMPLE = 8
+DRIVE_FILTER_TRANSITION = 0.08
+DRIVE_FILTER_BETA = 10.0
+_DRIVE_FILTER = kaiser_lowpass(DRIVE_OVERSAMPLE, DRIVE_FILTER_TRANSITION, DRIVE_FILTER_BETA)
 
 # Parameters that describe how many kicks to make, not how one kick sounds.
 BATCH_ONLY_PARAMS = ("variants",)
@@ -111,6 +124,14 @@ def _click(n: int, sr: int, centre_hz: float, seed: int) -> np.ndarray:
 def _drive(x: np.ndarray, drive: float) -> np.ndarray:
     if drive <= 0:
         return x
+    y = oversampled(x, DRIVE_OVERSAMPLE, lambda u: _saturate(u, drive), _DRIVE_FILTER)
+    if len(y):
+        y[0] = 0.0
+    return y
+
+
+def _saturate(x: np.ndarray, drive: float) -> np.ndarray:
+    """Memoryless normalised tanh curve; maps [-1, 1] onto [-1, 1]."""
     gain = 1.0 + 9.0 * drive
     return np.tanh(gain * x) / math.tanh(gain)
 
