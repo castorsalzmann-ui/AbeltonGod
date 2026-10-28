@@ -135,23 +135,29 @@ def test_dangling_symlink_blocks_the_name_and_stays_untouched(tmp_path, suffix: 
 # --- 3. created_at must carry a time zone ----------------------------------------------------
 
 
+# The target folder does not exist yet: a bad created_at must fail before write_kick creates it.
+
+
 def test_naive_created_at_is_rejected_before_anything_is_written(tmp_path) -> None:
+    out = tmp_path / "new"
     with pytest.raises(ValueError, match="time zone"):
-        write_kick(BASE, tmp_path, created_at=datetime(2026, 10, 28, 12, 0))
+        write_kick(BASE, out, created_at=datetime(2026, 10, 28, 12, 0))
     assert list(tmp_path.iterdir()) == []
 
 
 def test_offset_with_seconds_is_rejected(tmp_path) -> None:
+    out = tmp_path / "new"
     odd = datetime(2026, 10, 28, 12, 0, tzinfo=timezone(timedelta(seconds=30)))
     with pytest.raises(ValueError, match="whole minutes"):
-        write_kick(BASE, tmp_path, created_at=odd)
+        write_kick(BASE, out, created_at=odd)
     assert list(tmp_path.iterdir()) == []
 
 
 @pytest.mark.parametrize("bad", ["2026-10-28T12:00:00Z", 1761652800, datetime.now(UTC).date()])
 def test_non_datetime_created_at_is_rejected(tmp_path, bad) -> None:
+    out = tmp_path / "new"
     with pytest.raises(TypeError, match="created_at"):
-        write_kick(BASE, tmp_path, created_at=bad)  # type: ignore[arg-type]
+        write_kick(BASE, out, created_at=bad)  # type: ignore[arg-type]
     assert list(tmp_path.iterdir()) == []
 
 
@@ -218,6 +224,35 @@ def test_all_type_problems_are_listed_together() -> None:
     with pytest.raises(KickParamsError) as exc:
         render_kick({**BASE, "drive": Decimal("0.2"), "tone": Fraction(1, 2)})
     assert "drive" in str(exc.value) and "tone" in str(exc.value)
+
+
+def test_type_problems_do_not_hide_other_problems() -> None:
+    # pitch_start_hz and sample_rate: the schema would reject a 0, so a leaked error about the
+    # internal placeholder would show up here.
+    bad = {
+        "seed": 7,
+        "pitch_start_hz": Decimal("220"),
+        "sample_rate": Fraction(48000),
+        "tone": 99,
+        "foo": 1,
+        "typo": Decimal("1"),
+    }
+    with pytest.raises(KickParamsError) as exc:
+        render_kick(bad)
+    lines = str(exc.value).splitlines()[1:]
+    for key in ("pitch_start_hz", "sample_rate", "typo"):
+        assert f"- {key}: must be int or float, got " in str(exc.value), key
+        assert sum(line.startswith(f"- {key}:") for line in lines) == 1, key
+    assert any(line.startswith("- tone:") and "99" in line for line in lines)  # out of range
+    assert any("'foo'" in line and "'typo'" in line for line in lines)  # unknown fields
+    assert any("schema_version" in line for line in lines)  # missing
+
+
+def test_exotic_required_field_is_not_reported_as_missing() -> None:
+    with pytest.raises(KickParamsError) as exc:
+        render_kick({"schema_version": "0.1", "seed": Decimal(7)})
+    assert "seed: must be int or float" in str(exc.value)
+    assert "required" not in str(exc.value)
 
 
 def test_bool_is_still_rejected_by_the_schema() -> None:
