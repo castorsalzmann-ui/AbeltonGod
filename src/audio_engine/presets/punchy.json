@@ -1,0 +1,18 @@
+{
+  "schema_version": "0.2",
+  "preset": "punchy",
+  "seed": 1003,
+  "sample_rate": 48000,
+  "bit_depth": 24,
+  "peak_ceiling_dbfs": -0.3,
+  "length_ms": 400,
+  "pitch_start_hz": 260,
+  "pitch_end_hz": 56,
+  "pitch_decay_ms": 6,
+  "amp_attack_ms": 0.3,
+  "amp_decay_ms": 420,
+  "click_level": 0.6,
+  "click_tone_hz": 4500,
+  "drive": 0.15,
+  "tone": 0.3
+}
