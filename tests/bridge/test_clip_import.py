@@ -89,8 +89,8 @@ def test_validate_accepts_absolute_wav(tmp_path):
     assert validate_wav_path(p) == p
 
 
-@pytest.mark.parametrize("case", ["relative", "missing", "suffix", "dir", "not_riff", "short",
-                                  "nul", "empty"])
+@pytest.mark.parametrize("case", ["relative", "missing", "suffix", "dir", "not_riff", "rifx",
+                                  "not_wave", "short", "nul", "empty"])
 def test_validate_rejects(tmp_path, case):
     good = wav_file(tmp_path / "k.wav")
     if case == "relative":
@@ -106,6 +106,14 @@ def test_validate_rejects(tmp_path, case):
     elif case == "not_riff":
         (tmp_path / "x.wav").write_bytes(b"RIFX" + b"\x00" * 40)
         p = str(tmp_path / "x.wav")
+    elif case in ("rifx", "not_wave"):
+        data = bytearray((tmp_path / "k.wav").read_bytes())
+        if case == "rifx":
+            data[:4] = b"RIFX"  # big-endian RIFF: WAVE field stays valid
+        else:
+            data[8:12] = b"AVI "
+        (tmp_path / "y.wav").write_bytes(bytes(data))
+        p = str(tmp_path / "y.wav")
     elif case == "short":
         (tmp_path / "s.wav").write_bytes(b"RIFF\x00")
         p = str(tmp_path / "s.wav")
@@ -481,6 +489,21 @@ def test_clip_in_other_slot_is_failure(ibridge, audio_set, log, tmp_path):
                 num_slots=4, expected_before=expected_state(audio_set, 0))
 
 
+def test_extra_clip_in_other_slot_is_failure(ibridge, audio_set, log, tmp_path):
+    """Right slot filled, but another slot of the track changed too: not done."""
+    orig = audio_set._create_audio_clip
+
+    def two_clips(p):
+        orig(p)
+        audio_set.tracks[int(p[0])]["slots"][3] = p[2]
+
+    audio_set._create_audio_clip = two_clips
+    imp = ClipImporter(ibridge, log, timeout_s=TEST_TIMEOUT_S)
+    with pytest.raises(ImportAborted, match="does not show exactly"):
+        imp.run(path=wav_file(tmp_path / "k.wav"), track_index=0, slot_index=0,
+                num_slots=4, expected_before=expected_state(audio_set, 0))
+
+
 def test_new_track_not_audio_stops_before_clip(ibridge, audio_set, log, tmp_path):
     orig = audio_set._create_audio_track
 
@@ -497,6 +520,9 @@ def test_new_track_not_audio_stops_before_clip(ibridge, audio_set, log, tmp_path
 
 
 def test_new_track_not_at_end_stops_before_clip(ibridge, audio_set, log, tmp_path):
+    # The last old track is an empty audio track, so after an insert at index 0 the target
+    # index points at an empty audio track: only the track-order check can catch it.
+    audio_set.tracks[2]["slots"] = [None] * 4
     orig = audio_set._create_audio_track
     audio_set._create_audio_track = lambda p: orig((0,))
     imp = ClipImporter(ibridge, log, timeout_s=TEST_TIMEOUT_S)

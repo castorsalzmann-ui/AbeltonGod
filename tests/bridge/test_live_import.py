@@ -162,8 +162,19 @@ def test_default_no_everywhere_sends_nothing(fake, tmp_path, answers):
 
 
 def test_midi_track_is_refused_at_the_prompt(fake, tmp_path):
-    code, out, _ = run(fake, tmp_path, ["y", "1", "1", "1"])
-    assert "keine Audiospur" in out
+    code, out, prompts = run(fake, tmp_path, ["y", "1", "1", "1", "y"])
+    # The refusal line, not the "[keine Audiospur]" tag of the track listing.
+    assert out.count("Spur 1 '2-MIDI' ist keine Audiospur.") == 3
+    assert "Geplante Änderungen" not in out
+    assert not any("ausführen" in p for p in prompts)
+    assert writes(fake) == []
+
+
+@pytest.mark.parametrize("answer", ["", "n", "no", "x"])
+def test_test_set_prompt_alone_stops(fake, tmp_path, answer):
+    """Only an explicit yes at the test-set prompt goes on; later prompts are not reached."""
+    code, out, prompts = run(fake, tmp_path, [answer, "0", "y", "y", "y"])
+    assert code == 0 and len(prompts) == 1
     assert writes(fake) == []
 
 
