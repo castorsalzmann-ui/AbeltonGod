@@ -59,7 +59,11 @@ def test_address_scan_finds_every_quoting_style():
 
 def test_every_address_the_bridge_sends_is_registered_or_pending():
     """No /live/ literal in src/bridge/ or scripts/ outside ADDRESSES, PENDING_REGISTRY and
-    the marker/error addresses (#39, #44)."""
+    the marker/error addresses (#39, #44).
+
+    This also flags a quoted /live/ path in future user-facing text (e.g. a German hint
+    naming an OSC address). That is on purpose: such text must take the address from
+    ADDRESSES, not repeat it as a literal (nit from the PR #45 review)."""
     literals = scanned_address_literals()
     assert literals, "scan found nothing: the pattern or the paths are broken"
     known = {a for addrs in ADDRESSES.values() for a in addrs}
@@ -76,7 +80,9 @@ def test_pending_entries_are_not_yet_in_the_registry_and_borrow_a_real_gate():
         assert cap_id not in ADDRESSES
         assert borrowed in ADDRESSES
         assert not set(addresses) & {a for v in ADDRESSES.values() for a in v}
-    assert set(PENDING_REGISTRY) == {"track.mute.get"}
+    # track.mute.get moved into ADDRESSES and the registry in #42; nothing is pending now.
+    # A new pending entry must be added here deliberately.
+    assert set(PENDING_REGISTRY) == set()
 
 
 @pytest.mark.parametrize("status", ["unknown", "supported"])
@@ -156,6 +162,7 @@ BRIDGE_CALLS = {
     "song.signature.get": lambda b: b.get_signature(),
     "song.track_names.get": lambda b: b.get_track_names(),
     "track.mute.set": lambda b: b.set_track_mute(0, True),
+    "track.mute.get": lambda b: b.get_track_mute(0),
     "song.undo": lambda b: b.undo(),
 }
 

@@ -352,7 +352,7 @@ def test_result_block_format(fake, tmp_path, monkeypatch):
     assert block["live_version_api"] == "12.3 (API reports major.minor only)"
     assert block["capability_overrides_used"] == (
         "app.version, song.signature.get, song.tempo.get, song.track_names.get, "
-        "song.undo, track.mute.set"
+        "song.undo, track.mute.get, track.mute.set"
     )
     for line in lines:
         if re.match(r"^[a-z_.]+: (PASS|FAIL|SKIPPED)", line):

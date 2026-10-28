@@ -598,11 +598,15 @@ def test_get_track_mute_rejects_malformed_replies(bridge, fake, raw):
         bridge.get_track_mute(0)
 
 
-def test_get_track_mute_is_gated_as_track_mute_set(fake, transport, tmp_path):
-    others = set(ADDRESSES) - {"track.mute.set"}
+def test_get_track_mute_has_its_own_gate(fake, transport, tmp_path):
+    """track.mute.get no longer borrows the track.mute.set gate (#42): with every other
+    capability tested (including the write), the read is still refused before any I/O."""
+    others = set(ADDRESSES) - {"track.mute.get"}
+    assert "track.mute.set" in others
     bridge = AbletonBridge(transport, CapabilityGate(registry_with(tmp_path, others)))
-    with pytest.raises(CapabilityNotTestedError):
+    with pytest.raises(CapabilityNotTestedError) as err:
         bridge.get_track_mute(0)
+    assert err.value.capability_id == "track.mute.get"
     bridge.ping()
     fake.wait_received(2)
     assert fake.payload() == []
