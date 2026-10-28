@@ -53,3 +53,46 @@ def raised_cosine(m: int, rising: bool) -> np.ndarray:
         return np.zeros(1)
     ramp = 0.5 * (1.0 - np.cos(np.linspace(0.0, math.pi, m)))
     return ramp if rising else ramp[::-1]
+
+
+def _fft_convolve(a: np.ndarray, b: np.ndarray) -> np.ndarray:
+    """Full linear convolution via real FFT (same result as ``np.convolve``, much faster)."""
+    n = len(a) + len(b) - 1
+    nfft = 1 << (n - 1).bit_length()
+    return np.fft.irfft(np.fft.rfft(a, nfft) * np.fft.rfft(b, nfft), nfft)[:n]
+
+
+def kaiser_lowpass(factor: int, transition: float, beta: float) -> np.ndarray:
+    """Linear-phase windowed-sinc low-pass for resampling by ``factor``.
+
+    The cut-off sits at the Nyquist frequency of the base rate. ``transition`` is the full
+    transition width as a fraction of the base sample rate, centred on that Nyquist frequency.
+    The returned taps have an odd length (integer group delay) and unit DC gain.
+    """
+    # Kaiser's estimate: N = (A - 8) / (2.285 * delta_omega), A from beta (beta = 0.1102*(A-8.7)).
+    atten = beta / 0.1102 + 8.7
+    delta_omega = 2.0 * math.pi * transition / factor
+    taps = int(math.ceil((atten - 8.0) / (2.285 * delta_omega)))
+    taps += 1 - taps % 2
+    m = np.arange(taps, dtype=np.float64) - (taps - 1) / 2.0
+    h = np.sinc(m / factor) * np.kaiser(taps, beta)
+    return h / h.sum()
+
+
+def oversampled(x: np.ndarray, factor: int, fn, h: np.ndarray) -> np.ndarray:
+    """Apply the memoryless function ``fn`` at ``factor`` times the sample rate.
+
+    ``x`` is upsampled (zero stuffing + ``h``), ``fn`` is applied, the result is low-passed with
+    ``h`` again and decimated. Both filter delays are removed, so output sample ``i`` lines up
+    with input sample ``i``. Partials that ``fn`` creates above the base Nyquist frequency are
+    filtered out instead of folding back into the audible band (aliasing).
+    """
+    n = len(x)
+    if n == 0:
+        return x.copy()
+    delay = (len(h) - 1) // 2
+    up = np.zeros(n * factor)
+    up[::factor] = x
+    up = _fft_convolve(up, h * factor)[delay : delay + n * factor]
+    y = _fft_convolve(fn(up), h)[delay : delay + n * factor]
+    return y[::factor].copy()
