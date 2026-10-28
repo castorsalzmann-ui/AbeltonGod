@@ -93,6 +93,20 @@
       "tests": ["tests/orchestrator"]
     },
     {
+      "id": "N1_DUPLICATE_TOOL_NAMES_ALLOWED",
+      "file": "src/orchestrator/tools.py",
+      "old": "        if tool.name in self._tools:\n",
+      "new": "        if False:\n",
+      "tests": ["tests/orchestrator"]
+    },
+    {
+      "id": "N2_DOTS_IN_TOOL_NAMES",
+      "file": "src/orchestrator/tools.py",
+      "old": "TOOL_NAME = re.compile(r\"[a-zA-Z0-9_-]{1,128}\")",
+      "new": "TOOL_NAME = re.compile(r\"[a-zA-Z0-9_.-]{1,128}\")",
+      "tests": ["tests/orchestrator"]
+    },
+    {
       "id": "C1_CAPABILITY_GATE_SKIPPED",
       "file": "src/orchestrator/tools.py",
       "old": "                    self._gate.check(cap_id)\n",

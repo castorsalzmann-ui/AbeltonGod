@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import copy
 import math
+import re
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
 from enum import StrEnum
@@ -36,6 +37,7 @@ from guard import GuardedRequest
 from orchestrator.model_client import ToolCall, ToolResult, ToolSpec
 
 MAX_REPORTED_ERRORS = 5
+TOOL_NAME = re.compile(r"[a-zA-Z0-9_-]{1,128}")
 
 
 class Approval(StrEnum):
@@ -76,8 +78,12 @@ class Tool:
     capabilities: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
-        if not isinstance(self.name, str) or not self.name:
-            raise ToolDefinitionError("Tool name must be a non-empty string.")
+        # API rule for tool names (tool-schema note, Q5); the SDK prefix mcp__<server>__ is
+        # added by an adapter later and must keep the full name within the same rule.
+        if not isinstance(self.name, str) or not TOOL_NAME.fullmatch(self.name):
+            raise ToolDefinitionError(
+                f"Tool name {self.name!r} must match {TOOL_NAME.pattern} (no dots, no spaces)."
+            )
         for label, value in (
             ("max_files_written", self.max_files_written),
             ("max_live_writes", self.max_live_writes),

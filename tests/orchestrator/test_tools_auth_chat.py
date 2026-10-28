@@ -49,6 +49,22 @@ def test_bad_tool_definitions_are_refused(kwargs):
         Tool(**{**base, **kwargs})
 
 
+@pytest.mark.parametrize(
+    ("name", "ok"),
+    [("generate_kick", True), ("list-tracks", True), ("A9", True), ("x" * 128, True),
+     ("x" * 129, False), ("kick.render", False), ("two words", False), ("kick\n", False),
+     ("ümlaut", False), (None, False), (3, False)],
+)
+def test_tool_names_follow_the_api_rule(name, ok):
+    """API rule ^[a-zA-Z0-9_-]{1,128}$ (tool-schema note Q5), written here independently."""
+    make = lambda: Tool(name, "", {"type": "object"}, _noop)  # noqa: E731
+    if ok:
+        assert make().name == name
+    else:
+        with pytest.raises(ToolDefinitionError):
+            make()
+
+
 def test_schema_is_copied_in_and_out():
     """Neither the model-facing spec nor the caller's dict can change what is validated."""
     source = {"type": "object", "properties": {"n": {"type": "integer", "maximum": 100}}}
