@@ -12,20 +12,27 @@ What it does:
 3. Only after two explicit confirmations ("test set?" and "run these changes?", both default
    No): a reversible mute sequence on one track, ending with ``/live/song/undo``:
 
-       R0 read mute            -> M0 (original state)
+       R0 read mute            -> M0 (original state; shown in the plan)
+       S0 snapshot             -> all track names + every track's mute (after confirmation)
        W1 set mute = not M0    -> R1 expect not M0
        W2 set mute = M0        -> R2 expect M0
        W3 set mute = not M0    -> R3 expect not M0
-       U  /live/song/undo      -> R4 expect M0  (undo reverts W3)
+       U  /live/song/undo      -> R4 expect M0, then S1 snapshot; S1 must equal S0
 
-   Both directions of the mute write are exercised, undo is exercised for real, and if undo
-   works the set ends exactly as it started. If R4 is not M0, undo did not revert W3 (it may
-   have reverted something else in the set): the script then sets mute back to M0 once (W4),
-   reads it back (R5) and reports undo as FAIL. No second undo is ever sent.
-   If a read-back does not match (R1-R3), undo is not sent: the write did not land as
-   expected, so an undo could revert something else. If any write times out, its outcome is
-   unknown (it may still be applied later). In both cases the script stops writing, reads the
-   state back once, never sends undo, and tells the user the original state.
+   Both directions of the mute write are exercised and undo is exercised for real.
+   ``/live/song/undo`` reverts Live's *last undo step*. Whether Live records a LOM mute change
+   as one is unverified (#39); if not, undo reverts the user's last action instead. So the
+   plan warns about this before the final confirmation and asks for a freshly reopened test
+   set (opening a set clears Live's undo history - Live manual, "Undo History").
+   Outcomes after the undo:
+   - S1 == S0: undo PASS (as far as tracks and mutes can show; clips/devices are not visible).
+   - Only the test track's mute differs (undo did not revert W3): undo FAIL; one direct
+     restore W4 + read-back R5; a failed restore is reported with a hand-fix instruction.
+   - Anything else differs (track count, names, order, another track's mute): undo FAIL with
+     the differences listed; nothing more is written (indices may have shifted).
+   A second undo is never sent. A read-back mismatch at R1-R3 stops before undo. Any bridge
+   error or Ctrl+C in the sequence stops writing; the script reads the test track once, tells
+   the user its original state and prints the result block (exit 130 on Ctrl+C).
 4. Prints a fenced result block to paste into issue #5.
 
 Capability gate: every capability in ``contracts/capabilities.json`` that this script touches is
@@ -63,7 +70,7 @@ from bridge.osc_client import (
     ReceivePortInUseError,
 )
 
-SCRIPT_VERSION = "0.1.0"
+SCRIPT_VERSION = "0.2.0"  # 0.2.0: whole-set check around undo, Ctrl+C handling (#39)
 
 # The only capabilities this script may call, through the explicit override.
 READ_CAPABILITIES = ("app.version", "song.tempo.get", "song.signature.get",
@@ -78,6 +85,7 @@ EXIT_CHECK_FAILED = 1
 EXIT_NO_CONNECTION = 2
 EXIT_PORT_IN_USE = 3
 EXIT_SETUP_ERROR = 4
+EXIT_INTERRUPTED = 130  # Ctrl+C, the shell convention
 
 YES = {"y", "yes", "j", "ja"}
 
@@ -130,6 +138,7 @@ class Report:
     error: str | None = None
     finished_at: str = ""
     overrides_used: list[str] = field(default_factory=list)
+    interrupted: bool = False
 
     def check(self, name: str) -> CheckResult:
         if name not in self.checks:
@@ -197,7 +206,8 @@ def choose_track(names: list[str], input_fn: Callable[[str], str], out: TextIO) 
         )
         if answer == "":
             return 0
-        if answer.isdigit() and int(answer) < len(names):
+        # ASCII digits only: str.isdigit() also accepts '²' or Arabic-Indic digits.
+        if answer.isascii() and answer.isdecimal() and int(answer) < len(names):
             return int(answer)
         print(f"Ungültige Eingabe {answer!r}. Bitte eine Zahl von 0 bis {len(names) - 1}.",
               file=out)
@@ -208,7 +218,47 @@ def choose_track(names: list[str], input_fn: Callable[[str], str], out: TextIO) 
 
 
 class WriteAborted(Exception):
-    """A write in the mute sequence timed out or failed; stop writing."""
+    """A step of the mute sequence failed or was not confirmed; stop writing."""
+
+
+@dataclass(frozen=True)
+class Snapshot:
+    """What the script can check of the set: track names (count and order) and every mute."""
+
+    names: tuple[str, ...]
+    mutes: tuple[bool, ...]
+
+    def render(self) -> str:
+        return "[" + ", ".join(f"{n!r}:{int(m)}" for n, m in zip(self.names, self.mutes,
+                                                                    strict=True)) + "]"
+
+
+def take_snapshot(bridge: AbletonBridge) -> Snapshot:
+    names = tuple(bridge.get_track_names())
+    return Snapshot(names, tuple(bridge.get_track_mute(i) for i in range(len(names))))
+
+
+def mute_word(value: bool) -> str:
+    return "stumm" if value else "nicht stumm"
+
+
+def describe_changes(before: Snapshot, after: Snapshot) -> list[str]:
+    """German lines describing how ``after`` differs from ``before`` (empty if equal)."""
+    if before.names != after.names:
+        lines = [f"Spuren vorher ({len(before.names)}): {list(before.names)}",
+                 f"Spuren jetzt  ({len(after.names)}): {list(after.names)}"]
+        if len(before.names) != len(after.names):
+            lines.insert(0, f"Die Spuranzahl hat sich geändert: {len(before.names)} -> "
+                            f"{len(after.names)}.")
+        else:
+            lines.insert(0, "Spurnamen oder Reihenfolge haben sich geändert.")
+        return lines
+    return [
+        f"Spur {i} '{name}': vorher {mute_word(b)}, jetzt {mute_word(a)}"
+        for i, (name, b, a) in enumerate(zip(before.names, before.mutes, after.mutes,
+                                             strict=True))
+        if a != b
+    ]
 
 
 def run_reads(bridge: AbletonBridge, report: Report, out: TextIO) -> list[str] | None:
@@ -243,21 +293,34 @@ def run_reads(bridge: AbletonBridge, report: Report, out: TextIO) -> list[str] |
     return names  # type: ignore[return-value]
 
 
-def run_writes(bridge: AbletonBridge, report: Report, idx: int, m0: bool, out: TextIO) -> None:
+UNDO_HISTORY_HINT = (
+    "In Live zeigt Ansicht -> Undo-Verlauf (Strg+Alt+Z), welcher Schritt zurückgenommen wurde; "
+    "dort lässt er sich wiederherstellen."
+)
+
+
+def run_writes(bridge: AbletonBridge, report: Report, idx: int, m0: bool, names: list[str],
+               out: TextIO) -> None:
+    """The confirmed write sequence. Never raises for bridge errors or Ctrl+C.
+
+    Every path that stops early sends no further write and no undo, reads the test track once
+    and tells the user its original state. Exactly one undo is sent at most.
+    """
     mute_check, undo_check = report.check("track.mute.set"), report.check("song.undo")
     reads: list[str] = []
-    undo_sent = [False]
+    state = {"writes_sent": False, "undo_sent": False}
 
     def write(label: str, value: bool) -> None:
         report.write_log.append(f"{label} set mute={int(value)}")
+        state["writes_sent"] = True
         try:
             bridge.set_track_mute(idx, value)
         except BridgeTimeoutError as exc:
             report.write_log[-1] += " -> TIMEOUT (outcome unknown)"
             raise WriteAborted(f"{label} timed out") from exc
-        except (AbletonOSCError, BridgeUnavailableError) as exc:
-            report.write_log[-1] += f" -> ERROR {exc}"
-            raise WriteAborted(f"{label}: {exc}") from exc
+        except BridgeError as exc:
+            report.write_log[-1] += f" -> {type(exc).__name__} {exc} (outcome unknown)"
+            raise WriteAborted(f"{label}: {type(exc).__name__}: {exc}") from exc
         report.write_log[-1] += " -> confirmed"
 
     def read(label: str, expected: bool) -> bool:
@@ -272,14 +335,27 @@ def run_writes(bridge: AbletonBridge, report: Report, idx: int, m0: bool, out: T
             f"{label} read mute={int(value)} expected={int(expected)} "
             f"{'ok' if ok else 'MISMATCH'} raw={bridge.last_reply!r}"
         )
-        print(f"  {label}: Spur {idx} ist {'stumm' if value else 'nicht stumm'}"
-              f" (erwartet: {'stumm' if expected else 'nicht stumm'}) "
+        print(f"  {label}: Spur {idx} ist {mute_word(value)} (erwartet: {mute_word(expected)}) "
               f"{'OK' if ok else 'ABWEICHUNG'}", file=out)
         return ok
 
+    def snapshot(label: str) -> Snapshot:
+        try:
+            snap = take_snapshot(bridge)
+        except BridgeError as exc:
+            report.write_log.append(f"{label} set snapshot failed: {type(exc).__name__}")
+            raise WriteAborted(f"{label} set snapshot failed: {exc}") from exc
+        report.write_log.append(f"{label} set snapshot {snap.render()}")
+        return snap
+
     try:
-        # A read-back mismatch stops the sequence before undo: if the writes did not land,
-        # an undo would revert something else in the set.
+        # S0: the whole set as far as the script can see it, before any write.
+        s0 = snapshot("S0")
+        if s0.names != tuple(names) or s0.mutes[idx] != m0:
+            raise WriteAborted("set changed between the plan and the confirmation")
+
+        # A read-back mismatch stops the sequence before undo: if a write did not land as
+        # expected, an undo would revert something else in the set.
         for w_label, r_label, value in (("W1", "R1", not m0), ("W2", "R2", m0),
                                         ("W3", "R3", not m0)):
             write(w_label, value)
@@ -287,64 +363,112 @@ def run_writes(bridge: AbletonBridge, report: Report, idx: int, m0: bool, out: T
                 raise WriteAborted(f"{r_label} read-back mismatch")
         mute_check.result, mute_check.raw = PASS, "; ".join(reads)
 
-        undo_sent[0] = True
+        state["undo_sent"] = True
         report.write_log.append("U  /live/song/undo")
         try:
             bridge.undo()
-        except BridgeTimeoutError as exc:
-            report.write_log[-1] += " -> TIMEOUT (outcome unknown)"
-            raise WriteAborted("undo timed out") from exc
-        except (AbletonOSCError, BridgeUnavailableError) as exc:
-            report.write_log[-1] += f" -> ERROR {exc}"
-            undo_check.result, undo_check.note = FAIL, f"undo error: {exc}"
-            raise WriteAborted(f"undo: {exc}") from exc
+        except BridgeError as exc:
+            report.write_log[-1] += f" -> {type(exc).__name__} (outcome unknown)"
+            raise WriteAborted(f"undo: {type(exc).__name__}: {exc}") from exc
         report.write_log[-1] += " -> confirmed"
         undo_reads_start = len(reads)
-        ok4 = read("R4", m0)
-        undo_check.raw = "; ".join(reads[undo_reads_start:])
-        if ok4:
+        read("R4", m0)
+        s1 = snapshot("S1")
+        changes = describe_changes(s0, s1)
+        undo_check.raw = "; ".join(reads[undo_reads_start:]) + f"; S1={s1.render()}"
+
+        if not changes:
             undo_check.result = PASS
-            print("Undo hat die letzte Mute-Änderung zurückgenommen. Das Set ist wie vorher.",
-                  file=out)
-        else:
-            undo_check.result = FAIL
-            undo_check.note = "undo did not revert W3; it may have reverted something else"
-            print("ACHTUNG: Undo hat die Mute-Änderung NICHT zurückgenommen. Möglicherweise wurde "
-                  "etwas anderes im Set rückgängig gemacht - bitte das Test-Set prüfen.\n"
-                  "Das Script setzt die Spur jetzt einmal direkt auf den Ausgangszustand zurück "
+            print("Undo hat die letzte Mute-Änderung zurückgenommen. Spuranzahl, Spurnamen und "
+                  "Mute-Zustand aller Spuren sind wie vorher.\n(Andere Eigenschaften wie Clips, "
+                  "Geräte oder Automation kann das Script nicht prüfen.)", file=out)
+            return
+
+        undo_check.result = FAIL
+        only_test_mute = s0.names == s1.names and changes == [
+            f"Spur {idx} '{s0.names[idx]}': vorher {mute_word(m0)}, jetzt {mute_word(not m0)}"
+        ]
+        if only_test_mute:
+            # Undo did not revert W3 and nothing else visible changed: it reverted nothing
+            # the script can see, or something it cannot see (clips, devices...).
+            undo_check.note = "undo did not revert W3"
+            print("ACHTUNG: Undo hat die Mute-Änderung NICHT zurückgenommen. Falls Undo etwas "
+                  "anderes zurückgenommen hat (z. B. an Clips oder Geräten), sieht das Script das "
+                  f"nicht. {UNDO_HISTORY_HINT}\n"
+                  f"Das Script setzt Spur {idx} jetzt einmal direkt auf {mute_word(m0)} zurück "
                   "(kein zweites Undo).", file=out)
             write("W4", m0)
-            read("R5", m0)
-    except WriteAborted as exc:
-        report.error = f"write sequence aborted: {exc}"
-        if mute_check.result == SKIPPED:
-            mute_check.result, mute_check.raw = FAIL, "; ".join(reads) or "-"
-            mute_check.note = str(exc)
-        if undo_sent[0] and undo_check.result == SKIPPED:
-            undo_check.result, undo_check.note = FAIL, str(exc)
-        elif undo_check.result == SKIPPED:
-            undo_check.note = "not sent: write sequence aborted before undo"
-        if "mismatch" in str(exc):
-            print("FEHLER: Der zurückgelesene Mute-Zustand passt nicht zur gesendeten Änderung.",
-                  file=out)
+            if not read("R5", m0):
+                raise WriteAborted("R5 read-back mismatch after the direct restore")
+            return
+
+        # Undo changed the set beyond the test track's mute: it reverted something else.
+        # Indices may now point at other tracks, so nothing more is written.
+        undo_check.note = "undo changed the set beyond the test mute (reverted another action)"
+        report.error = "undo changed the set beyond the test mute; no restore attempted"
+        print("FEHLER: Nach dem Undo sieht das Set anders aus als vor dem Test. Undo hat "
+              "offenbar nicht (nur) die Mute-Änderung des Scripts zurückgenommen, sondern einen "
+              "anderen Schritt aus Lives Undo-Verlauf. Unterschiede:", file=out)
+        for line in changes:
+            print(f"  - {line}", file=out)
+        print("Das Script sendet KEINE weiteren Änderungen, weil die Spurnummern nicht mehr "
+              f"stimmen müssen. {UNDO_HISTORY_HINT}\n"
+              f"Ursprünglich war Spur {idx} '{s0.names[idx]}' {mute_word(m0)}.", file=out)
+    except (WriteAborted, KeyboardInterrupt) as exc:
+        interrupted = isinstance(exc, KeyboardInterrupt)
+        reason = "interrupted by user (Ctrl+C)" if interrupted else str(exc)
+        report.interrupted = report.interrupted or interrupted
+        report.error = f"write sequence aborted: {reason}"
+        restore_failed = reason.startswith(("W4", "R5"))
+        if state["writes_sent"] and (mute_check.result == SKIPPED or restore_failed):
+            # A write that did not land (or was not confirmed) is never a mute PASS.
+            mute_check.result = FAIL
+            mute_check.raw = "; ".join(reads) or "-"
+            mute_check.note = reason
+        if state["undo_sent"]:
+            if undo_check.result == SKIPPED:
+                undo_check.result, undo_check.note = FAIL, reason
         else:
-            print("FEHLER: Ein Schritt wurde nicht bestätigt. Das Ergebnis der letzten Änderung "
-                  "ist UNBEKANNT - Live führt sie eventuell noch aus (z. B. nach einem "
-                  "geschlossenen Dialog).", file=out)
-        print("Das Script sendet KEINE weiteren Änderungen und KEIN Undo.", file=out)
-        try:
-            value = bridge.get_track_mute(idx)
-            report.write_log.append(f"after-abort read mute={int(value)} expected={int(m0)} "
-                                    f"raw={bridge.last_reply!r}")
-            state = "stumm" if value else "nicht stumm"
-            print(f"Spur {idx} ist jetzt {state}; ursprünglich war sie "
-                  f"{'stumm' if m0 else 'nicht stumm'}. Bitte in Live nachsehen und ggf. "
-                  "von Hand korrigieren.", file=out)
-        except BridgeError:
-            report.write_log.append("after-abort read failed")
-            print(f"Der Zustand von Spur {idx} konnte nicht gelesen werden. Bitte in Live "
-                  f"nachsehen: ursprünglich war sie {'stumm' if m0 else 'nicht stumm'}.",
-                  file=out)
+            undo_check.note = "not sent: write sequence aborted before undo"
+        report_abort(bridge, report, idx, m0, state, reason, interrupted, out)
+
+
+def report_abort(bridge: AbletonBridge, report: Report, idx: int, m0: bool, state: dict,
+                 reason: str, interrupted: bool, out: TextIO) -> None:
+    if interrupted:
+        print("\nABGEBROCHEN mit Strg+C.", file=out)
+    elif "mismatch" in reason:
+        print("FEHLER: Der zurückgelesene Mute-Zustand passt nicht zur gesendeten Änderung.",
+              file=out)
+    elif "set changed" in reason:
+        print("FEHLER: Das Set hat sich zwischen Plan und Bestätigung geändert.", file=out)
+    else:
+        print("FEHLER: Ein Schritt wurde nicht bestätigt. Sein Ergebnis ist UNBEKANNT - Live "
+              "führt ihn eventuell noch aus (z. B. nach einem geschlossenen Dialog).", file=out)
+    print(f"Ursprünglicher Zustand: Spur {idx} '{report.track_name}' war {mute_word(m0)}.",
+          file=out)
+    if not state["writes_sent"]:
+        print("Es wurde keine Änderung gesendet.", file=out)
+        return
+    print("Das Script sendet KEINE weiteren Änderungen und KEIN Undo.", file=out)
+    if state["undo_sent"]:
+        print("Das Undo wurde (eventuell) schon gesendet. Es kann einen anderen Schritt "
+              "zurückgenommen haben. " + UNDO_HISTORY_HINT, file=out)
+    try:
+        value = bridge.get_track_mute(idx)
+    except (BridgeError, KeyboardInterrupt):
+        report.write_log.append("after-abort read failed")
+        print(f"Der jetzige Zustand von Spur {idx} konnte nicht gelesen werden. Bitte in Live "
+              f"nachsehen und den Mute-Knopf ggf. von Hand auf {mute_word(m0)} stellen.",
+              file=out)
+        return
+    report.write_log.append(f"after-abort read mute={int(value)} expected={int(m0)} "
+                            f"raw={bridge.last_reply!r}")
+    if value == m0:
+        print(f"Spur {idx} ist jetzt {mute_word(value)} - wie ursprünglich.", file=out)
+    else:
+        print(f"Spur {idx} ist jetzt {mute_word(value)}. Bitte in Live den Mute-Knopf von "
+              f"Spur {idx} von Hand auf {mute_word(m0)} stellen.", file=out)
 
 
 def run_check(bridge: AbletonBridge, report: Report, input_fn: Callable[[str], str],
@@ -386,30 +510,47 @@ def run_check(bridge: AbletonBridge, report: Report, input_fn: Callable[[str], s
     try:
         m0 = bridge.get_track_mute(idx)
     except (BridgeProtocolError, AbletonOSCError) as exc:
+        # Without a known original state nothing may be written.
         c = report.check("track.mute.set")
         c.result, c.raw, c.note = FAIL, repr(bridge.last_reply), f"R0 read: {exc}"
+        report.check("song.undo").note = "not sent: R0 read failed"
         print(f"FEHLER: Mute-Zustand von Spur {idx} nicht lesbar: {exc}\n"
               "Keine Änderung gesendet.", file=out)
         return
     report.write_log.append(f"R0 read mute={int(m0)} raw={bridge.last_reply!r}")
-    now, other = ("stumm", "nicht stumm") if m0 else ("nicht stumm", "stumm")
-    print(
-        f"\nGeplante Änderungen an Spur {idx} '{names[idx]}' (aktuell: {now}):\n"
-        f"  1. Spur auf {other} setzen, zurücklesen\n"
-        f"  2. Spur auf {now} setzen, zurücklesen\n"
-        f"  3. Spur auf {other} setzen, zurücklesen\n"
-        f"  4. Undo in Live (/live/song/undo), zurücklesen - erwartet: {now}\n"
-        "Danach ist das Set wie vorher. Nimmt Undo die Änderung nicht zurück, setzt das Script\n"
-        f"die Spur einmal direkt auf {now} zurück und meldet Undo als FAIL.\n"
-        "Es wird nichts gelöscht und nichts anderes verändert.",
-        file=out,
-    )
+    print(plan_text(idx, names[idx], m0), file=out)
     if not ask_yes("Diese Änderungen jetzt ausführen? [y/N]: ", input_fn):
         print("Keine Änderung. Teil 2 übersprungen.", file=out)
         for name in WRITE_CAPABILITIES:
             report.check(name).note = "user answered no"
         return
-    run_writes(bridge, report, idx, m0, out)
+    run_writes(bridge, report, idx, m0, names, out)
+
+
+def plan_text(idx: int, name: str, m0: bool) -> str:
+    now, other = mute_word(m0), mute_word(not m0)
+    return (
+        f"\nGeplante Änderungen an Spur {idx} '{name}' (aktuell: {now}):\n"
+        f"  1. Spur auf {other} setzen, zurücklesen\n"
+        f"  2. Spur auf {now} setzen, zurücklesen\n"
+        f"  3. Spur auf {other} setzen, zurücklesen\n"
+        f"  4. Undo in Live (/live/song/undo), zurücklesen - erwartet: {now}\n"
+        "Vorher und nach dem Undo liest das Script alle Spurnamen und den Mute-Zustand aller\n"
+        "Spuren und vergleicht sie.\n"
+        "\n"
+        "WICHTIG - Undo-Risiko: Schritt 4 nimmt den LETZTEN Schritt in Lives Undo-Verlauf\n"
+        "zurück. Ob Live eine Mute-Änderung über AbletonOSC dort einträgt, ist noch nicht\n"
+        "geprüft - genau das testet dieser Check. Wenn nicht, nimmt Undo stattdessen deine\n"
+        "letzte eigene Aktion zurück (z. B. eine eingefügte oder umbenannte Spur).\n"
+        "Darum: Test-Set speichern, schließen und neu öffnen (Datei -> Zuletzt verwendete\n"
+        "Sets), dann NICHTS mehr daran ändern und erst danach hier bestätigen. Beim Öffnen\n"
+        "leert Live den Undo-Verlauf (Live-Handbuch, \"Undo-Verlauf\").\n"
+        "\n"
+        "Erkennt das Script nach dem Undo eine Änderung an Spuren oder Mute-Zuständen, meldet\n"
+        "es Undo als FAIL, nennt die Unterschiede und sendet nichts mehr. Hat Undo nur die\n"
+        f"Mute-Änderung nicht zurückgenommen, setzt es Spur {idx} einmal direkt auf {now}\n"
+        "zurück. Ein zweites Undo wird nie gesendet."
+    )
 
 
 def env_port(name: str, default: int) -> int:
@@ -460,6 +601,11 @@ def main(argv: list[str] | None = None, input_fn: Callable[[str], str] = input,
         if bridge is not None:
             try:
                 run_check(bridge, report, input_fn, out)
+            except KeyboardInterrupt:
+                # Outside the write sequence (which handles Ctrl+C itself) nothing was written.
+                print("\nABGEBROCHEN mit Strg+C. Es wurde nichts in Live geändert.", file=out)
+                report.interrupted = True
+                report.error = "interrupted by user (Ctrl+C) before any write"
             except BridgeUnavailableError as exc:  # timeout or Windows ICMP reset
                 print(msg_no_answer(DEFAULT_HOST, send_port), file=out)
                 report.error = f"{type(exc).__name__}: {exc}"
@@ -476,7 +622,9 @@ def main(argv: list[str] | None = None, input_fn: Callable[[str], str] = input,
     finally:
         if bridge is not None:
             bridge.close()
-    if exit_code == EXIT_OK and (report.any_failed() or report.error):
+    if report.interrupted:
+        exit_code = EXIT_INTERRUPTED
+    elif exit_code == EXIT_OK and (report.any_failed() or report.error):
         exit_code = EXIT_CHECK_FAILED
     report.finished_at = now_iso()
     print("\nBitte den folgenden Block komplett in Issue #5 einfügen:\n", file=out)

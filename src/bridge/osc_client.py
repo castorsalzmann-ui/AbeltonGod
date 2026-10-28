@@ -72,12 +72,17 @@ ADDRESSES: dict[str, tuple[str, ...]] = {
     "song.undo": ("/live/song/undo",),
 }
 
-# Read-back for the mute write (#5). README "Track API": ``/live/track/get/mute track_id`` ->
-# ``track_id, mute``; source: ``abletonosc/track.py`` ``properties_rw`` contains "mute".
-# Not a registry entry of its own yet: it is gated as part of ``track.mute.set``, whose
-# verification it is. A separate ``track.mute.get`` entry is proposed for the contract-change
-# PR that follows the user's run.
-TRACK_MUTE_READBACK_ADDRESS = "/live/track/get/mute"
+# Addresses the bridge sends that have no registry entry of their own YET, with the capability
+# whose gate they borrow. Each must get its own entry in the contract-change PR that follows the
+# user's #5 run (then it moves into ADDRESSES; ``test_capabilities.py`` fails until it does).
+#
+# track.mute.get: read-back for the mute write (#5). README "Track API":
+# ``/live/track/get/mute track_id`` -> ``track_id, mute``; source ``abletonosc/track.py``
+# ``properties_rw`` contains "mute". Gated as ``track.mute.set`` (review of PR #37, #39 item 6).
+PENDING_REGISTRY: dict[str, tuple[tuple[str, ...], str]] = {
+    "track.mute.get": (("/live/track/get/mute",), "track.mute.set"),
+}
+TRACK_MUTE_READBACK_ADDRESS = PENDING_REGISTRY["track.mute.get"][0][0]
 
 OscArg = int | float | str
 Message = tuple[str, tuple]
@@ -351,13 +356,25 @@ class AbletonBridge:
     def __init__(self, transport: OscTransport, gate: CapabilityGate) -> None:
         self._transport = transport
         self.gate = gate
-        # Reply arguments of the last read, exactly as received (for the check script's report).
-        self.last_reply: tuple | None = None
+        self._local = threading.local()
+
+    @property
+    def last_reply(self) -> tuple | None:
+        """Reply arguments of this thread's last read, exactly as received (for reports).
+
+        Per thread, so concurrent callers never see each other's replies. ``None`` if the last
+        read got no reply. For ``get_signature`` it holds the numerator and denominator
+        replies together, also when one of them was malformed.
+        """
+        return getattr(self._local, "reply", None)
+
+    def _set_last_reply(self, reply: tuple | None) -> None:
+        self._local.reply = reply
 
     def _query(self, address: str, params: tuple = (), expect_prefix: tuple = ()) -> tuple:
-        self.last_reply = None
+        self._set_last_reply(None)
         reply = self._transport.query(address, params, expect_prefix=expect_prefix)
-        self.last_reply = reply
+        self._set_last_reply(reply)
         return reply
 
     @classmethod
@@ -448,10 +465,10 @@ class AbletonBridge:
         for addr in ADDRESSES["song.signature.get"]:
             reply = self._query(addr)
             raw.extend(reply)
+            self._set_last_reply(tuple(raw))  # numerator reply (+ denominator reply)
             if len(reply) != 1 or type(reply[0]) is not int or reply[0] < 1:
                 raise BridgeProtocolError(f"{addr} reply must be one positive int, got {reply!r}")
             values.append(reply[0])
-        self.last_reply = tuple(raw)  # numerator reply + denominator reply
         return values[0], values[1]
 
     def get_track_names(self) -> list[str]:
@@ -480,7 +497,7 @@ class AbletonBridge:
         accepted too.
         """
         _require_int(track_index, "track_index", minimum=0)
-        self.gate.check("track.mute.set")
+        self.gate.check(PENDING_REGISTRY["track.mute.get"][1])
         reply = self._query(
             TRACK_MUTE_READBACK_ADDRESS, (track_index,), expect_prefix=(track_index,)
         )
