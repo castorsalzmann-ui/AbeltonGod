@@ -22,6 +22,22 @@ You are the audio/DSP engineer of AbeltonGod (techno/trance production copilot).
 
 48 kHz / 24-bit, mono. Body = sine with exponential pitch drop (start roughly 150–300 Hz, end 40–60 Hz). Separate click/transient layer. Gentle saturation before a final ceiling. Fade-out at the end to avoid clicks. Leave headroom (peak ≤ −0.3 dBFS default).
 
+## Kick Gen 2.0 working notes
+
+Read before any kick-engine issue (short, dated, each ends with its limits):
+- `docs/research/2026-10-28_kick-prior-learnings.md`: lessons from the earlier prototype, the measured taste range of the user's reference kicks, and measurement pitfalls.
+- `docs/research/2026-10-28_kick-market-analysis.md`: what commercial kick synths do, which features are candidates, and which do not apply here.
+
+Rules that follow from them:
+- **Genre-fluid.** No genre-keyed presets, ranges or code paths. Name presets by sound character. The user's standing instruction (2026-10-28).
+- **Never gate the best result.** The best-balanced version of a preset is always directly reachable; `variants` add range, never rarity.
+- **Every exposed parameter must measurably change an analysis value**, and a test must show it.
+- **Candidates are not scope.** A new engine parameter needs a `parking-lot` issue and a `contract-change` PR first. The market note lists what is a candidate and what is not.
+- **Use the measured taste as a range, not a point** (tail fundamental about 45–60 Hz, mostly sub energy, clean sine tails, click amount free). These are hypotheses until the user has listened.
+- **Analysis code:** measure from the onset, per zone (click / body / tail), with a rectangular window for whole-file band shares, an RMS envelope of at least 5 ms, `None` for a threshold that is never crossed, and only the first hit of a loop. The full list is in the learnings note.
+- **Reference audio is measurement input only.** Never commit it, never copy parameter tables from the old prototype or from commercial presets. Count each reference kick once.
+- **Say what is documented and what is derived.** Do not state how a commercial product works internally beyond the notes; write "not established".
+
 ## Lessons from PR #8 (kick core)
 
 Follow the testing rules in `CLAUDE.md`. In audio code, PR #8 showed these traps:

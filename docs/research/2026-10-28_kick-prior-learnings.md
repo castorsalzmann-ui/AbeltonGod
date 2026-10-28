@@ -11,6 +11,8 @@ These are **lessons**, not a parameter table. They come from two sources, and ne
 
 Use this note to choose defaults, variant axes and analysis methods. Derive your own values and verify them with tests and the user's ears (Phase 01 acceptance criteria).
 
+See also `2026-10-28_kick-market-analysis.md` (what commercial kick synths do and which of their features are candidates here).
+
 **Standing guidance from the user (2026-10-28): keep everything genre-fluid for now.** No genre-keyed presets, fingerprints, parameter ranges or code paths. Name presets by sound character (e.g. `dark-dry`, `punchy`), not by genre. The reference set stays one group. This is the user's instruction in chat, not yet a recorded decision; a decision entry is proposed in the PR body.
 
 ## 1. Lessons from the prototype
