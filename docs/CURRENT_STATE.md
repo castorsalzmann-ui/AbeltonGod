@@ -5,7 +5,7 @@ _Last updated: 2026-10-28 · Written only by the lead session on `main` after a 
 ## Phase
 
 - **Phase 00 — Setup:** DONE (#1 closed 2026-10-28).
-- **Phase 01 — Kick engine:** core merged (#2 via PR #8); drive anti-aliased (#13 via PR #20); contract semantics (#7 via PR #28). WAV/sidecar nits (#12 via PRs #26, #33); tone/drive/envelope tests (#11 via PR #34). Drive continuous from 0 (#16 via PR #38); ENGINE_VERSION rule (#35 via PR #40, D-013). Analysis limits #27, #32 documented (PR #49). Open: side findings #30, #31 (triage running), then #3 (design accepted by the user).
+- **Phase 01 — Kick engine:** core merged (#2 via PR #8); drive anti-aliased (#13 via PR #20); contract semantics (#7 via PR #28). WAV/sidecar nits (#12 via PRs #26, #33); tone/drive/envelope tests (#11 via PR #34). Drive continuous from 0 (#16 via PR #38); ENGINE_VERSION rule (#35 via PR #40, D-013). Analysis limits #27, #32 documented (PR #49); crest-factor mechanisms #30, #31 documented (PR #51). Presets, variants, CLI (#3 via PRs #54, #56); user listening test done. Open for acceptance: #59 (default `pitch_decay_ms` → 40).
 - **Phase 02 — Ableton bridge:** DONE (#5 via PR #42, 2026-10-28). Seven capabilities `tested` on Live 12.4.5. Open follow-up: PR #48 (setup-guide fixes, #43).
 - **Phase 04a — Agent Resource Guard:** DONE (#6 via PR #15).
 
@@ -57,7 +57,6 @@ _Last updated: 2026-10-28 · Written only by the lead session on `main` after a 
 
 ## What does not exist yet
 
-- Kick presets, variants, CLI (#3)
 - Sample import into Live (Phase 03)
 - Claude orchestrator / chat (Phase 04b)
 
@@ -79,11 +78,12 @@ _Last updated: 2026-10-28 · Written only by the lead session on `main` after a 
 
 ## Next step
 
-Lead: this cloud session (user decision 2026-10-28); the PC session only runs commands and Live tests. Up to 10 sub-agents in parallel (user, 2026-10-28).
+Lead: one cloud lead session (D-015); the PC session only runs commands and Live tests. Lead handover to a new Scrum Master lead on 2026-10-28 evening.
 
-- **Kick track:** triage of #30/#31 (crest factor) running → then #3 implementation (presets `dark-dry`, `punchy`, `rumble-ready`, `centre`, `driven`; variants; CLI) with helper agents, then the user's listening test (includes #9 and τ 8/15/40).
-- **Bridge track:** PR #48 (setup-guide fixes) being updated onto main → review → merge. Phase 03 (#50, sample import) waits for Phase 01 acceptance.
-- **Phase 04b** (#23): auth decided (D-014: subscription login, Opus 5.5); research note PR #47. Still blocked until Phases 01–03 are accepted.
+- **Kick track:** #3 implemented (PRs #54, #56), user listening test done ([#3](https://github.com/castorsalzmann-ui/AbeltonGod/issues/3#issuecomment-6477768472)): all five presets usable, clean, different characters, "rather generic". Remaining for Phase 01 acceptance: **#59** (contract default `pitch_decay_ms` 15 → 40, user's ear; audio-engineer PR in progress) → review → merge → close #3, mark Phase 01 DONE, unblock #50.
+- **Bridge track:** done (Phase 02 DONE; follow-ups #43 via PR #48, #52 via PR #53). Phase 03 (#50, sample import) starts after Phase 01 is DONE.
+- **Phase 04b** (#23): auth decided (D-014: subscription login, Opus 5.5); research note PR #47. Blocked until Phases 01–03 are accepted.
+- **Parking lot from the listening test:** #57 kick layering (fuse two kicks), #58 own reference samples to steer synthesis ("main character").
 - **User:**
   - Windows test of the budget watch (PR #18): let Claude Code run `git status` three times; a "Budget: …" message should appear.
   - GitHub → New issue → **Bug**: check that the form appears with "Repro" required (PR #24).
@@ -93,8 +93,5 @@ Lead: this cloud session (user decision 2026-10-28); the PC session only runs co
 
 ## Open questions
 
-- Do the anti-aliased (PR #20) and continuous (PR #38) drive sound different from before? Part of the #3 listening test.
-- Is format tag 1 (plain PCM) fine for 24-bit WAVs in Live, or is WAVE_FORMAT_EXTENSIBLE needed? Part of the #3 user test.
-- New default `pitch_decay_ms` 15 vs. the old 40 — compare by ear in the #3 listening test.
-- #9 — is the DC-correction sub-bass tail of very short or extreme kicks audible? Up to 11.4 % of peak at the extremes, plus a −28 dB tail from the DC blocker. To be answered in the #3 listening test.
+- Answered in the #3 listening test (2026-10-28): drive has no audible artefacts; 24-bit odd-length WAVs with format tag 1 load in Live without warning; pitch decay 40 ms preferred (→ #59); #9 sub tail not audible (closed); click level and `driven` density acceptable for now (#30/#31 alternatives not needed).
 - Reference tracks / artists for later style work: user will provide them later; not needed for the MVP.
