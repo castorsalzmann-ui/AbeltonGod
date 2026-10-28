@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import math
+import numbers
 from functools import cache
 from pathlib import Path
 from typing import Any
@@ -37,8 +38,10 @@ def resolve_kick_params(params: dict[str, Any]) -> dict[str, Any]:
     """Validate ``params`` against the contract and return a new dict with all defaults filled in.
 
     Out-of-range, missing, unknown or non-finite (NaN, Infinity) fields are rejected, never
-    clamped or dropped. Whole-number floats for integer fields (``7.0`` for ``seed``) are
-    accepted, as JSON Schema does, and converted to ``int`` losslessly.
+    clamped or dropped. Numbers must be ``int`` or ``float`` (NumPy scalars are converted
+    first); ``Decimal``, ``Fraction`` and ``complex`` are rejected, and if any are present only
+    those type problems are listed. Whole-number floats for integer fields (``7.0`` for
+    ``seed``) are accepted, as JSON Schema does, and converted to ``int`` losslessly.
     """
     if not isinstance(params, dict):
         raise KickParamsError(f"Kick parameters must be an object, got {type(params).__name__}.")
@@ -46,6 +49,16 @@ def resolve_kick_params(params: dict[str, Any]) -> dict[str, Any]:
     # check below and JSON serialisation of the sidecar treat them like any other number.
     # np.longdouble.item() stays a NumPy type on Linux, so floating types go through float().
     params = {k: _to_python(v) for k, v in params.items()}
+    # Only int and float are numbers here. Decimal, Fraction and complex pass (or crash) the
+    # schema's number check and then fail deep inside the DSP; JSON input never produces them.
+    # Reported on their own, before the schema check, which cannot compare complex values.
+    type_lines = [
+        f"- {key}: must be int or float, got {type(value).__name__} {value!r}"
+        for key, value in params.items()
+        if isinstance(value, numbers.Number) and not isinstance(value, int | float)
+    ]
+    if type_lines:
+        raise KickParamsError("Invalid kick parameters:\n" + "\n".join(type_lines))
     schema = load_schema(KICK_SCHEMA_FILE)
     lines = [
         f"- {key}: must be a finite number, got {value!r}"
