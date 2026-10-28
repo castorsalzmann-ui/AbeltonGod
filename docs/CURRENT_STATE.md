@@ -19,6 +19,7 @@ _Last updated: 2026-10-28 · Written only by the lead session on `main` after a 
 | Tests run in parallel (pytest-xdist, `-n auto`, fixed temp folder `.pytest_tmp`); `pytest -n 0` runs serially | [PR #22](https://github.com/castorsalzmann-ui/AbeltonGod/pull/22), merged as c6ddf9b; user's Windows PC: 12 workers, `1008 passed, 2 skipped in 6.41s` ([#21](https://github.com/castorsalzmann-ui/AbeltonGod/issues/21#issuecomment-6468776786)) |
 | Kick Gen 2 research note (prototype lessons, taste range from 77 reference kicks, market candidates, analysis pitfalls, agent rules) | [PR #10](https://github.com/castorsalzmann-ui/AbeltonGod/pull/10), merged as 2c13642: `docs/research/2026-10-28_kick-gen2-learnings.md`, required reading for kick-engine work |
 | Budget watch for development sessions (`.claude/hooks/waste_watch.py`, warn only) | [PR #18](https://github.com/castorsalzmann-ui/AbeltonGod/pull/18), merged as 00485b1 after one review round (3 findings fixed); CI ubuntu + windows. Windows user test still open. |
+| Bug workflow: issue form "Bug" (required repro), labels `severity:blocker/major/minor/nit`, regression corpus `tests/regressions/` (1 case from PR #8 review 1), "Bugs" rules in `CLAUDE.md` | [PR #24](https://github.com/castorsalzmann-ui/AbeltonGod/pull/24), merged as 9b0b5a9 after one review round (3 minor fixed); `1132 passed, 2 skipped`; [CI run 40691016877](https://github.com/castorsalzmann-ui/AbeltonGod/actions/runs/40691016877) ubuntu + windows. User check of the form on GitHub open. |
 
 **Measured limits of the kick core** (details in PR #8):
 - Pitch accuracy: ±3 % for windows ≥ 80 ms, ±5 % below (user decision).
@@ -65,10 +66,11 @@ _Last updated: 2026-10-28 · Written only by the lead session on `main` after a 
   5. Then #3 — presets, variants, CLI and the first listening test, which includes #9.
 - **Bridge track, in parallel:** #4 (OSC client, `bridge-engineer`), then #5 (needs the user's machine; #1 is done).
 - **Phase 04b** (Claude orchestrator, #23): blocked until Phases 01–03 are accepted and the auth method (D-008) is confirmed with the user.
-- **Process:** #19 — budget watch blind spots (cloud reviewer runs, permission denials).
+- **Process:** #19 — budget watch blind spots (cloud reviewer runs, permission denials). New bugs: Bug form + a failing case in `tests/regressions/` first (#14 done).
 - **User:**
   - Windows test of the budget watch (PR #18): let Claude Code run `git status` three times; a "Budget: …" message should appear.
   - Decide #16 (drive continuity at 0).
+  - GitHub → New issue → **Bug**: check that the form appears with "Repro" required (PR #24).
   - After pulling: `pip install -e ".[dev]"` once (new dev dependency pytest-xdist).
 
 ## Open questions
