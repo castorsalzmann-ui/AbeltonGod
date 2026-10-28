@@ -113,7 +113,7 @@ Flat team (D-017): the lead assigns specialised agents directly; **no agent star
 - `reviewer` — independent review of every PR; writes only review comments and finding issues. Never reviews its own work.
 - `qa-tester` — less check time, same depth: runtime analysis, targeted test selection, reusable check tools, pre-check before every review (`tests/` infrastructure, `scripts/qa/`).
 - `sound-designer` — user feedback → measurable hypotheses and parameter proposals, reference analysis, listening-test plans (issue comments, `docs/research/`; no code, no listening claims).
-- `researcher` (optional) — dated, sourced feasibility notes before new phases (`docs/research/`).
+- `researcher` — dated, sourced feasibility and programmability notes (`docs/research/`). Two instances work ahead on the parking lot (D-018): A sound and audio, B integration and product. **Before designing a parking-lot feature, read its `docs/research/*_parking-*.md` note.**
 
 Worktree agents run tests as `python -m pytest -o pythonpath=src` (the editable install points at the main clone).
 
