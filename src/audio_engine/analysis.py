@@ -7,6 +7,26 @@ is excluded). It is ``None`` when the window holds fewer than three crossings, i
 too short to measure. For a kick whose pitch has settled, the value is close to
 ``pitch_end_hz``; if the pitch is still falling in the window, it is higher — a property of
 the sound, not a measurement error.
+
+Known limitation of ``fundamental_hz`` on very short kicks (#27). When ``amp_decay_ms`` is
+below about 110 ms, the body decays faster (tau = amp_decay_ms / ln 1000) than the tail of the
+kick engine's 10 Hz DC blocker (tau = 15.9 ms). That slow tail, and on some kicks the
+Hann-shaped mean correction, then moves the zero crossings or stops them altogether. With
+both stages switched off the crossings follow the body exactly. Measured on body-only kicks:
+single cycles off by up to 13 % at -20 to -30 dB, ``fundamental_hz`` off by up to 4.8 %, and
+often ``None`` below about 60 ms. Read it as approximate (+-5 %), or ``None``, for very short
+kicks. The analysis is correct for the file; the file differs from the body pitch.
+
+``decay_20db_ms`` / ``decay_40db_ms`` are measured on the output and are not the inverse of
+``amp_decay_ms`` (#32). Each envelope frame is the max |x| over 40 ms, stamped at the frame
+start. After the peak that max is a crest from later in the frame, so the time can be early
+by up to about half a pitch period. The threshold is relative to the signal peak, which lies
+0 to 2.5 dB below the envelope peak, so the time can be up to ``deficit_db / 60 *
+amp_decay_ms`` late (measured up to 5.1 ms). Clean kicks: -14 to +4.4 ms (-8 to +25 %) from
+``amp_attack_ms + amp_decay_ms / 3``. With drive the output really decays more slowly:
+median +40 %, up to +87 %, or ``None`` when the level does not fall 20 dB inside the file.
+Never derive ``amp_decay_ms`` as ``3 * decay_20db_ms``; to change the decay, set
+``amp_decay_ms``.
 """
 
 from __future__ import annotations
