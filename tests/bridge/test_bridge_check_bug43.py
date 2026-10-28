@@ -22,7 +22,7 @@ from test_bridge_check_bug39 import closing
 
 # -- item 3: a FAIL where only tempo / signature changed is worded neutrally -------------------
 
-NEUTRAL_HEAD = ("FAIL: Nach dem Undo unterscheiden sich nur Tempo und/oder Taktart vom Stand "
+NEUTRAL_HEAD = ("FEHLER: Nach dem Undo unterscheiden sich nur Tempo und/oder Taktart vom Stand "
                 "vor dem Test.")
 DRIFT_CAUSE = "Tempo-Automation, Ableton Link oder eine externe MIDI-Clock (Sync)"
 REVERT_CAUSE = "Undo hat eine frühere Tempo- oder Taktart-Änderung zurückgenommen."
@@ -63,6 +63,7 @@ def test_tempo_or_signature_only_change_is_neutral_fail(fake_cls, diff_line):
         "external clock) or an undone tempo/signature edit")
     assert block["error"] == "only tempo/signature changed across undo; nothing more written"
     assert NEUTRAL_HEAD in out
+    assert "FAIL: Nach dem Undo" not in out  # same FEHLER: prefix as other errors (#52)
     assert f"  - {diff_line}" in out
     assert DRIFT_CAUSE in out and REVERT_CAUSE in out
     assert BLAME_UNDO_TEXT not in out  # not blamed on undo
