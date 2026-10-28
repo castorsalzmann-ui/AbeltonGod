@@ -5,6 +5,6 @@
   "edits_same_file": 15,
   "tool_calls_first_warn": 300,
   "tool_calls_warn_every": 150,
-  "subagents_per_session": 4,
+  "subagents_per_session": 10,
   "reviewer_runs_per_session": 3
 }
