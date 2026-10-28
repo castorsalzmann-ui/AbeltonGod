@@ -5,7 +5,7 @@ _Last updated: 2026-10-28 · Written only by the lead session on `main` after a 
 ## Phase
 
 - **Phase 00 — Setup:** DONE (#1 closed 2026-10-28).
-- **Phase 01 — Kick engine:** core merged (#2 via PR #8); drive anti-aliased (#13 via PR #20); contract semantics (#7 via PR #28). Open: #11, #12, #16, then #3.
+- **Phase 01 — Kick engine:** core merged (#2 via PR #8); drive anti-aliased (#13 via PR #20); contract semantics (#7 via PR #28). WAV/sidecar nits (#12 via PR #26). Open: #11, #36, #16, then #3.
 - **Phase 02 — Ableton bridge:** OSC client and capability gate merged (#4 via PR #25). Open: #5 (bridge check on the user's machine).
 - **Phase 04a — Agent Resource Guard:** DONE (#6 via PR #15).
 
@@ -23,6 +23,7 @@ _Last updated: 2026-10-28 · Written only by the lead session on `main` after a 
 | Bug workflow: issue form "Bug" (required repro), labels `severity:blocker/major/minor/nit`, regression corpus `tests/regressions/` (1 case from PR #8 review 1), "Bugs" rules in `CLAUDE.md` | [PR #24](https://github.com/castorsalzmann-ui/AbeltonGod/pull/24), merged as 9b0b5a9 after one review round (3 minor fixed); `1132 passed, 2 skipped`; [CI run 40691016877](https://github.com/castorsalzmann-ui/AbeltonGod/actions/runs/40691016877) ubuntu + windows. User check of the form on GitHub open. |
 | AbletonOSC Windows guide (`docs/setup/ABLETONOSC_WINDOWS.md`), OSC client with nonce-marker bracketing per request, capability gate (`src/bridge/`), fake AbletonOSC server for CI | [PR #25](https://github.com/castorsalzmann-ui/AbeltonGod/pull/25), merged as ddef95a after three review rounds (7, 3, then no findings); 28/28 fault injections caught; merged tree `1252 passed, 2 skipped`; bridge tests 10/10 green under CPU load; CI on 1ff93e4 ubuntu + windows. **Not yet run against Live.** No capability status changed. |
 | kick-params **v0.2**: written envelope semantics (`pitch_decay_ms` = time constant τ, `amp_decay_ms` = time to −60 dB), default `pitch_decay_ms` 40 → 15; pitch-settle guideline `max_settled_pitch_decay_ms` / `pitch_settles` for presets and Claude; silent renders refused; v0.1 sidecars still re-render | [PR #28](https://github.com/castorsalzmann-ui/AbeltonGod/pull/28), merged as fd7ae72 after one pre-PR review round (5 findings fixed); 17/17 fault injections caught; `1377 passed, 2 skipped`; CI on d4507a4 ubuntu + windows green |
+| WAV/sidecar robustness (#12): RIFF pad byte for odd 24-bit data chunks, dangling symlinks count as taken names, `created_at` must be aware (whole-minute offset), Decimal/Fraction/complex rejected | [PR #26](https://github.com/castorsalzmann-ui/AbeltonGod/pull/26), merged as 816b042 **without review and with an empty PR template**; [post-merge review](https://github.com/castorsalzmann-ui/AbeltonGod/pull/26#pullrequestreview-5683501845): code sound, 276 WAV cases checked with stdlib `wave` and ffmpeg, 17/18 fault injections caught; CI on c9b3a1d ubuntu + windows. Follow-ups: #36 (engine version, test gap), format-tag question moved to #3. |
 
 **Known limits of the bridge** (details in `docs/research/2026-10-28_abletonosc-protocol-and-create-audio-clip.md`):
 - A timed-out write has an unknown outcome and may still be applied later; read back before any undo (rule for #5).
@@ -69,7 +70,7 @@ _Last updated: 2026-10-28 · Written only by the lead session on `main` after a 
 
 - **Kick track:**
   1. #11 — tests for tone, drive and the envelope; nothing protects them today.
-  2. #12 — WAV/sidecar nits, incl. the 24-bit pad byte that matters for the Ableton import.
+  2. #36 — bump `ENGINE_VERSION` for the pad-byte change (odd 24-bit files hash differently since PR #26) and cover the `created_at` check for a missing `out_dir`.
   3. #16 — user decision: should `drive` start continuously at 0? Decide before the listening test.
   4. Then #3 — presets, variants, CLI and the first listening test, which includes #9. Presets must call `max_settled_pitch_decay_ms` (or be named as deliberately pitchy).
 - **Bridge track, in parallel:** #5 — `bridge_check.py` (`bridge-engineer`), then the user installs AbletonOSC per `docs/setup/ABLETONOSC_WINDOWS.md`, runs the ping and the check on a test set. Live version known: 12.4.5.
@@ -85,6 +86,7 @@ _Last updated: 2026-10-28 · Written only by the lead session on `main` after a 
 ## Open questions
 
 - Does the anti-aliased drive (PR #20) sound different from before? Part of the #3 listening test.
+- Is format tag 1 (plain PCM) fine for 24-bit WAVs in Live, or is WAVE_FORMAT_EXTENSIBLE needed? Part of the #3 user test.
 - New default `pitch_decay_ms` 15 vs. the old 40 — compare by ear in the #3 listening test.
 - #9 — is the DC-correction sub-bass tail of very short or extreme kicks audible? Up to 11.4 % of peak at the extremes, plus a −28 dB tail from the DC blocker. To be answered in the #3 listening test.
 - Reference tracks / artists for later style work: user will provide them later; not needed for the MVP.
