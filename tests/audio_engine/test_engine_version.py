@@ -8,10 +8,10 @@ three). If one of them fails, rendered bytes changed: bump ``ENGINE_VERSION`` in
 in the same PR (PR template checkbox). Never update a hash without the bump.
 
 Hashes recorded on Linux (CPython 3.13, NumPy 2.5) for ``ENGINE_VERSION`` 0.1.0, i.e. after
-the continuous drive of #16; ubuntu CI (Python 3.12) reproduces them. Byte identity is proven
-per platform only (PR #8): on platforms not in ``GOLDEN_PLATFORMS`` the hash is still
-computed, a match passes and a mismatch is an ``xfail`` that names the actual hash, so CI
-collects the evidence (and ``tests/conftest.py`` turns either outcome into a GitHub annotation).
+the continuous drive of #16; ubuntu and windows CI (Python 3.12) reproduce them, so a
+mismatch on Linux or Windows fails. On any other platform the hash is still computed, a match
+passes and a mismatch is an ``xfail`` that names the actual hash, so CI collects the evidence
+(and ``tests/conftest.py`` turns either outcome into a GitHub annotation).
 Sample count and file size are checked on every platform.
 """
 
@@ -31,8 +31,9 @@ from audio_engine.io import EngineVersionMismatch, render_kick_wav, rerender_fro
 # fails the hash test; a bump without new hashes fails test_golden_hashes_match_the_version.
 ENGINE_VERSION_OF_GOLDEN = "0.1.0"
 # Hard failure on these platforms; elsewhere a mismatch is an xfail with the actual hash.
-# Add "win32" once a Windows run has shown the same hashes.
-GOLDEN_PLATFORMS = ("linux",)
+# win32: windows-latest CI (Python 3.12, run 40730447060) matched all five hashes; D-005
+# promises byte-identical output, so a Windows mismatch must fail (lead decision, PR #40).
+GOLDEN_PLATFORMS = ("linux", "win32")
 
 # name: (params, sample_rate, bit_depth, samples, file size, sha256)
 GOLDEN = {
