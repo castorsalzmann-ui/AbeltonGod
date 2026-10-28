@@ -7,7 +7,7 @@ _Date: 2026-10-28 · Status: input for Phase 01 (#2, #3). Not a decision, not a 
 These are **lessons**, not a parameter table. They come from two sources, and neither one should be copied:
 
 1. **"Bandit Wheel"**, an earlier browser prototype by the user (Web Audio, 18 genre profiles, slot-machine UI). Its value tables are deliberately **not** reproduced here. The goal is a better kick engine, not a port.
-2. **37 reference kick one-shots** that the user picked from various Splice packs. They show the user's **taste in kicks** (what they choose), not how the user builds kicks. The audio is licensed and stays out of the repo. Only aggregate measurements appear below.
+2. **77 reference kick files** (two uploads: 41 + 36) that the user picked from various Splice packs. Each file counts **once**; see section 2 for how loops and duplicates were handled. They show the user's **taste in kicks** (what they choose), not how the user builds kicks. The audio is licensed and stays out of the repo. Only aggregate measurements appear below.
 
 Use this note to choose defaults, variant axes and analysis methods. Derive your own values and verify them with tests and the user's ears (Phase 01 acceptance criteria).
 
@@ -22,28 +22,37 @@ Use this note to choose defaults, variant axes and analysis methods. Derive your
 | P5 | Character mostly came from a small set of building blocks: sine body + exponential pitch drop, amp envelope with a short **hold**, a **waveshaper with selectable curve family** (hard clip / tanh / asymmetric tanh / wavefold), band-filtered noise click, optional **separate sub sine**, optional **rumble tail** (noise convolved, low-passed, saturated), optional **two-layer body + top**. | `kick-params` v0.1 covers pitch env, amp env, click, `drive`, `tone`. **Not covered:** hold, curve family, separate sub, rumble, layering. These are candidates for later, not scope for #2/#3. Each needs a `parking-lot` issue and a `contract-change` PR before anyone builds it. |
 | P6 | Cause → effect is more useful than genre labels. Faster tempo → shorter decay and brighter transient. Kick carries the bassline → longer, more tonal, more driven. Curve family = harmonic colour (hard clip harsh, tanh round, wavefold metallic), not loudness. Sub amount depends on what else fills the low end. Rumble is its own axis, independent of tempo. | Write preset descriptions and future Claude prompts in these terms ("short because 150 BPM"), not as genre facts. |
 
-## 2. Taste fingerprint from 37 reference kicks
+## 2. Taste fingerprint from 77 reference kick files
 
-Method: mono sum, peak-normalised, all timing measured **from the onset** (first sample above −20 dB of peak). Envelope = 5 ms RMS. Tail pitch = instantaneous frequency (Hilbert phase) of a 700 Hz low-passed signal, median over 60 ms after onset until −30 dB, cross-checked by zero-crossing count. 41 files were supplied. 4 contained several hits (loops) and were excluded.
+**One vote per kick.** 77 files in two uploads. 13 contained several hits (8 loops of one pack with 8–10 hits, three more loops with 8, 8 and 16 hits, two files with 2 hits). Each of those was cut to its **first hit only**, so a kick that is played 8 times in a loop counts once. Duplicates were checked with an onset-aligned waveform correlation over the first 250 ms (positive control: hit 1 vs hit 2–4 inside the same loop gives 0.999–1.0 in 7 of the 10 loops tested; in the other 3 some hits are different sounds within one pattern and correlate only 0.37–0.94 with hit 1). The highest correlation between two *different* files is 0.886, so no pair counts as the same kick (threshold 0.98) and all 77 stay in. For decay measures, 4 first-hits that ran into the next hit (decay possibly cut off) are excluded; all other measures keep them.
 
-Accuracy check on synthetic kicks with known values: tail pitch within 4 %, pitch settle time and −40 dB decay within about 10 %. On the real files, the two tail-pitch methods agree within 5 % for 24 of 37 kicks. Two of three note-tagged kicks match their note (G# → 51.2 Hz, A → 54.7 Hz). The third, tagged F#, does not; cause not established.
+Method: mono sum, peak-normalised, all timing measured **from the onset** (first sample above 10 % of peak). Envelope = 5 ms RMS. Tail pitch = instantaneous frequency (Hilbert phase) of a 700 Hz low-passed signal, median over 60 ms after onset until −30 dB, cross-checked by zero-crossing count.
 
-| Measure | p25 | median | p75 | Confidence | Note |
+Accuracy check on synthetic kicks with known values: tail pitch within 4 %, pitch settle time and −40 dB decay within about 10 %. Three of the four note-tagged kicks match their note within 5 % (G# → 51.2 Hz vs 51.9 Hz, A → 54.7 Hz vs 55.0 Hz, an F# in upload 2 → 48.2 Hz vs 46.2 Hz). The fourth, an F# in upload 1, measures 59 Hz (F#1 = 46.2 Hz); cause not established.
+
+| Measure | p25 | median | p75 | Median set 1 / set 2 | Note |
 | --- | --- | --- | --- | --- | --- |
-| Tail fundamental (Hz) | 51 | 56 | 64 | Medium–high | Centre is around A1 (55 Hz). The schema default `pitch_end_hz: 48` sits at the low edge of this set. |
-| Pitch settle, 90 % of drop done (ms) | 19 | 34 | 47 | Medium (n = 29) | For an exponential drop this is ≈ 2.3 × the time constant, so τ ≈ 8–20 ms. Map it onto `pitch_decay_ms` only after #7 defines its meaning. |
-| Decay to −20 dB (ms) | 165 | 224 | 287 | Medium | |
-| Decay to −40 dB (ms) | 217 | 326 | 398 | Medium | One kick never reaches −40 dB in its file. Compare with `amp_decay_ms` only once #7 defines its meaning. |
-| Length to −60 dB (ms) | 252 | 343 | 423 | Medium | |
-| Energy share below 100 Hz | 0.74 | 0.81 | 0.86 | High | Strongly sub-weighted; consistent across the set. |
-| Onset (first 10 ms) energy share above 1 kHz | 0.06 | 0.21 | 0.41 | Medium | **Widest spread of all measures (p10 0.02, p90 0.60).** Click amount is where the user's picks differ most. |
-| Tail harmonics 2–8 vs fundamental | 0.00 | 0.01 | 0.01 | Medium | Tails are almost pure sine. Audible saturation, if any, sits in the attack. Only 2 kicks exceed 0.05. |
-| Start pitch | — | — | — | **Not established** | Values in the first 1–4 ms are mixed with click energy and run into the 700 Hz filter limit. Do not use. |
+| Tail fundamental (Hz) | 47 | 53 | 57 | 56 / **49** | See "The two uploads differ" below. 60 % of all kicks lie between 45 and 60 Hz. The schema default `pitch_end_hz: 48` is inside the interquartile range. |
+| Pitch settle, 90 % of drop done (ms) | 15 | 24 | 46 | 34 / **17** | n = 63. For an exponential drop this is ≈ 2.3 × the time constant, so τ ≈ 6–20 ms. Map it onto `pitch_decay_ms` only after #7 defines its meaning. |
+| Decay to −40 dB (ms) | 223 | 327 | 424 | 327 / 359 | n = 69. Compare with `amp_decay_ms` only once #7 defines its meaning. |
+| Energy share below 100 Hz | 0.75 | 0.81 | 0.89 | 0.81 / 0.86 | Strongly sub-weighted in both uploads; p10 is 0.64. |
+| Onset (first 10 ms) energy share above 1 kHz | 0.02 | 0.15 | 0.31 | 0.19 / 0.04 | **Widest relative spread (p10 0.01, p90 0.50).** The set 1 / set 2 gap comes from the 8 loop-first-hits and is not distinguishable without them (see below). |
+| Tail harmonics 2–8 vs fundamental | 0.00 | 0.01 | 0.03 | 0.01 / 0.02 | Tails are almost pure sine. 10 of 77 exceed 0.05. |
+| Start pitch | — | — | — | — | **Not established.** Values in the first 1–4 ms are mixed with click energy and run into the 700 Hz filter limit. Do not use. |
+
+**The two uploads differ.** Set 1 (41 files) and set 2 (36 files) do not give the same fingerprint:
+
+- **Different beyond chance, also without the 8 loop files:** tail pitch (55.9 vs 49.9 Hz, Mann–Whitney p = 0.001), pitch settle (34 vs 19 ms, p = 0.02), sub share (0.81 vs 0.89, p = 0.0004), crest factor (p = 0.01) and decay (p = 0.002).
+- **Not different without the loop files:** onset brightness (p = 0.22). The low click in set 2 comes from the 8 loop first-hits, which also have a high crest factor (median 4.0).
+- **Cause not established.** Candidates: different genre mix, different packs, or a change in what the user was looking for between the two uploads. The data cannot tell them apart without per-file labels.
+
+So the "taste" is **a range, not a point**. Tail pitch 45–60 Hz, sub-dominant, clean tails, click amount free.
 
 What follows for #3 (presets/variants). These are hypotheses until the user has listened:
 
-- A default around **55 Hz tail**, a clean sine tail and **~80 % sub energy** matches this selection better than the current defaults.
-- **Click level/tone is the most natural variant axis.** It varies most within one person's taste, while tail pitch and sub weight stay comparatively stable.
+- Do not hard-code one tail pitch. Presets should span **roughly 45–60 Hz** and keep the root note a tunable parameter; a single default near 52 Hz is the least wrong single value.
+- **~80–90 % sub energy** and a **clean sine tail** hold in both uploads and are the safest shared base.
+- **Click level/tone is the most natural variant axis**: it has the widest relative spread within the selection.
 - Body drive should be a deliberate choice, not a default, because the user's picks mostly have clean tails.
 
 ## 3. Analysis pitfalls (relevant to `analysis.py`, PR #8)
@@ -55,18 +64,20 @@ Each of these produced wrong numbers during this work before it was fixed:
 3. **A short FFT window quantises pitch.** A 40 ms window gives 25 Hz bins, which produced a fake 50 Hz floor. Use instantaneous frequency or zero crossings for the tail fundamental, and check one method against the other.
 4. **Decay on a 1 ms mean-abs envelope catches click ripple.** −20 dB times came out at a few ms. Use an RMS envelope of ≥ 5 ms.
 5. **"Never reached" is not 0.** Return `None` when a threshold is not crossed inside the file.
-6. **Sample folders contain loops.** Count hits before averaging.
-7. **Never derive labels from file or archive names.** An earlier pass of this analysis called the set "future rave/trance" because of the ZIP name. That was wrong: the ZIP was simply named after one file. Pack prefixes in filenames are not genre labels either.
+6. **Sample folders contain loops, and a loop repeats one kick many times.** Count hits per file and measure only the first one, otherwise one kick counts as 8 or 16. Check hit 1 vs hit 2 in the same loop as a positive control for any duplicate detector.
+7. **A hit cut out of a loop can have its decay cut off by the next hit.** Treat decay and length as censored in that case and leave those files out of the decay statistics only.
+8. **A "found no duplicates" result needs a positive control.** The threshold of 0.98 found nothing; it only means something because the same detector returns ≈1.0 for repeated hits of one loop and tops out at 0.886 between different files.
+9. **Never derive labels from file or archive names.** An earlier pass of this analysis called the set "future rave/trance" because of the ZIP name. That was wrong: the ZIP was simply named after one file. Pack prefixes in filenames are not genre labels either.
 
-The first pass of this analysis (not in the repo) reported a pitch-sweep ratio of ~2.8× and a −40 dB decay of ~190 ms. Both were wrong because of pitfalls 1–4. **Retracted.**
+The first pass of this analysis (not in the repo) reported a pitch-sweep ratio of ~2.8× and a −40 dB decay of ~190 ms. Both were wrong because of pitfalls 1–4. **Retracted.** A later 37-file version of this note gave a tail pitch median of 56 Hz and said the schema default of 48 Hz sat at the low edge. With 77 files the median is 53 Hz and 48 Hz is inside the interquartile range; that statement is **retracted**.
 
 ## Limits
 
 - The data shows what the user selects, not their own productions. There are no genre labels per file.
-- 37 samples from commercial packs. 44.1 kHz except 3 files at 48 kHz. Mono sum of stereo files.
+- 77 files from commercial packs, two uploads that differ from each other (see section 2). 44.1 kHz except 3 files at 48 kHz. Mono sum of stereo files. 13 files are loops or multi-hit files; only their first hit was measured. 8 of them come from one loop family (A/B, 4 variants each) and make up about 10 % of the set.
 - Numbers describe signals. They do not say whether a kick sounds good; only the user's listening test decides that (Phase 01 acceptance).
 
 ## Open questions for the user
 
 - Do the medians above match the kicks you would actually use in your own tracks?
-- Per-file genre labels would allow per-genre fingerprints. Without them, the set stays one group.
+- Why do the two uploads differ (tail ≈ 56 vs ≈ 49 Hz)? Different genres, different packs, or a changed target? Per-file genre labels would answer this and would allow per-genre fingerprints. Without them, the set stays one group.
