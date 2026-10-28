@@ -768,6 +768,69 @@ def test_interrupt_after_folders_before_write_removes_them(tmp_path, monkeypatch
     assert list(tmp_path.iterdir()) == []
 
 
+def _interrupt_after_write(monkeypatch, exc: BaseException, before_raise=None) -> list:
+    """Let the real write_kick finish, then raise ``exc`` at the first step after its result
+    is stored (``longest_path``): Ctrl+C right after ``write_kick`` returned (#90)."""
+    seen: list = []
+
+    def interrupting_longest_path(wav_path):
+        seen.append(Path(wav_path))
+        assert Path(wav_path).is_file()
+        assert Path(wav_path).with_suffix(".json").is_file()  # the pair is finished
+        if before_raise is not None:
+            before_raise(Path(wav_path))
+        raise exc
+
+    monkeypatch.setattr(layout_mod, "longest_path", interrupting_longest_path)
+    return seen
+
+
+@pytest.mark.parametrize("exc", [KeyboardInterrupt(), OSError(28, "disk full (simulated)")],
+                         ids=["ctrl-c", "full"])
+def test_interrupt_after_write_kick_returned_removes_pair_and_folders(
+    tmp_path, monkeypatch, exc
+) -> None:
+    (tmp_path / "set.als").write_bytes(b"als")
+    before = tree(tmp_path)
+    seen = _interrupt_after_write(monkeypatch, exc)
+    with pytest.raises(type(exc)):
+        place_kick(FAST, tmp_path, created_at=FIXED_TIME)
+    assert len(seen) == 1  # the interrupt really came after a finished write
+    assert tree(tmp_path) == before
+
+
+def test_interrupt_after_write_kick_returned_keeps_existing_folders_and_files(
+    tmp_path, monkeypatch
+) -> None:
+    first = place_kick(FAST, tmp_path, created_at=FIXED_TIME)
+    before = tree(tmp_path)
+    seen = _interrupt_after_write(monkeypatch, KeyboardInterrupt())
+    with pytest.raises(KeyboardInterrupt):
+        place_kick({**FAST, "seed": 8}, tmp_path, created_at=FIXED_TIME)
+    assert [p.name for p in seen] == ["kick_002.wav"]
+    assert tree(tmp_path) == before
+    assert first.is_file() and sidecar_path(first).is_file()
+
+
+@pytest.mark.parametrize("gone", [".wav", ".json", "both"])
+def test_interrupt_after_write_with_pair_already_gone_keeps_the_original_error(
+    tmp_path, monkeypatch, gone: str
+) -> None:
+    """Someone removed (part of) the pair before the clean-up: the clean-up's own OSError
+    (file not found) must not replace the Ctrl+C, and the folders still go."""
+
+    def remove(wav: Path) -> None:
+        if gone in (".wav", "both"):
+            wav.unlink()
+        if gone in (".json", "both"):
+            wav.with_suffix(".json").unlink()
+
+    _interrupt_after_write(monkeypatch, KeyboardInterrupt(), before_raise=remove)
+    with pytest.raises(KeyboardInterrupt):
+        place_kick(FAST, tmp_path, created_at=FIXED_TIME)
+    assert list(tmp_path.iterdir()) == []
+
+
 def test_post_check_failure_removes_new_folders_too(tmp_path, monkeypatch) -> None:
     """The >9999-names refusal must also remove the folders this call created (mutant R03)."""
 

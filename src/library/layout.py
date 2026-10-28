@@ -154,7 +154,15 @@ def place_kick(
 
     ``project_dir`` must be an existing folder; the layout's folders below it are created as
     needed. If the call fails for any reason (bad parameters, disk full, permission, Ctrl+C),
-    the folders it created are removed again, so the project tree is left as it was.
+    the WAV/sidecar pair it wrote and the folders it created are removed again, so the project
+    tree is left as it was. Known exceptions, all a few bytecodes wide or outside this call:
+
+    - an interrupt between ``os.mkdir`` and recording that folder leaves that empty folder;
+    - an interrupt after ``write_kick`` has finished but before its result is stored here, or
+      after the ``try`` block ends, leaves the finished, valid pair (the caller gets no path);
+    - a second Ctrl+C during the clean-up stops the clean-up;
+    - two calls on the same project at the same time: if both fail, empty layout folders can
+      stay (each call may see the other's folder as existing and not remove it).
 
     A ``name`` that would make a path longer than ``layout.max_path_chars`` is shortened; if
     even a ``MIN_STEM_CHARS`` name does not fit, :class:`LibraryPathError` is raised before
@@ -169,28 +177,33 @@ def place_kick(
         raise LibraryPathError(f"project folder {root} does not exist or is not a folder")
     stem = _fitting_stem(name, folder, layout.max_path_chars)
 
-    # One clean-up path for every failure. ``created`` is filled by _make_folders as each
-    # folder appears, inside this try, so an interrupt at any point after a mkdir (also right
-    # after _make_folders returns) still removes the folders this call made.
+    # One clean-up path for every failure. ``created`` is filled by _make_folders right after
+    # each mkdir, inside this try, so an interrupt after a folder is recorded (also right
+    # after _make_folders returns) still removes it; only an interrupt between one mkdir and
+    # its append leaves that folder. ``written`` holds the pair once write_kick has returned,
+    # so a failure or Ctrl+C after that removes the finished pair too.
     created: list[Path] = []
+    written: tuple[Path, Path] | None = None
     try:
         _make_folders(root, layout.kick_parts, created)
-        wav_path, json_path = write_kick(
+        written = write_kick(
             params, folder, name=stem, description=description, created_at=created_at
         )
+        wav_path = written[0]
         limit = layout.max_path_chars
         longest = longest_path(wav_path)
         if limit is not None and path_chars(longest) > limit:
             # Only reachable with more than 9999 files of the same name (see SUFFIX_RESERVE).
-            json_path.unlink(missing_ok=True)
-            wav_path.unlink(missing_ok=True)
+            # The except below removes the pair and the new folders.
             raise LibraryPathError(
                 f"{longest} (Live's analysis file for {wav_path.name}) would be "
                 f"{path_chars(longest)} characters, over the limit of {limit} "
                 f"(too many files named {stem!r}); nothing was kept"
             )
     except BaseException:
-        _remove_folders(created)  # never raises OSError: the original error stays
+        if written is not None:
+            _remove_files((written[1], written[0]))  # sidecar first, then the WAV
+        _remove_folders(created)  # neither raises OSError: the original error stays
         raise
     return wav_path
 
@@ -250,6 +263,16 @@ def _make_folders(root: Path, parts: tuple[str, ...], created: list[Path]) -> No
                 f"{current} is {what}; the kick folder cannot be created there"
             ) from None
         created.append(current)
+
+
+def _remove_files(paths: tuple[Path, ...]) -> None:
+    """Remove the files this call wrote. Every ``OSError`` (also "already gone") is swallowed
+    for the same reason as in :func:`_remove_folders`."""
+    for path in paths:
+        try:
+            os.unlink(path)
+        except OSError:
+            pass
 
 
 def _remove_folders(created: list[Path]) -> None:
