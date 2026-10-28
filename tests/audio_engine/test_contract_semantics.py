@@ -247,7 +247,11 @@ V01_SIDECAR = Path(__file__).resolve().parents[1] / "fixtures" / "sidecars" / "k
 
 @pytest.mark.skipif(sys.platform != "linux", reason="fixture sha256 was rendered on Linux")
 def test_v01_sidecar_written_on_main_still_rerenders_identically() -> None:
-    """Fixture written by main at bb66f08 (before the 0.2 bump) with write_kick on Linux."""
+    """Fixture written by main at bb66f08 (before the 0.2 bump) with write_kick on Linux.
+
+    Its ``sha256`` and ``decay_40db_ms`` (279 -> 280) were updated in #16: the fixture has
+    drive 0.4, and the continuous drive curve changes its samples. The parameters are the
+    original ones, so the 0.1 -> 0.2 upgrade path is still what this test exercises."""
     expected = json.loads(V01_SIDECAR.read_text(encoding="utf-8"))["sha256"]
     assert hashlib.sha256(io_mod.rerender_from_sidecar(V01_SIDECAR)).hexdigest() == expected
 

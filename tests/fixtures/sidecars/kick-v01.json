@@ -28,11 +28,11 @@
     "length_ms": 450.0,
     "fundamental_hz": 48.63,
     "decay_20db_ms": 168.0,
-    "decay_40db_ms": 279.0,
+    "decay_40db_ms": 280.0,
     "dc_offset": 0.0
   },
   "bpm": null,
   "key": null,
-  "sha256": "edb09d1594868dded2ae4ec1e84fc0b5564b64d54e9a2c058465ae764ba2e455",
+  "sha256": "3db3c8a837f091698385ef7e63730ef04a3684851be0c2de5fe8586fc89af8c3",
   "created_at": "2026-10-28T00:00:00+00:00"
 }
