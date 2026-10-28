@@ -16,6 +16,7 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
   "pytest>=8",
+  "pytest-xdist>=3.5",  # runs the CPU-bound audio tests on all cores (-n auto)
   "ruff>=0.6",
 ]
 
@@ -24,7 +25,7 @@ where = ["src"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-ra"
+addopts = "-ra -n auto --dist worksteal"  # pytest-xdist; `pytest -n 0` runs serially
 
 [tool.ruff]
 line-length = 100

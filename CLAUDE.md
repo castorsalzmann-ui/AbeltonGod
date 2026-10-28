@@ -88,7 +88,8 @@ Use few agents. Default: this main session plus, when useful, one implementer an
 
 ```
 pip install -e ".[dev]"   # setup (inside a venv)
-pytest                     # all automated tests
+pytest                     # all automated tests, in parallel on all cores (pytest-xdist)
+pytest -n 0                # serially: for debugging, pdb or reading print output
 ruff check .               # lint
 ```
 
