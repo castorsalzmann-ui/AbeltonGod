@@ -5,7 +5,7 @@ _Last updated: 2026-10-28 · Written only by the lead session on `main` after a 
 ## Phase
 
 - **Phase 00 — Setup:** DONE (#1 closed 2026-10-28).
-- **Phase 01 — Kick engine:** core merged (#2 via PR #8). Open: #11, #12, then #3.
+- **Phase 01 — Kick engine:** core merged (#2 via PR #8); drive anti-aliased (#13 via PR #20). Open: #11, #12, #7, #16, then #3.
 - **Phase 04a — Agent Resource Guard:** DONE (#6 via PR #15).
 
 ## What works (with evidence)
@@ -15,12 +15,16 @@ _Last updated: 2026-10-28 · Written only by the lead session on `main` after a 
 | Repo scaffold, contracts, contract tests | [CI run 40604382687](https://github.com/castorsalzmann-ui/AbeltonGod/actions/runs/40604382687); user's Windows machine (Python 3.14.4): `ruff` clean, `899 passed, 2 skipped` ([#1](https://github.com/castorsalzmann-ui/AbeltonGod/issues/1#issuecomment-6467168168)) |
 | Deterministic kick engine core: `render_kick`, `analyse`, `write_kick`, `rerender_from_sidecar` (`src/audio_engine/`) | [PR #8](https://github.com/castorsalzmann-ui/AbeltonGod/pull/8), merged as 7316f85 after six independent review rounds; `899 passed, 2 skipped`; [CI run 40666798325](https://github.com/castorsalzmann-ui/AbeltonGod/actions/runs/40666798325) ubuntu + windows. ffmpeg decodes the WAVs bit-identically (round-6 review). |
 | Agent Resource Guard (`src/guard/`): policy, per-request limits, session/daily budget rebuilt from `logs/guard-usage.jsonl`, loop detection, timeout, sticky stop that can never report success | [PR #15](https://github.com/castorsalzmann-ui/AbeltonGod/pull/15), merged as 90e4a7e after one review round (8 findings fixed); 1008 passed; 28/29 fault injections caught; [CI run 40678523757](https://github.com/castorsalzmann-ui/AbeltonGod/actions/runs/40678523757) ubuntu + windows |
+| Drive anti-aliasing: tanh at 8× oversampling (Kaiser low-pass, frequency-domain resampling, spectrum cache) | [PR #20](https://github.com/castorsalzmann-ui/AbeltonGod/pull/20), merged as b0d2014 after one pre-PR review round (2 medium findings fixed). Aliasing ≤ 20 kHz vs. an ideal band-limited reference: worst −79 dB RMS rel. peak (was −41 dB); 12 fault injections all caught; [CI run 40684108652](https://github.com/castorsalzmann-ui/AbeltonGod/actions/runs/40684108652) ubuntu + windows |
+| Tests run in parallel (pytest-xdist, `-n auto`, fixed temp folder `.pytest_tmp`); `pytest -n 0` runs serially | [PR #22](https://github.com/castorsalzmann-ui/AbeltonGod/pull/22), merged as c6ddf9b; user's Windows PC: 12 workers, `1008 passed, 2 skipped in 6.41s` ([#21](https://github.com/castorsalzmann-ui/AbeltonGod/issues/21#issuecomment-6468776786)) |
+| Kick Gen 2 research note (prototype lessons, taste range from 77 reference kicks, market candidates, analysis pitfalls, agent rules) | [PR #10](https://github.com/castorsalzmann-ui/AbeltonGod/pull/10), merged as 2c13642: `docs/research/2026-10-28_kick-gen2-learnings.md`, required reading for kick-engine work |
 | Budget watch for development sessions (`.claude/hooks/waste_watch.py`, warn only) | [PR #18](https://github.com/castorsalzmann-ui/AbeltonGod/pull/18), merged as 00485b1 after one review round (3 findings fixed); CI ubuntu + windows. Windows user test still open. |
 
 **Measured limits of the kick core** (details in PR #8):
 - Pitch accuracy: ±3 % for windows ≥ 80 ms, ±5 % below (user decision).
 - About 10 % of very short, fast-decay kicks report `fundamental_hz: None`.
 - Byte identity is proven per platform only, not Linux vs. Windows.
+- Render with `drive > 0` costs ~3× more than before anti-aliasing (2 s kick ≈ 54 ms on the CI-like Linux box); every WAV with `drive > 0` differs from pre-#20 renders.
 - No listening test yet.
 
 **Known limits of the guard** (details in `docs/research/2026-10-28_guard-sdk-mapping.md`):
@@ -48,7 +52,8 @@ _Last updated: 2026-10-28 · Written only by the lead session on `main` after a 
 | First sample type | Kick |
 | Languages | German and English |
 | Control surfaces / controllers in use | None — all 6 slots free |
-| Reference tracks / artists | Not provided yet. Reference kick measurements are proposed in open PR #10 (another session); not merged. |
+| Reference tracks / artists | 77 reference kick files measured (taste range, not a target): see `docs/research/2026-10-28_kick-gen2-learnings.md`. Full reference tracks still open. |
+| Genre | Not relevant for now. Later the user wants **both** genre-specific and free synthesis by values: one shared parameter space, genre profiles only as optional data on top. Deliberately **not** a decision. Only audio content of references counts, never names. |
 
 ## Next step
 
@@ -56,15 +61,18 @@ _Last updated: 2026-10-28 · Written only by the lead session on `main` after a 
   1. #11 — tests for tone, drive and the envelope; nothing protects them today.
   2. #12 — WAV/sidecar nits, incl. the 24-bit pad byte that matters for the Ableton import.
   3. #7 — contract semantics.
-  4. Then #3 — presets, variants, CLI and the first listening test, which includes #9.
+  4. #16 — user decision: should `drive` start continuously at 0? Decide before the listening test.
+  5. Then #3 — presets, variants, CLI and the first listening test, which includes #9.
 - **Bridge track, in parallel:** #4 (OSC client, `bridge-engineer`), then #5 (needs the user's machine; #1 is done).
 - **Phase 04b** (Claude orchestrator, #23): blocked until Phases 01–03 are accepted and the auth method (D-008) is confirmed with the user.
 - **Process:** #19 — budget watch blind spots (cloud reviewer runs, permission denials).
 - **User:**
   - Windows test of the budget watch (PR #18): let Claude Code run `git status` three times; a "Budget: …" message should appear.
-  - Decide on PR #10 (reference-kick note from another session). It also proposes D-012 "genre-fluid kick engine" and renaming the `hard-trance` example preset; these are not adopted until merged.
+  - Decide #16 (drive continuity at 0).
+  - After pulling: `pip install -e ".[dev]"` once (new dev dependency pytest-xdist).
 
 ## Open questions
 
+- Does the anti-aliased drive (PR #20) sound different from before? Part of the #3 listening test.
 - #9 — is the DC-correction sub-bass tail of very short or extreme kicks audible? Up to 11.4 % of peak at the extremes, plus a −28 dB tail from the DC blocker. To be answered in the #3 listening test.
 - Reference tracks / artists for later style work: user will provide them later; not needed for the MVP.
