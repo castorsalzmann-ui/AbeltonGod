@@ -197,6 +197,81 @@ def test_derived_seeds_are_pinned(key: tuple[int, int], expected: int) -> None:
     assert derived_seed(*key) == expected
 
 
+# Pinned variant VALUES (#55). Recorded from main 05fbb96, i.e. the values the user hears in
+# the #3 listening test. They are literals on purpose: if the offset derivation (salt, hash
+# bytes, mapping, rounding, field order) changes, these turn red, even though the engine's
+# golden hashes stay green. Changing them needs a reason in the PR (the listening test would
+# then be stale for the changed variants).
+PINNED_VARIANTS = {
+    ("centre", 1): {"seed": 1149790815, "click_level": 0.3003, "click_tone_hz": 3209.9477,
+                    "pitch_end_hz": 52.9918, "pitch_start_hz": 215.3134,
+                    "amp_decay_ms": 525.1091, "drive": 0.0, "tone": 0.0216,
+                    "pitch_decay_ms": 7.4577},
+    ("centre", 2): {"seed": 1271935609, "click_level": 0.4252, "click_tone_hz": 3138.6539,
+                    "pitch_end_hz": 52.6428, "pitch_start_hz": 181.3576,
+                    "amp_decay_ms": 522.2453, "drive": 0.0, "tone": -0.0047,
+                    "pitch_decay_ms": 8.6142},
+    ("driven", 1): {"seed": 3111738165, "click_level": 0.9906, "click_tone_hz": 6520.14,
+                    "pitch_end_hz": 57.6889, "pitch_start_hz": 310.4722,
+                    "amp_decay_ms": 391.6256, "drive": 0.4653, "tone": 0.5331,
+                    "pitch_decay_ms": 7.0699},
+    ("driven", 2): {"seed": 498398891, "click_level": 0.8826, "click_tone_hz": 6202.2226,
+                    "pitch_end_hz": 55.8518, "pitch_start_hz": 299.6949,
+                    "amp_decay_ms": 348.0486, "drive": 0.4889, "tone": 0.5508,
+                    "pitch_decay_ms": 5.0622},
+}
+
+
+@pytest.mark.parametrize("key", list(PINNED_VARIANTS), ids=lambda k: f"{k[0]}-v{k[1]}")
+def test_variant_values_are_pinned(key: tuple[str, int]) -> None:
+    name, i = key
+    v = make_variant(preset(name), i)
+    expected = PINNED_VARIANTS[key]
+    assert {k: v[k] for k in expected} == expected
+    # Every field outside the spread is the preset's own value. ("variants" is a batch-only
+    # default that the final resolve adds to v1+; render_kick and the sidecar drop it.)
+    assert {k: x for k, x in v.items() if k not in expected and k != "variants"} == {
+        k: x for k, x in preset(name).items() if k not in expected
+    }
+
+
+def test_one_pinned_value_matches_an_independent_derivation() -> None:
+    """centre v1 click_level re-derived here with hashlib from the documented rule (53 bits of
+    SHA-256(salt + "1001:1:click_level") -> u in [-1, 1), uniform in 0.35 +- 0.12, 4 decimals),
+    without calling variants.py."""
+    digest = hashlib.sha256(b"abeltongod-kick-variant/v1:1001:1:click_level").digest()
+    u = (int.from_bytes(digest[:8], "big") >> 11) / 2.0**52 - 1.0
+    lo, hi = 0.35 - 0.12, 0.35 + 0.12
+    assert round(lo + (u + 1) / 2 * (hi - lo), 4) == PINNED_VARIANTS[("centre", 1)]["click_level"]
+
+
+# A base whose pitch barely drops (end 120 Hz, tau 128 ms; the case named in PR #54): the
+# guideline cap of most variants lies below the -20 % edge of the tau box, so the settle
+# fallback [0.8 * cap, cap] is used.
+FALLBACK_BASE = {"schema_version": "0.2", "length_ms": 274.65, "pitch_start_hz": 131.24,
+                 "pitch_end_hz": 120.0, "pitch_decay_ms": 127.85, "amp_decay_ms": 336.68,
+                 "amp_attack_ms": 0.0, "click_level": 0.0, "drive": 0.0, "tone": 0.0}
+
+
+def test_settle_fallback_spreads_values_below_the_cap() -> None:
+    """The fallback is an interval, not a clamp (#55): its values spread over [0.8, 1] x cap."""
+    assert pitch_settles({**FALLBACK_BASE, "seed": 0})
+    ratios = []
+    for seed in range(4):
+        base = {**FALLBACK_BASE, "seed": seed}
+        for i in range(1, 9):
+            v = make_variant(base, i)
+            cap = max_settled_pitch_decay_ms(v)
+            if cap < 0.8 * FALLBACK_BASE["pitch_decay_ms"]:  # box and guideline do not overlap
+                ratios.append(v["pitch_decay_ms"] / cap)
+    assert len(ratios) >= 10
+    assert all(0.8 - 1e-6 <= r <= 1.0 for r in ratios)
+    assert min(ratios) < 0.85 and max(ratios) > 0.95  # spread across the interval
+    assert sum(r < 0.95 for r in ratios) >= len(ratios) // 3
+    # One literal fallback value (seed 0, variant 4), recorded from main 05fbb96.
+    assert make_variant({**FALLBACK_BASE, "seed": 0}, 4)["pitch_decay_ms"] == 84.7124
+
+
 def test_derived_seed_stays_in_the_contract_range() -> None:
     hi = load_schema(KICK_SCHEMA_FILE)["properties"]["seed"]["maximum"]
     seeds = [derived_seed(s, i) for s in (0, 1, 2**32 - 1) for i in range(1, 9)]
