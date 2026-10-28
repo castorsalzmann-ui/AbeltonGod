@@ -160,7 +160,8 @@ def test_patch_added_during_a_render_is_not_stored(monkeypatch) -> None:
     assert rc.stats["hits"] == 0
 
 
-def test_monkeypatch_tests_are_never_cached() -> None:
+def test_monkeypatch_tests_are_never_cached(monkeypatch) -> None:
+    monkeypatch.delenv(rc.ENV_SWITCH, raising=False)  # also valid in a cache-off run
     key = sorted(rc.CACHED_TESTS)[0]
     assert rc.should_cache(key, ["p"])
     assert not rc.should_cache(key, ["p", "monkeypatch"])
