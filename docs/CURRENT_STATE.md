@@ -5,8 +5,8 @@ _Last updated: 2026-10-28 · Written only by the lead session on `main` after a 
 ## Phase
 
 - **Phase 00 — Setup:** DONE (#1 closed 2026-10-28).
-- **Phase 01 — Kick engine:** core merged (#2 via PR #8); drive anti-aliased (#13 via PR #20); contract semantics (#7 via PR #28). WAV/sidecar nits (#12 via PRs #26, #33); tone/drive/envelope tests (#11 via PR #34). Open: #35, #16, then #3; side findings #27, #30, #31, #32.
-- **Phase 02 — Ableton bridge:** OSC client and capability gate merged (#4 via PR #25). Open: #5 (bridge check on the user's machine).
+- **Phase 01 — Kick engine:** core merged (#2 via PR #8); drive anti-aliased (#13 via PR #20); contract semantics (#7 via PR #28). WAV/sidecar nits (#12 via PRs #26, #33); tone/drive/envelope tests (#11 via PR #34). Approved, waiting for merge: PR #38 (#16, drive continuous from 0, user decision) then PR #40 (#35, ENGINE_VERSION rule, user decision). Open: side findings #27, #30, #31, #32 (triage running), then #3.
+- **Phase 02 — Ableton bridge:** OSC client and capability gate merged (#4 via PR #25). `bridge_check.py` merged (PR #37; review fixes #39 via PR #41, undo scope #44 via PR #45). User ran it against Live 12.4.5: all PASS, error cases understood ([#5](https://github.com/castorsalzmann-ui/AbeltonGod/issues/5#issuecomment-6474540867)). Open: PR #42 (capabilities → `tested`, rework running), #43 (setup-guide fixes).
 - **Phase 04a — Agent Resource Guard:** DONE (#6 via PR #15).
 
 ## What works (with evidence)
@@ -25,11 +25,13 @@ _Last updated: 2026-10-28 · Written only by the lead session on `main` after a 
 | kick-params **v0.2**: written envelope semantics (`pitch_decay_ms` = time constant τ, `amp_decay_ms` = time to −60 dB), default `pitch_decay_ms` 40 → 15; pitch-settle guideline `max_settled_pitch_decay_ms` / `pitch_settles` for presets and Claude; silent renders refused; v0.1 sidecars still re-render | [PR #28](https://github.com/castorsalzmann-ui/AbeltonGod/pull/28), merged as fd7ae72 after one pre-PR review round (5 findings fixed); 17/17 fault injections caught; `1377 passed, 2 skipped`; CI on d4507a4 ubuntu + windows green |
 | WAV/sidecar robustness (#12): RIFF pad byte for odd 24-bit data chunks, dangling symlinks count as taken names, `created_at` must be aware (whole-minute offset), Decimal/Fraction/complex rejected | [PR #26](https://github.com/castorsalzmann-ui/AbeltonGod/pull/26), merged as 816b042 **without review and with an empty PR template**; [post-merge review](https://github.com/castorsalzmann-ui/AbeltonGod/pull/26#pullrequestreview-5683501845): code sound, 276 WAV cases checked with stdlib `wave` and ffmpeg, 17/18 fault injections caught; CI on c9b3a1d ubuntu + windows. Follow-ups: test gap closed by PR #33; engine version → #35; format-tag question moved to #3. |
 | #12 follow-up: `KickParamsError` lists type errors together with all other problems; stricter "nothing written" tests (incl. missing nested `out_dir`) | [PR #33](https://github.com/castorsalzmann-ui/AbeltonGod/pull/33), merged as 69a5890 after one pre-PR review round; `1379 passed, 2 skipped`; 4/4 new mutants caught (incl. the post-merge review's survivor); CI on d7f7df9 ubuntu + windows |
+| `scripts/bridge_check.py` 0.3.0: reads version/tempo/signature/tracks; after two default-No prompts mutes, unmutes, re-mutes a test track, calls Live undo and compares a whole-set snapshot (tempo, signature, track count/names/order, all mutes) before/after; Ctrl+C and write errors abort with a result block | PRs [#37](https://github.com/castorsalzmann-ui/AbeltonGod/pull/37) (merged as bc3809e **before its review finished**; review found a false undo PASS → #39), [#41](https://github.com/castorsalzmann-ui/AbeltonGod/pull/41) (ded4876, 1 re-review round), [#45](https://github.com/castorsalzmann-ui/AbeltonGod/pull/45) (bbce65e, approve-ready review); `1791 passed, 2 skipped`, 278 bridge+regression tests; CI ubuntu + windows. **User run in Live 12.4.5 with script 0.1.0** (pre-#41): all PASS, set restored ([#5](https://github.com/castorsalzmann-ui/AbeltonGod/issues/5#issuecomment-6474540867)); error cases Live closed / script not selected (exit 2) and port busy shown and understood ([#5](https://github.com/castorsalzmann-ui/AbeltonGod/issues/5#issuecomment-6474653513)). User decision: accept the 0.1.0 undo result with a documented limitation (PR #42). |
 | Independent tests for tone, drive and the amplitude envelope (#11), 282 tests | [PR #34](https://github.com/castorsalzmann-ui/AbeltonGod/pull/34), merged as eb14b8d after one pre-PR review round (3 findings fixed); `1659 passed, 2 skipped`; 11 fault injections, all caught (drive × 0.5 by only 2 tests); CI on `main` eb14b8d green |
 
 **Known limits of the bridge** (details in `docs/research/2026-10-28_abletonosc-protocol-and-create-audio-clip.md`):
 - A timed-out write has an unknown outcome and may still be applied later; read back before any undo (rule for #5).
-- The marker echo the bracketing relies on is read from AbletonOSC source, not yet confirmed in Live.
+- The marker echo the bracketing relies on is confirmed in Live 12.4.5 (`bridge.marker_echo: PASS`, #5).
+- The undo check cannot see clips, devices, automation, return/master tracks. Reopening a set clears Live's undo history per the Live 12 manual; not yet verified in this project. Tempo drift (Link, automation) gives a false FAIL (#43).
 
 **Measured limits of the kick core** (details in PR #8):
 - Pitch accuracy: ±3 % for windows ≥ 80 ms, ±5 % below (user decision).
@@ -50,7 +52,7 @@ _Last updated: 2026-10-28 · Written only by the lead session on `main` after a 
 ## What does not exist yet
 
 - Kick presets, variants, CLI (#3)
-- Bridge check against Live and capability evidence (#5)
+- Capability statuses `tested` in `contracts/capabilities.json` (PR #42)
 - Sample import into Live (Phase 03)
 - Claude orchestrator / chat (Phase 04b)
 
@@ -60,32 +62,30 @@ _Last updated: 2026-10-28 · Written only by the lead session on `main` after a 
 | --- | --- |
 | OS | Windows |
 | Local Python | 3.14.4 (CI uses 3.12) |
-| Ableton | Live 12 **Standard** (no Max for Live), always updated to the latest release → well above 12.0.5; exact number to note at Phase 02 start |
+| Ableton | Live 12 **Standard** 12.4.5 (Build 2026-08-19_225ce5e356), no Max for Live, always updated to the latest release |
 | Project sample rate | 48 kHz (engine default 48 kHz / 24-bit) |
 | GPU | NVIDIA RTX 5070 |
 | Claude access | Max subscription (no separate API key yet) |
 | First sample type | Kick |
 | Languages | German and English |
-| Control surfaces / controllers in use | None — all 6 slots free |
+| Control surfaces / controllers in use | AbletonOSC in slot 1 (since 2026-10-28). An AbletonMCP server is installed on the PC; whether its remote script uses a slot is not known. |
 | Reference tracks / artists | 77 reference kick files measured (taste range, not a target): see `docs/research/2026-10-28_kick-gen2-learnings.md`. Full reference tracks still open. |
 | Genre | Not relevant for now. Later the user wants **both** genre-specific and free synthesis by values: one shared parameter space, genre profiles only as optional data on top. Deliberately **not** a decision. Only audio content of references counts, never names. |
 
 ## Next step
 
-- **Kick track:**
-  1. #35 — decide the `ENGINE_VERSION` rule (bump on every byte change?), then bump it and add golden SHA-256s.
-  2. Side findings #27, #30, #31, #32 (analysis accuracy, DC blocker, crest factor): triage before #3; none blocks it on its own.
-  3. #16 — user decision: should `drive` start continuously at 0? Decide before the listening test.
-  4. Then #3 — presets, variants, CLI and the first listening test, which includes #9. Presets must call `max_settled_pitch_decay_ms` (or be named as deliberately pitchy).
-- **Bridge track, in parallel:** #5 — `bridge_check.py` (`bridge-engineer`), then the user installs AbletonOSC per `docs/setup/ABLETONOSC_WINDOWS.md`, runs the ping and the check on a test set. Live version known: 12.4.5.
-- **Phase 04b** (Claude orchestrator, #23): blocked until Phases 01–03 are accepted and the auth method (D-008) is confirmed with the user.
-- **Process:** #19 — budget watch blind spots (cloud reviewer runs, permission denials). New bugs: Bug form + a failing case in `tests/regressions/` first (#14 done).
+Lead: this cloud session (user decision 2026-10-28); the PC session only runs commands and Live tests. Up to 10 sub-agents in parallel (user, 2026-10-28).
+
+- **Merge now (user):** PR #38, then PR #40 (both approve-ready; #40 is stacked on #38).
+- **Kick track:** triage of #27/#32 and #30/#31 running (investigation comments on the issues); preset/variant/CLI design proposal for #3 running. Then #3 implementation and the first listening test (includes #9).
+- **Bridge track:** PR #42 rework (rebase, `track.mute.get`, undo limitation note) → review → merge closes #5 and Phase 02. #43 setup-guide fixes in a PR. Then Phase 03 (import) once Phase 01 is accepted.
+- **Phase 04b** (#23): auth research note for D-008 in progress; user decision needed before coding.
+- **Process:** #19 budget watch gaps in a PR.
 - **User:**
   - Windows test of the budget watch (PR #18): let Claude Code run `git status` three times; a "Budget: …" message should appear.
-  - Decide #16 (drive continuity at 0).
   - GitHub → New issue → **Bug**: check that the form appears with "Repro" required (PR #24).
-  - After pulling: `pip install -e ".[dev]"` once (new dependencies pytest-xdist and python-osc).
-  - PR #25 user tests (AbletonOSC install, ping, Live closed, port 11001 in use, firewall prompt) — can be done together with #5.
+  - Before every pull: `git switch main` (the first bridge runs failed on an old branch).
+  - Never merge a PR before the lead says "bereit zum Mergen" (PR #37 was merged mid-review).
 
 ## Open questions
 
