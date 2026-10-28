@@ -23,14 +23,17 @@ REF_FACTOR = 8  # 8, 16 and 32 give the same result to 0.3 dB (checked in the #2
 # Issue #13 acceptance limit. The old base-rate tanh gives -41 dB on the curated case.
 LIMIT_DB = -70.0
 # Regression bound for the shipped filter (8x, transition 0.08, beta 10): curated -79 dB,
-# random worst -85 dB (30 fresh seeds: -78 dB). 4x or a 0.2 transition give -70 dB on the
-# curated case and must fail here; that is the point of this bound, not the issue limit.
+# random worst -85 dB (30 fresh seeds: -78 dB). Re-measured after #16 (continuous drive,
+# only the residual is oversampled): curated -79.3 dB, worst of the 32 cases below -81.4 dB.
+# 4x or a 0.2 transition give -70 dB on the curated case and must fail here; that is the
+# point of this bound, not the issue limit.
 REGRESSION_DB = -75.0
 TAIL_EXCLUDE_MS = 10.0  # the last samples are faded out by the engine anyway
 
 
 def _curve(x: np.ndarray, drive: float) -> np.ndarray:
-    gain = 1.0 + 9.0 * drive
+    """The drive curve, written out here (gain mapping from #16: 10 * drive ** 0.8)."""
+    gain = 10.0 * drive**0.8
     return np.tanh(gain * x) / math.tanh(gain)
 
 

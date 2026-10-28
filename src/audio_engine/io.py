@@ -164,14 +164,44 @@ def safe_stem(name: str) -> str:
     return stem
 
 
-def rerender_from_sidecar(json_path: str | Path) -> bytes:
+class EngineVersionMismatch(ValueError):
+    """A sidecar was written by a different engine (name or version) than the running one.
+
+    Since #35 ``ENGINE_VERSION`` changes whenever rendered bytes change, so re-rendering such a
+    sidecar would silently give different bytes than the WAV it describes.
+    """
+
+    def __init__(self, path: Path, sidecar_engine: dict[str, str]) -> None:
+        self.path = path
+        self.sidecar_engine = dict(sidecar_engine)
+        self.current_engine = {"name": ENGINE_NAME, "version": ENGINE_VERSION}
+        super().__init__(
+            f"{path}: written by engine {sidecar_engine.get('name')} "
+            f"{sidecar_engine.get('version')}, this is {ENGINE_NAME} {ENGINE_VERSION}. "
+            "A re-render would not reproduce its WAV. Pass allow_engine_mismatch=True to "
+            "render its parameters with the current engine anyway (different bytes)."
+        )
+
+
+def rerender_from_sidecar(json_path: str | Path, *, allow_engine_mismatch: bool = False) -> bytes:
     """Re-render the WAV bytes described by a sidecar file.
 
     The caller compares the result with ``sha256`` in the sidecar. Identity is only guaranteed
     on the same platform and NumPy build; see the PR #8 notes on cross-OS determinism.
+
+    Raises :class:`EngineVersionMismatch` if the sidecar's engine name or version differs from
+    the running engine, because the bytes would differ (#35). With
+    ``allow_engine_mismatch=True`` the parameters are rendered with the current engine; the
+    result is then a new render, not a reproduction.
     """
-    meta = json.loads(Path(json_path).read_text(encoding="utf-8"))
+    path = Path(json_path)
+    meta = json.loads(path.read_text(encoding="utf-8"))
     Draft202012Validator(load_schema(METADATA_SCHEMA_FILE)).validate(meta)
+    engine = meta["engine"]
+    if not allow_engine_mismatch and (
+        engine["name"] != ENGINE_NAME or engine["version"] != ENGINE_VERSION
+    ):
+        raise EngineVersionMismatch(path, engine)
     wav_bytes, _, _ = render_kick_wav(_upgrade_sidecar_params(meta["parameters"]))
     return wav_bytes
 

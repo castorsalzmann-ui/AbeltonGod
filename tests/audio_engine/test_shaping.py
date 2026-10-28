@@ -186,7 +186,7 @@ DRIVE_TOTAL_CREST_MAX = 0.85
 # tests below still cover drive there.
 DRIVE_END_CREST_MAX = 0.85
 # Distance from the clean render (least-squares residual share) rises with drive; measured
-# smallest step 0.024 over 40 random sets.
+# smallest step 0.024 over 40 random sets (34 sets here: main 0.0219, after #16 0.0195).
 DRIVE_MIN_RESIDUAL_STEP = 0.01
 
 
@@ -257,9 +257,9 @@ STEADY_SETS = [
 
 @pytest.mark.parametrize("p", STEADY_SETS)
 def test_drive_adds_third_harmonic_at_every_step(p: dict) -> None:
-    """Measured over these 12 sets: -108 ... -128 dB clean; at drive 0.25 -18.2 ... -25.1 dB
-    (lower for shorter amp_decay_ms, because the saturation depends on the level); every step
-    adds at least 1.4 dB."""
+    """Measured over these 12 sets with the continuous drive of #16 (gain 10 * drive**0.8):
+    -108 dB or lower clean; at drive 0.25 -18.0 ... -24.9 dB (lower for shorter amp_decay_ms,
+    because the saturation depends on the level); smallest step 0.87 dB (limit 0.5 dB)."""
     levels = [_third_harmonic_db(*_render(p, drive=d), p["pitch_end_hz"]) for d in DRIVES]
     assert levels[0] < -80.0, levels
     assert levels[1] > -30.0, levels
