@@ -25,11 +25,19 @@ from .params import METADATA_SCHEMA_FILE, load_schema
 
 METADATA_SCHEMA_VERSION = "0.1"
 _SAFE_NAME = re.compile(r"[^A-Za-z0-9._-]+")
+_MAX_STEM_LENGTH = 80
+_MAX_NAME_ATTEMPTS = 1000
+_WINDOWS_RESERVED = {
+    "CON", "PRN", "AUX", "NUL",
+    *(f"COM{i}" for i in range(1, 10)),
+    *(f"LPT{i}" for i in range(1, 10)),
+}
 
 
 def encode_wav(audio: np.ndarray, sr: int, bit_depth: int) -> bytes:
     if bit_depth not in (16, 24):
         raise ValueError(f"bit_depth must be 16 or 24, got {bit_depth}")
+    bit_depth = int(bit_depth)
     if not np.all(np.isfinite(audio)):
         raise ValueError("Audio contains NaN or Inf.")
     full_scale = 2 ** (bit_depth - 1) - 1
@@ -42,7 +50,7 @@ def encode_wav(audio: np.ndarray, sr: int, bit_depth: int) -> bytes:
     with wave.open(buf, "wb") as w:
         w.setnchannels(1)
         w.setsampwidth(bit_depth // 8)
-        w.setframerate(sr)
+        w.setframerate(int(sr))
         w.writeframes(frames)
     return buf.getvalue()
 
@@ -63,16 +71,17 @@ def write_kick(
     """Render a kick and write ``<name>.wav`` + ``<name>.json`` into ``out_dir``.
 
     If either file exists, a counter suffix (``_002``, ``_003`` …) is added. Existing files are
-    never touched. Returns ``(wav_path, json_path)``.
+    never touched; if a name is taken between the check and the write, the next counter is
+    tried. If the sidecar cannot be written, the WAV written by this call is removed again, so
+    no orphan is left. Returns ``(wav_path, json_path)``.
     """
     wav_bytes, audio, resolved = render_kick_wav(params)
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
-    wav_path, json_path = _unique_pair(out, _SAFE_NAME.sub("-", name).strip("-") or "kick")
+    stem = safe_stem(name)
 
-    meta: dict[str, Any] = {
+    base_meta: dict[str, Any] = {
         "schema_version": METADATA_SCHEMA_VERSION,
-        "file": wav_path.name,
         "category": "kick",
         "engine": {"name": ENGINE_NAME, "version": ENGINE_VERSION},
         "parameters": resolved,
@@ -83,20 +92,48 @@ def write_kick(
         "created_at": (created_at or datetime.now(UTC)).isoformat(timespec="seconds"),
     }
     if description:
-        meta["description"] = description
-    Draft202012Validator(load_schema(METADATA_SCHEMA_FILE)).validate(meta)
+        base_meta["description"] = description
 
-    # "x" mode: fail instead of overwriting if something appeared in the meantime.
-    with open(wav_path, "xb") as f:
-        f.write(wav_bytes)
-    with open(json_path, "x", encoding="utf-8") as f:
-        json.dump(meta, f, indent=2, ensure_ascii=False)
-        f.write("\n")
-    return wav_path, json_path
+    for _ in range(_MAX_NAME_ATTEMPTS):
+        wav_path, json_path = _unique_pair(out, stem)
+        meta = {"file": wav_path.name, **base_meta}
+        Draft202012Validator(load_schema(METADATA_SCHEMA_FILE)).validate(meta)
+        meta_text = json.dumps(meta, indent=2, ensure_ascii=False, allow_nan=False) + "\n"
+        try:
+            with open(wav_path, "xb") as f:  # "x": never overwrite
+                f.write(wav_bytes)
+        except FileExistsError:
+            continue  # taken since the check: try the next counter
+        try:
+            with open(json_path, "x", encoding="utf-8") as f:
+                f.write(meta_text)
+        except BaseException:
+            wav_path.unlink(missing_ok=True)  # only the file this call just created
+            if json_path.exists():
+                continue
+            raise
+        return wav_path, json_path
+    raise FileExistsError(
+        f"No free file name for '{stem}' in {out} after {_MAX_NAME_ATTEMPTS} tries"
+    )
+
+
+def safe_stem(name: str) -> str:
+    """File-system safe stem: ASCII letters, digits, ``.``, ``_``, ``-``; max 80 characters;
+    never a reserved Windows device name (CON, NUL, COM1 …)."""
+    stem = _SAFE_NAME.sub("-", name).strip("-.") or "kick"
+    stem = stem[:_MAX_STEM_LENGTH].rstrip("-.") or "kick"
+    if stem.split(".")[0].upper() in _WINDOWS_RESERVED:
+        stem = f"kick-{stem}"
+    return stem
 
 
 def rerender_from_sidecar(json_path: str | Path) -> bytes:
-    """Re-render the WAV bytes described by a sidecar file."""
+    """Re-render the WAV bytes described by a sidecar file.
+
+    The caller compares the result with ``sha256`` in the sidecar. Identity is only guaranteed
+    on the same platform and NumPy build; see the PR #8 notes on cross-OS determinism.
+    """
     meta = json.loads(Path(json_path).read_text(encoding="utf-8"))
     Draft202012Validator(load_schema(METADATA_SCHEMA_FILE)).validate(meta)
     wav_bytes, _, _ = render_kick_wav(meta["parameters"])

@@ -1,24 +1,44 @@
-"""Acceptance tests for issue #2 (Phase 01a): deterministic kick, analysis, WAV, sidecar."""
+"""Acceptance tests for issue #2 (Phase 01a): deterministic kick, analysis, WAV, sidecar.
+
+Two layers:
+- curated parameter sets (readable, stable),
+- property tests over random parameter sets drawn from the full schema range (seeded, so they
+  are deterministic too). The review of PR #8 showed that curated sets alone hid failures.
+"""
 
 from __future__ import annotations
 
 import hashlib
+import io
 import json
 import math
+import random
+import wave
 from datetime import UTC, datetime
 
 import numpy as np
 import pytest
 from jsonschema import Draft202012Validator
 
-from audio_engine.analysis import analyse
-from audio_engine.io import encode_wav, render_kick_wav, rerender_from_sidecar, write_kick
-from audio_engine.kick import render_kick
-from audio_engine.params import METADATA_SCHEMA_FILE, KickParamsError, load_schema
+import audio_engine.io as io_mod
+from audio_engine.analysis import analyse, tail_window, zero_crossing_frequency
+from audio_engine.io import (
+    encode_wav,
+    render_kick_wav,
+    rerender_from_sidecar,
+    safe_stem,
+    write_kick,
+)
+from audio_engine.kick import body_phase, render_kick
+from audio_engine.params import (
+    KICK_SCHEMA_FILE,
+    METADATA_SCHEMA_FILE,
+    KickParamsError,
+    load_schema,
+)
 
 BASE = {"schema_version": "0.1", "seed": 7}
 
-# Parameter sets covering the extremes of drive, tone, click and pitch.
 PARAM_SETS = {
     "defaults": {},
     "low-40hz": {"pitch_end_hz": 40},
@@ -27,122 +47,176 @@ PARAM_SETS = {
     "hard-bright": {"drive": 1.0, "tone": 1.0, "click_level": 1.0},
     "clean-dark": {"drive": 0.0, "tone": -1.0, "click_level": 0.0},
     "slow-pitch-long": {"pitch_decay_ms": 120, "amp_decay_ms": 1200, "length_ms": 1200},
+    "wide-sweep": {"pitch_start_hz": 600, "pitch_end_hz": 30, "pitch_decay_ms": 40},
     "44k1-16bit": {"sample_rate": 44100, "bit_depth": 16},
     "short": {"length_ms": 80, "amp_decay_ms": 60},
+    "short-cut-off": {"length_ms": 80, "amp_attack_ms": 20, "amp_decay_ms": 2000},
 }
 
-DC_THRESHOLD = 1e-3
-FUNDAMENTAL_TOLERANCE = 0.10
-SETTLED_TIME_CONSTANTS = 5.0
+N_RANDOM = 150
+DC_THRESHOLD = 1e-9
+FUNDAMENTAL_TOLERANCE = 0.03  # measured tail vs. theoretical body pitch in the same window
+MAX_UNMEASURABLE_SHARE = 0.03
 
 
 def params(name: str) -> dict:
     return {**BASE, **PARAM_SETS[name]}
 
 
+def random_params(rng: random.Random) -> dict:
+    """Uniform draw over the whole kick-params schema range (pitch_end <= pitch_start)."""
+    p = {
+        "schema_version": "0.1",
+        "seed": rng.randrange(2**32),
+        "sample_rate": rng.choice([44100, 48000]),
+        "bit_depth": rng.choice([16, 24]),
+        "length_ms": rng.uniform(80, 2000),
+        "pitch_start_hz": rng.uniform(60, 600),
+        "pitch_decay_ms": rng.uniform(2, 300),
+        "amp_attack_ms": rng.uniform(0, 20),
+        "amp_decay_ms": rng.uniform(20, 2000),
+        "click_level": rng.uniform(0, 1),
+        "click_tone_hz": rng.uniform(500, 12000),
+        "drive": rng.uniform(0, 1),
+        "tone": rng.uniform(-1, 1),
+        "peak_ceiling_dbfs": rng.uniform(-12, -0.1),
+    }
+    p["pitch_end_hz"] = rng.uniform(30, min(120, p["pitch_start_hz"]))
+    return p
+
+
+RANDOM_SETS = [random_params(random.Random(1000 + i)) for i in range(N_RANDOM)]
+
+
+def all_sets() -> list:
+    return [pytest.param(params(n), id=n) for n in PARAM_SETS] + [
+        pytest.param(p, id=f"random-{i}") for i, p in enumerate(RANDOM_SETS)
+    ]
+
+
 def sha(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
+
+
+def decode_wav(data: bytes) -> tuple[np.ndarray, int, int]:
+    with wave.open(io.BytesIO(data)) as w:
+        width, sr = w.getsampwidth(), w.getframerate()
+        raw = w.readframes(w.getnframes())
+    if width == 2:
+        ints = np.frombuffer(raw, dtype="<i2").astype(np.int64)
+    else:
+        b = np.frombuffer(raw, dtype=np.uint8).reshape(-1, 3).astype(np.int64)
+        ints = b[:, 0] | (b[:, 1] << 8) | (b[:, 2] << 16)
+        ints = np.where(ints >= 2**23, ints - 2**24, ints)
+    return ints, sr, width * 8
 
 
 # --- determinism -----------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("name", PARAM_SETS)
-def test_same_params_and_seed_give_identical_wav(name: str) -> None:
-    first, _, _ = render_kick_wav(params(name))
-    second, _, _ = render_kick_wav(params(name))
+@pytest.mark.parametrize("p", all_sets()[:20])
+def test_same_params_and_seed_give_identical_wav(p: dict) -> None:
+    first, _, _ = render_kick_wav(p)
+    second, _, _ = render_kick_wav(p)
     assert sha(first) == sha(second)
 
 
 def test_seed_changes_click_only_when_click_is_used() -> None:
     with_click = {**BASE, "click_level": 0.5}
-    a, _, _ = render_kick_wav({**with_click, "seed": 1})
-    b, _, _ = render_kick_wav({**with_click, "seed": 2})
-    assert sha(a) != sha(b)
-
+    assert sha(render_kick_wav({**with_click, "seed": 1})[0]) != sha(
+        render_kick_wav({**with_click, "seed": 2})[0]
+    )
     no_click = {**BASE, "click_level": 0.0}
-    c, _, _ = render_kick_wav({**no_click, "seed": 1})
-    d, _, _ = render_kick_wav({**no_click, "seed": 2})
-    assert sha(c) == sha(d)
+    assert sha(render_kick_wav({**no_click, "seed": 1})[0]) == sha(
+        render_kick_wav({**no_click, "seed": 2})[0]
+    )
 
 
 def test_input_dict_is_not_mutated() -> None:
-    p = params("defaults")
+    p = {**params("defaults"), "variants": 3}
     before = dict(p)
     render_kick(p)
     assert p == before
 
 
-# --- level, validity, DC, length -------------------------------------------------------------
+# --- level, validity, DC, start/end, length --------------------------------------------------
 
 
-@pytest.mark.parametrize("name", PARAM_SETS)
-def test_signal_is_finite_below_ceiling_and_dc_free(name: str) -> None:
-    audio, p = render_kick(params(name))
+@pytest.mark.parametrize("p", all_sets())
+def test_signal_properties(p: dict) -> None:
+    audio, r = render_kick(p)
     assert np.all(np.isfinite(audio))
-    ceiling = 10 ** (p["peak_ceiling_dbfs"] / 20)
-    assert np.max(np.abs(audio)) <= ceiling + 1e-12
     assert abs(float(np.mean(audio))) < DC_THRESHOLD
+    assert audio[0] == 0.0 and audio[-1] == 0.0
+    assert abs(len(audio) / r["sample_rate"] * 1000 - r["length_ms"]) <= 1.0
 
 
-@pytest.mark.parametrize("ceiling", [-12.0, -6.0, -1.0, -0.1])
-def test_peak_matches_configured_ceiling(ceiling: float) -> None:
-    audio, p = render_kick({**BASE, "peak_ceiling_dbfs": ceiling})
-    features = analyse(audio, p["sample_rate"])
-    assert features["peak_dbfs"] <= ceiling + 1e-9
-    assert features["peak_dbfs"] == pytest.approx(ceiling, abs=0.01)
+@pytest.mark.parametrize("p", all_sets())
+def test_quantised_file_peak_never_exceeds_ceiling(p: dict) -> None:
+    wav_bytes, _, r = render_kick_wav(p)
+    ints, sr, bits = decode_wav(wav_bytes)
+    assert (sr, bits) == (r["sample_rate"], r["bit_depth"])
+    full_scale = 2 ** (bits - 1) - 1
+    ceiling = 10 ** (r["peak_ceiling_dbfs"] / 20)
+    peak = int(np.max(np.abs(ints)))
+    assert peak <= ceiling * full_scale
+    assert peak >= ceiling * full_scale - 1  # and uses the headroom (within 1 LSB)
 
 
-@pytest.mark.parametrize("name", PARAM_SETS)
-def test_length_within_one_millisecond(name: str) -> None:
-    audio, p = render_kick(params(name))
-    assert abs(len(audio) / p["sample_rate"] * 1000 - p["length_ms"]) <= 1.0
+@pytest.mark.parametrize("seed", range(50))
+def test_first_sample_is_zero_for_any_seed(seed: int) -> None:
+    audio, _ = render_kick({**BASE, "seed": seed, "click_level": 1.0, "drive": 1.0})
+    assert audio[0] == 0.0
 
 
-@pytest.mark.parametrize("name", PARAM_SETS)
-def test_no_step_at_start_and_silent_end(name: str) -> None:
-    # The click transient starts at sample 1 by design, so sample 0 is near zero, not exactly
-    # zero; anything below -40 dBFS causes no audible step. The fade-out makes the end exact.
-    audio, _ = render_kick(params(name))
-    assert abs(audio[0]) < 0.01
-    assert audio[-1] == pytest.approx(0.0, abs=1e-12)
+# --- fundamental: measurement equals theory --------------------------------------------------
 
 
-# --- fundamental -----------------------------------------------------------------------------
+@pytest.mark.parametrize("p", all_sets())
+def test_measured_tail_pitch_matches_theoretical_body_pitch(p: dict) -> None:
+    """Criterion (user decision on PR #8, 2026-10-28): in the measurement window, the measured
+    tail frequency equals the frequency of an ideal sine with the engine's analytic body phase
+    in the same window, within ±3 %. pitch_end_hz is the asymptote, not a promise."""
+    audio, r = render_kick(p)
+    sr = r["sample_rate"]
+    start, end = tail_window(audio, sr)
+    ideal = np.sin(body_phase(np.arange(len(audio)) / sr, r))
+    measured = analyse(audio, sr)["fundamental_hz"]
+    expected = zero_crossing_frequency(ideal[start:end], sr)
+    if measured is None:
+        pytest.skip("tail too short or too quiet to measure (bounded by the share test below)")
+    assert expected is not None
+    assert abs(measured - expected) <= FUNDAMENTAL_TOLERANCE * expected
 
 
-@pytest.mark.parametrize("name", PARAM_SETS)
-def test_tail_fundamental_matches_pitch_end_when_pitch_has_settled(name: str) -> None:
-    """Scope of the ±10 % criterion: the pitch envelope must have run at least five time
-    constants before the sound is 40 dB down. Otherwise the tail is genuinely higher than
-    pitch_end_hz (see test_unsettled_pitch_is_reported_honestly)."""
-    audio, p = render_kick(params(name))
-    f = analyse(audio, p["sample_rate"])
-    settled_until_ms = f["decay_40db_ms"] or p["length_ms"]
-    if settled_until_ms < SETTLED_TIME_CONSTANTS * p["pitch_decay_ms"]:
-        pytest.skip("pitch envelope not settled before -40 dB; criterion does not apply")
-    assert f["fundamental_hz"] is not None
-    assert abs(f["fundamental_hz"] - p["pitch_end_hz"]) <= FUNDAMENTAL_TOLERANCE * p["pitch_end_hz"]
-
-
-def test_all_listed_param_sets_are_in_scope_of_the_fundamental_criterion() -> None:
-    # Guards against the test above silently skipping everything.
-    in_scope = 0
+def test_tail_pitch_is_measurable_for_almost_all_kicks() -> None:
+    unmeasurable = [
+        i
+        for i, p in enumerate(RANDOM_SETS)
+        if analyse(*_render(p))["fundamental_hz"] is None
+    ]
+    assert len(unmeasurable) <= MAX_UNMEASURABLE_SHARE * N_RANDOM, unmeasurable
     for name in PARAM_SETS:
-        audio, p = render_kick(params(name))
-        f = analyse(audio, p["sample_rate"])
-        if (f["decay_40db_ms"] or p["length_ms"]) >= SETTLED_TIME_CONSTANTS * p["pitch_decay_ms"]:
-            in_scope += 1
-    assert in_scope >= len(PARAM_SETS) - 1
+        assert analyse(*_render(params(name)))["fundamental_hz"] is not None, name
+
+
+def _render(p: dict) -> tuple[np.ndarray, int]:
+    audio, r = render_kick(p)
+    return audio, r["sample_rate"]
+
+
+def test_settled_kick_reaches_pitch_end() -> None:
+    audio, r = render_kick(params("defaults"))
+    f = analyse(audio, r["sample_rate"])["fundamental_hz"]
+    assert abs(f - r["pitch_end_hz"]) <= 0.05 * r["pitch_end_hz"]
 
 
 def test_unsettled_pitch_is_reported_honestly() -> None:
-    audio, p = render_kick({**BASE, "pitch_decay_ms": 120})
-    f = analyse(audio, p["sample_rate"])
-    assert f["fundamental_hz"] > 1.2 * p["pitch_end_hz"]
+    audio, r = render_kick({**BASE, "pitch_decay_ms": 120})
+    assert analyse(audio, r["sample_rate"])["fundamental_hz"] > 1.2 * r["pitch_end_hz"]
 
 
-# --- analysis on a known signal --------------------------------------------------------------
+# --- analysis on known signals ---------------------------------------------------------------
 
 
 def test_analysis_on_pure_decaying_sine() -> None:
@@ -151,13 +225,26 @@ def test_analysis_on_pure_decaying_sine() -> None:
     tau = 0.1 / math.log(10)  # -20 dB after 100 ms
     audio = 0.5 * np.sin(2 * math.pi * 50 * t) * np.exp(-t / tau)
     f = analyse(audio, sr)
-    # First positive peak is at 5 ms (quarter period of 50 Hz), already decayed by exp(-5ms/tau).
-    expected_peak = 20 * math.log10(0.5 * math.exp(-0.005 / tau))
-    assert f["peak_dbfs"] == pytest.approx(expected_peak, abs=0.05)
+    # First positive peak is at 5 ms (quarter period of 50 Hz), already decayed.
+    assert f["peak_dbfs"] == pytest.approx(20 * math.log10(0.5 * math.exp(-0.005 / tau)), abs=0.05)
     assert f["fundamental_hz"] == pytest.approx(50.0, rel=0.01)
     assert f["decay_20db_ms"] == pytest.approx(100.0, abs=15.0)
     assert f["decay_40db_ms"] == pytest.approx(200.0, abs=15.0)
     assert f["length_ms"] == pytest.approx(500.0)
+
+
+def test_trailing_zero_is_not_counted_as_crossing() -> None:
+    sr = 48000
+    seg = np.sin(2 * math.pi * 40 * np.arange(int(0.1 * sr)) / sr)
+    seg = np.concatenate([seg[: int(0.0875 * sr)], [0.0]])  # ends just after a negative half
+    assert zero_crossing_frequency(seg, sr) == pytest.approx(40.0, rel=0.005)
+
+
+@pytest.mark.parametrize("audio", [np.zeros(0), np.zeros(4800)], ids=["empty", "silence"])
+def test_analysis_handles_empty_and_silence(audio: np.ndarray) -> None:
+    f = analyse(audio, 48000)
+    assert f["peak_dbfs"] is None
+    assert f["fundamental_hz"] is None
 
 
 def test_analysis_rejects_stereo() -> None:
@@ -165,7 +252,7 @@ def test_analysis_rejects_stereo() -> None:
         analyse(np.zeros((10, 2)), 48000)
 
 
-# --- invalid parameters ----------------------------------------------------------------------
+# --- invalid and edge parameters -------------------------------------------------------------
 
 
 @pytest.mark.parametrize(
@@ -178,12 +265,40 @@ def test_analysis_rejects_stereo() -> None:
         ({**BASE, "wobble": 3}, "wobble"),
         ({**BASE, "schema_version": "9"}, "schema_version"),
         ({**BASE, "pitch_start_hz": 60, "pitch_end_hz": 100}, "pitch_end_hz"),
+        ({**BASE, "seed": 7.5}, "seed"),
     ],
 )
 def test_invalid_params_are_rejected_with_clear_error(bad: dict, fragment: str) -> None:
     with pytest.raises(KickParamsError) as exc:
         render_kick(bad)
     assert fragment in str(exc.value)
+
+
+NUMBER_FIELDS = [
+    name
+    for name, prop in load_schema(KICK_SCHEMA_FILE)["properties"].items()
+    if prop.get("type") in ("number", "integer")
+]
+
+
+@pytest.mark.parametrize("field", NUMBER_FIELDS)
+@pytest.mark.parametrize("value", [math.nan, math.inf, -math.inf], ids=["nan", "inf", "-inf"])
+def test_non_finite_numbers_are_rejected(field: str, value: float) -> None:
+    with pytest.raises(KickParamsError) as exc:
+        render_kick({**BASE, field: value})
+    assert field in str(exc.value)
+
+
+def test_whole_number_floats_are_accepted_as_integers() -> None:
+    a, _, ra = render_kick_wav({**BASE, "seed": 7.0, "bit_depth": 24.0, "sample_rate": 48000.0})
+    b, _, _ = render_kick_wav(BASE)
+    assert sha(a) == sha(b)
+    assert isinstance(ra["seed"], int) and isinstance(ra["bit_depth"], int)
+
+
+def test_variants_is_not_part_of_a_single_render() -> None:
+    _, r = render_kick({**BASE, "variants": 5})
+    assert "variants" not in r
 
 
 def test_non_dict_params_are_rejected() -> None:
@@ -196,22 +311,11 @@ def test_non_dict_params_are_rejected() -> None:
 
 @pytest.mark.parametrize("bits", [16, 24])
 def test_wav_roundtrip_header_and_values(bits: int) -> None:
-    import io
-    import wave
-
     audio = np.array([0.0, 0.5, -0.5, 1.0, -1.0])
-    data = encode_wav(audio, 48000, bits)
-    with wave.open(io.BytesIO(data)) as w:
-        assert w.getnchannels() == 1
-        assert w.getsampwidth() == bits // 8
-        assert w.getframerate() == 48000
-        raw = w.readframes(w.getnframes())
-    width = bits // 8
-    values = [
-        int.from_bytes(raw[i : i + width], "little", signed=True) for i in range(0, len(raw), width)
-    ]
+    ints, sr, b = decode_wav(encode_wav(audio, 48000, bits))
     full = 2 ** (bits - 1) - 1
-    assert values == [0, round(0.5 * full), -round(0.5 * full), full, -full]
+    assert (sr, b) == (48000, bits)
+    assert ints.tolist() == [0, round(0.5 * full), -round(0.5 * full), full, -full]
 
 
 def test_wav_rejects_nan() -> None:
@@ -224,26 +328,25 @@ def test_wav_rejects_nan() -> None:
 FIXED_TIME = datetime(2026, 10, 28, 12, 0, tzinfo=UTC)
 
 
-def test_sidecar_validates_and_rerenders_identical_wav(tmp_path) -> None:
-    wav_path, json_path = write_kick(
-        {**BASE, "bpm": 136}, tmp_path, name="dark kick", created_at=FIXED_TIME
-    )
-    meta = json.loads(json_path.read_text(encoding="utf-8"))
+@pytest.mark.parametrize("p", all_sets()[:: max(1, len(all_sets()) // 15)])
+def test_sidecar_validates_and_rerenders_identical_wav(p: dict, tmp_path) -> None:
+    wav_path, json_path = write_kick(p, tmp_path, name="dark kick", created_at=FIXED_TIME)
+    text = json_path.read_text(encoding="utf-8")
+    assert "NaN" not in text and "Infinity" not in text
+    meta = json.loads(text)
     Draft202012Validator(load_schema(METADATA_SCHEMA_FILE)).validate(meta)
-
     assert meta["file"] == wav_path.name == "dark-kick.wav"
-    assert meta["bpm"] == 136
+    assert "variants" not in meta["parameters"]
     assert meta["created_at"] == "2026-10-28T12:00:00+00:00"
     assert meta["sha256"] == sha(wav_path.read_bytes())
     assert sha(rerender_from_sidecar(json_path)) == meta["sha256"]
 
 
 def test_existing_files_are_never_overwritten(tmp_path) -> None:
-    first_wav, first_json = write_kick(BASE, tmp_path, created_at=FIXED_TIME)
+    first_wav, _ = write_kick(BASE, tmp_path, created_at=FIXED_TIME)
     original = first_wav.read_bytes()
     second_wav, second_json = write_kick({**BASE, "seed": 8}, tmp_path, created_at=FIXED_TIME)
     third_wav, _ = write_kick({**BASE, "seed": 9}, tmp_path, created_at=FIXED_TIME)
-
     assert [first_wav.name, second_wav.name, third_wav.name] == [
         "kick.wav",
         "kick_002.wav",
@@ -255,6 +358,56 @@ def test_existing_files_are_never_overwritten(tmp_path) -> None:
 
 def test_orphan_sidecar_also_blocks_the_name(tmp_path) -> None:
     (tmp_path / "kick.json").write_text("{}", encoding="utf-8")
-    wav_path, json_path = write_kick(BASE, tmp_path, created_at=FIXED_TIME)
+    wav_path, _ = write_kick(BASE, tmp_path, created_at=FIXED_TIME)
     assert wav_path.name == "kick_002.wav"
     assert (tmp_path / "kick.json").read_text(encoding="utf-8") == "{}"
+
+
+def test_name_taken_between_check_and_write_moves_to_next_counter(tmp_path, monkeypatch) -> None:
+    real_unique_pair = io_mod._unique_pair
+    calls = {"n": 0}
+
+    def racing_unique_pair(out, stem):
+        wav, js = real_unique_pair(out, stem)
+        if calls["n"] == 0:  # someone else creates the file right after our check
+            wav.write_bytes(b"other")
+        calls["n"] += 1
+        return wav, js
+
+    monkeypatch.setattr(io_mod, "_unique_pair", racing_unique_pair)
+    wav_path, _ = write_kick(BASE, tmp_path, created_at=FIXED_TIME)
+    assert wav_path.name == "kick_002.wav"
+    assert (tmp_path / "kick.wav").read_bytes() == b"other"
+
+
+def test_failed_sidecar_write_leaves_no_orphan_wav(tmp_path, monkeypatch) -> None:
+    import builtins
+
+    real_open = builtins.open
+
+    def failing_open(file, mode="r", *args, **kwargs):
+        if str(file).endswith(".json") and "x" in mode:
+            raise OSError("disk full (simulated)")
+        return real_open(file, mode, *args, **kwargs)
+
+    monkeypatch.setattr(io_mod, "open", failing_open, raising=False)
+    with pytest.raises(OSError, match="simulated"):
+        write_kick(BASE, tmp_path, created_at=FIXED_TIME)
+    assert list(tmp_path.iterdir()) == []
+
+
+@pytest.mark.parametrize(
+    ("name", "expected"),
+    [
+        ("dark kick", "dark-kick"),
+        ("CON", "kick-CON"),
+        ("nul.final", "kick-nul.final"),
+        ("com3", "kick-com3"),
+        ("../../evil", "evil"),
+        ("", "kick"),
+        ("Ä", "kick"),
+        ("x" * 200, "x" * 80),
+    ],
+)
+def test_safe_stem(name: str, expected: str) -> None:
+    assert safe_stem(name) == expected

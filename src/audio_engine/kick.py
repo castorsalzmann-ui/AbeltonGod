@@ -2,18 +2,24 @@
 
 Signal chain (all mono, float64, sample-exact for given parameters and seed):
 
-1. Body: sine whose frequency falls exponentially from ``pitch_start_hz`` to ``pitch_end_hz``
-   with time constant ``pitch_decay_ms`` (phase is the analytic integral, no accumulation error).
+1. Body: sine whose frequency falls exponentially from ``pitch_start_hz`` towards
+   ``pitch_end_hz`` with time constant ``pitch_decay_ms`` (phase is the analytic integral,
+   see :func:`body_phase`). ``pitch_end_hz`` is the asymptote: with a long ``pitch_decay_ms``
+   the kick can fade out before it gets there.
 2. Amplitude envelope: linear attack over ``amp_attack_ms``, then exponential decay where
    ``amp_decay_ms`` is the time to fall by 60 dB.
 3. Click: band-pass filtered noise burst (seeded RNG) centred on ``click_tone_hz``, mixed at
-   ``click_level``.
+   ``click_level``; raised-cosine edges so it starts and ends at exactly zero.
 4. Drive: normalised tanh saturation, ``drive`` 0 = clean, 1 = heavy.
 5. Tone: tilt around a one-pole low-pass at 1.5 kHz; ``tone`` -1 = darker, +1 = brighter.
-6. DC blocker (one-pole high-pass, 10 Hz), 5 ms cosine fade-out.
-7. Normalise so the absolute peak equals ``peak_ceiling_dbfs``.
+6. DC blocker (one-pole high-pass, 10 Hz), 5 ms cosine fade-out, then the remaining mean is
+   removed with a Hann-shaped correction so the first and last samples stay exactly zero.
+7. Normalise so that even after quantising to ``bit_depth`` the peak stays at or below
+   ``peak_ceiling_dbfs``.
 
-The same resolved parameters always give the same samples. No wall clock, no global RNG.
+The same parameters always give the same samples. No wall clock, no global RNG.
+``variants`` is a batch instruction for the caller (Phase 01b) and is not part of a single
+render; it is removed from the returned parameters.
 """
 
 from __future__ import annotations
@@ -23,47 +29,61 @@ from typing import Any
 
 import numpy as np
 
+from .dsp import (
+    biquad_bandpass,
+    one_pole_highpass,
+    one_pole_lowpass,
+    raised_cosine,
+)
 from .params import resolve_kick_params
 
 CLICK_LENGTH_MS = 15.0
 CLICK_DECAY_MS = 3.0
+CLICK_FADE_IN_MS = 0.25
+CLICK_FADE_OUT_MS = 2.0
+CLICK_Q = 0.9
 TONE_PIVOT_HZ = 1500.0
 DC_BLOCK_HZ = 10.0
 FADE_OUT_MS = 5.0
+
+# Parameters that describe how many kicks to make, not how one kick sounds.
+BATCH_ONLY_PARAMS = ("variants",)
 
 
 def render_kick(params: dict[str, Any]) -> tuple[np.ndarray, dict[str, Any]]:
     """Render one kick. Returns ``(audio, resolved_params)``; audio is float64 in [-1, 1]."""
     p = resolve_kick_params(params)
+    for key in BATCH_ONLY_PARAMS:
+        p.pop(key, None)
     sr = int(p["sample_rate"])
     n = int(round(p["length_ms"] * sr / 1000.0))
     t = np.arange(n, dtype=np.float64) / sr
 
-    body = _body(t, p["pitch_start_hz"], p["pitch_end_hz"], p["pitch_decay_ms"] / 1000.0)
-    env = _amp_envelope(t, p["amp_attack_ms"] / 1000.0, p["amp_decay_ms"] / 1000.0)
-    x = body * env
-
+    x = np.sin(body_phase(t, p)) * _amp_envelope(
+        t, p["amp_attack_ms"] / 1000.0, p["amp_decay_ms"] / 1000.0
+    )
     if p["click_level"] > 0:
         x = x + p["click_level"] * _click(n, sr, p["click_tone_hz"], p["seed"])
 
     x = _drive(x, p["drive"])
     x = _tone(x, sr, p["tone"])
-    x = _one_pole_highpass(x, sr, DC_BLOCK_HZ)
+    x = one_pole_highpass(x, sr, DC_BLOCK_HZ)
     x = _fade_out(x, sr, FADE_OUT_MS)
-    x = _normalise(x, p["peak_ceiling_dbfs"])
+    x = _remove_mean(x)
+    x = _normalise(x, p["peak_ceiling_dbfs"], p["bit_depth"])
     return x, p
 
 
-def _body(t: np.ndarray, f_start: float, f_end: float, tau: float) -> np.ndarray:
-    # f(t) = f_end + (f_start - f_end) * exp(-t / tau); phase = 2*pi * integral of f.
-    phase = 2.0 * math.pi * (f_end * t + (f_start - f_end) * tau * (1.0 - np.exp(-t / tau)))
-    return np.sin(phase)
+def body_phase(t: np.ndarray, p: dict[str, Any]) -> np.ndarray:
+    """Analytic body phase: 2*pi * integral of f(t) = f_end + (f_start - f_end) * e^(-t/tau)."""
+    f_start, f_end = p["pitch_start_hz"], p["pitch_end_hz"]
+    tau = p["pitch_decay_ms"] / 1000.0
+    return 2.0 * math.pi * (f_end * t + (f_start - f_end) * tau * (1.0 - np.exp(-t / tau)))
 
 
 def _amp_envelope(t: np.ndarray, attack: float, decay_to_60db: float) -> np.ndarray:
     tau = decay_to_60db / math.log(1000.0)
-    after = np.clip(t - attack, 0.0, None)
-    env = np.exp(-after / tau)
+    env = np.exp(-np.clip(t - attack, 0.0, None) / tau)
     if attack > 0:
         env = np.where(t < attack, t / attack, env)
     return env
@@ -72,32 +92,20 @@ def _amp_envelope(t: np.ndarray, attack: float, decay_to_60db: float) -> np.ndar
 def _click(n: int, sr: int, centre_hz: float, seed: int) -> np.ndarray:
     m = min(n, int(round(CLICK_LENGTH_MS * sr / 1000.0)))
     rng = np.random.default_rng(seed)
-    noise = rng.standard_normal(m)
     tc = np.arange(m, dtype=np.float64) / sr
-    burst = noise * np.exp(-tc / (CLICK_DECAY_MS / 1000.0))
-    centre = min(centre_hz, 0.45 * sr)
-    filtered = _biquad_bandpass(burst, sr, centre, q=0.9)
-    peak = float(np.max(np.abs(filtered))) or 1.0
+    burst = rng.standard_normal(m) * np.exp(-tc / (CLICK_DECAY_MS / 1000.0))
+    filtered = biquad_bandpass(burst, sr, min(centre_hz, 0.45 * sr), CLICK_Q)
+    # Exact zero at both ends: no step at sample 0, no hard cut after 15 ms.
+    fade_in = min(m, max(2, int(round(CLICK_FADE_IN_MS * sr / 1000.0))))
+    fade_out = min(m - fade_in, int(round(CLICK_FADE_OUT_MS * sr / 1000.0)))
+    filtered[:fade_in] *= raised_cosine(fade_in, rising=True)
+    if fade_out > 0:
+        filtered[m - fade_out :] *= raised_cosine(fade_out, rising=False)
+    peak = float(np.max(np.abs(filtered))) if m else 0.0
     out = np.zeros(n)
-    out[:m] = filtered / peak
+    if peak > 0:
+        out[:m] = filtered / peak
     return out
-
-
-def _biquad_bandpass(x: np.ndarray, sr: int, f0: float, q: float) -> np.ndarray:
-    # RBJ cookbook band-pass, constant 0 dB peak gain.
-    w0 = 2.0 * math.pi * f0 / sr
-    alpha = math.sin(w0) / (2.0 * q)
-    b0, b1, b2 = alpha, 0.0, -alpha
-    a0, a1, a2 = 1.0 + alpha, -2.0 * math.cos(w0), 1.0 - alpha
-    b0, b1, b2, a1, a2 = b0 / a0, b1 / a0, b2 / a0, a1 / a0, a2 / a0
-    y = np.zeros_like(x)
-    x1 = x2 = y1 = y2 = 0.0
-    for i, xi in enumerate(x.tolist()):
-        yi = b0 * xi + b1 * x1 + b2 * x2 - a1 * y1 - a2 * y2
-        y[i] = yi
-        x2, x1 = x1, xi
-        y2, y1 = y1, yi
-    return y
 
 
 def _drive(x: np.ndarray, drive: float) -> np.ndarray:
@@ -107,48 +115,42 @@ def _drive(x: np.ndarray, drive: float) -> np.ndarray:
     return np.tanh(gain * x) / math.tanh(gain)
 
 
-def _one_pole_lowpass(x: np.ndarray, sr: int, fc: float) -> np.ndarray:
-    a = math.exp(-2.0 * math.pi * fc / sr)
-    y = np.empty_like(x)
-    prev = 0.0
-    for i, xi in enumerate(x.tolist()):
-        prev = (1.0 - a) * xi + a * prev
-        y[i] = prev
-    return y
-
-
 def _tone(x: np.ndarray, sr: int, tone: float) -> np.ndarray:
     if tone == 0:
         return x
-    low = _one_pole_lowpass(x, sr, TONE_PIVOT_HZ)
+    low = one_pole_lowpass(x, sr, TONE_PIVOT_HZ)
     if tone < 0:
         return x + (-tone) * (low - x)
     return x + tone * (x - low)
 
 
-def _one_pole_highpass(x: np.ndarray, sr: int, fc: float) -> np.ndarray:
-    a = math.exp(-2.0 * math.pi * fc / sr)
-    y = np.empty_like(x)
-    x_prev = y_prev = 0.0
-    for i, xi in enumerate(x.tolist()):
-        y_prev = a * (y_prev + xi - x_prev)
-        x_prev = xi
-        y[i] = y_prev
-    return y
-
-
 def _fade_out(x: np.ndarray, sr: int, ms: float) -> np.ndarray:
     m = min(len(x), int(round(ms * sr / 1000.0)))
-    if m == 0:
-        return x
-    ramp = 0.5 * (1.0 + np.cos(np.linspace(0.0, math.pi, m)))
     y = x.copy()
-    y[-m:] *= ramp
+    if m > 0:
+        y[-m:] *= raised_cosine(m, rising=False)
     return y
 
 
-def _normalise(x: np.ndarray, ceiling_dbfs: float) -> np.ndarray:
+def _remove_mean(x: np.ndarray) -> np.ndarray:
+    """Subtract the mean as a Hann-shaped bump (zero at both ends) instead of a constant.
+
+    Short or truncated kicks contain an incomplete last cycle, so their mean is not zero even
+    without any real offset. A constant subtraction would create a step at start and end;
+    the Hann shape removes exactly the mean while keeping both ends at zero.
+    """
+    n = len(x)
+    if n < 3:
+        return x
+    w = 0.5 * (1.0 - np.cos(2.0 * math.pi * np.arange(n) / (n - 1)))
+    return x - (float(np.mean(x)) / float(np.mean(w))) * w
+
+
+def _normalise(x: np.ndarray, ceiling_dbfs: float, bit_depth: int) -> np.ndarray:
+    """Scale so the quantised peak cannot exceed the ceiling (half an LSB of headroom)."""
     peak = float(np.max(np.abs(x)))
     if peak == 0.0:
         return x
-    return x * (10.0 ** (ceiling_dbfs / 20.0) / peak)
+    full_scale = 2 ** (bit_depth - 1) - 1
+    target = 10.0 ** (ceiling_dbfs / 20.0) - 0.5 / full_scale
+    return x * (target / peak)
