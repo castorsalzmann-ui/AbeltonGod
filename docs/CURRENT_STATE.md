@@ -79,9 +79,10 @@ _Last updated: 2026-10-28 (evening) · Written only by the lead session on `main
 
 ## Next step
 
-Lead: one cloud lead session (D-015); the PC session only runs commands and Live tests. Team: flat, specialised roles, no helper agents (D-017); agent definitions for the new roles in PR #62 (#61, in review). The lead also keeps the project cockpit (dashboard) current after every merge or state change.
+Lead: one cloud lead session (D-015); the PC session only runs commands and Live tests. Team: flat, specialised roles, no helper agents (D-017); limit 15 / normal 10, WIP = 1 per role, just-in-time researchers (D-019, supersedes D-018). Agent definitions for all seven roles and the file-ownership table in `CLAUDE.md` merged (PR #62). Open: `docs/TEAM.md` (gates G0–G5, role cards, label state machine) waits for the user's team draft; `researcher.md` still describes D-018 and must follow D-019. The lead also keeps the project cockpit current after every merge (collector into the repo: PR #72, in review).
 
-- **Kick track:** Phase 01 DONE. Open nit #63 (centre description names a fixed value). Next kick work comes from the parking lot (#57, #58) via the `sound-designer` once PR #62 is merged.
+- **Kick track:** Phase 01 DONE; preset descriptions name no numbers (#63 via PR #68). Test gap #70 (tampered sidecars) paused under WIP = 1 until #64 is done. `sound-designer` is writing hypotheses and a listening plan on #57/#58.
+- **QA:** test runtime and gap report #69; mutation runner PR #75 (in review); budget warning from 10 agents #74 (in progress); fake-server teardown #71 waits for #50.
 - **Phase 03 (#50, sample import):** unblocked. Split by D-017 file ownership: `src/library/` (layout, naming, no overwrite) → `audio-engineer`; import handler, check script, setup guide → `bridge-engineer`. `clip_slot.create_audio_clip` is still `unknown` and needs a Live run by the user.
 - **Phase 04b** (#23): auth decided (D-014: subscription login, Opus 5.5); research note PR #47. Blocked until Phases 01–03 are accepted.
 - **Parking lot from the listening test:** #57 kick layering (fuse two kicks), #58 own reference samples to steer synthesis ("main character").
