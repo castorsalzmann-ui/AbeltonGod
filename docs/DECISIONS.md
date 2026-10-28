@@ -202,3 +202,19 @@ _2026-10-28: "Rejected" lines added to D-001–D-011 as a clarification; no deci
 **Rejected.** Three sub-agents with two helpers each plus a QA tester (D-016). Helpers or sub-sub-agents of any kind.
 
 **Consequences.** D-015's single lead session and the user's merge rule stay. Worktree agents keep using `python -m pytest -o pythonpath=src` and check `audio_engine.__file__` / `bridge.__file__`. Phase 03 library work (`src/library/`) belongs to the `audio-engineer`, the Live import to the `bridge-engineer`.
+
+## D-018 · 2026-10-28 · accepted — Two research agents prepare parking-lot topics ahead of time (user decision; refines the `researcher` row of D-017)
+
+**Decision.** Two `researcher` agents work ahead on the parking lot (ROADMAP "Parking lot" and issues labelled `parking-lot`), before any of it is scheduled: feasibility, programmability (APIs, LOM/AbletonOSC coverage, libraries, licences), known pitfalls and concrete pointers for the later worker agents. They are split by topic so they never write the same file:
+- **Research A — sound and audio:** kick layering (#57), own reference samples (#58), reference analysis, more sample categories (bass, percussion, hats), generative audio backend, mastering.
+- **Research B — integration and product:** MIDI and arrangement engine, audio capture / mix-analysis path in Live 12 Standard, desktop UI with sample picker, own VST3 plugins (JUCE), personal sound profile, guard extras, stabilisation.
+
+**Output.** One dated note per topic in `docs/research/` (`<date>_parking-<topic>.md`), each opening with a short "For workers" block: what is possible, the recommended route, what to read first, open questions for the user. Notes land by PR with an independent review. Each parking-lot issue gets a comment linking its note. Workers on a later issue read the matching note before designing or researching again.
+
+**Rules.** Research only: no code, no specs, contracts or decisions; recommendations go into the note's "Implications". Official sources first, version-dependent claims with version, inference marked as such (see `.claude/agents/researcher.md`). They coordinate with the `sound-designer` on #57/#58: the sound-designer measures the engine, Research A covers outside knowledge.
+
+**Reason.** Less total work later: workers start from verified notes instead of researching during implementation, and blockers show up before a phase is planned.
+
+**Rejected.** Researching only right before a phase (D-017's original "before Phase 03 details and 04b"). A single researcher for the whole parking lot (slower, too broad).
+
+**Consequences.** Counts toward the limit of 10 active agents (D-017). Notes can go stale: each states the date and versions; a worker re-checks version-dependent claims before relying on them.
