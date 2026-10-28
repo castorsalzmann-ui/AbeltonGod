@@ -1,0 +1,24 @@
+{
+  "issue": "https://github.com/castorsalzmann-ui/AbeltonGod/pull/8#pullrequestreview-5676278198",
+  "finding": "Review 1, problem 4: a valid short kick (length 150 ms, amp decay 400 ms) had a DC offset of -1.38e-3, above the 1e-3 threshold. Fixed by the exact mean removal in render_kick.",
+  "params": {
+    "schema_version": "0.1",
+    "seed": 7,
+    "sample_rate": 48000,
+    "bit_depth": 24,
+    "length_ms": 150,
+    "pitch_start_hz": 220,
+    "pitch_end_hz": 48,
+    "pitch_decay_ms": 40,
+    "amp_attack_ms": 0.5,
+    "amp_decay_ms": 400,
+    "click_level": 0.35,
+    "click_tone_hz": 3500,
+    "drive": 0.2,
+    "tone": 0,
+    "peak_ceiling_dbfs": -0.3
+  },
+  "measure": "audio.mean",
+  "expected": { "min": -1e-9, "max": 1e-9 },
+  "before_fix": { "commit": "3ac00dd", "value": -0.00137511633611184 }
+}

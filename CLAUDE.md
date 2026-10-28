@@ -62,6 +62,13 @@ Things you notice that are wrong or risky but outside scope are **side findings*
 - **Count and quote real output.** Test counts, error sizes and seeds come from a command you ran, not from memory.
 - **Review once, before the PR.** For foundation code (engine, analysis, file writing, anything that writes to Ableton) run the `reviewer` agent on the branch before opening the PR. Small doc or text changes do not need it.
 
+## Bugs
+
+- Filed with the **Bug** issue form (`bug` label + one `severity:blocker|major|minor|nit`). A bug without a runnable repro goes back to the reporter.
+- **A fix starts with a failing regression case:** `tests/regressions/bug_<issue>[_<slug>].json` (format in `tests/regressions/test_regressions.py`). Show it red before the fix, green after; `before_fix` must record the bad value.
+- **Ableton bug:** set the affected capability in `contracts/capabilities.json` back to `supported` (D-004, own `contract-change` PR) until it is re-tested on the user's machine. CI cannot reproduce it; the evidence is the user's log.
+- **Escaped bug** (found after merge): add one lesson line under "Testing and debugging rules" — what let it through, what catches it now.
+
 ## Budget (development sessions)
 
 The user's Max usage is shared by every session. Use it generously where it buys precision or speed; spend nothing on calls that cannot change the result.
