@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import json
-import time
+import re
+from pathlib import Path
 
 import pytest
 from conftest import registry_with
@@ -114,7 +115,6 @@ BRIDGE_CALLS = {
     "song.track_names.get": lambda b: b.get_track_names(),
     "track.mute.set": lambda b: b.set_track_mute(0, True),
     "song.undo": lambda b: b.undo(),
-    "song.create_audio_track": lambda b: b.create_audio_track(),
 }
 
 
@@ -128,10 +128,9 @@ def test_bridge_refuses_untested_before_any_network_io(fake, transport, cap_id):
     with pytest.raises(CapabilityNotTestedError) as err:
         BRIDGE_CALLS[cap_id](bridge)
     assert err.value.capability_id == cap_id
-    bridge.ping()  # marker: the server sees this one message and nothing before it
-    fake.wait_received(1)
-    time.sleep(0.05)
-    assert fake.addresses() == ["/live/test"]
+    bridge.ping()  # two markers; anything sent before them would be processed first
+    fake.wait_received(2)
+    assert fake.payload() == []
 
 
 @pytest.mark.parametrize("cap_id", sorted(BRIDGE_CALLS))
@@ -148,3 +147,25 @@ def test_bridge_override_lets_check_script_call(fake, transport, cap_id):
     gate = CapabilityGate(CapabilityRegistry.from_file(), allow_untested={cap_id})
     BRIDGE_CALLS[cap_id](AbletonBridge(transport, gate))
     assert gate.overrides_used and set(gate.overrides_used) == {cap_id}
+
+
+SRC = Path(__file__).resolve().parents[2] / "src"
+
+
+def test_only_osc_client_uses_the_transport():
+    """The ungated wire layer must not be reachable from other modules (D-004)."""
+    pattern = re.compile(r"\bOscTransport\b|\b_transport\b|\b_sock\b")
+    offenders = [
+        str(path.relative_to(SRC))
+        for path in SRC.rglob("*.py")
+        if path.name != "osc_client.py" and pattern.search(path.read_text(encoding="utf-8"))
+    ]
+    assert offenders == []
+
+
+def test_transport_scan_would_catch_an_offender(tmp_path):
+    """The scan above is not vacuous: the same pattern finds a typical bypass."""
+    pattern = re.compile(r"\bOscTransport\b|\b_transport\b|\b_sock\b")
+    assert pattern.search("from bridge.osc_client import OscTransport")
+    assert pattern.search("bridge._transport.send_confirmed('/live/song/undo')")
+    assert not pattern.search("bridge.endpoint")

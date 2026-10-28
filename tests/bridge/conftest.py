@@ -33,8 +33,7 @@ def fake():
 
 @pytest.fixture
 def transport(fake):
-    t = OscTransport(send_port=fake.port, receive_port=0, timeout_s=TEST_TIMEOUT_S,
-                     resync_grace_s=0.3)
+    t = OscTransport(send_port=fake.port, receive_port=0, timeout_s=TEST_TIMEOUT_S)
     fake.response_port = t.receive_port
     yield t
     t.close()

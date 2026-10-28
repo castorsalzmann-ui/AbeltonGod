@@ -39,11 +39,11 @@ Im Projektordner, im aktivierten venv (siehe README):
 python -c "from bridge.osc_client import OscTransport; t = OscTransport(); t.ping(); print('AbletonOSC antwortet')"
 ```
 
-- **Erfolg:** `AbletonOSC antwortet`, und Live zeigt kurz „Received OSC OK“.
+- **Erfolg:** `AbletonOSC antwortet`. In Live ändert sich dabei nichts (der Test liest nur zweimal das Tempo).
 - **Keine Antwort:** Eine Fehlermeldung nennt die möglichen Ursachen. Vom Python-Programm aus lässt sich nicht unterscheiden, ob Live geschlossen ist oder AbletonOSC nicht ausgewählt ist — beides prüfen. Ein offener Dialog in Live (z. B. Speichern) kann Antworten ebenfalls aufhalten.
 - **„cannot bind reply port 127.0.0.1:11001“:** Ein anderes Programm empfängt schon auf Port 11001 (z. B. ein zweites Terminal mit demselben Befehl). Dieses schließen.
 
-Dieser Test liest und ändert nichts im Set. Der ausführliche Check mit Tempo, Spuren und einer rückgängig gemachten Mute-Änderung kommt in #5 (`scripts/bridge_check.py`).
+Dieser Test ändert nichts im Set. Der ausführliche Check mit Tempo, Spuren und einer rückgängig gemachten Mute-Änderung kommt in #5 (`scripts/bridge_check.py`).
 
 ## 5. Wo die Logs liegen
 
@@ -56,7 +56,8 @@ Den Live-Ordner öffnest du am schnellsten mit `Win + R` → `%APPDATA%\Ableton`
 
 ## Gut zu wissen
 
-- **Ports:** Live empfängt auf 11000, AbeltonGod empfängt die Antworten auf 11001. Beides läuft nur über `127.0.0.1`; die Windows-Firewall fragt dafür normalerweise nicht. Andere Ports nur ändern, wenn du sie auch im Script änderst (`AbletonOSC\abletonosc\constants.py`); in AbeltonGod stehen sie dann in `.env` (`ABLETON_OSC_SEND_PORT`, `ABLETON_OSC_RECEIVE_PORT`).
+- **Firewall:** AbletonOSC lauscht auf *allen* Netzwerkadaptern (`0.0.0.0:11000`), nicht nur auf `127.0.0.1`. Fragt die Windows-Firewall beim Start von Live nach Netzwerkzugriff für Live, wähle **„Abbrechen“ / nicht zulassen**. AbeltonGod braucht nur `127.0.0.1`, und das blockiert die Firewall nicht. Lässt du den Zugriff zu, kann jedes Gerät im selben Netz dein Live-Set über OSC steuern. Hast du schon zugelassen, entferne die Regel unter *Windows-Sicherheit → Firewall → Zugriff von Apps durch die Firewall zulassen*. Prüf danach, ob der Ping-Test oben noch geht.
+- **Ports:** Live empfängt auf 11000, AbeltonGod empfängt die Antworten auf 11001 (nur `127.0.0.1`). Andere Ports nur ändern, wenn du sie auch im Script änderst (`AbletonOSC\abletonosc\constants.py`); in AbeltonGod stehen sie dann in `.env` (`ABLETON_OSC_SEND_PORT`, `ABLETON_OSC_RECEIVE_PORT`).
 - **Nur ein Empfänger:** AbletonOSC schickt jede Antwort fest an Port 11001. Es kann also immer nur ein Programm gleichzeitig mit AbletonOSC reden.
 - **Live-Version:** AbletonOSC meldet nur Haupt- und Nebenversion (z. B. 12.3). Die genaue Version (Hilfe → Über Live) bitte in Issue #5 notieren — der spätere Sample-Import braucht mindestens 12.0.5.
 - **Updates:** Wenn du AbletonOSC später aktualisierst, ersetzt du einfach den Ordner. Für Phase 03 kann eine kleine Erweiterung nötig werden (siehe `docs/research/2026-10-28_abletonosc-protocol-and-create-audio-clip.md`); sie müsste nach einem Update neu eingespielt werden.

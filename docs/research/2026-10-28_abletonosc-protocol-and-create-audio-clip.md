@@ -19,9 +19,18 @@ Nothing here was run inside Ableton Live; Live behaviour is verified in #5 on th
 | 9 | `/live/application/get/version` returns `(major, minor)` only — no patch level. | `application.py` `get_version` |
 | 10 | Logs: `logs/abletonosc.log` inside the installed `AbletonOSC` folder. | `manager.py` `start_logging`; README "Installation" |
 
-Client consequences (implemented in `src/bridge/osc_client.py`): bind 11001 and send from that socket; serialise requests; drain stale datagrams before each request; after a timeout, discard late replies for a grace period; confirm writes with a `/live/test` round trip and treat a `/live/error` before the `'ok'` as failure.
+Client consequences (implemented in `src/bridge/osc_client.py`):
 
-Limit: a `/live/test` confirmation shows that AbletonOSC processed the write without an error it reported. It does not show that Live's state changed as intended. Where it matters, read the value back.
+- Bind 11001 and send from that socket. Serialise requests (one lock).
+- **Request bracketing.** There is no request id (fact 3), and when Live's main thread is blocked (a dialog, a heavy set load), queued requests are processed late but in order (fact 7). A first version confirmed writes with `/live/test 'ok'`. Review found that a late `'ok'` from an earlier, timed-out write could then confirm a later write that failed in Live. A grace period only narrows that window. The current client sends every request as `marker(start) + payload + marker(end)`. A marker is `/live/song/get/tempo <nonce>`, and the getter echoes the nonce (fact 3). Only messages between the echo of `start` and the echo of `end` belong to the request. Everything before `start` — late replies or `/live/error` from earlier requests — is discarded.
+- A write is confirmed only by the echo of its own `end` marker with no `/live/error` in between. A query whose `end` echo arrives without a matching reply is a protocol error (decided at once, no timeout).
+- Before each request, queued datagrams and stale Windows ICMP resets are drained. This is not needed for correctness, but a stale reset would otherwise fail a healthy request.
+
+Assumptions and limits:
+- Loopback UDP keeps datagram order. The OS does not promise this; no reordering is known on loopback.
+- The marker echo (fact 3) is read from source and **must be confirmed on the user's machine in #5**. If it does not hold, every request times out: the failure is closed, never a false success.
+- A confirmation shows that AbletonOSC processed the write without an error it reported. It does not show that Live's state changed as intended. Where it matters, read the value back.
+- `/live/song/get/track_names` returns all names in one datagram; extremely large sets could exceed it.
 
 ## `ClipSlot.create_audio_clip`
 
@@ -50,6 +59,9 @@ Switch to **B** if the user's AbletonOSC install turns out to be updated often, 
 **Licence note.** The repo README says AbletonOSC is used as an external dependency, not copied. Option A keeps that (a patch applied to the user's install). Option B, if it reuses AbletonOSC code, must carry its MIT notice.
 
 ## Open points for #5 / Phase 03
+
+- Confirm the marker echo: `/live/song/get/tempo abc` must answer `(tempo, 'abc')`. `bridge.ping()` exercises exactly this.
+- On Windows: confirm that a closed Live gives `LiveNotReachableError` (ICMP reset) rather than a timeout, and that a second client on 11001 gets `ReceivePortInUseError`. CI covers both only on Linux or with a simulated reset.
 
 - Confirm on the user's machine that `/live/error` arrives for an unknown address (fact 6) — the client depends on it for fast failure.
 - Note the exact Live version (Help → About Live); fact 9 means the client cannot read the patch level.
