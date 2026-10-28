@@ -55,7 +55,12 @@ PARAM_SETS = {
 
 N_RANDOM = 150
 DC_THRESHOLD = 1e-9
-FUNDAMENTAL_TOLERANCE = 0.03  # measured tail vs. theoretical body pitch in the same window
+# Measured tail vs. theoretical body pitch in the same window (user decisions on PR #8,
+# 2026-10-28): ±3 % for windows of at least 80 ms, ±5 % for shorter ones, where the DC
+# blocker and the click shift a 60 ms measurement by up to 3.4 % (re-review N2).
+FUNDAMENTAL_TOLERANCE = 0.03
+FUNDAMENTAL_TOLERANCE_SHORT = 0.05
+SHORT_WINDOW_MS = 80.0
 MAX_UNMEASURABLE_SHARE = 0.03
 
 
@@ -174,9 +179,10 @@ def test_first_sample_is_zero_for_any_seed(seed: int) -> None:
 
 @pytest.mark.parametrize("p", all_sets())
 def test_measured_tail_pitch_matches_theoretical_body_pitch(p: dict) -> None:
-    """Criterion (user decision on PR #8, 2026-10-28): in the measurement window, the measured
+    """Criterion (user decisions on PR #8, 2026-10-28): in the measurement window, the measured
     tail frequency equals the frequency of an ideal sine with the engine's analytic body phase
-    in the same window, within ±3 %. pitch_end_hz is the asymptote, not a promise."""
+    in the same window — ±3 % for windows ≥ 80 ms, ±5 % below. pitch_end_hz is the
+    asymptote, not a promise."""
     audio, r = render_kick(p)
     sr = r["sample_rate"]
     start, end = tail_window(audio, sr)
@@ -186,7 +192,32 @@ def test_measured_tail_pitch_matches_theoretical_body_pitch(p: dict) -> None:
     if measured is None:
         pytest.skip("tail too short or too quiet to measure (bounded by the share test below)")
     assert expected is not None
-    assert abs(measured - expected) <= FUNDAMENTAL_TOLERANCE * expected
+    window_ms = (end - start) / sr * 1000
+    tol = FUNDAMENTAL_TOLERANCE if window_ms >= SHORT_WINDOW_MS else FUNDAMENTAL_TOLERANCE_SHORT
+    assert abs(measured - expected) <= tol * expected
+
+
+@pytest.mark.parametrize(
+    "extra",
+    [
+        {"length_ms": 80, "amp_decay_ms": 60, "pitch_decay_ms": 60},
+        {"length_ms": 80, "amp_decay_ms": 60, "pitch_decay_ms": 80},
+    ],
+    ids=["review-n2-a", "review-n2-b"],
+)
+def test_short_window_cases_from_review_stay_within_short_tolerance(extra: dict) -> None:
+    """The two re-review cases (−3.44 %, −3.03 %) are in the short-window regime and must stay
+    within ±5 %, so the relaxed tolerance only covers what it was decided for."""
+    audio, r = render_kick({**BASE, **extra})
+    sr = r["sample_rate"]
+    start, end = tail_window(audio, sr)
+    assert (end - start) / sr * 1000 < SHORT_WINDOW_MS
+    expected = zero_crossing_frequency(
+        np.sin(body_phase(np.arange(len(audio)) / sr, r))[start:end], sr
+    )
+    measured = analyse(audio, sr)["fundamental_hz"]
+    assert abs(measured - expected) <= FUNDAMENTAL_TOLERANCE_SHORT * expected
+    assert abs(measured - expected) > FUNDAMENTAL_TOLERANCE * expected  # documents the gap
 
 
 def test_tail_pitch_is_measurable_for_almost_all_kicks() -> None:
