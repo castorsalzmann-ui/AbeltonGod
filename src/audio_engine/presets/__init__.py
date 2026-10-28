@@ -19,8 +19,9 @@ from typing import Any
 PRESETS_DIR = Path(__file__).resolve().parent
 
 DESCRIPTIONS = {
-    "centre": "Closest to the medians of the measured reference range: tail 52 Hz, clean body, "
-    "moderate click.",
+    "centre": "Near the medians of the measured reference range (tail 52 Hz, clean body, "
+    "moderate click), with a slower pitch drop than most references (tau 40 ms, chosen by "
+    "ear in #3).",
     "dark-dry": "Low tail (47 Hz), little click, darker tilt, no drive.",
     "punchy": "Higher tail (56 Hz), fastest pitch drop, more click, light drive.",
     "rumble-ready": "Long, clean, low tail (49 Hz) as a source for a rumble chain built in Live.",

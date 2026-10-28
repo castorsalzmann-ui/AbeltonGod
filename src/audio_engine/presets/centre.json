@@ -8,7 +8,7 @@
   "length_ms": 480,
   "pitch_start_hz": 200,
   "pitch_end_hz": 52,
-  "pitch_decay_ms": 8,
+  "pitch_decay_ms": 40,
   "amp_attack_ms": 0.5,
   "amp_decay_ms": 560,
   "click_level": 0.35,

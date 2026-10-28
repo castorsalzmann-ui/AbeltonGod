@@ -53,9 +53,10 @@ FIXED_TIME = datetime(2026, 10, 28, 12, 0, tzinfo=UTC)
 COMMON = {"schema_version": "0.2", "sample_rate": 48000, "bit_depth": 24,
           "peak_ceiling_dbfs": -0.3}
 # The accepted design (issue #3), written out: seed, length, start, end, tau, attack, decay,
-# click level, click tone, drive, tone.
+# click level, click tone, drive, tone. centre's tau is 40 ms since #59 (was 8; the user chose
+# 40 by ear in the #3 listening test).
 EXPECTED_PRESETS = {
-    "centre": (1001, 480, 200, 52, 8, 0.5, 560, 0.35, 3500, 0.0, 0.0),
+    "centre": (1001, 480, 200, 52, 40, 0.5, 560, 0.35, 3500, 0.0, 0.0),
     "dark-dry": (1002, 450, 160, 47, 9, 0.5, 500, 0.12, 2500, 0.0, -0.4),
     "punchy": (1003, 400, 260, 56, 6, 0.3, 420, 0.6, 4500, 0.15, 0.3),
     "rumble-ready": (1004, 750, 180, 49, 10, 1.0, 800, 0.2, 3000, 0.0, -0.2),
@@ -127,6 +128,29 @@ def test_preset_follows_the_pitch_settle_guideline(name: str) -> None:
     tau_max = t / math.log((p["pitch_start_hz"] - p["pitch_end_hz"]) / (0.05 * p["pitch_end_hz"]))
     assert p["pitch_decay_ms"] <= tau_max
     assert abs(max_settled_pitch_decay_ms(p) - tau_max) < 1e-9
+
+
+def test_centre_has_the_pitch_decay_the_user_chose() -> None:
+    """#59 (user decision, option c): centre uses tau 40 ms; the schema default stays 15 ms.
+    Its guideline limit, worked by hand from the contract text: t = 0.5 + 560 / 3 = 187.1667 ms,
+    tau_max = t / ln((200 - 52) / (0.05 * 52)) = 187.1667 / ln(56.9231) = 46.3089 ms."""
+    p = preset("centre")
+    assert p["pitch_decay_ms"] == 40
+    assert load_schema(KICK_SCHEMA_FILE)["properties"]["pitch_decay_ms"]["default"] == 15
+    assert abs(max_settled_pitch_decay_ms(p) - 46.3089) < 1e-4
+    assert pitch_settles(p)
+
+
+@pytest.mark.parametrize("name", NAMES)
+def test_every_preset_variant_follows_the_pitch_settle_guideline(name: str) -> None:
+    """Variants 1-8 of every preset settle, re-derived here from the contract text (the
+    limit moves with each variant's own amp_decay_ms, pitch_start_hz and pitch_end_hz)."""
+    for v in make_variants(preset(name), 9)[1:]:
+        t = min(v["amp_attack_ms"] + v["amp_decay_ms"] / 3, v["length_ms"])
+        drop = v["pitch_start_hz"] - v["pitch_end_hz"]
+        tau_max = t / math.log(drop / (0.05 * v["pitch_end_hz"]))
+        assert v["pitch_decay_ms"] <= tau_max, (name, v["seed"], v["pitch_decay_ms"], tau_max)
+        assert pitch_settles(v)
 
 
 def test_unknown_preset_lists_valid_names() -> None:
@@ -202,15 +226,18 @@ def test_derived_seeds_are_pinned(key: tuple[int, int], expected: int) -> None:
 # bytes, mapping, rounding, field order) changes, these turn red, even though the engine's
 # golden hashes stay green. Changing them needs a reason in the PR (the listening test would
 # then be stale for the changed variants).
+# #59: centre's pitch_decay_ms re-recorded after the preset moved from tau 8 to 40 ms (was
+# 7.4577 and 8.6142); every other centre value is unchanged. For tau 40 the guideline caps the
+# box [32, 48] (v1: limit 42.6559, v2: 44.8819), so the draw lands in [32, limit].
 PINNED_VARIANTS = {
     ("centre", 1): {"seed": 1149790815, "click_level": 0.3003, "click_tone_hz": 3209.9477,
                     "pitch_end_hz": 52.9918, "pitch_start_hz": 215.3134,
                     "amp_decay_ms": 525.1091, "drive": 0.0, "tone": 0.0216,
-                    "pitch_decay_ms": 7.4577},
+                    "pitch_decay_ms": 35.5223},
     ("centre", 2): {"seed": 1271935609, "click_level": 0.4252, "click_tone_hz": 3138.6539,
                     "pitch_end_hz": 52.6428, "pitch_start_hz": 181.3576,
                     "amp_decay_ms": 522.2453, "drive": 0.0, "tone": -0.0047,
-                    "pitch_decay_ms": 8.6142},
+                    "pitch_decay_ms": 40.9136},
     ("driven", 1): {"seed": 3111738165, "click_level": 0.9906, "click_tone_hz": 6520.14,
                     "pitch_end_hz": 57.6889, "pitch_start_hz": 310.4722,
                     "amp_decay_ms": 391.6256, "drive": 0.4653, "tone": 0.5331,
