@@ -17,7 +17,7 @@ from bridge.capabilities import (
     CapabilityRegistryError,
     UnknownCapabilityError,
 )
-from bridge.osc_client import ADDRESSES, AbletonBridge
+from bridge.osc_client import ADDRESSES, PENDING_REGISTRY, AbletonBridge
 
 RAW = json.loads(CAPABILITIES_FILE.read_text(encoding="utf-8"))
 
@@ -36,6 +36,47 @@ def test_bridge_addresses_match_registry_targets():
         assert cap_id in targets, cap_id
         recorded = {a.strip() for a in targets[cap_id].split(",")}
         assert set(addresses) == recorded, cap_id
+
+
+# Any single- or double-quoted string literal that starts with /live/ (also f-strings and
+# literals with digits, '*' or '{...}'), so an address cannot hide behind a quoting style (#44).
+OSC_LITERAL = re.compile(r"""["'](/live/[^"'\s]*)["']""")
+
+
+def scanned_address_literals() -> set[str]:
+    files = [*(ROOT / "src" / "bridge").glob("*.py"), *(ROOT / "scripts").glob("*.py")]
+    return {m for f in files for m in OSC_LITERAL.findall(f.read_text(encoding="utf-8"))}
+
+
+def test_address_scan_finds_every_quoting_style():
+    found = set(OSC_LITERAL.findall(
+        """a = '/live/track/get/solo'\nb = "/live/x/y"\nc = f"/live/track/{i}/z"\n"""
+        """d = '/live/clip_slot/*'\n"""
+    ))
+    assert found == {"/live/track/get/solo", "/live/x/y", "/live/track/{i}/z",
+                     "/live/clip_slot/*"}
+
+
+def test_every_address_the_bridge_sends_is_registered_or_pending():
+    """No /live/ literal in src/bridge/ or scripts/ outside ADDRESSES, PENDING_REGISTRY and
+    the marker/error addresses (#39, #44)."""
+    literals = scanned_address_literals()
+    assert literals, "scan found nothing: the pattern or the paths are broken"
+    known = {a for addrs in ADDRESSES.values() for a in addrs}
+    known |= {a for addrs, _ in PENDING_REGISTRY.values() for a in addrs}
+    known |= {"/live/error", "/live/song/get/tempo"}  # reply error address; request marker
+    assert literals - known == set()
+
+
+def test_pending_entries_are_not_yet_in_the_registry_and_borrow_a_real_gate():
+    """Pending ids must move into ADDRESSES (and the registry) in the contract-change PR."""
+    targets = {c["id"]: c["target"] for c in RAW["capabilities"]}
+    for cap_id, (addresses, borrowed) in PENDING_REGISTRY.items():
+        assert cap_id not in targets, f"{cap_id} is registered now: move it into ADDRESSES"
+        assert cap_id not in ADDRESSES
+        assert borrowed in ADDRESSES
+        assert not set(addresses) & {a for v in ADDRESSES.values() for a in v}
+    assert set(PENDING_REGISTRY) == {"track.mute.get"}
 
 
 @pytest.mark.parametrize("status", ["unknown", "supported"])
