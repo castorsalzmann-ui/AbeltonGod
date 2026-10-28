@@ -19,7 +19,9 @@ from audio_engine.dsp import kaiser_lowpass, oversampled
 
 AUDIBLE_HZ = 20000.0
 REF_FACTOR = 16  # 16, 32 and 8 give the same result to 0.3 dB (checked during development)
-LIMIT_DB = -70.0  # issue #13; full chain during development: random worst -88 dB, curated -82 dB; base-rate tanh -41 dB
+# Issue #13. Measured on the full chain during development: random worst -88 dB,
+# curated worst -82 dB; the old base-rate tanh gives -41 dB on the curated case.
+LIMIT_DB = -70.0
 TAIL_EXCLUDE_MS = 10.0  # the last samples are faded out by the engine anyway
 
 
