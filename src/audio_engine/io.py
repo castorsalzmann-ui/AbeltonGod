@@ -100,17 +100,31 @@ def write_kick(
         Draft202012Validator(load_schema(METADATA_SCHEMA_FILE)).validate(meta)
         meta_text = json.dumps(meta, indent=2, ensure_ascii=False, allow_nan=False) + "\n"
         try:
-            with open(wav_path, "xb") as f:  # "x": never overwrite
-                f.write(wav_bytes)
+            wav_file = open(wav_path, "xb")  # "x": never overwrite
         except FileExistsError:
             continue  # taken since the check: try the next counter
+        # From here on this call owns wav_path; on any failure it is removed again.
         try:
-            with open(json_path, "x", encoding="utf-8") as f:
-                f.write(meta_text)
+            with wav_file:
+                wav_file.write(wav_bytes)
         except BaseException:
-            wav_path.unlink(missing_ok=True)  # only the file this call just created
-            if json_path.exists():
-                continue
+            wav_path.unlink(missing_ok=True)
+            raise
+        try:
+            json_file = open(json_path, "x", encoding="utf-8")
+        except FileExistsError:
+            wav_path.unlink(missing_ok=True)
+            continue  # sidecar name taken since the check: try the next counter
+        except BaseException:
+            wav_path.unlink(missing_ok=True)
+            raise
+        # This call also owns json_path now. A write error is not a name clash: clean up, raise.
+        try:
+            with json_file:
+                json_file.write(meta_text)
+        except BaseException:
+            json_path.unlink(missing_ok=True)
+            wav_path.unlink(missing_ok=True)
             raise
         return wav_path, json_path
     raise FileExistsError(

@@ -8,6 +8,7 @@ from functools import cache
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 from jsonschema import Draft202012Validator
 
 CONTRACTS_DIR = Path(__file__).resolve().parents[2] / "contracts"
@@ -41,6 +42,9 @@ def resolve_kick_params(params: dict[str, Any]) -> dict[str, Any]:
     """
     if not isinstance(params, dict):
         raise KickParamsError(f"Kick parameters must be an object, got {type(params).__name__}.")
+    # NumPy scalars (np.float32, np.int64 …) become plain Python numbers first, so the finite
+    # check below and JSON serialisation of the sidecar treat them like any other number.
+    params = {k: (v.item() if isinstance(v, np.generic) else v) for k, v in params.items()}
     schema = load_schema(KICK_SCHEMA_FILE)
     lines = [
         f"- {key}: must be a finite number, got {value!r}"

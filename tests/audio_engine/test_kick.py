@@ -205,6 +205,57 @@ def _render(p: dict) -> tuple[np.ndarray, int]:
     return audio, r["sample_rate"]
 
 
+INDEPENDENT_PITCH_SETS = [
+    {},
+    {"pitch_end_hz": 40},
+    {"pitch_start_hz": 600, "pitch_end_hz": 30, "pitch_decay_ms": 40},
+    {"pitch_decay_ms": 120, "amp_decay_ms": 1200, "length_ms": 1200},
+    {"pitch_start_hz": 300, "pitch_end_hz": 90, "pitch_decay_ms": 15},
+    {"sample_rate": 44100},
+]
+INDEPENDENT_PITCH_TOLERANCE = 0.02
+
+
+@pytest.mark.parametrize("extra", INDEPENDENT_PITCH_SETS)
+def test_body_pitch_follows_parameters_independently(extra: dict) -> None:
+    """Does NOT use body_phase: the expected frequency is computed here from the parameters,
+    f(t) = f_end + (f_start - f_end) * exp(-t / tau), and compared with the period between
+    each pair of consecutive positive zero crossings (from 20 ms until the signal is 40 dB
+    down). Click, drive and tone are off so only the body is measured. During development
+    this test failed when body_phase was mutated (pitch_end_hz * 1.02 -> 2.5 %,
+    * 1.04 -> 4.1 %, pitch_decay_ms * 2 -> 174 %); the clean engine measured 1.06 % worst."""
+    p = {**BASE, "click_level": 0.0, "drive": 0.0, "tone": 0.0, **extra}
+    audio, r = render_kick(p)
+    sr = r["sample_rate"]
+    idx = np.nonzero((audio[:-1] < 0) & (audio[1:] >= 0))[0]
+    crossings = idx + audio[idx] / (audio[idx] - audio[idx + 1])
+    floor = 0.01 * float(np.max(np.abs(audio)))
+    f_start, f_end = r["pitch_start_hz"], r["pitch_end_hz"]
+    tau = r["pitch_decay_ms"] / 1000
+    checked = 0
+    for a, b in zip(crossings[:-1], crossings[1:], strict=True):
+        t_mid = (a + b) / 2 / sr
+        if t_mid < 0.02:
+            continue
+        if np.max(np.abs(audio[int(a) : int(b) + 1])) < floor:
+            break
+        expected = f_end + (f_start - f_end) * math.exp(-t_mid / tau)
+        assert abs(sr / (b - a) - expected) <= INDEPENDENT_PITCH_TOLERANCE * expected, t_mid
+        checked += 1
+    assert checked >= 3
+
+
+def test_dc_correction_is_small_so_real_dc_faults_stay_visible(monkeypatch) -> None:
+    """The mean is removed by construction, so the DC test alone cannot catch a DC bug.
+    This checks the size of the correction: without it, |mean| stays below 2 % of full scale
+    for every tested set (worst seen in review: 1.73 % for short-cut-off)."""
+    import audio_engine.kick as kick_mod
+
+    monkeypatch.setattr(kick_mod, "_remove_mean", lambda x: x)
+    worst = max(abs(float(np.mean(render_kick(p.values[0])[0]))) for p in all_sets())
+    assert worst < 0.02
+
+
 def test_settled_kick_reaches_pitch_end() -> None:
     audio, r = render_kick(params("defaults"))
     f = analyse(audio, r["sample_rate"])["fundamental_hz"]
@@ -378,6 +429,82 @@ def test_name_taken_between_check_and_write_moves_to_next_counter(tmp_path, monk
     wav_path, _ = write_kick(BASE, tmp_path, created_at=FIXED_TIME)
     assert wav_path.name == "kick_002.wav"
     assert (tmp_path / "kick.wav").read_bytes() == b"other"
+
+
+def test_sidecar_write_error_cleans_up_and_does_not_loop(tmp_path, monkeypatch) -> None:
+    """Review N1: a write error (disk full) after the sidecar file was created must not be
+    mistaken for a name clash; nothing may be left behind and the real error surfaces."""
+    import builtins
+
+    real_open = builtins.open
+
+    class FullDisk:
+        def __init__(self, f):
+            self._f = f
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            self._f.close()
+            return False
+
+        def write(self, _data):
+            raise OSError(28, "No space left on device (simulated)")
+
+    def open_with_full_disk(file, mode="r", *args, **kwargs):
+        f = real_open(file, mode, *args, **kwargs)
+        return FullDisk(f) if str(file).endswith(".json") else f
+
+    monkeypatch.setattr(io_mod, "open", open_with_full_disk, raising=False)
+    with pytest.raises(OSError, match="No space left"):
+        write_kick(BASE, tmp_path, created_at=FIXED_TIME)
+    assert list(tmp_path.iterdir()) == []
+
+
+@pytest.mark.parametrize("interrupt", [KeyboardInterrupt, OSError])
+def test_wav_write_error_cleans_up(tmp_path, monkeypatch, interrupt) -> None:
+    import builtins
+
+    real_open = builtins.open
+
+    class Broken:
+        def __init__(self, f):
+            self._f = f
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            self._f.close()
+            return False
+
+        def write(self, _data):
+            raise interrupt("simulated")
+
+    def open_broken_wav(file, mode="r", *args, **kwargs):
+        f = real_open(file, mode, *args, **kwargs)
+        return Broken(f) if str(file).endswith(".wav") else f
+
+    monkeypatch.setattr(io_mod, "open", open_broken_wav, raising=False)
+    with pytest.raises(interrupt):
+        write_kick(BASE, tmp_path, created_at=FIXED_TIME)
+    assert list(tmp_path.iterdir()) == []
+
+
+@pytest.mark.parametrize(
+    "value", [np.float32("nan"), np.float16("inf"), np.float64("-inf")], ids=["f32", "f16", "f64"]
+)
+def test_numpy_non_finite_scalars_are_rejected(value) -> None:
+    with pytest.raises(KickParamsError):
+        render_kick({**BASE, "drive": value})
+
+
+def test_numpy_scalars_are_accepted_and_serialisable(tmp_path) -> None:
+    p = {**BASE, "seed": np.int64(7), "drive": np.float32(0.25), "bit_depth": np.int32(24)}
+    wav_path, json_path = write_kick(p, tmp_path, created_at=FIXED_TIME)
+    meta = json.loads(json_path.read_text(encoding="utf-8"))
+    assert meta["parameters"]["seed"] == 7 and isinstance(meta["parameters"]["drive"], float)
 
 
 def test_failed_sidecar_write_leaves_no_orphan_wav(tmp_path, monkeypatch) -> None:
