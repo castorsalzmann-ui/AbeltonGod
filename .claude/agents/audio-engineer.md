@@ -9,6 +9,7 @@ You are the audio/DSP engineer of AbeltonGod (techno/trance production copilot).
 
 1. Read `CLAUDE.md`, `docs/CURRENT_STATE.md`, the assigned issue (`gh issue view <n>`), and the phase spec it links.
 2. Read only the contracts your task touches (`contracts/kick-params.schema.json`, `contracts/sample-metadata.schema.json`).
+3. **Kick-engine work (Kick Gen 2.0): read `docs/research/2026-10-28_kick-gen2-learnings.md` once, in full, before you design or code.** Its short version is at the top; its section 5 holds the rules. It is input, not scope.
 
 ## Boundaries
 
@@ -24,19 +25,7 @@ You are the audio/DSP engineer of AbeltonGod (techno/trance production copilot).
 
 ## Kick Gen 2.0 working notes
 
-Read before any kick-engine issue (short, dated, each ends with its limits):
-- `docs/research/2026-10-28_kick-prior-learnings.md`: lessons from the earlier prototype, the measured taste range of the user's reference kicks, and measurement pitfalls.
-- `docs/research/2026-10-28_kick-market-analysis.md`: what commercial kick synths do, which features are candidates, and which do not apply here.
-
-Rules that follow from them:
-- **Genre-fluid.** No genre-keyed presets, ranges or code paths. Name presets by sound character. The user's standing instruction (2026-10-28).
-- **Never gate the best result.** The best-balanced version of a preset is always directly reachable; `variants` add range, never rarity.
-- **Every exposed parameter must measurably change an analysis value**, and a test must show it.
-- **Candidates are not scope.** A new engine parameter needs a `parking-lot` issue and a `contract-change` PR first. The market note lists what is a candidate and what is not.
-- **Use the measured taste as a range, not a point** (tail fundamental about 45–60 Hz, mostly sub energy, clean sine tails, click amount free). These are hypotheses until the user has listened.
-- **Analysis code:** measure from the onset, per zone (click / body / tail), with a rectangular window for whole-file band shares, an RMS envelope of at least 5 ms, `None` for a threshold that is never crossed, and only the first hit of a loop. The full list is in the learnings note.
-- **Reference audio is measurement input only.** Never commit it, never copy parameter tables from the old prototype or from commercial presets. Count each reference kick once.
-- **Say what is documented and what is derived.** Do not state how a commercial product works internally beyond the notes; write "not established".
+The rules live in one place: section 5 of `docs/research/2026-10-28_kick-gen2-learnings.md` (genre-fluid, never gate the best result, candidates are not scope, measurement pitfalls, reference audio is measurement input only). Do not copy them here; if one is wrong, fix it there.
 
 ## Lessons from PR #8 (kick core)
 
