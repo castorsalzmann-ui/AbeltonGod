@@ -1,16 +1,27 @@
 """Claude Code hook: warn when a development session burns usage without progress.
 
-Registered in .claude/settings.json for PostToolUse, PostToolUseFailure and Stop.
-It never blocks anything and always exits 0. On a crossed soft limit it prints one
+Registered in .claude/settings.json for PostToolUse, PostToolUseFailure, PermissionDenied
+and Stop. It never blocks anything and always exits 0. On a crossed soft limit it prints one
 JSON object: a German `systemMessage` for the user and a factual English
 `additionalContext` for Claude. Each warning fires once per crossing.
 
 Signals (limits in config/dev-budget.json):
 - same tool + same input repeated without any file change in between
-- consecutive failed tool calls
+- consecutive failed tool calls; auto-mode denials (PermissionDenied) count as failures
 - one file edited very often (thrashing)
 - total tool calls in the session (generous, repeating soft warning)
-- many subagents / reviewer runs in one session
+- many subagents / reviewer runs in one session. A reviewer run is an Agent call with
+  `subagent_type == "reviewer"` or, in cloud sessions where that type may be missing, any
+  Agent call whose `description` contains "review" (case-insensitive)
+
+Known gap (#19): built-in tool rejections that happen before the tool runs (e.g. Edit with an
+`old_string` that is not found) may fire no post event at all, so they are not counted.
+
+PermissionDenied payload: the hooks docs (code.claude.com/docs/en/hooks) state when it fires
+and that it matches on tool name; its other input fields are not verified here. The parser
+therefore needs only `hook_event_name` and reads `tool_name` if present. Its output carries
+only the universal `systemMessage`, because the documented `hookSpecificOutput` for this
+event is `retry`, which this watcher never sets.
 
 State: logs/dev-usage/sessions/<session>.json; events: logs/dev-usage/waste-events.jsonl
 (logs/ is git-ignored). Standard library only, so it runs with any Python 3.11+.
@@ -96,6 +107,16 @@ def git_branch(root: Path) -> str | None:
     return head.removeprefix("ref: refs/heads/") if head.startswith("ref:") else head[:12]
 
 
+def is_reviewer_run(tool_input: object) -> bool:
+    """A `reviewer` subagent, or (cloud sessions) any Agent call described as a review."""
+    if not isinstance(tool_input, dict):
+        return False
+    if tool_input.get("subagent_type") == "reviewer":
+        return True
+    description = tool_input.get("description")
+    return isinstance(description, str) and "review" in description.casefold()
+
+
 def new_state() -> dict:
     return {
         "tool_calls": 0,
@@ -122,7 +143,10 @@ def evaluate(event: dict, state: dict, limits: dict[str, int]) -> list[tuple[str
             state["warned"].append(key)
             found.append((key, de, en))
 
-    if name not in ("PostToolUse", "PostToolUseFailure") or not tool:
+    if name not in ("PostToolUse", "PostToolUseFailure", "PermissionDenied"):
+        return found
+    if not tool and name != "PermissionDenied":
+        # Tolerant: a denial counts even without a tool name (its payload is not verified).
         return found
 
     state["tool_calls"] += 1
@@ -136,7 +160,7 @@ def evaluate(event: dict, state: dict, limits: dict[str, int]) -> list[tuple[str
             "state in two lines what is still open and whether a fresh session would be cheaper.",
         )
 
-    if name == "PostToolUseFailure":
+    if name in ("PostToolUseFailure", "PermissionDenied"):
         state["fail_streak"] += 1
         streak = state["fail_streak"]
         if streak >= limits["failure_streak"]:
@@ -148,6 +172,10 @@ def evaluate(event: dict, state: dict, limits: dict[str, int]) -> list[tuple[str
             )
     else:
         state["fail_streak"] = 0
+
+    if name == "PermissionDenied":
+        # The call never ran: no repeat, edit or subagent counting.
+        return found
 
     if tool in EDIT_TOOLS and name == "PostToolUse":
         state["since_change"] = {}
@@ -192,8 +220,7 @@ def evaluate(event: dict, state: dict, limits: dict[str, int]) -> list[tuple[str
                 f"{state['subagents']} subagents have run in this session (D-010: few agents). "
                 "Each starts without context. The CLAUDE.md budget rule applies.",
             )
-        agent_type = tool_input.get("subagent_type") if isinstance(tool_input, dict) else None
-        if agent_type == "reviewer":
+        if is_reviewer_run(tool_input):
             state["reviewer_runs"] += 1
             runs = state["reviewer_runs"]
             if runs >= limits["reviewer_runs_per_session"]:
@@ -306,8 +333,13 @@ def handle(event: dict) -> dict | None:
                 )
                 + "\n"
             )
+    message = " | ".join(de for _, de, _ in found)
+    if name == "PermissionDenied":
+        # Documented hookSpecificOutput for this event is only `retry`; stay with the
+        # universal field so the output cannot fail schema validation.
+        return {"systemMessage": message}
     return {
-        "systemMessage": " | ".join(de for _, de, _ in found),
+        "systemMessage": message,
         "hookSpecificOutput": {
             "hookEventName": name,
             "additionalContext": " ".join(en for _, _, en in found),
