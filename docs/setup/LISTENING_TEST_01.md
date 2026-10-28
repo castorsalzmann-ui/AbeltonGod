@@ -20,6 +20,7 @@ Die letzte Zeile listet die fünf Presets. Dann alles in einen eigenen Ordner au
 $out = "$HOME\Music\AbeltonGod-Hoertest-01"
 foreach ($p in "centre", "dark-dry", "punchy", "rumble-ready", "driven") {
   python -m audio_engine.kick --preset $p --variants 4 --out $out
+  if ($LASTEXITCODE) { "Fehler bei $p (Exit-Code $LASTEXITCODE)" }
 }
 python -m audio_engine.kick --preset centre --set pitch_decay_ms=15 --out $out
 python -m audio_engine.kick --preset centre --set pitch_decay_ms=40 --out $out
@@ -29,7 +30,7 @@ python -m audio_engine.kick --preset punchy --set length_ms=80 --set amp_decay_m
 explorer $out
 ```
 
-Jeder Aufruf gibt pro Datei eine Zeile aus (Pfad, gemessene Tonhöhe, Abklingzeit, Spitze). `echo $LASTEXITCODE` direkt danach sollte `0` zeigen. Es werden nie Dateien überschrieben: Wenn du die Befehle zweimal ausführst, entstehen Dateien mit `_002` am Ende.
+Jeder Aufruf gibt pro Datei eine Zeile aus (Pfad, gemessene Tonhöhe, Abklingzeit, Spitze). Ein Fehler steht als eigene Zeile `error: …` da; in der Schleife meldet zusätzlich `Fehler bei <Preset>` jeden fehlgeschlagenen Aufruf. Bei den Einzelbefehlen danach zeigt `echo $LASTEXITCODE` nur den Exit-Code des letzten Befehls (`0` = ok). Es werden nie Dateien überschrieben: Wenn du die Befehle zweimal ausführst, entstehen Dateien mit `_002` am Ende.
 
 Was die Namen bedeuten: `punchy_s1003_v0.wav` = Preset `punchy`, Grund-Seed 1003, Variante 0 (= das Preset selbst). `v1`–`v3` sind Varianten. `_custom` heißt: ein Wert wurde mit `--set` geändert. Zu jeder WAV gehört eine `.json` mit allen Werten.
 
@@ -47,8 +48,8 @@ Welche `_custom`-Datei welche ist, steht in ihrer `.json` unter `description` ("
 
 ## 2. In Live 12.4.5 laden
 
-1. Neues Set, Projekt-Samplerate 48 kHz (Einstellungen → Audio).
-2. Die WAVs per Drag & Drop aus dem Explorer in Audiospuren oder in ein Drum Rack ziehen.
+1. Samplerate einstellen. Sie gilt in Live global für das Audiogerät, nicht pro Projekt: Strg + , → Audio → Samplerate → Ein-/Ausgangs-Samplerate 48000 (bei ASIO-Interfaces ggf. im Treiber-Kontrollfeld). Dann ein neues Set öffnen.
+2. Den Ausgabeordner im Browser von Live hinzufügen: Orte → Ordner hinzufügen… → `AbeltonGod-Hoertest-01` in deinem Musik-Ordner wählen. Die WAVs dann aus dem Browser (oder per Drag & Drop aus dem Explorer) in Audiospuren oder in ein Drum Rack ziehen.
 3. Ein 4/4-Pattern bei deinem üblichen Tempo, Fader auf 0 dB, keine Effekte auf den Spuren und im Master.
 4. Alle Dateien haben −0,3 dBFS Spitze. Die Spitze ist gleich, die Lautheit nicht unbedingt: Kicks mit langem Schwanz wirken lauter. Wenn du fair vergleichen willst, die Fader nach Gehör angleichen und notieren, um wie viel.
 
