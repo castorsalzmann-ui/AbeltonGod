@@ -16,6 +16,7 @@ import pytest
 from conftest import TEST_TIMEOUT_S, registry_with
 from fake_abletonosc import MARKER, build
 from pythonosc.osc_bundle_builder import IMMEDIATELY, OscBundleBuilder
+from pythonosc.osc_message import OscMessage
 from pythonosc.osc_message_builder import OscMessageBuilder
 
 from bridge.capabilities import CapabilityNotTestedError
@@ -296,11 +297,11 @@ def test_late_read_reply_does_not_answer_the_next_read(bridge, fake, transport):
 def test_write_is_confirmed_only_after_its_own_end_marker(bridge, fake, transport):
     """While held, nothing confirms; after release the same request completes."""
     fake.hold()
-    fake.release_after(0.3)
     transport.timeout_s = SLOW_S
-    start = time.monotonic()
+    fake.release_after(0.3)
     bridge.set_track_mute(1, True)
-    assert time.monotonic() - start >= 0.3
+    # Ordering, not wall-clock time: the call can only return after the release.
+    assert fake.released.is_set()
     assert fake.tracks[1]["mute"] is True
 
 
@@ -508,3 +509,62 @@ def test_from_env_rejects_garbage(monkeypatch, name, value, match):
     monkeypatch.setenv(name, value)
     with pytest.raises(ValueError, match=match):
         AbletonBridge.from_env()
+
+
+# -- marker edge cases against a scripted server (review round 2) ---------------------------
+
+
+def _scripted(replies):
+    """Run one request against a server that answers with ``replies(start, end)``."""
+    server = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    server.bind(("127.0.0.1", 0))
+    server.settimeout(2)
+    t = OscTransport(send_port=server.getsockname()[1], receive_port=0, timeout_s=0.4)
+
+    def serve():
+        nonces = []
+        for _ in range(3):
+            data, src = server.recvfrom(1024)
+            msg = OscMessage(data)
+            if msg.address == MARKER and len(msg.params) == 1:
+                nonces.append(msg.params[0])
+        for address, args in replies(*nonces):
+            server.sendto(build(address, args), ("127.0.0.1", t.receive_port))
+
+    thread = threading.Thread(target=serve, daemon=True)
+    thread.start()
+    return t, server, thread
+
+
+def _run_scripted(replies):
+    t, server, thread = _scripted(replies)
+    try:
+        return t.query("/live/song/get/track_names")
+    finally:
+        thread.join(timeout=2)
+        t.close()
+        server.close()
+
+
+def test_end_marker_before_start_marker_is_a_protocol_error():
+    with pytest.raises(BridgeProtocolError, match="before start"):
+        _run_scripted(lambda start, end: [(MARKER, (120.0, end)), (MARKER, (120.0, start))])
+
+
+def test_marker_echo_must_have_exactly_two_arguments():
+    """A three-argument echo is not our marker, so the request cannot complete."""
+    with pytest.raises(BridgeTimeoutError):
+        _run_scripted(lambda start, end: [
+            (MARKER, (120.0, start, "x")),
+            ("/live/song/get/track_names", ("A",)),
+            (MARKER, (120.0, end, "x")),
+        ])
+
+
+def test_well_formed_script_is_accepted():
+    """Control for the two tests above: the same server with correct echoes works."""
+    assert _run_scripted(lambda start, end: [
+        (MARKER, (120.0, start)),
+        ("/live/song/get/track_names", ("A",)),
+        (MARKER, (120.0, end)),
+    ]) == ("A",)

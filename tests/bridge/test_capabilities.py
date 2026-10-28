@@ -149,15 +149,18 @@ def test_bridge_override_lets_check_script_call(fake, transport, cap_id):
     assert gate.overrides_used and set(gate.overrides_used) == {cap_id}
 
 
-SRC = Path(__file__).resolve().parents[2] / "src"
+ROOT = Path(__file__).resolve().parents[2]
+SCANNED = [ROOT / "src", ROOT / "scripts"]  # scripts/: bridge_check.py (#5) and later tools
 
 
 def test_only_osc_client_uses_the_transport():
-    """The ungated wire layer must not be reachable from other modules (D-004)."""
+    """The ungated wire layer must not be reachable from other modules or scripts (D-004)."""
     pattern = re.compile(r"\bOscTransport\b|\b_transport\b|\b_sock\b")
     offenders = [
-        str(path.relative_to(SRC))
-        for path in SRC.rglob("*.py")
+        str(path.relative_to(ROOT))
+        for base in SCANNED
+        if base.exists()
+        for path in base.rglob("*.py")
         if path.name != "osc_client.py" and pattern.search(path.read_text(encoding="utf-8"))
     ]
     assert offenders == []

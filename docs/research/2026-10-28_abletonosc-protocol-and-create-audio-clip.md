@@ -29,6 +29,7 @@ Client consequences (implemented in `src/bridge/osc_client.py`):
 Assumptions and limits:
 - Loopback UDP keeps datagram order. The OS does not promise this; no reordering is known on loopback.
 - The marker echo (fact 3) is read from source and **must be confirmed on the user's machine in #5**. If it does not hold, every request times out: the failure is closed, never a false success.
+- **A timed-out write has an unknown outcome.** It may still sit in Live's queue (e.g. behind a dialog) and be applied after the client gave up. Seen in review with the fake: two writes timed out, both were applied after the release. Callers (first: `bridge_check.py` in #5) must read the state back before assuming nothing happened, and must never send an undo blindly after a timeout — it could undo something else.
 - A confirmation shows that AbletonOSC processed the write without an error it reported. It does not show that Live's state changed as intended. Where it matters, read the value back.
 - `/live/song/get/track_names` returns all names in one datagram; extremely large sets could exceed it.
 

@@ -87,7 +87,12 @@ class BridgeUnavailableError(BridgeError):
 
 
 class BridgeTimeoutError(BridgeUnavailableError):
-    """No complete answer within the timeout."""
+    """No complete answer within the timeout.
+
+    For a write, the outcome is **unknown**: the message may still be queued in Live (for
+    example behind a dialog) and be applied later. Read the state back before acting on the
+    assumption that nothing happened — in particular before sending an undo.
+    """
 
 
 class LiveNotReachableError(BridgeUnavailableError):
@@ -206,6 +211,7 @@ class OscTransport:
         """Send and wait until AbletonOSC has processed it without reporting an error.
 
         This does not prove that Live's state changed as intended; read it back if it matters.
+        On :class:`BridgeTimeoutError` the write may still be applied later (see there).
         """
         self._exchange([(address, tuple(params))], timeout_s)
 

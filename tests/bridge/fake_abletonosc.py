@@ -64,6 +64,7 @@ class FakeAbletonOSC:
         self.undo_stack: list = []
 
         self._held: list[tuple[bytes, tuple[str, int]]] | None = None
+        self.released = threading.Event()  # set by release(); lets tests check ordering
         self._lock = threading.Lock()
         self._stop = threading.Event()
         self._thread = threading.Thread(target=self._run, daemon=True)
@@ -116,10 +117,12 @@ class FakeAbletonOSC:
     def hold(self) -> None:
         with self._lock:
             self._held = []
+            self.released.clear()
 
     def release(self) -> None:
         with self._lock:
             held, self._held = self._held or [], None
+            self.released.set()
             for data, target in held:
                 try:
                     self.sock.sendto(data, target)

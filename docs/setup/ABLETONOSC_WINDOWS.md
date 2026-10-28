@@ -36,7 +36,7 @@ Steht dort stattdessen „Couldn't bind to port 11000“, benutzt schon ein ande
 Im Projektordner, im aktivierten venv (siehe README):
 
 ```powershell
-python -c "from bridge.osc_client import OscTransport; t = OscTransport(); t.ping(); print('AbletonOSC antwortet')"
+python -c "from bridge.osc_client import AbletonBridge; AbletonBridge.connect().ping(); print('AbletonOSC antwortet')"
 ```
 
 - **Erfolg:** `AbletonOSC antwortet`. In Live ändert sich dabei nichts (der Test liest nur zweimal das Tempo).
