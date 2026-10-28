@@ -16,10 +16,10 @@ import numpy as np
 import pytest
 
 from audio_engine import kick as K
-from audio_engine.dsp import kaiser_lowpass, oversampled
+from audio_engine.dsp import fft_size, kaiser_lowpass, oversampled
 
 AUDIBLE_HZ = 20000.0
-REF_FACTOR = 16  # 16, 32 and 8 give the same result to 0.3 dB (checked during development)
+REF_FACTOR = 8  # 8, 16 and 32 give the same result to 0.3 dB (checked in the #20 review)
 # Issue #13 acceptance limit. The old base-rate tanh gives -41 dB on the curated case.
 LIMIT_DB = -70.0
 # Regression bound for the shipped filter (8x, transition 0.08, beta 10): curated -79 dB,
@@ -214,3 +214,51 @@ def test_oversampled_edge_lengths() -> None:
     assert oversampled(np.array([0.5]), 8, np.tanh, h).shape == (1,)
     with pytest.raises(ValueError):
         oversampled(np.zeros(4), 0, np.tanh, h)
+
+
+def _direct_oversampled(x: np.ndarray, factor: int, fn, h: np.ndarray) -> np.ndarray:
+    """Plain time-domain version (zero stuffing + np.convolve), independent of the FFT path."""
+    n, delay = len(x), (len(h) - 1) // 2
+    up = np.zeros(n * factor)
+    up[::factor] = x
+    up = np.convolve(up, h * factor)[delay : delay + n * factor]
+    return np.convolve(fn(up), h)[delay : delay + n * factor][::factor]
+
+
+@pytest.mark.parametrize("factor", [1, 2, 8])
+@pytest.mark.parametrize("n", [1, 2, 7, 81, 1000, 4801])
+def test_oversampled_matches_direct_convolution(factor: int, n: int) -> None:
+    rng = np.random.default_rng(factor * 1000 + n)
+    x = 0.5 * rng.standard_normal(n)
+    h = kaiser_lowpass(factor, 0.08, 10.0) if factor > 1 else np.array([1.0])
+    np.testing.assert_allclose(
+        oversampled(x, factor, np.tanh, h), _direct_oversampled(x, factor, np.tanh, h),
+        rtol=0, atol=1e-12,
+    )
+
+
+def test_spectrum_cache_does_not_change_output() -> None:
+    """Same input before and after the cache has been filled and evicted -> same bytes."""
+    h = kaiser_lowpass(8, 0.08, 10.0)
+    x = np.sin(np.linspace(0, 50, 2000))
+    first = oversampled(x, 8, np.tanh, h)
+    for n in (900, 1100, 1300, 1500, 1700, 1900):  # more lengths than the cache holds
+        oversampled(np.ones(n) * 0.1, 8, np.tanh, h)
+    again = oversampled(x, 8, np.tanh, h)
+    cached = oversampled(x, 8, np.tanh, h)
+    assert first.tobytes() == again.tobytes() == cached.tobytes()
+
+
+def test_spectrum_cache_separates_factors() -> None:
+    """Same filter, same FFT size, different factors must not share a cached spectrum."""
+    h = kaiser_lowpass(4, 0.08, 10.0)
+    taps = len(h) - 1
+    size_for = {f: {f * fft_size(n + -(-taps // f)): n for n in range(200, 2000)} for f in (2, 4)}
+    common = sorted(set(size_for[2]) & set(size_for[4]))[0]
+    for factor in (2, 4):
+        n = size_for[factor][common]
+        x = 0.5 * np.random.default_rng(n).standard_normal(n)
+        np.testing.assert_allclose(
+            oversampled(x, factor, np.tanh, h), _direct_oversampled(x, factor, np.tanh, h),
+            rtol=0, atol=1e-12,
+        )
