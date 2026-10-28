@@ -44,6 +44,7 @@ from audio_engine.presets import (
     DESCRIPTIONS,
     PRESETS_DIR,
     UnknownPresetError,
+    describe,
     load_preset,
     preset_names,
 )
@@ -101,6 +102,15 @@ def test_exactly_the_accepted_presets_ship() -> None:
     assert preset_names() == NAMES
     assert sorted(DESCRIPTIONS) == NAMES
     assert sorted(p.name for p in PRESETS_DIR.glob("*.json")) == [f"{n}.json" for n in NAMES]
+
+
+@pytest.mark.parametrize("name", NAMES)
+def test_preset_description_states_no_number(name: str) -> None:
+    """#63: ``--set`` can override every value, so a number in the description (``tau 40 ms``)
+    would contradict a custom render's own sidecar parameters. No digit at all is allowed."""
+    text = describe(name)
+    assert text and text == DESCRIPTIONS[name]
+    assert not any(ch.isdigit() for ch in text), (name, text)
 
 
 @pytest.mark.parametrize("name", NAMES)

@@ -218,3 +218,33 @@ _2026-10-28: "Rejected" lines added to D-001–D-011 as a clarification; no deci
 **Rejected.** Researching only right before a phase (D-017's original "before Phase 03 details and 04b"). A single researcher for the whole parking lot (slower, too broad).
 
 **Consequences.** Counts toward the limit of 10 active agents (D-017). Notes can go stale: each states the date and versions; a worker re-checks version-dependent claims before relying on them.
+
+## D-019 · 2026-10-28 · accepted — Agent limit 15/10, gated team workflow, just-in-time researchers (user decision 21:04; supersedes D-018 and the agent-count part of D-017)
+
+**1. Agent limit.**
+- **Hard limit: 15 agents active at once** (all roles together, incl. reviewer, qa-tester, researchers). Never exceeded.
+- **Normal operation: up to 10.** Above 10 is "overclocking": only briefly, only for independent work, and the lead tells the user in one sentence why and when it will be back under 10.
+- `config/dev-budget.json` (by PR with review): subagent warning from 10 instead of 4, and the warning repeats on **every further start above 10** (deliberately annoying). The budget watch stays warn-only; the 15 are a rule, not a technical lock. The test that pins `.claude/settings.json` stays unchanged when only `dev-budget.json` changes.
+- On a budget warning above 10: pause and write two lines (how many agents, for what), then continue deliberately or reduce.
+
+**2. Workflow from the team draft.** Adopted: gates **G0–G5** with the `qa-tester` pre-check; **role cards**; an **interface stub as a G0 requirement**; **WIP = 1 per role**; **labels as a state machine**; **`contracts/` ownership** (the requesting role writes the `contract-change` PR, the lead decides before it starts); **researchers just in time**; **metrics only at `/close-phase`, from GitHub data**. Details live in `docs/TEAM.md`, which lands together with the four missing agent definitions as its own PR with review. Phase 03 starts only after #59 is merged and Phase 01 is DONE (both met on 2026-10-28: PR #60, 1a8dfec).
+
+**3. Researcher rules (binding, also in `docs/TEAM.md`).**
+- **Trigger:** the lead starts researchers when a phase goes into review, for the **next phase only**, never further ahead. No research "on stock"; parking-lot topics only with a concrete issue.
+- **Questions, not topics:** 3–6 precise questions per task, each naming the issue that needs the answer (e.g. "Does `max_turns` stop the running tool call or only the next turn? Source with date.").
+- **One researcher per clearly bounded question cluster;** overlapping clusters are forbidden (contradicting notes). Normally 2 in parallel, at most 3.
+- **Fixed note format** in `docs/research/<date>_<topic>.md`: date · versions researched against (Live, AbletonOSC commit, SDK version) · receiving issue · per question: question, answer, source (URL with retrieval date, or file/line), confidence · mandatory section **"To verify by experiment"**.
+- Everything under "To verify" becomes an issue for the owning role. A researched claim never counts as verified; `CURRENT_STATE.md` lists it only as "not verified".
+- **Reviewed like code:** the reviewer spot-checks that the sources support the claims. A note without sources goes back. Interpretation is marked as such.
+- Results are bound to the receiving issue (comment linking the note) so the implementer finds them at start.
+- **Staleness:** at `/close-phase` the lead checks whether the next phase's notes still match the current versions (Live, AbletonOSC, SDK); if not, a refresh issue.
+- Before any new research, search `docs/research/` first (CLAUDE.md); no duplicates.
+- **Planned for 04b (only once Phase 03 is in review):** cluster 1 Agent SDK behaviour (`max_turns` / `max_budget_usd`, stop semantics, tool wrapping, PreToolUse hooks); cluster 2 tool-schema generation from JSON Schema (what the SDK expects as tool definitions); cluster 3 AbletonOSC follow-up functions for the orchestrator — starts only after the Live result for `create_audio_clip` (`tested`/`unsupported`), because the import route depends on it.
+
+**4. Not part of this decision:** pulling 04b forward (an exception to D-003). The lead puts it to the user separately as a yes/no question, with the condition: CI-only parts only after #59 is merged; tool definitions only after the Phase 03 Live result.
+
+**Reason.** More parallel capacity when work is independent, without losing control; research that is narrow, sourced and tied to the issue that consumes it instead of broad notes written ahead of need.
+
+**Rejected.** Parking-lot pre-research on stock (D-018; issues #66/#67 closed as not planned, nothing committed). A technical hard stop at 15 in the budget watch (rule only).
+
+**Consequences.** The `sound-designer` keeps working on #57/#58 (it is not a researcher). Active WIP was reduced to one per role: #70 paused (work kept in the agent's worktree) while the audio-engineer finishes #64. The draft text for G0–G5, role cards and the label state machine is to be provided by the user for `docs/TEAM.md`; until then the existing workflow in `CLAUDE.md` applies plus the rules written out above.
