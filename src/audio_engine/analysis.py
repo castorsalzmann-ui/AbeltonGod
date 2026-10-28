@@ -17,6 +17,7 @@ import numpy as np
 
 ENV_WINDOW_MS = 40.0  # longer than one period at 30 Hz (33.3 ms), so the envelope does not ripple
 ENV_HOP_MS = 1.0
+ENV_MIN_FRAME_MS = 20.0  # shortest frame at the file end; > half a period at 30 Hz (16.7 ms)
 TAIL_WINDOW_MS = 100.0
 TAIL_EARLIEST_MS = 20.0  # after any click transient (15 ms in the kick engine)
 # The window never reaches into the last TAIL_END_MARGIN_MS of the file: the kick engine's
@@ -82,7 +83,11 @@ def _envelope_db(audio: np.ndarray, sr: int) -> tuple[np.ndarray, np.ndarray]:
         return np.zeros(1), np.full(1, -240.0)
     win = max(1, int(round(ENV_WINDOW_MS * sr / 1000.0)))
     hop = max(1, int(round(ENV_HOP_MS * sr / 1000.0)))
-    starts = np.arange(0, max(1, len(audio) - win + 1), hop)
+    # Frames run up to the file end, shortened there, but never shorter than ENV_MIN_FRAME_MS
+    # (> half a period at 30 Hz, so every frame still contains a peak). Before review 4 the
+    # frames stopped 40 ms before the end, so short kicks never "saw" their -40 dB point.
+    min_len = min(len(audio), max(1, int(round(ENV_MIN_FRAME_MS * sr / 1000.0))))
+    starts = np.arange(0, len(audio) - min_len + 1, hop)
     mags = np.array([np.max(np.abs(audio[s : s + win])) for s in starts])
     env_db = 20.0 * np.log10(np.maximum(mags, 1e-12))
     return starts / sr * 1000.0, env_db

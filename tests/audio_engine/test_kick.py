@@ -225,24 +225,7 @@ def _measure(p: dict):
     return audio, r, sr, measured, (end - start) / sr * 1000, t1, t2
 
 
-def analysis_reference_sets() -> list:
-    """All sets; 'short' is a documented limit of the *reference*, not of the analyser: at the
-    end of its window the body has fallen ~40 dB and the sub-bass bump of the DC correction is
-    about as loud, so the analytic-signal phase mixes both (82 Hz) while the crossings still
-    follow the body (103 Hz; theory 105 Hz, checked by test_measured_tail_pitch_matches_
-    parameters). strict=True: if this starts passing, the test reports it."""
-    marked = []
-    for n in PARAM_SETS:
-        marks = (
-            [pytest.mark.xfail(strict=True, reason="reference limit, see docstring / #9")]
-            if n == "short"
-            else []
-        )
-        marked.append(pytest.param(params(n), id=n, marks=marks))
-    return marked + [pytest.param(p, id=f"random-{i}") for i, p in enumerate(RANDOM_SETS)]
-
-
-@pytest.mark.parametrize("p", analysis_reference_sets())
+@pytest.mark.parametrize("p", all_sets())
 def test_analysis_measures_the_real_signal(p: dict) -> None:
     """Check 1 of 2 (split decided by the user on PR #8): the analyser reports the frequency
     the rendered signal really has. Reference: analytic-signal phase over the same interval,
@@ -287,6 +270,45 @@ def test_short_window_cases_from_review_stay_within_short_tolerance(extra: dict)
     assert window_ms < SHORT_WINDOW_MS
     expected = theoretical_mean_frequency(r, t1, t2)
     assert abs(measured - expected) <= FUNDAMENTAL_TOLERANCE_SHORT * expected
+
+
+FAST_DECAY_SETS = [
+    {
+        "schema_version": "0.1", "seed": 2099157591, "sample_rate": 44100, "length_ms": 85.018,
+        "amp_decay_ms": 40.784, "amp_attack_ms": 18.071, "pitch_start_hz": 79.845,
+        "pitch_end_hz": 64.007, "pitch_decay_ms": 263.2, "click_level": 0.757,
+        "click_tone_hz": 662.3, "drive": 0.214, "tone": -0.703,
+    },
+    *(
+        {**random_params(random.Random(4242_000 + i)),
+         "length_ms": random.Random(i).uniform(80, 130),
+         "amp_decay_ms": random.Random(10_000 + i).uniform(20, 120)}
+        for i in range(60)
+    ),
+]
+
+
+@pytest.mark.parametrize("p", FAST_DECAY_SETS)
+def test_fast_decay_short_kicks_are_measured_correctly_or_reported_unmeasurable(p: dict) -> None:
+    """Review 4, S1: the envelope stopped 40 ms before the file end, so very short, fast-decay
+    kicks never reached -40 dB and were measured down to about -60 dB (+5.77 % vs theory,
+    +50 % vs reference). Now: either a correct measurement or None, never a wrong number."""
+    m = _measure(p)
+    if m is None:
+        return
+    audio, r, sr, measured, window_ms, t1, t2 = m
+    assert abs(measured - analytic_signal_frequency(audio, sr, t1, t2)) <= (
+        ANALYSIS_ACCURACY * measured
+    )
+    expected = theoretical_mean_frequency(r, t1, t2)
+    tol = FUNDAMENTAL_TOLERANCE if window_ms >= SHORT_WINDOW_MS else FUNDAMENTAL_TOLERANCE_SHORT
+    assert abs(measured - expected) <= tol * expected
+
+
+def test_envelope_reaches_the_end_of_short_kicks() -> None:
+    audio, r = render_kick(params("short"))
+    f = analyse(audio, r["sample_rate"])
+    assert f["decay_40db_ms"] is not None
 
 
 def test_tail_pitch_is_measurable_for_almost_all_kicks() -> None:
