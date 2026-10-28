@@ -1,0 +1,104 @@
+name: Bug
+description: Something measurably wrong. Give a repro any agent can run without asking back.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Numbers, not impressions. Engine bugs: the sidecar JSON (or params + seed) re-renders the exact WAV, so paste it.
+        Ableton bugs cannot run in CI: give the Live version, the log excerpt and the action-log entry.
+        After filing, add the matching `severity:*` label (blocker / major / minor / nit).
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - kick engine
+        - analysis
+        - WAV + sidecar
+        - bridge
+        - import
+        - guard
+        - orchestrator
+        - other
+    validations:
+      required: true
+  - type: dropdown
+    id: severity
+    attributes:
+      label: Severity
+      description: Same scale as the reviewer agent. blocker = wrong output, data loss or crash on valid input; major = a criterion fails for valid input; minor = edge case or misleading behaviour; nit = cosmetic.
+      options:
+        - blocker
+        - major
+        - minor
+        - nit
+    validations:
+      required: true
+  - type: dropdown
+    id: found_by
+    attributes:
+      label: Found by
+      options:
+        - review
+        - CI
+        - user test
+        - agent run
+        - other
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What is wrong
+      description: One or two sentences.
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Repro
+      description: |
+        Engine bugs: the sidecar JSON, or the full params object with seed, and the exact command you ran.
+        Ableton / other bugs: the exact steps, starting from a fresh test set.
+      placeholder: |
+        params: {"schema_version": "0.1", "seed": 7, "length_ms": 150, "amp_decay_ms": 400}
+        command: python -c "from audio_engine.kick import render_kick; import numpy as np; a, r = render_kick({...}); print(np.mean(a))"
+    validations:
+      required: true
+  - type: textarea
+    id: expected_measured
+    attributes:
+      label: Expected vs. measured
+      description: Numbers with units, and where the expected value comes from (spec, contract, decision).
+      placeholder: |
+        expected: |mean| < 1e-9 (tests/audio_engine/test_kick.py DC_THRESHOLD)
+        measured: -1.375e-3
+    validations:
+      required: true
+  - type: input
+    id: live_version
+    attributes:
+      label: "Ableton bugs: exact Live version"
+      description: Help → About Live, e.g. 12.1.5.
+  - type: textarea
+    id: ableton_log
+    attributes:
+      label: "Ableton bugs: Log.txt / AbletonOSC log excerpt"
+      description: Only the lines around the failure.
+      render: text
+  - type: textarea
+    id: action_log
+    attributes:
+      label: "Ableton bugs: action-log entry (D-006)"
+      render: json
+  - type: input
+    id: capability
+    attributes:
+      label: "Ableton bugs: affected capability id"
+      description: From contracts/capabilities.json, e.g. clip_slot.create_audio_clip. It goes back to `supported` until re-tested on the user's machine.
+  - type: input
+    id: links
+    attributes:
+      label: Links
+      description: PR, review comment, CI run or commit where it was seen.
