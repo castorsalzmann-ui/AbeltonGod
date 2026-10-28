@@ -19,7 +19,7 @@ from pythonosc.osc_bundle_builder import IMMEDIATELY, OscBundleBuilder
 from pythonosc.osc_message import OscMessage
 from pythonosc.osc_message_builder import OscMessageBuilder
 
-from bridge.capabilities import CapabilityGate, CapabilityNotTestedError
+from bridge.capabilities import CapabilityGate, CapabilityNotTestedError, CapabilityRegistry
 from bridge.osc_client import (
     ADDRESSES,
     AbletonBridge,
@@ -473,10 +473,14 @@ def test_connect_with_tested_registry_needs_no_override(fake, tmp_path):
         assert b.gate.overrides_used == []
 
 
-def test_connect_default_registry_refuses_everything(fake):
+def test_connect_default_registry_is_the_committed_file(fake):
+    # Refusal of untested capabilities is covered with fixture registries in
+    # test_capabilities.py; here: connect() without a registry enforces the committed one.
+    committed = CapabilityRegistry.from_file()
     with AbletonBridge.connect(send_port=fake.port, receive_port=0) as b:
-        with pytest.raises(CapabilityNotTestedError):
-            b.get_tempo()
+        assert b.gate.registry.ids() == committed.ids()
+        for cap_id in committed.ids():
+            assert b.gate.registry.get(cap_id).status == committed.get(cap_id).status
 
 
 def test_from_env_reads_all_three_variables(monkeypatch, fake, tmp_path):
