@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import math
 import random
+from decimal import Decimal, localcontext
 
 import numpy as np
 import pytest
@@ -185,6 +186,37 @@ def test_curve_is_continuous_where_the_series_takes_over() -> None:
         # Next order, relative to the leading term: -a (1 + 6 x^2) / 15 with a = g^2, at most
         # 1.23 a on |x| <= 1.7 (from the series of tanh(g x) and of 1 / tanh(g)).
         assert float(rel.max()) <= 1.3 * g * g + 1e-12, (g, rel.max())
+
+
+def _decimal_residual(x: float, g: float) -> float:
+    """tanh(g x) / tanh(g) - x with 60 significant digits (stdlib decimal, no cancellation)."""
+    with localcontext() as ctx:
+        ctx.prec = 60
+        dx, dg = Decimal(x), Decimal(g)
+
+        def tanh(z: Decimal) -> Decimal:
+            e = (2 * z).exp()
+            return (e - 1) / (e + 1)
+
+        return float(tanh(dg * dx) / tanh(dg) - dx)
+
+
+# Gains on both sides of where the engine switches from its series to the closed form.
+PRECISION_GAINS = (1e-6, 1e-4, 1e-3, 5e-3, 9.9e-3, 1.01e-2, 3e-2, 0.1, 0.5, 2.0, 10.0)
+PRECISION_X = (-1.7, -1.3, -0.8, -0.5, -0.2, 0.05, 0.3, 0.7, 0.9, 1.2, 1.6)
+# Relative error vs the 60-digit reference. Closed form near the switch loses about
+# eps * 3 / (g^2 * |1 - x^2|) to cancellation (<= 7e-11 here, |1 - x^2| >= 0.19); the series'
+# truncation is O(g^8) relative (< 1e-15 at the switch). Measured worst: 2.4e-11.
+PRECISION_REL = 2e-10
+
+
+@pytest.mark.parametrize("g", PRECISION_GAINS)
+def test_curve_matches_high_precision_reference(g: float) -> None:
+    drive = (g / 10.0) ** 1.25
+    got = K._residual(np.array(PRECISION_X), drive)
+    for x, r in zip(PRECISION_X, got.tolist(), strict=True):
+        want = _decimal_residual(x, _gain(drive))
+        assert abs(r / want - 1.0) <= PRECISION_REL, (g, x, r, want)
 
 
 @pytest.mark.parametrize("drive", (0.0, 5e-324, 1e-300, 1e-30, 1e-12))
