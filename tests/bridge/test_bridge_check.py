@@ -8,13 +8,13 @@ from __future__ import annotations
 
 import importlib.util
 import io
-import json
 import re
 import socket
 import sys
 from pathlib import Path
 
 import pytest
+from conftest import registry_with
 from fake_abletonosc import FakeAbletonOSC
 
 from bridge.capabilities import CAPABILITIES_FILE
@@ -327,7 +327,11 @@ def test_protocol_error_in_a_read_is_fail_with_raw_value(fake):
 # -- result block and registry ---------------------------------------------------------------
 
 
-def test_result_block_format(fake):
+def test_result_block_format(fake, tmp_path, monkeypatch):
+    # Fixture registry with nothing tested, so the override line is exercised; the committed
+    # registry has these capabilities tested since #5 (see the next test).
+    untested = registry_with(tmp_path, set())
+    monkeypatch.setattr(bridge_check.CapabilityRegistry, "from_file", lambda *a, **k: untested)
     code, out, _ = run(fake, ["y", "0", "y"])
     assert code == 0
     m = re.search(r"```text\n(.*?)\n```", out, re.S)
@@ -348,16 +352,20 @@ def test_result_block_format(fake):
     assert block["live_version_api"] == "12.3 (API reports major.minor only)"
     assert block["capability_overrides_used"] == (
         "app.version, song.signature.get, song.tempo.get, song.track_names.get, "
-        "song.undo, track.mute.set"
+        "song.undo, track.mute.get, track.mute.set"
     )
     for line in lines:
         if re.match(r"^[a-z_.]+: (PASS|FAIL|SKIPPED)", line):
             assert re.fullmatch(r"[a-z_.]+: (PASS|FAIL|SKIPPED) raw=.+", line), line
 
 
+def test_no_overrides_needed_with_committed_registry(fake):
+    code, out, _ = run(fake, ["y", "0", "y"])
+    assert code == 0
+    assert result_block(out)["capability_overrides_used"] == "-"
+
+
 def test_script_does_not_change_the_registry(fake):
     before = CAPABILITIES_FILE.read_bytes()
     run(fake, ["y", "0", "y"])
     assert CAPABILITIES_FILE.read_bytes() == before
-    statuses = {c["id"]: c["status"] for c in json.loads(before)["capabilities"]}
-    assert "tested" not in statuses.values()

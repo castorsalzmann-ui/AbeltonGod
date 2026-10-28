@@ -69,20 +69,17 @@ ADDRESSES: dict[str, tuple[str, ...]] = {
     ),
     "song.track_names.get": ("/live/song/get/track_names",),
     "track.mute.set": ("/live/track/set/mute",),
+    # README "Track API": ``/live/track/get/mute track_id`` -> ``track_id, mute``; source
+    # ``abletonosc/track.py`` ``properties_rw`` contains "mute". Own registry entry since #42.
+    "track.mute.get": ("/live/track/get/mute",),
     "song.undo": ("/live/song/undo",),
 }
 
 # Addresses the bridge sends that have no registry entry of their own YET, with the capability
-# whose gate they borrow. Each must get its own entry in the contract-change PR that follows the
-# user's #5 run (then it moves into ADDRESSES; ``test_capabilities.py`` fails until it does).
-#
-# track.mute.get: read-back for the mute write (#5). README "Track API":
-# ``/live/track/get/mute track_id`` -> ``track_id, mute``; source ``abletonosc/track.py``
-# ``properties_rw`` contains "mute". Gated as ``track.mute.set`` (review of PR #37, #39 item 6).
-PENDING_REGISTRY: dict[str, tuple[tuple[str, ...], str]] = {
-    "track.mute.get": (("/live/track/get/mute",), "track.mute.set"),
-}
-TRACK_MUTE_READBACK_ADDRESS = PENDING_REGISTRY["track.mute.get"][0][0]
+# whose gate they borrow: {cap_id: (addresses, borrowed_cap_id)}. Each must get its own entry
+# in a contract-change PR (then it moves into ADDRESSES; ``test_capabilities.py`` fails until
+# it does). Empty since #42 moved ``track.mute.get`` into ADDRESSES.
+PENDING_REGISTRY: dict[str, tuple[tuple[str, ...], str]] = {}
 
 OscArg = int | float | str
 Message = tuple[str, tuple]
@@ -491,15 +488,14 @@ class AbletonBridge:
     def get_track_mute(self, track_index: int) -> bool:
         """Read back a track's mute state.
 
-        Gated as ``track.mute.set``: it is the read-back that verifies that write (#5); the
-        registry has no separate mute-read entry yet. AbletonOSC replies
-        ``track_id, mute`` (README "Track API"); Live's bool arrives as OSC T/F, a 0/1 int is
-        accepted too.
+        Gated as ``track.mute.get`` (own registry entry since #42; before, it borrowed the
+        ``track.mute.set`` gate). AbletonOSC replies ``track_id, mute`` (README "Track API");
+        Live's bool arrives as OSC T/F, a 0/1 int is accepted too.
         """
         _require_int(track_index, "track_index", minimum=0)
-        self.gate.check(PENDING_REGISTRY["track.mute.get"][1])
+        self.gate.check("track.mute.get")
         reply = self._query(
-            TRACK_MUTE_READBACK_ADDRESS, (track_index,), expect_prefix=(track_index,)
+            ADDRESSES["track.mute.get"][0], (track_index,), expect_prefix=(track_index,)
         )
         if len(reply) != 1 or not (type(reply[0]) is bool or (type(reply[0]) is int
                                                               and reply[0] in (0, 1))):

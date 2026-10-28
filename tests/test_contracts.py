@@ -43,6 +43,24 @@ def test_tested_capability_requires_evidence() -> None:
         validator.validate(doc)
 
 
+def test_live_version_tested_is_set_when_anything_is_tested() -> None:
+    """A `tested` status is only meaningful with the Live version it was tested on (#42)."""
+    doc = load("capabilities.json")
+    if any(c["status"] == "tested" for c in doc["capabilities"]):
+        version = doc.get("live_version_tested")
+        assert isinstance(version, str) and version.strip(), version
+
+
+def test_song_undo_notes_keep_the_user_decided_limitation() -> None:
+    """song.undo is `tested` from script 0.1.0 by user decision (PR #42); the notes must keep
+    the limitation that run could not exclude (bug #39)."""
+    undo = next(c for c in load("capabilities.json")["capabilities"] if c["id"] == "song.undo")
+    notes = undo["notes"]
+    assert "did not re-read the whole set after undo (bug #39)" in notes
+    assert "an undo that reverted an unrelated action could not be excluded" in notes
+    assert "R4 = unmuted" in notes
+
+
 def test_default_guard_policy_matches_schema() -> None:
     policy = json.loads((CONFIG / "guard-policy.json").read_text(encoding="utf-8"))
     Draft202012Validator(load("guard-policy.schema.json")).validate(policy)
