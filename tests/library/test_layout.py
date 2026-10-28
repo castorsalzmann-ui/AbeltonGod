@@ -723,13 +723,85 @@ def test_foreign_file_written_meanwhile_keeps_its_folder(tmp_path, monkeypatch) 
         raise OSError(28, "No space left on device (simulated)")
 
     monkeypatch.setattr(layout_mod, "write_kick", write_kick_with_neighbour)
-    with pytest.raises(OSError):
+    with pytest.raises(OSError) as info:
         place_kick(FAST, tmp_path, created_at=FIXED_TIME)
+    # The clean-up hits "directory not empty" (errno 39/ENOTEMPTY or 145 on Windows); the
+    # caller must still see the original disk-full error, not the clean-up error.
+    assert info.value.errno == 28
+    assert "simulated" in str(info.value)
     assert tree(tmp_path) == [
         ("Samples", "dir", None), ("Samples/Drums", "dir", None),
         ("Samples/Drums/Kicks", "dir", None),
         ("Samples/Drums/Kicks/neighbour.wav", "file", b"theirs"),
     ]
+
+
+@pytest.mark.parametrize("exc", [KeyboardInterrupt(), OSError(28, "disk full (simulated)")],
+                         ids=["ctrl-c", "full"])
+def test_failure_at_the_start_of_the_write_removes_the_folders(tmp_path, monkeypatch, exc) -> None:
+    """The folders exist, then the write fails before writing anything."""
+
+    def interrupted_write_kick(params, out_dir, **kwargs):
+        assert Path(out_dir).is_dir()  # the folders exist at this point
+        raise exc
+
+    monkeypatch.setattr(layout_mod, "write_kick", interrupted_write_kick)
+    with pytest.raises(type(exc)):
+        place_kick(FAST, tmp_path, created_at=FIXED_TIME)
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_interrupt_after_folders_before_write_removes_them(tmp_path, monkeypatch) -> None:
+    """Ctrl+C right after all folders exist, before the write starts: the old window between
+    ``_make_folders`` returning and the ``try`` (review of #82). Simulated by letting
+    ``_make_folders`` finish its work and then raise."""
+    real_make = layout_mod._make_folders
+
+    def make_then_interrupt(root, parts, created):
+        real_make(root, parts, created)
+        assert len(created) == 3
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(layout_mod, "_make_folders", make_then_interrupt)
+    with pytest.raises(KeyboardInterrupt):
+        place_kick(FAST, tmp_path, created_at=FIXED_TIME)
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_post_check_failure_removes_new_folders_too(tmp_path, monkeypatch) -> None:
+    """The >9999-names refusal must also remove the folders this call created (mutant R03)."""
+
+    def write_kick_with_long_counter(params, out_dir, *, name, **kwargs):
+        out = Path(out_dir)
+        wav, js = out / f"{name}_10000.wav", out / f"{name}_10000.json"
+        wav.write_bytes(b"w")
+        js.write_bytes(b"j")
+        return wav, js
+
+    monkeypatch.setattr(layout_mod, "write_kick", write_kick_with_long_counter)
+    layout = LibraryLayout(max_path_chars=_limit_for_room(library_folder(tmp_path), 16))
+    with pytest.raises(LibraryPathError, match="too many files"):
+        place_kick(FAST, tmp_path, name="k" * 16, created_at=FIXED_TIME, layout=layout)
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_room_is_counted_in_utf16_units_for_non_bmp_project_paths(tmp_path) -> None:
+    """A drum emoji in the project path counts 2 (mutant R21): room 16 exactly fits, the
+    same project path with one more emoji is refused."""
+    project = tmp_path / ("\U0001f941" * 3)
+    try:
+        project.mkdir()
+    except (OSError, UnicodeEncodeError) as exc:
+        pytest.skip(f"file system refuses emoji names: {exc}")
+    folder = library_folder(project)
+    # written out by hand: 3 emoji = 6 UTF-16 units, 3 code points
+    assert path_chars(folder) == len(str(folder)) + 3
+    layout = LibraryLayout(max_path_chars=_limit_for_room(folder, 16))
+    wav = place_kick(FAST, project, name="k" * 40, created_at=FIXED_TIME, layout=layout)
+    assert wav.name == "k" * 16 + ".wav"
+    tight = LibraryLayout(max_path_chars=_limit_for_room(folder, 16) - 1)
+    with pytest.raises(LibraryPathError, match="MAX_PATH"):
+        place_kick(FAST, project, name="k" * 40, created_at=FIXED_TIME, layout=tight)
 
 
 def test_name_taken_between_check_and_write_still_never_overwrites(tmp_path, monkeypatch) -> None:

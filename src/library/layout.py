@@ -169,26 +169,29 @@ def place_kick(
         raise LibraryPathError(f"project folder {root} does not exist or is not a folder")
     stem = _fitting_stem(name, folder, layout.max_path_chars)
 
-    created = _make_folders(root, layout.kick_parts)
+    # One clean-up path for every failure. ``created`` is filled by _make_folders as each
+    # folder appears, inside this try, so an interrupt at any point after a mkdir (also right
+    # after _make_folders returns) still removes the folders this call made.
+    created: list[Path] = []
     try:
+        _make_folders(root, layout.kick_parts, created)
         wav_path, json_path = write_kick(
             params, folder, name=stem, description=description, created_at=created_at
         )
+        limit = layout.max_path_chars
+        longest = longest_path(wav_path)
+        if limit is not None and path_chars(longest) > limit:
+            # Only reachable with more than 9999 files of the same name (see SUFFIX_RESERVE).
+            json_path.unlink(missing_ok=True)
+            wav_path.unlink(missing_ok=True)
+            raise LibraryPathError(
+                f"{longest} (Live's analysis file for {wav_path.name}) would be "
+                f"{path_chars(longest)} characters, over the limit of {limit} "
+                f"(too many files named {stem!r}); nothing was kept"
+            )
     except BaseException:
-        _remove_folders(created)
+        _remove_folders(created)  # never raises OSError: the original error stays
         raise
-    limit = layout.max_path_chars
-    longest = longest_path(wav_path)
-    if limit is not None and path_chars(longest) > limit:
-        # Only reachable with more than 9999 files of the same name (see SUFFIX_RESERVE).
-        json_path.unlink(missing_ok=True)
-        wav_path.unlink(missing_ok=True)
-        _remove_folders(created)
-        raise LibraryPathError(
-            f"{longest} (Live's analysis file for {wav_path.name}) would be "
-            f"{path_chars(longest)} characters, over the limit of {limit} "
-            f"(too many files named {stem!r}); nothing was kept"
-        )
     return wav_path
 
 
@@ -230,33 +233,30 @@ def _fitting_stem(name: str, folder: Path, limit: int | None) -> str:
     return stem[:room]
 
 
-def _make_folders(root: Path, parts: tuple[str, ...]) -> list[Path]:
-    """Create ``root/parts…`` one level at a time. Returns the folders this call created.
-    A file or a dangling symlink in the way is refused; a symlink to a folder is followed."""
-    created: list[Path] = []
+def _make_folders(root: Path, parts: tuple[str, ...], created: list[Path]) -> None:
+    """Create ``root/parts…`` one level at a time and append each folder this call made to
+    ``created`` (the caller owns the list and removes them on failure). A file or a dangling
+    symlink in the way is refused; a symlink to a folder is followed."""
     current = root
-    try:
-        for part in parts:
-            current = current / part
-            try:
-                os.mkdir(current)
-            except FileExistsError:
-                if current.is_dir():
-                    continue
-                what = "a dangling symlink" if current.is_symlink() else "not a folder"
-                raise LibraryPathError(
-                    f"{current} is {what}; the kick folder cannot be created there"
-                ) from None
-            created.append(current)
-    except BaseException:
-        _remove_folders(created)
-        raise
-    return created
+    for part in parts:
+        current = current / part
+        try:
+            os.mkdir(current)
+        except FileExistsError:
+            if current.is_dir():
+                continue
+            what = "a dangling symlink" if current.is_symlink() else "not a folder"
+            raise LibraryPathError(
+                f"{current} is {what}; the kick folder cannot be created there"
+            ) from None
+        created.append(current)
 
 
 def _remove_folders(created: list[Path]) -> None:
     """Remove folders this call created, deepest first. A folder that is no longer empty
-    (someone else wrote into it meanwhile) stays."""
+    (someone else wrote into it meanwhile) stays. Every ``OSError`` here is swallowed on
+    purpose: this runs while another exception is propagating, and that one must reach the
+    caller unchanged (a "directory not empty" must not replace a "disk full")."""
     for folder in reversed(created):
         try:
             os.rmdir(folder)
