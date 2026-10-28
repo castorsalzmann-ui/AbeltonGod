@@ -1,6 +1,6 @@
 # PHASE 04a — Agent Resource Guard
 
-**Status:** PLANNED · **Agent:** main session (+ `reviewer`) · **Tested in:** CI only (no Claude, no Ableton needed)
+**Status:** DONE (PR #15, 2026-10-28) · **Agent:** main session (+ `reviewer`) · **Tested in:** CI only (no Claude, no Ableton needed)
 
 ## Objective
 

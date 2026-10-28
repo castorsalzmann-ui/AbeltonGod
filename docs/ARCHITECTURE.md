@@ -11,7 +11,7 @@ Status markers: **[planned]** not built · **[building]** in progress · **[done
 │ Orchestrator  [planned, 04]   │  Claude: chooses tools + parameters,
 │                               │  validated against contracts/*.schema.json
 ├───────────────────────────────┤
-│ Resource guard [planned, 04a] │  every model + tool call passes here:
+│ Resource guard [done, 04a]    │  every model + tool call passes here:
 │                               │  tokens, calls, cost, time, loops,
 │                               │  file/Ableton writes (D-011)
 └───┬───────────────┬───────────┘

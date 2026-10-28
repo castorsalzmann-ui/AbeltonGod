@@ -73,7 +73,11 @@ The user's Max usage is shared by every session. Use it generously where it buys
 
 ### Budget lessons
 
-_None yet. Add one line per recurring waste pattern: pattern → what to do instead._
+Add one line per recurring waste pattern: pattern → what to do instead.
+
+- Command whose exit code matters piped through `| tail` → `set -o pipefail` or no pipe (a 403 push looked successful; #19).
+- Files changed with Bash scripts (`python - <<EOF`, `sed -i`) → use Edit/Write; Bash edits are invisible to the budget watch and harder to review (#19).
+- Fault injection that removes a check → first check whether the same protection also exists higher up; otherwise the mutant survives for the wrong reason (a redundant inner lock cost three runs; #19).
 
 ## Workflow
 
