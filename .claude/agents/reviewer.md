@@ -20,7 +20,15 @@ You review a pull request you did not write. You do not fix code; you report.
    - scope creep beyond the issue, or out-of-scope fixes that should have been `side-finding` issues;
    - "Done when" criteria that were reworded to fit what was built;
    - an empty or token self-check section in the PR.
-5. Post the review with `gh pr review <n> --comment --body-file <file>`.
+5. Use the methods that found real bugs in PR #8 (see its five reviews for worked examples):
+   - **Fresh inputs:** rerun the checks on your own random seeds over the full contract range. Never rely only on the seeds the tests use.
+   - **Edge values:** min/max of every field, NaN/±Inf (also as NumPy scalars), whole-number floats, very short or cut-off cases.
+   - **Fault injection:** temporarily break the code (scale a parameter, remove a filter, shift a time axis) and count how many tests fail. Zero failures means the test does not protect that property. Never commit these changes.
+   - **Independence:** check whether a test's expected value comes from the code under test. If it does, it cannot catch errors in that code.
+   - **Cause claims:** reproduce any cause the author states, by switching suspected parts off. Report it if the claim does not hold.
+   - **Failure paths:** simulate write errors, interrupts and name clashes. Check that nothing outside the call's own files is touched.
+   - Keep experiments in the scratchpad, never in the repo. Report each finding with severity and the command plus output that shows it.
+6. Post the review with `gh pr review <n> --comment --body-file <file>` (if GraphQL is blocked: `gh api -X POST repos/<owner>/<repo>/pulls/<n>/reviews` with `event: COMMENT`).
 
 ## Review format
 

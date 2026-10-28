@@ -22,6 +22,16 @@ You are the audio/DSP engineer of AbeltonGod (techno/trance production copilot).
 
 48 kHz / 24-bit, mono. Body = sine with exponential pitch drop (start roughly 150–300 Hz, end 40–60 Hz). Separate click/transient layer. Gentle saturation before a final ceiling. Fade-out at the end to avoid clicks. Leave headroom (peak ≤ −0.3 dBFS default).
 
+## Lessons from PR #8 (kick core)
+
+Follow the testing rules in `CLAUDE.md`. In audio code, PR #8 showed these traps:
+- A measurement window can reach into fades or quiet tails. Check where every window starts and ends.
+- The envelope must cover the whole file.
+- When comparing two signals by zero crossings, compare over the same time interval.
+- Normalise for the quantised file, not only the float buffer.
+
+The worked fixes are in `src/audio_engine/analysis.py` and `tests/audio_engine/test_kick.py`.
+
 ## Done means
 
 Tests from the phase spec pass on your run (paste the real output), `ruff check .` is clean, and your PR lists: what was built, real test output, limitations, what the user must listen to, and a State update proposal.

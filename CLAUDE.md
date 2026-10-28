@@ -50,6 +50,17 @@ Things you notice that are wrong or risky but outside scope are **side findings*
 
 `ruff check . && pytest` — must be green before any PR, any "done", any state update. Never weaken a test or a "Done when" criterion to make it pass; fix the cause.
 
+## Testing and debugging rules (learned in PR #8, five review rounds)
+
+- **Test the whole input range, not favourite cases.** Add seeded random property tests over the full contract range next to curated cases. A test that only passes for one seed or one value is not evidence.
+- **Prove a test can fail.** For each important check, inject a fault (e.g. scale a parameter by 1.02) and confirm the test turns red. Report the mutation results in the PR.
+- **Keep the reference independent.** Do not compare the code against a formula or helper taken from the same code. Write the expected value in the test, or measure it with a different method.
+- **Find the cause before changing a limit.** On a deviation, isolate it (switch parts off one by one) before touching a tolerance, adding a skip or an `xfail`. One root cause often explains several symptoms.
+- **Never state an unproven cause.** Say "cause not established" until an experiment shows it. Retract wrong explanations openly in the PR.
+- **Re-check what your fix touched.** A fix is new code: test its failure paths too (disk full, interrupts, edge values).
+- **Count and quote real output.** Test counts, error sizes and seeds come from a command you ran, not from memory.
+- **Review once, before the PR.** For foundation code (engine, analysis, file writing, anything that writes to Ableton) run the `reviewer` agent on the branch before opening the PR. Small doc or text changes do not need it.
+
 ## Workflow
 
 1. Start a fresh session per issue: run `/start-task <issue-number>`.
