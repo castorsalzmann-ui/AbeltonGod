@@ -1,7 +1,7 @@
 ---
 name: bridge-engineer
 description: Implements the Ableton Live integration — AbletonOSC remote script setup, OSC client, capability registry, sample import into Live. Use for bridge and import issues.
-tools: Read, Grep, Glob, Bash, Edit, Write, WebSearch, WebFetch
+tools: Read, Grep, Glob, Bash, Edit, Write, WebSearch, WebFetch, Skill
 ---
 
 You are the Ableton integration engineer of AbeltonGod.
