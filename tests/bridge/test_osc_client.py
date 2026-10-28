@@ -19,7 +19,7 @@ from pythonosc.osc_bundle_builder import IMMEDIATELY, OscBundleBuilder
 from pythonosc.osc_message import OscMessage
 from pythonosc.osc_message_builder import OscMessageBuilder
 
-from bridge.capabilities import CapabilityNotTestedError
+from bridge.capabilities import CapabilityGate, CapabilityNotTestedError
 from bridge.osc_client import (
     ADDRESSES,
     AbletonBridge,
@@ -568,3 +568,46 @@ def test_well_formed_script_is_accepted():
         ("/live/song/get/track_names", ("A",)),
         (MARKER, (120.0, end)),
     ]) == ("A",)
+
+
+# -- mute read-back and raw replies (#5) -----------------------------------------------------
+
+
+def test_get_track_mute_reads_back_each_track(bridge, fake):
+    fake.tracks[1]["mute"] = True
+    assert bridge.get_track_mute(0) is False
+    assert bridge.last_reply == (False,)
+    assert bridge.get_track_mute(1) is True
+    assert fake.payload()[-1] == ("/live/track/get/mute", (1,))
+
+
+@pytest.mark.parametrize("raw, expected", [((0, 1), True), ((0, 0), False)])
+def test_get_track_mute_accepts_int_flags(bridge, fake, raw, expected):
+    fake.raw_reply["/live/track/get/mute"] = build("/live/track/get/mute", raw)
+    assert bridge.get_track_mute(0) is expected
+
+
+@pytest.mark.parametrize("raw", [(0, 2), (0, 1.0), (0, "1"), (0,), (0, True, 1)])
+def test_get_track_mute_rejects_malformed_replies(bridge, fake, raw):
+    fake.raw_reply["/live/track/get/mute"] = build("/live/track/get/mute", raw)
+    with pytest.raises(BridgeProtocolError):
+        bridge.get_track_mute(0)
+
+
+def test_get_track_mute_is_gated_as_track_mute_set(fake, transport, tmp_path):
+    others = set(ADDRESSES) - {"track.mute.set"}
+    bridge = AbletonBridge(transport, CapabilityGate(registry_with(tmp_path, others)))
+    with pytest.raises(CapabilityNotTestedError):
+        bridge.get_track_mute(0)
+    bridge.ping()
+    fake.wait_received(2)
+    assert fake.payload() == []
+
+
+def test_last_reply_holds_raw_reply_and_is_cleared_on_failure(bridge, fake):
+    bridge.get_signature()
+    assert bridge.last_reply == (4, 4)
+    fake.raw_reply["/live/song/get/tempo"] = b"\x00garbage"
+    with pytest.raises(BridgeProtocolError):
+        bridge.get_tempo()
+    assert bridge.last_reply is None
