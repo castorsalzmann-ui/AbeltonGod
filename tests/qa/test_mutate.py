@@ -257,6 +257,54 @@ def test_import_from_outside_the_copy_is_an_error(repo: Path, tmp_path: Path) ->
     assert mutate.check_import_origin(copy, "src/pkg/mod.py", timeout=60) is None
 
 
+def test_refuses_a_git_ignored_target(repo: Path, tmp_path: Path) -> None:
+    # read_source can read the file, but copy_tree skips it: refused before anything runs.
+    (repo / "ignored").mkdir()
+    (repo / "ignored" / "mod.py").write_text("VALUE = 1\n", encoding="utf-8")
+    proc = _cli(repo, _write(tmp_path, _mutant(file="ignored/mod.py")))
+    assert proc.returncode == mutate.EXIT_INVALID, proc.stderr
+    assert "ignored/mod.py is not in the copied tree" in proc.stderr
+    assert "baseline" not in proc.stderr and "Traceback" not in proc.stderr
+
+
+def test_refuses_a_target_missing_from_the_revision(repo: Path, tmp_path: Path) -> None:
+    (repo / "src" / "pkg" / "new.py").write_text("VALUE = 1\n", encoding="utf-8")  # untracked
+    spec = _write(tmp_path, _mutant(file="src/pkg/new.py"))
+    proc = _cli(repo, "--rev", "HEAD", spec)
+    assert proc.returncode == mutate.EXIT_INVALID, proc.stderr
+    assert "not in the copied tree" in proc.stderr
+
+
+@pytest.mark.parametrize(
+    ("exc", "message"),
+    [
+        (FileNotFoundError("gone"), "internal error: FileNotFoundError: gone"),
+        (KeyboardInterrupt(), "interrupted, results incomplete"),
+    ],
+)
+def test_unexpected_exceptions_exit_3_not_1(
+    repo: Path, tmp_path: Path, monkeypatch, capsys, exc: BaseException, message: str
+) -> None:
+    def boom(*args, **kwargs):
+        raise exc
+
+    monkeypatch.setattr(mutate, "run", boom)
+    code = mutate.main(["--root", str(repo), str(_write(tmp_path, _mutant()))])
+    err = capsys.readouterr().err
+    assert code == mutate.EXIT_ERROR
+    assert message in err and "Traceback" not in err
+
+
+def test_import_check_timeout_is_an_error_not_a_crash(repo: Path, tmp_path: Path) -> None:
+    copy = tmp_path / "copy"
+    copy.mkdir()
+    mutate.copy_tree(repo, None, copy)
+    (copy / "src" / "sitecustomize.py").write_text("import time\ntime.sleep(30)\n",
+                                                   encoding="utf-8")
+    error = mutate.check_import_origin(copy, "src/pkg/mod.py", timeout=1)
+    assert error == "import check for pkg.mod timed out after 1 s"
+
+
 @pytest.mark.parametrize(
     ("statuses", "code"),
     [

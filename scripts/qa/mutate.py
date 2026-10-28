@@ -33,8 +33,9 @@ Mutant file format (``tests/qa/mutants/*.json``)::
                   "note": "PR #40 round 1"}]}         # optional
 
 Exit codes: 0 every mutant killed · 1 at least one survived · 2 invalid mutant definition or
-arguments (nothing was run) · 3 a baseline was red, a run errored or timed out, or imports
-did not come from the copy (results are not usable).
+arguments, including a target file that is not in the copied tree (nothing was run) · 3 a
+baseline was red, a run errored or timed out, imports did not come from the copy, the run was
+interrupted (Ctrl+C) or the runner itself failed (results are not usable).
 """
 
 from __future__ import annotations
@@ -188,6 +189,28 @@ def read_source(root: Path, rev: str | None, rel: str) -> str:
         raise MutantError(f"{rel}: not readable at {rev}: {exc}") from exc
 
 
+def tree_files(root: Path, rev: str | None) -> set[str]:
+    """Relative paths of the files :func:`copy_tree` copies (posix separators)."""
+    if rev is not None:
+        listing = _git(root, "ls-tree", "-r", "-z", "--name-only", rev)
+        return {r for r in listing.decode("utf-8").split("\0") if r}
+    listing = _git(root, "ls-files", "-z", "--cached", "--others", "--exclude-standard")
+    return {
+        r
+        for r in listing.decode("utf-8").split("\0")
+        if r and not r.endswith("/") and (root / r).is_file()  # nested repo or deleted file
+    }
+
+
+def check_target(files: set[str], mutant: Mutant) -> None:
+    """Refuse a mutant whose file would not exist in the copy (e.g. git-ignored)."""
+    if Path(mutant.file).as_posix() not in files:
+        raise MutantError(
+            f"{mutant.id}: {mutant.file} is not in the copied tree "
+            "(git-ignored, untracked-and-ignored, or not in the revision)"
+        )
+
+
 def copy_tree(root: Path, rev: str | None, dest: Path) -> None:
     """Copy the repo into ``dest``: working tree (tracked + untracked, not ignored) or ``rev``."""
     if rev is not None:
@@ -198,14 +221,10 @@ def copy_tree(root: Path, rev: str | None, dest: Path) -> None:
             else:  # pragma: no cover - Python < 3.11.4
                 tar.extractall(dest)  # noqa: S202 - our own git archive
         return
-    listing = _git(root, "ls-files", "-z", "--cached", "--others", "--exclude-standard")
-    for rel in sorted({r for r in listing.decode("utf-8").split("\0") if r}):
-        src = root / rel
-        if rel.endswith("/") or not src.is_file():  # nested repo or deleted file
-            continue
+    for rel in sorted(tree_files(root, None)):
         target = dest / rel
         target.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(src, target)
+        shutil.copy2(root / rel, target)
 
 
 def _child_env(copy: Path) -> dict[str, str]:
@@ -240,15 +259,18 @@ def check_import_origin(copy: Path, rel: str, timeout: float) -> str | None:
         f"spec = importlib.util.find_spec({module!r})\n"
         "print(spec.origin if spec else '')\n"
     )
-    proc = subprocess.run(
-        [sys.executable, "-c", code],
-        cwd=copy,
-        env=_child_env(copy),
-        capture_output=True,
-        text=True,
-        timeout=timeout,
-        check=False,
-    )
+    try:
+        proc = subprocess.run(
+            [sys.executable, "-c", code],
+            cwd=copy,
+            env=_child_env(copy),
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            check=False,
+        )
+    except subprocess.TimeoutExpired:
+        return f"import check for {module} timed out after {timeout:g} s"
     origin = proc.stdout.strip()
     expected = (copy / rel).resolve()
     if proc.returncode != 0 or not origin or Path(origin).resolve() != expected:
@@ -313,7 +335,9 @@ def run(
     """Run every mutant. Raises :class:`MutantError` before running anything if one is invalid."""
     log = log or (lambda msg: print(msg, file=sys.stderr, flush=True))
     mutated: dict[str, str] = {}
+    files = tree_files(root, rev)
     for m in mutants:  # validate all mutants first: nothing runs if one is invalid
+        check_target(files, m)
         mutated[m.id] = apply_mutant(read_source(root, rev, m.file), m)
 
     red_baselines: dict[tuple, str] = {}
@@ -423,10 +447,18 @@ def main(argv: list[str] | None = None) -> int:
             timeout=args.timeout,
             baseline=not args.no_baseline,
         )
+        table = render_table(results, args.rev)
     except MutantError as exc:
         print(f"mutate: {exc}", file=sys.stderr)
         return EXIT_INVALID
-    print(render_table(results, args.rev))
+    except KeyboardInterrupt:
+        # subprocess.run kills the running pytest child; temp copies are removed on unwind.
+        print("mutate: interrupted, results incomplete", file=sys.stderr)
+        return EXIT_ERROR
+    except Exception as exc:  # noqa: BLE001 - any crash must not look like "survived" (exit 1)
+        print(f"mutate: internal error: {type(exc).__name__}: {exc}", file=sys.stderr)
+        return EXIT_ERROR
+    print(table)
     return exit_code(results)
 
 
