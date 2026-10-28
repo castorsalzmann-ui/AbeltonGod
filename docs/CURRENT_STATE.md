@@ -5,7 +5,7 @@ _Last updated: 2026-10-28 · Written only by the lead session on `main` after a 
 ## Phase
 
 - **Phase 00 — Setup:** DONE (#1 closed 2026-10-28).
-- **Phase 01 — Kick engine:** core merged (#2 via PR #8); drive anti-aliased (#13 via PR #20); contract semantics (#7 via PR #28). WAV/sidecar nits (#12 via PRs #26, #33); tone/drive/envelope tests (#11 via PR #34). Approved, waiting for merge: PR #38 (#16, drive continuous from 0, user decision) then PR #40 (#35, ENGINE_VERSION rule, user decision). Open: side findings #27, #30, #31, #32 (triage running), then #3.
+- **Phase 01 — Kick engine:** core merged (#2 via PR #8); drive anti-aliased (#13 via PR #20); contract semantics (#7 via PR #28). WAV/sidecar nits (#12 via PRs #26, #33); tone/drive/envelope tests (#11 via PR #34). Drive continuous from 0 (#16 via PR #38); ENGINE_VERSION rule (#35 via PR #40, D-013). Open: side findings #27, #30, #31, #32 (triage running), then #3.
 - **Phase 02 — Ableton bridge:** OSC client and capability gate merged (#4 via PR #25). `bridge_check.py` merged (PR #37; review fixes #39 via PR #41, undo scope #44 via PR #45). User ran it against Live 12.4.5: all PASS, error cases understood ([#5](https://github.com/castorsalzmann-ui/AbeltonGod/issues/5#issuecomment-6474540867)). Open: PR #42 (capabilities → `tested`, rework running), #43 (setup-guide fixes).
 - **Phase 04a — Agent Resource Guard:** DONE (#6 via PR #15).
 
@@ -26,6 +26,8 @@ _Last updated: 2026-10-28 · Written only by the lead session on `main` after a 
 | WAV/sidecar robustness (#12): RIFF pad byte for odd 24-bit data chunks, dangling symlinks count as taken names, `created_at` must be aware (whole-minute offset), Decimal/Fraction/complex rejected | [PR #26](https://github.com/castorsalzmann-ui/AbeltonGod/pull/26), merged as 816b042 **without review and with an empty PR template**; [post-merge review](https://github.com/castorsalzmann-ui/AbeltonGod/pull/26#pullrequestreview-5683501845): code sound, 276 WAV cases checked with stdlib `wave` and ffmpeg, 17/18 fault injections caught; CI on c9b3a1d ubuntu + windows. Follow-ups: test gap closed by PR #33; engine version → #35; format-tag question moved to #3. |
 | #12 follow-up: `KickParamsError` lists type errors together with all other problems; stricter "nothing written" tests (incl. missing nested `out_dir`) | [PR #33](https://github.com/castorsalzmann-ui/AbeltonGod/pull/33), merged as 69a5890 after one pre-PR review round; `1379 passed, 2 skipped`; 4/4 new mutants caught (incl. the post-merge review's survivor); CI on d7f7df9 ubuntu + windows |
 | `scripts/bridge_check.py` 0.3.0: reads version/tempo/signature/tracks; after two default-No prompts mutes, unmutes, re-mutes a test track, calls Live undo and compares a whole-set snapshot (tempo, signature, track count/names/order, all mutes) before/after; Ctrl+C and write errors abort with a result block | PRs [#37](https://github.com/castorsalzmann-ui/AbeltonGod/pull/37) (merged as bc3809e **before its review finished**; review found a false undo PASS → #39), [#41](https://github.com/castorsalzmann-ui/AbeltonGod/pull/41) (ded4876, 1 re-review round), [#45](https://github.com/castorsalzmann-ui/AbeltonGod/pull/45) (bbce65e, approve-ready review); `1791 passed, 2 skipped`, 278 bridge+regression tests; CI ubuntu + windows. **User run in Live 12.4.5 with script 0.1.0** (pre-#41): all PASS, set restored ([#5](https://github.com/castorsalzmann-ui/AbeltonGod/issues/5#issuecomment-6474540867)); error cases Live closed / script not selected (exit 2) and port busy shown and understood ([#5](https://github.com/castorsalzmann-ui/AbeltonGod/issues/5#issuecomment-6474653513)). User decision: accept the 0.1.0 undo result with a documented limitation (PR #42). |
+| Drive continuous from 0 (#16, user decision): gain `10·drive^0.8`, shaper `tanh(gx)/tanh(g)` applied as residual through the 8× oversampler, Taylor fallback below g = 0.01. drive 1e-6 differs from drive 0 by −161 dB (was −12 dB); drive ≥ 0.2 keeps gain within 4.5 % of before | [PR #38](https://github.com/castorsalzmann-ui/AbeltonGod/pull/38), merged as 04f264c after one independent review (approve-ready; reviewer reproduced continuity on 26 fresh sets, −159.5 dB at 1e-6, aliasing −78 dB worst on 24 new cases); 12/12 fault injections caught; `1797 passed, 2 skipped`; CI ubuntu + windows |
+| ENGINE_VERSION rule (#35, D-013): `ENGINE_VERSION` 0.1.0; 5 literal golden SHA-256s (48k/24-bit odd, even, drive 0.6; 44.1k/16-bit tone 0.7 + click; 44.1k/24-bit tone −0.7 + attack), hard failure on Linux **and Windows**; coverage-guard test; `rerender_from_sidecar` raises `EngineVersionMismatch` unless `allow_engine_mismatch=True`; PR-template checkbox | [PR #40](https://github.com/castorsalzmann-ui/AbeltonGod/pull/40) (`contract-change`), merged as c10020f after two review rounds (1 major: tone path uncovered → fixed); `1821 passed, 2 skipped`; Windows CI matched all 5 hashes ([run 40731270024](https://github.com/castorsalzmann-ui/AbeltonGod/actions/runs/40731270024)) |
 | Independent tests for tone, drive and the amplitude envelope (#11), 282 tests | [PR #34](https://github.com/castorsalzmann-ui/AbeltonGod/pull/34), merged as eb14b8d after one pre-PR review round (3 findings fixed); `1659 passed, 2 skipped`; 11 fault injections, all caught (drive × 0.5 by only 2 tests); CI on `main` eb14b8d green |
 
 **Known limits of the bridge** (details in `docs/research/2026-10-28_abletonosc-protocol-and-create-audio-clip.md`):
@@ -36,9 +38,9 @@ _Last updated: 2026-10-28 · Written only by the lead session on `main` after a 
 **Measured limits of the kick core** (details in PR #8):
 - Pitch accuracy: ±3 % for windows ≥ 80 ms, ±5 % below (user decision).
 - About 10 % of very short, fast-decay kicks report `fundamental_hz: None`.
-- Byte identity is proven per platform only, not Linux vs. Windows.
+- Byte identity Linux vs. Windows is proven for the 5 golden cases on CI (Python 3.12); the user's Python 3.14 on Windows is not yet checked.
 - Render with `drive > 0` costs ~3× more than before anti-aliasing (2 s kick ≈ 54 ms on the CI-like Linux box); every WAV with `drive > 0` differs from pre-#20 renders.
-- Odd-sized 24-bit renders differ from pre-#26 renders by one pad byte, so their SHA-256 differs; `ENGINE_VERSION` is still `0.0.1` (#35).
+- Sidecars from engine 0.0.1 (all written before #35) no longer re-render without `allow_engine_mismatch=True`; they are not migrated.
 - No crest-factor test covers click + tone > 0 (cause of the excess not established, #31). The 10 Hz DC blocker skews attack fits on the shipped output by up to 1.7 ms (PR #34) and raises the crest factor at high drive (#30).
 - No listening test yet.
 - The pitch-settle guideline describes the pitch curve. The measured `fundamental_hz` can still be up to ~17 % above `pitch_end_hz` for kicks that follow it (review of #7).
@@ -76,7 +78,6 @@ _Last updated: 2026-10-28 · Written only by the lead session on `main` after a 
 
 Lead: this cloud session (user decision 2026-10-28); the PC session only runs commands and Live tests. Up to 10 sub-agents in parallel (user, 2026-10-28).
 
-- **Merge now (user):** PR #38, then PR #40 (both approve-ready; #40 is stacked on #38).
 - **Kick track:** triage of #27/#32 and #30/#31 running (investigation comments on the issues); preset/variant/CLI design proposal for #3 running. Then #3 implementation and the first listening test (includes #9).
 - **Bridge track:** PR #42 rework (rebase, `track.mute.get`, undo limitation note) → review → merge closes #5 and Phase 02. #43 setup-guide fixes in a PR. Then Phase 03 (import) once Phase 01 is accepted.
 - **Phase 04b** (#23): auth research note for D-008 in progress; user decision needed before coding.
@@ -84,12 +85,13 @@ Lead: this cloud session (user decision 2026-10-28); the PC session only runs co
 - **User:**
   - Windows test of the budget watch (PR #18): let Claude Code run `git status` three times; a "Budget: …" message should appear.
   - GitHub → New issue → **Bug**: check that the form appears with "Repro" required (PR #24).
+  - After pulling: run `pytest` once on Python 3.14 (golden hashes on your Windows machine, PR #40).
   - Before every pull: `git switch main` (the first bridge runs failed on an old branch).
   - Never merge a PR before the lead says "bereit zum Mergen" (PR #37 was merged mid-review).
 
 ## Open questions
 
-- Does the anti-aliased drive (PR #20) sound different from before? Part of the #3 listening test.
+- Do the anti-aliased (PR #20) and continuous (PR #38) drive sound different from before? Part of the #3 listening test.
 - Is format tag 1 (plain PCM) fine for 24-bit WAVs in Live, or is WAVE_FORMAT_EXTENSIBLE needed? Part of the #3 user test.
 - New default `pitch_decay_ms` 15 vs. the old 40 — compare by ear in the #3 listening test.
 - #9 — is the DC-correction sub-bass tail of very short or extreme kicks audible? Up to 11.4 % of peak at the extremes, plus a −28 dB tail from the DC blocker. To be answered in the #3 listening test.
