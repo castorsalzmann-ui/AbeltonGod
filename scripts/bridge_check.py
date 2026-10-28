@@ -31,9 +31,14 @@ What it does:
      and return/master tracks are not visible to the script).
    - Only the test track's mute differs (undo did not revert W3): undo FAIL; one direct
      restore W4 + read-back R5; a failed restore is reported with a hand-fix instruction.
-   - Anything else differs (tempo, signature, track count, names, order, another track's
-     mute): undo FAIL with the differences listed; nothing more is written.
-   EOF or Ctrl+C at any prompt means "no" / abort, never a default choice.
+   - Only tempo and/or signature differ (all names and mutes as before): undo FAIL with a
+     neutral message - tempo drift (automation, Ableton Link, external clock) and an undone
+     tempo/signature edit look the same from here. Exact comparison, no tolerance (#43).
+   - Anything else differs (track count, names, order, another track's mute, possibly
+     together with tempo/signature): undo FAIL with the differences listed; nothing more is
+     written.
+   EOF at any prompt means "no" / abort (exit 0), never a default choice. Ctrl+C at any
+   prompt aborts with exit 130 and the result block, like Ctrl+C anywhere else (#43).
    A second undo is never sent. A read-back mismatch at R1-R3 stops before undo. Any bridge
    error or Ctrl+C in the sequence stops writing; the script reads the test track once, tells
    the user its original state and prints the result block (exit 130 on Ctrl+C).
@@ -79,7 +84,8 @@ from bridge.osc_client import (
 # 0.2.0: whole-set check around undo, Ctrl+C handling (#39)
 # 0.3.0: tempo/signature in the snapshot, undo scope note, EOF at track prompt aborts (#44)
 # 0.3.1: mute read-back gated as its own capability track.mute.get (#42); output unchanged
-SCRIPT_VERSION = "0.3.1"
+# 0.4.0: neutral FAIL for tempo/signature-only changes, Ctrl+C at a prompt exits 130 (#43)
+SCRIPT_VERSION = "0.4.0"
 
 # The only capabilities this script may call, through the explicit override.
 READ_CAPABILITIES = ("app.version", "song.tempo.get", "song.signature.get",
@@ -199,10 +205,14 @@ def render_result_block(report: Report) -> str:
 
 
 def ask(prompt: str, input_fn: Callable[[str], str]) -> str | None:
-    """The stripped answer, or None on EOF / Ctrl+C (the user wants out, not a default)."""
+    """The stripped answer, or None on EOF (the user wants out, not a default).
+
+    Ctrl+C is not caught here: it propagates to ``main``, which aborts with exit 130 and the
+    result block, the same as Ctrl+C at any other point before a write (#43).
+    """
     try:
         return input_fn(prompt).strip()
-    except (EOFError, KeyboardInterrupt):
+    except EOFError:
         return None
 
 
@@ -210,24 +220,30 @@ def ask_yes(prompt: str, input_fn: Callable[[str], str]) -> bool:
     return (ask(prompt, input_fn) or "").lower() in YES
 
 
-def choose_track(names: list[str], input_fn: Callable[[str], str], out: TextIO) -> int | None:
+# Why no track was chosen (result-block notes).
+NOTE_TRACK_EOF = "user aborted at the track prompt (EOF)"
+NOTE_TRACK_INVALID = "no valid track index after 3 attempts"
+
+
+def choose_track(names: list[str], input_fn: Callable[[str], str],
+                 out: TextIO) -> tuple[int | None, str]:
+    """(track index, "") or (None, reason). Ctrl+C propagates (see ``ask``)."""
     for _ in range(3):
         answer = ask(
             f"Welche Spur soll kurz stummgeschaltet werden? Index 0-{len(names) - 1} "
             f"[Enter = 0 '{names[0]}']: ",
             input_fn,
         )
-        if answer is None:  # EOF / Ctrl+C: abort, never fall back to the default track
-            print("Abgebrochen.", file=out)
-            return None
+        if answer is None:  # EOF: abort, never fall back to the default track
+            return None, NOTE_TRACK_EOF
         if answer == "":
-            return 0
+            return 0, ""
         # ASCII digits only: str.isdigit() also accepts '²' or Arabic-Indic digits.
         if answer.isascii() and answer.isdecimal() and int(answer) < len(names):
-            return int(answer)
+            return int(answer), ""
         print(f"Ungültige Eingabe {answer!r}. Bitte eine Zahl von 0 bis {len(names) - 1}.",
               file=out)
-    return None
+    return None, NOTE_TRACK_INVALID
 
 
 # -- the check -------------------------------------------------------------------------------
@@ -251,7 +267,7 @@ class Snapshot:
     def render(self) -> str:
         tracks = ", ".join(f"{n!r}:{int(m)}" for n, m in zip(self.names, self.mutes,
                                                                strict=True))
-        return (f"tempo={self.tempo:g} sig={self.signature[0]}/{self.signature[1]} "
+        return (f"tempo={bpm(self.tempo)} sig={self.signature[0]}/{self.signature[1]} "
                 f"tracks=[{tracks}]")
 
 
@@ -268,6 +284,13 @@ def take_snapshot(bridge: AbletonBridge) -> Snapshot:
                     tuple(bridge.get_track_mute(i) for i in range(len(names))))
 
 
+def bpm(tempo: float) -> str:
+    """Short tempo text that never hides a difference: ``:g`` rounds to 6 digits, so a tiny
+    drift (136.0001) would print as '136' on both sides; fall back to repr then (#43)."""
+    short = f"{tempo:g}"
+    return short if float(short) == tempo else repr(tempo)
+
+
 def mute_word(value: bool) -> str:
     return "stumm" if value else "nicht stumm"
 
@@ -276,7 +299,7 @@ def describe_changes(before: Snapshot, after: Snapshot) -> list[str]:
     """German lines describing how ``after`` differs from ``before`` (empty if equal)."""
     song: list[str] = []
     if after.tempo != before.tempo:
-        song.append(f"Tempo: vorher {before.tempo:g} BPM, jetzt {after.tempo:g} BPM")
+        song.append(f"Tempo: vorher {bpm(before.tempo)} BPM, jetzt {bpm(after.tempo)} BPM")
     if after.signature != before.signature:
         song.append(f"Taktart: vorher {before.signature[0]}/{before.signature[1]}, jetzt "
                     f"{after.signature[0]}/{after.signature[1]}")
@@ -338,6 +361,25 @@ UNDO_PASS_TEXT = (
 UNDO_HISTORY_HINT = (
     "In Live zeigt der Undo-Verlauf (Strg+Alt+Z; im Handbuch: View -> Undo History), welcher "
     "Schritt zurückgenommen wurde; dort lässt er sich wiederherstellen."
+)
+
+
+TEMPO_ONLY_NOTE = ("only tempo/signature differ after undo: possible drift (automation, Link, "
+                   "external clock) or an undone tempo/signature edit")
+
+TEMPO_ONLY_TEXT = (
+    "FAIL: Nach dem Undo unterscheiden sich nur Tempo und/oder Taktart vom Stand vor dem Test.\n"
+    "Spurnamen und Mute-Zustände aller Spuren sind wie vorher. Unterschiede:"
+)
+
+TEMPO_ONLY_HINT = (
+    "Das Script kann nicht unterscheiden, woher das kommt. Möglich sind:\n"
+    "  - Das Tempo hat sich während des Tests von selbst geändert, z. B. durch\n"
+    "    Tempo-Automation, Ableton Link oder eine externe MIDI-Clock (Sync).\n"
+    "  - Undo hat eine frühere Tempo- oder Taktart-Änderung zurückgenommen.\n"
+    "Das Script sendet keine weiteren Änderungen. Bitte Transport stoppen, Tempo-Automation\n"
+    "und Link/Sync ausschalten, das Test-Set neu öffnen und den Check wiederholen.\n"
+    + UNDO_HISTORY_HINT
 )
 
 
@@ -442,6 +484,18 @@ def run_writes(bridge: AbletonBridge, report: Report, idx: int, m0: bool, names:
                 raise WriteAborted("R5 read-back mismatch after the direct restore")
             return
 
+        if s0.names == s1.names and s0.mutes == s1.mutes:
+            # Only tempo and/or signature differ (exact compare, no tolerance). From here a
+            # drifting tempo (automation, Link, external clock) and an undone tempo edit look
+            # the same, so the message names both and blames neither (#43).
+            undo_check.note = TEMPO_ONLY_NOTE
+            report.error = "only tempo/signature changed across undo; nothing more written"
+            print(TEMPO_ONLY_TEXT, file=out)
+            for line in changes:
+                print(f"  - {line}", file=out)
+            print(TEMPO_ONLY_HINT, file=out)
+            return
+
         # Undo changed the set beyond the test track's mute: it reverted something else.
         # Indices may now point at other tracks, so nothing more is written.
         undo_check.note = "undo changed the set beyond the test mute (reverted another action)"
@@ -540,11 +594,14 @@ def run_check(bridge: AbletonBridge, report: Report, input_fn: Callable[[str], s
         for name in WRITE_CAPABILITIES:
             report.check(name).note = "user: not a test set"
         return
-    idx = choose_track(names, input_fn, out)
+    idx, why_none = choose_track(names, input_fn, out)
     if idx is None:
-        print("Keine gültige Spur gewählt. Teil 2 übersprungen.", file=out)
+        if why_none == NOTE_TRACK_EOF:
+            print("Abgebrochen. Teil 2 übersprungen, es wurde nichts geändert.", file=out)
+        else:
+            print("Keine gültige Spur gewählt. Teil 2 übersprungen.", file=out)
         for name in WRITE_CAPABILITIES:
-            report.check(name).note = "no valid track index"
+            report.check(name).note = why_none
         return
     report.track_index, report.track_name = idx, names[idx]
     try:
@@ -588,10 +645,10 @@ def plan_text(idx: int, name: str, m0: bool) -> str:
         "Projekt ist das noch nicht geprüft.\n"
         "\n"
         "Erkennt das Script nach dem Undo eine Änderung an Tempo, Taktart, Spuren oder\n"
-        "Mute-Zuständen, meldet\n"
-        "es Undo als FAIL, nennt die Unterschiede und sendet nichts mehr. Hat Undo nur die\n"
-        f"Mute-Änderung nicht zurückgenommen, setzt es Spur {idx} einmal direkt auf {now}\n"
-        "zurück. Ein zweites Undo wird nie gesendet."
+        "Mute-Zuständen, meldet es Undo als FAIL, nennt die Unterschiede und sendet nichts\n"
+        "mehr. Hat Undo nur die Mute-Änderung nicht zurückgenommen, setzt es Spur "
+        f"{idx} einmal\n"
+        f"direkt auf {now} zurück. Ein zweites Undo wird nie gesendet."
     )
 
 
