@@ -11,6 +11,6 @@ description: Finish the current issue - run checks, commit, push and open a pull
 4. Open the PR via REST (see `CLAUDE.md` → GitHub access) using `.github/PULL_REQUEST_TEMPLATE.md`. Fill every section with facts. Include `Closes #<issue>`.
 5. Mark local/Ableton/listening checks the user still has to do as unchecked boxes under "Needs user test".
 6. Swap the issue label `status:in-progress` → `status:in-review`.
-7. Tell the user in German: PR link, what is verified, what they must test, and suggest running the `reviewer` agent.
+7. Report to the lead: PR link, head SHA, real gate lines, what is verified, what the user must test. The lead runs the QA pre-check and the independent `reviewer` and talks to the user (D-017); do not start agents yourself.
 
 Do not edit `docs/CURRENT_STATE.md` or `docs/DECISIONS.md` — put a "State update proposal" in the PR body.

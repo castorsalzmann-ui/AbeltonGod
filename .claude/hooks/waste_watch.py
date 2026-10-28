@@ -10,7 +10,10 @@ Signals (limits in config/dev-budget.json):
 - consecutive failed tool calls; auto-mode denials (PermissionDenied) count as failures
 - one file edited very often (thrashing)
 - total tool calls in the session (generous, repeating soft warning)
-- many subagents / reviewer runs in one session. A reviewer run is an Agent call with
+- many subagents / reviewer runs in one session. Subagents (D-019): up to
+  `subagents_per_session` (10) Agent calls are normal; every further one warns again
+  (11th, 12th, ...), on purpose. Reviewer runs warn from `reviewer_runs_per_session` on.
+  A reviewer run is an Agent call with
   `subagent_type == "reviewer"` or, in cloud sessions where that type may be missing, any
   Agent call whose `description` contains a word starting with "review" (case-insensitive;
   "Review PR", "reviewer" count, "Preview" does not)
@@ -49,7 +52,7 @@ DEFAULTS: dict[str, int] = {
     "edits_same_file": 15,
     "tool_calls_first_warn": 300,
     "tool_calls_warn_every": 150,
-    "subagents_per_session": 4,
+    "subagents_per_session": 10,
     "reviewer_runs_per_session": 3,
 }
 
@@ -220,12 +223,18 @@ def evaluate(event: dict, state: dict, limits: dict[str, int]) -> list[tuple[str
 
     if tool in AGENT_TOOLS and name == "PostToolUse":
         state["subagents"] += 1
-        if state["subagents"] >= limits["subagents_per_session"]:
+        agents = state["subagents"]
+        # D-019: the limit itself is normal operation; each start above it warns again
+        # (the key carries the count, so every new count is a new warning).
+        if agents > limits["subagents_per_session"]:
             warn(
-                f"subagents:{state['subagents']}",
-                f"Budget: {state['subagents']} Subagents in dieser Sitzung.",
-                f"{state['subagents']} subagents have run in this session (D-010: few agents). "
-                "Each starts without context. The CLAUDE.md budget rule applies.",
+                f"subagents:{agents}",
+                f"Budget: {agents} Subagents in dieser Sitzung (normal bis "
+                f"{limits['subagents_per_session']}, D-019).",
+                f"{agents} subagents have run in this session; D-019 allows up to "
+                f"{limits['subagents_per_session']} in normal operation (hard rule: 15 active "
+                "at once). Pause and write two lines (how many agents, for what), then continue "
+                "deliberately or reduce.",
             )
         if is_reviewer_run(tool_input):
             state["reviewer_runs"] += 1

@@ -1,0 +1,37 @@
+{
+  "description": "PR #40 review round 1 (head dd86430): faults against the golden-hash tests. Run with --rev dd86430 to reproduce round 1 (three survive, CLICK_Q killed) and without --rev for the current tree (round 2: all killed).",
+  "mutants": [
+    {
+      "id": "TONE_PIVOT_HZ",
+      "file": "src/audio_engine/kick.py",
+      "old": "TONE_PIVOT_HZ = 1500.0",
+      "new": "TONE_PIVOT_HZ = 1530.0",
+      "tests": ["tests/audio_engine/test_engine_version.py"],
+      "note": "PR #40 r1: golden 18 passed, full suite 1816 passed; r2: 2 failed"
+    },
+    {
+      "id": "LSB_16BIT_NEG",
+      "file": "src/audio_engine/io.py",
+      "old": "frames = ints.astype(\"<i2\").tobytes()",
+      "new": "frames = np.where(ints < 0, ints + 1, ints).astype(\"<i2\").tobytes()",
+      "tests": ["tests/audio_engine/test_engine_version.py"],
+      "note": "PR #40 r1: 16-bit only, negative samples +1 LSB; golden 18 passed; r2: 1 failed"
+    },
+    {
+      "id": "SCALE_44K1",
+      "file": "src/audio_engine/io.py",
+      "old": "ints = np.round(np.clip(audio, -1.0, 1.0) * full_scale).astype(\"<i4\")",
+      "new": "ints = np.round(np.clip(audio * (1.0 - 1e-6 if int(sr) == 44100 else 1.0), -1.0, 1.0) * full_scale).astype(\"<i4\")",
+      "tests": ["tests/audio_engine/test_engine_version.py"],
+      "note": "PR #40 r1: 44.1 kHz only, audio x (1 - 1e-6) before quantising; golden 18 passed; r2: 2 failed"
+    },
+    {
+      "id": "CLICK_Q",
+      "file": "src/audio_engine/kick.py",
+      "old": "CLICK_Q = 0.9",
+      "new": "CLICK_Q = 0.918",
+      "tests": ["tests/audio_engine/test_engine_version.py"],
+      "note": "PR #40 r1: golden 3 failed (click path covered)"
+    }
+  ]
+}
