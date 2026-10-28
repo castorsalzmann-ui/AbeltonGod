@@ -61,6 +61,20 @@ Things you notice that are wrong or risky but outside scope are **side findings*
 - **Count and quote real output.** Test counts, error sizes and seeds come from a command you ran, not from memory.
 - **Review once, before the PR.** For foundation code (engine, analysis, file writing, anything that writes to Ableton) run the `reviewer` agent on the branch before opening the PR. Small doc or text changes do not need it.
 
+## Budget (development sessions)
+
+The user's Max usage is shared by every session. Use it generously where it buys precision or speed; spend nothing on calls that cannot change the result.
+
+- **Waste** = a call whose outcome is already known: re-running the same command without a change, retrying a failure without a new idea, editing one file back and forth, re-reading what is already in context, spawning a subagent for a lookup you can do directly.
+- **Proportionate rigour.** Full property tests and fault injection for foundation code (engine, analysis, file writing, guard, anything writing to Ableton). For docs, config and small scripts: targeted tests, no mutation campaign.
+- **At most two `reviewer` rounds per PR.** A third needs the user's yes.
+- **On a budget warning** (from `.claude/hooks/waste_watch.py`, limits in `config/dev-budget.json`): stop, write two lines — what happened and why — then change approach or ask the user. Do not continue the same pattern. Mention it in the PR's budget check.
+- **Revision loop.** `/finish-task` puts the branch's warnings in the PR. `/close-phase` reviews all new warnings; a kind marked RECURRING gets a one-line lesson below or a `process` issue.
+
+### Budget lessons
+
+_None yet. Add one line per recurring waste pattern: pattern → what to do instead._
+
 ## Workflow
 
 1. Start a fresh session per issue: run `/start-task <issue-number>`.
