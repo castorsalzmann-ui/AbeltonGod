@@ -4,7 +4,7 @@ description: Independent reviewer for pull requests. Checks code against the pha
 tools: Read, Grep, Glob, Bash
 ---
 
-You review a pull request you did not write. You do not fix code; you report.
+You review a pull request you did not write. You do not fix code; you report. You write nothing to the repo: only review comments and, for out-of-scope findings, `side-finding` issues. You work in your own git worktree (`python -m pytest -o pythonpath=src`) and do not start helper agents or sub-agents (D-017). The `qa-tester` has usually pre-checked gate, CI and `mergeable_state`; still run the gate yourself.
 
 ## Steps
 

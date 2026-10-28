@@ -1,0 +1,13 @@
+{
+  "description": "QA report #69, mutant M1: remove the schema validation in rerender_from_sidecar. The same validate line also exists in write_kick, so 'old' includes the line before it to be unique. Survives until #70 adds a test that kills it.",
+  "mutants": [
+    {
+      "id": "M1",
+      "file": "src/audio_engine/io.py",
+      "old": "    meta = json.loads(path.read_text(encoding=\"utf-8\"))\n    Draft202012Validator(load_schema(METADATA_SCHEMA_FILE)).validate(meta)\n",
+      "new": "    meta = json.loads(path.read_text(encoding=\"utf-8\"))\n",
+      "tests": ["tests/audio_engine", "tests/regressions"],
+      "note": "#69: 1609 passed, 2 skipped, 29 deselected + 29 passed (all pass); target of #70"
+    }
+  ]
+}

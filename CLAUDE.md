@@ -60,7 +60,7 @@ Things you notice that are wrong or risky but outside scope are **side findings*
 - **Never state an unproven cause.** Say "cause not established" until an experiment shows it. Retract wrong explanations openly in the PR.
 - **Re-check what your fix touched.** A fix is new code: test its failure paths too (disk full, interrupts, edge values).
 - **Count and quote real output.** Test counts, error sizes and seeds come from a command you ran, not from memory.
-- **Review once, before the PR.** For foundation code (engine, analysis, file writing, anything that writes to Ableton) run the `reviewer` agent on the branch before opening the PR. Small doc or text changes do not need it.
+- **Independent review before merge.** Every PR gets a `reviewer` run started by the lead (implementers cannot start agents, D-017). For foundation code (engine, analysis, file writing, anything that writes to Ableton) the review is full-depth; small doc or text changes get a short one.
 
 ## Bugs
 
@@ -90,12 +90,12 @@ Add one line per recurring waste pattern: pattern → what to do instead.
 
 ## Workflow
 
-1. Start a fresh session per issue: run `/start-task <issue-number>`.
-2. Work on a branch `phase-XX/<short-name>` (or a worktree for parallel work).
+1. The lead assigns an issue to a role; the agent runs `/start-task <issue-number>` in its own worktree.
+2. Work on a branch `phase-XX/<short-name>` based on the newest `origin/main`.
 3. Implement only the issue's scope. Stop and comment on the issue if scope or a contract must change.
 4. Run `pytest` and `ruff check .`; report the real output.
 5. Finish with `/finish-task` → opens a PR with `Closes #<n>`.
-6. The `reviewer` subagent reviews before the user merges.
+6. The lead runs the `qa-tester` pre-check and an independent `reviewer`, then gives the user the merge go-ahead.
 
 ## Who writes what
 
@@ -103,13 +103,36 @@ Add one line per recurring waste pattern: pattern → what to do instead.
 - `contracts/`: changes need their own PR, labelled `contract-change`, reviewed before dependent work continues.
 - `contracts/capabilities.json`: a status may only become `tested` with evidence from the user's machine (log excerpt or user confirmation in the issue).
 
+**File ownership (D-017).** Every file has exactly one owner at a time. Default owners:
+
+| Path | Owner |
+| --- | --- |
+| `src/audio_engine/`, `src/library/`, `tests/audio_engine/`, `tests/library/`, `tests/fixtures/sidecars/` | `audio-engineer` |
+| `src/bridge/`, `scripts/` (except `scripts/qa/`), `docs/setup/`, `tests/bridge/` | `bridge-engineer` |
+| `src/orchestrator/`, `src/guard/`, `config/guard-policy.json`, their tests | `orchestrator-engineer` |
+| `scripts/qa/`, `tests/conftest.py`, `tests/dev_tools/`, `tests/support/`, `tests/qa/`, `tests/regressions/test_regressions.py` | `qa-tester` |
+| `docs/research/<date>_<topic>.md` | the role that wrote the note (others add a new dated note that links it) |
+| `contracts/` and the matching section of `docs/INTERFACES.md`, plus `tests/test_contracts.py` | the role named in the `contract-change` issue (kick-params / sample-metadata → audio-engineer, capabilities → bridge-engineer, guard-policy schema → orchestrator-engineer) |
+| `tests/regressions/bug_*.json`, `tests/regressions/test_bug_*.py` | the role that owns the code the bug is in |
+| `docs/setup/LISTENING_TEST_*.md` | `audio-engineer` (listening guides render kicks) |
+| `pyproject.toml`, `.env.example` | the role whose issue needs the change (reason in the PR) |
+| `CLAUDE.md`, `README.md`, `.gitignore`, `.claude/`, `.github/`, `docs/` outside `research/` and `setup/` (except the `INTERFACES.md` sections above), `config/dev-budget.json` | lead |
+
+An issue may hand a file to another role for that issue only (e.g. a qa-tester issue that changes `tests/bridge/fake_abletonosc.py`); the issue says so, and the default owner has no open work on that file.
+
 ## Agents
 
-Use few agents. Default: this main session plus, when useful, one implementer and the reviewer.
+Flat team (D-017): the lead assigns specialised agents directly; **no agent starts helpers or sub-agents**. At most 10 active at once, only what the current phase needs. Each agent works in its own git worktree and writes only to its own files; anything else becomes an issue for the owning role. Definitions in `.claude/agents/`.
 
-- `audio-engineer` — DSP, kick synthesis, audio analysis, WAV/metadata output.
-- `bridge-engineer` — AbletonOSC remote script, OSC client, capability checks, sample import.
-- `reviewer` — independent review against the phase acceptance criteria. Never reviews its own code.
+- `audio-engineer` — kick engine, DSP, presets, variants, analysis, WAV/sidecars (`src/audio_engine/`, `src/library/`).
+- `bridge-engineer` — AbletonOSC, capability registry, import into Live (`src/bridge/`, `scripts/` except `scripts/qa/`, `docs/setup/`).
+- `orchestrator-engineer` — Claude copilot, tool definitions, approval levels, guard wiring (`src/orchestrator/`, `src/guard/`; from Phase 04b).
+- `reviewer` — independent review of every PR; writes only review comments and finding issues. Never reviews its own work.
+- `qa-tester` — less check time, same depth: runtime analysis, targeted test selection, reusable check tools, pre-check before every review (`tests/` infrastructure, `scripts/qa/`).
+- `sound-designer` — user feedback → measurable hypotheses and parameter proposals, reference analysis, listening-test plans (issue comments, `docs/research/`; no code, no listening claims).
+- `researcher` — dated, sourced feasibility and programmability notes (`docs/research/`). Two instances work ahead on the parking lot (D-018): A sound and audio, B integration and product. **Before designing a parking-lot feature, read its `docs/research/*_parking-*.md` note.**
+
+Worktree agents run tests as `python -m pytest -o pythonpath=src` (the editable install points at the main clone).
 
 ## Commands
 
