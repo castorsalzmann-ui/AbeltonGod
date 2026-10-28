@@ -105,11 +105,17 @@ Add one line per recurring waste pattern: pattern → what to do instead.
 
 ## Agents
 
-Use few agents. Default: this main session plus, when useful, one implementer and the reviewer.
+Flat team (D-017): the lead assigns specialised agents directly; **no agent starts helpers or sub-agents**. At most 10 active at once, only what the current phase needs. Each agent works in its own git worktree and writes only to its own files; anything else becomes an issue for the owning role. Definitions in `.claude/agents/`.
 
-- `audio-engineer` — DSP, kick synthesis, audio analysis, WAV/metadata output.
-- `bridge-engineer` — AbletonOSC remote script, OSC client, capability checks, sample import.
-- `reviewer` — independent review against the phase acceptance criteria. Never reviews its own code.
+- `audio-engineer` — kick engine, DSP, presets, variants, analysis, WAV/sidecars (`src/audio_engine/`, `src/library/`).
+- `bridge-engineer` — AbletonOSC, capability registry, import into Live (`src/bridge/`, `scripts/` except `scripts/qa/`, `docs/setup/`).
+- `orchestrator-engineer` — Claude copilot, tool definitions, approval levels, guard wiring (`src/orchestrator/`, `src/guard/`; from Phase 04b).
+- `reviewer` — independent review of every PR; writes only review comments and finding issues. Never reviews its own work.
+- `qa-tester` — less check time, same depth: runtime analysis, targeted test selection, reusable check tools, pre-check before every review (`tests/` infrastructure, `scripts/qa/`).
+- `sound-designer` — user feedback → measurable hypotheses and parameter proposals, reference analysis, listening-test plans (issue comments, `docs/research/`; no code, no listening claims).
+- `researcher` (optional) — dated, sourced feasibility notes before new phases (`docs/research/`).
+
+Worktree agents run tests as `python -m pytest -o pythonpath=src` (the editable install points at the main clone).
 
 ## Commands
 
