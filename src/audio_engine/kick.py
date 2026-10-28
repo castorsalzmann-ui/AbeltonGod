@@ -13,8 +13,9 @@ Signal chain (all mono, float64, sample-exact for given parameters and seed):
 4. Drive: normalised tanh saturation, ``drive`` 0 = clean, 1 = heavy. Computed at
    ``DRIVE_OVERSAMPLE`` times the sample rate with a linear-phase low-pass, so the partials
    tanh creates above the Nyquist frequency are removed instead of aliasing back into the
-   audible band. A short raised-cosine fade-in afterwards keeps the first sample exactly zero
-   (the band-limited filter rings slightly before the onset).
+   audible band. Sample 0 is then set to exactly zero: the band-limited result is slightly
+   non-zero there (up to a few percent of peak with ``amp_attack_ms`` 0), and every kick
+   starts at exactly zero, as it did with the base-rate tanh.
 5. Tone: tilt around a one-pole low-pass at 1.5 kHz; ``tone`` -1 = darker, +1 = brighter.
 6. DC blocker (one-pole high-pass, 10 Hz), 5 ms cosine fade-out, then the remaining mean is
    removed with a Hann-shaped correction so the first and last samples stay exactly zero.
@@ -56,7 +57,6 @@ FADE_OUT_MS = 5.0
 DRIVE_OVERSAMPLE = 8
 DRIVE_FILTER_TRANSITION = 0.08
 DRIVE_FILTER_BETA = 10.0
-DRIVE_FADE_IN_SAMPLES = 8
 _DRIVE_FILTER = kaiser_lowpass(DRIVE_OVERSAMPLE, DRIVE_FILTER_TRANSITION, DRIVE_FILTER_BETA)
 
 # Parameters that describe how many kicks to make, not how one kick sounds.
@@ -125,8 +125,8 @@ def _drive(x: np.ndarray, drive: float) -> np.ndarray:
     if drive <= 0:
         return x
     y = oversampled(x, DRIVE_OVERSAMPLE, lambda u: _saturate(u, drive), _DRIVE_FILTER)
-    m = min(len(y), DRIVE_FADE_IN_SAMPLES)
-    y[:m] *= raised_cosine(m, rising=True)
+    if len(y):
+        y[0] = 0.0
     return y
 
 

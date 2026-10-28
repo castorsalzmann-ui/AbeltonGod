@@ -86,7 +86,13 @@ def oversampled(x: np.ndarray, factor: int, fn, h: np.ndarray) -> np.ndarray:
     ``h`` again and decimated. Both filter delays are removed, so output sample ``i`` lines up
     with input sample ``i``. Partials that ``fn`` creates above the base Nyquist frequency are
     filtered out instead of folding back into the audible band (aliasing).
+
+    The filters are FFT convolutions over the whole signal, so a single NaN or Inf sample makes
+    the whole output non-finite (callers pass finite, validated audio). A one-sample input is
+    band-limited like an impulse, so ``fn`` is not applied to its value directly.
     """
+    if factor < 1:
+        raise ValueError(f"factor must be >= 1, got {factor}")
     n = len(x)
     if n == 0:
         return x.copy()

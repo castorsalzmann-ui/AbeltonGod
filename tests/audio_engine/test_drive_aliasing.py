@@ -1,9 +1,10 @@
 """Aliasing of the drive stage (issue #13).
 
 The reference is independent of the engine's resampling code: an ideal band-limited
-saturation computed with FFT zero-padding at 32x the sample rate, using the tanh curve
-written out here. Both renders run the full ``render_kick`` chain; only ``_drive`` is swapped,
-and ``_normalise`` is disabled so a small peak difference cannot hide in the scale.
+saturation computed with FFT zero-padding at ``REF_FACTOR`` times the sample rate,
+using the tanh curve written out here. Both renders run the full ``render_kick`` chain;
+only ``_drive`` is swapped, and ``_normalise`` is disabled so a small peak difference
+cannot hide in the scale.
 Errors are compared in the band up to 20 kHz, relative to the reference peak.
 """
 
@@ -19,9 +20,12 @@ from audio_engine.dsp import kaiser_lowpass, oversampled
 
 AUDIBLE_HZ = 20000.0
 REF_FACTOR = 16  # 16, 32 and 8 give the same result to 0.3 dB (checked during development)
-# Issue #13. Measured on the full chain during development: random worst -88 dB,
-# curated worst -82 dB; the old base-rate tanh gives -41 dB on the curated case.
+# Issue #13 acceptance limit. The old base-rate tanh gives -41 dB on the curated case.
 LIMIT_DB = -70.0
+# Regression bound for the shipped filter (8x, transition 0.08, beta 10): curated -79 dB,
+# random worst -85 dB (30 fresh seeds: -78 dB). 4x or a 0.2 transition give -70 dB on the
+# curated case and must fail here; that is the point of this bound, not the issue limit.
+REGRESSION_DB = -75.0
 TAIL_EXCLUDE_MS = 10.0  # the last samples are faded out by the engine anyway
 
 
@@ -42,8 +46,7 @@ def _ideal_drive(x: np.ndarray, drive: float) -> np.ndarray:
     up = np.fft.irfft(up_spec, big * REF_FACTOR) * REF_FACTOR
     down = np.fft.rfft(_curve(up, drive))[: big // 2 + 1] / REF_FACTOR
     y = np.fft.irfft(down, big)[:n]
-    m = min(n, K.DRIVE_FADE_IN_SAMPLES)
-    y[:m] *= 0.5 * (1.0 - np.cos(np.linspace(0.0, math.pi, m)))
+    y[0] = 0.0  # the engine starts every kick at exactly zero
     return y
 
 
@@ -51,10 +54,7 @@ def _naive_drive(x: np.ndarray, drive: float) -> np.ndarray:
     """The pre-#13 drive: tanh at the base rate (aliases)."""
     if drive <= 0:
         return x
-    y = _curve(x, drive)
-    m = min(len(y), K.DRIVE_FADE_IN_SAMPLES)
-    y[:m] *= 0.5 * (1.0 - np.cos(np.linspace(0.0, math.pi, m)))
-    return y
+    return _curve(x, drive)
 
 
 def _band_limit(x: np.ndarray, sr: int) -> np.ndarray:
@@ -108,16 +108,57 @@ def _random_params(rng: np.random.Generator) -> dict:
     }
 
 
-RANDOM_CASES = [_random_params(np.random.default_rng(1300 + i)) for i in range(24)]
+def _hard_params(rng: np.random.Generator) -> dict:
+    """Biased towards the smallest margin: heavy drive, loud bright click, 44.1 kHz, no attack."""
+    p = _random_params(rng)
+    p.update(
+        drive=float(rng.uniform(0.7, 1)), click_level=float(rng.uniform(0.6, 1)),
+        click_tone_hz=float(rng.uniform(8000, 12000)), sample_rate=44100,
+        amp_attack_ms=0.0,
+    )
+    return p
+
+
+RANDOM_CASES = [_random_params(np.random.default_rng(1300 + i)) for i in range(24)] + [
+    _hard_params(np.random.default_rng(7700 + i)) for i in range(8)
+]
 
 
 def test_worst_curated_case_aliasing_is_bounded(monkeypatch) -> None:
-    assert _alias_db(monkeypatch, WORST) <= LIMIT_DB
+    assert _alias_db(monkeypatch, WORST) <= min(LIMIT_DB, REGRESSION_DB)
 
 
 @pytest.mark.parametrize("params", RANDOM_CASES, ids=lambda p: f"seed{p['seed']}")
 def test_random_case_aliasing_is_bounded(monkeypatch, params) -> None:
-    assert _alias_db(monkeypatch, params) <= LIMIT_DB
+    assert _alias_db(monkeypatch, params) <= min(LIMIT_DB, REGRESSION_DB)
+
+
+def test_onset_is_not_reshaped(monkeypatch) -> None:
+    """Only sample 0 may be forced to zero; the next samples follow the ideal drive.
+
+    Bound 0.05 x peak; during development the shipped code deviated by 0.014 x peak
+    here, while an 8-sample fade-in deviated by 0.43 x peak.
+    """
+    params = {"schema_version": "0.1", "seed": 1, "drive": 1.0, "click_level": 0.0,
+              "amp_attack_ms": 0.0, "pitch_start_hz": 600.0}
+    with monkeypatch.context() as m:
+        m.setattr(K, "_normalise", lambda x, ceiling, bits: x)
+        audio, _ = K.render_kick(params)
+        m.setattr(K, "_drive", _ideal_drive)
+        ref, _ = K.render_kick(params)
+    peak = float(np.max(np.abs(ref)))
+    assert audio[0] == 0.0
+    assert float(np.max(np.abs(audio[1:32] - ref[1:32]))) <= 0.05 * peak
+
+
+def test_shipped_drive_filter_design() -> None:
+    """Pin the anti-aliasing design itself, not only its effect on the test kicks."""
+    assert K.DRIVE_OVERSAMPLE >= 8
+    h = K._DRIVE_FILTER
+    resp = np.abs(np.fft.rfft(h, 1 << 18))
+    f = np.fft.rfftfreq(1 << 18) * K.DRIVE_OVERSAMPLE  # in units of the base sample rate
+    assert 20 * np.log10(resp[f >= 0.54].max()) < -95.0
+    assert 20 * np.log10(resp[f <= 0.46].min()) > -0.01
 
 
 def test_metric_detects_naive_drive(monkeypatch) -> None:
@@ -171,3 +212,5 @@ def test_oversampled_edge_lengths() -> None:
     h = kaiser_lowpass(8, 0.08, 10.0)
     assert oversampled(np.zeros(0), 8, np.tanh, h).shape == (0,)
     assert oversampled(np.array([0.5]), 8, np.tanh, h).shape == (1,)
+    with pytest.raises(ValueError):
+        oversampled(np.zeros(4), 0, np.tanh, h)
