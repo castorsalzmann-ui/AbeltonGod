@@ -13,6 +13,7 @@ import threading
 import time
 from datetime import datetime, timedelta, timezone
 
+import numpy as np
 import pytest
 
 import guard.budget as guard_budget
@@ -361,12 +362,41 @@ def test_missing_usage_counts_the_reserved_amount(make_guard):
 
 
 @pytest.mark.parametrize("bad", [float("nan"), float("inf"), -0.1, True, "0.1"])
-def test_invalid_reported_cost_counts_the_reserved_amount(make_guard, bad):
+def test_unreadable_reported_cost_counts_the_reservation_and_stops(make_guard, bad):
     guard = make_guard()
     with guard.request("p") as req:
         permit = req.before_model_call(estimated_cost_usd=0.25)
-        req.after_model_call(permit, ModelUsage(output_tokens=5, cost_usd=bad))
+        with pytest.raises(GuardStop) as info:
+            req.after_model_call(permit, ModelUsage(output_tokens=5, cost_usd=bad))
+    assert info.value.reason is Limit.UNREADABLE_USAGE
     assert guard.session_spent_usd == pytest.approx(0.25)
+
+
+@pytest.mark.parametrize("tokens", [5000.0, np.int64(5000)])
+def test_whole_number_reports_of_other_types_still_count(make_guard, tokens):
+    with make_guard().request("p") as req:
+        permit = req.before_model_call(estimated_cost_usd=0.1)
+        with pytest.raises(GuardStop) as info:
+            req.after_model_call(
+                permit, ModelUsage(output_tokens=tokens, cost_usd=np.float32(0.1))
+            )
+    assert info.value.reason is Limit.OUTPUT_TOKENS
+
+
+@pytest.mark.parametrize("files", [20.0, np.int64(20)])
+def test_files_reported_as_float_or_numpy_still_count(make_guard, files):
+    with make_guard().request("p") as req:
+        with pytest.raises(GuardStop) as info:
+            tool_call(req, files=1, actual_files=files)
+    assert info.value.reason is Limit.FILES
+
+
+@pytest.mark.parametrize("bad", [2.5, -1, "3", float("nan")])
+def test_unreadable_tool_counts_stop(make_guard, bad):
+    with make_guard().request("p") as req:
+        with pytest.raises(GuardStop) as info:
+            tool_call(req, files=1, actual_files=bad)
+    assert info.value.reason is Limit.UNREADABLE_USAGE
 
 
 def test_no_estimate_reserves_everything_left(make_guard):
@@ -501,7 +531,15 @@ def test_concurrent_reservations_never_exceed_the_session_budget(make_guard, mon
     assert guard.session_spent_usd <= 1.0 + 1e-9
 
 
-def test_concurrent_tool_calls_in_one_request_hit_the_limit_exactly(make_guard):
+def test_concurrent_tool_calls_in_one_request_hit_the_limit_exactly(make_guard, monkeypatch):
+    original_fits = guard_budget.Counter.fits
+
+    def slow_fits(self, amount, *, needs_room=False):
+        result = original_fits(self, amount, needs_room=needs_room)
+        time.sleep(0.0002)  # widen the check-then-act gap, as in the session test
+        return result
+
+    monkeypatch.setattr(guard_budget.Counter, "fits", slow_fits)
     guard = make_guard(policy(p__max_tool_calls=50, p__max_files_written=500))
     barrier = threading.Barrier(16)
     ok = []
@@ -558,13 +596,24 @@ def test_corrupt_log_lines_are_skipped(tmp_path, make_guard):
 def test_unwritable_usage_log_stops_the_request(tmp_path, make_guard):
     log = tmp_path / "usage.jsonl"
     guard = make_guard(log_path=log)
-    log.mkdir()  # the log path becomes unwritable after the guard started
     with guard.request("p") as req:
+        permit = req.before_model_call(estimated_cost_usd=0.1)
+        log.mkdir()  # the log path becomes unwritable while the call runs
         with pytest.raises(GuardStop) as info:
-            model_call(req, est=0.1, cost=0.1)
+            req.after_model_call(permit, ModelUsage(output_tokens=1, cost_usd=0.1))
     assert info.value.reason is Limit.USAGE_LOG
     assert guard.session_spent_usd == pytest.approx(0.1)  # still counted in memory
     assert req.log_errors  # the request_end line could not be written either
+
+
+def test_unreadable_usage_log_stops_before_the_next_model_call(tmp_path, make_guard):
+    log = tmp_path / "usage.jsonl"
+    guard = make_guard(log_path=log)
+    log.mkdir()
+    with guard.request("p") as req:
+        with pytest.raises(GuardStop) as info:
+            req.before_model_call(estimated_cost_usd=0.1)
+    assert info.value.reason is Limit.USAGE_LOG
 
 
 def test_unreadable_usage_log_refuses_to_start(tmp_path, make_guard):
@@ -647,3 +696,88 @@ def test_random_sequences_never_breach_count_limits(tmp_path, clock, now, seed):
     if stop is not None:
         assert stop.result.success is False
         assert usage["elapsed_s"] < prof["timeout_s"] or stop.reason is Limit.TIMEOUT
+
+
+# --- review round 1 (findings P1-P8) --------------------------------------------------------
+
+
+def test_two_guards_on_one_log_share_the_daily_budget(tmp_path, make_guard):
+    log = tmp_path / "usage.jsonl"
+    big = policy(p__max_budget_usd=4.9, g__session_budget_usd=5.0)
+    a, b = make_guard(big, log_path=log), make_guard(big, log_path=log)
+    with a.request("p") as req:
+        model_call(req, est=4.9, cost=4.9)
+        req.finish()
+    with b.request("p") as req:  # b was created before a spent anything
+        with pytest.raises(GuardStop) as info:
+            req.before_model_call(estimated_cost_usd=0.2)
+    assert info.value.reason is Limit.DAILY_BUDGET
+
+
+def test_call_open_at_midnight_is_charged_to_the_day_it_started(tmp_path, make_guard, now):
+    log = tmp_path / "usage.jsonl"
+    big = policy(p__max_budget_usd=4.9, g__session_budget_usd=5.0)
+    now.dt = datetime(2026, 10, 28, 23, 59, 59, tzinfo=BERLIN)
+    with make_guard(big, log_path=log).request("p") as req:
+        permit = req.before_model_call(estimated_cost_usd=4.9)
+        now.dt = datetime(2026, 10, 29, 0, 0, 1, tzinfo=BERLIN)
+        req.after_model_call(permit, ModelUsage(output_tokens=1, cost_usd=4.9))
+    entry = json.loads(log.read_text(encoding="utf-8").splitlines()[0])
+    assert entry["date"] == "2026-10-28"
+    fresh = make_guard(big, log_path=log)
+    assert fresh.daily_spent_usd == 0.0  # 29th: nothing spent yet
+
+
+def test_permit_from_another_request_is_rejected(make_guard):
+    guard = make_guard(policy(g__max_concurrent_requests=2))
+    with guard.request("p") as ra, guard.request("p") as rb:
+        pa = ra.before_model_call(estimated_cost_usd=0.1)
+        rb.before_model_call(estimated_cost_usd=0.9)
+        with pytest.raises(ValueError):
+            rb.after_model_call(pa, ModelUsage(output_tokens=1, cost_usd=0.0))
+        ta = ra.before_tool("t", {})
+        with pytest.raises(ValueError):
+            rb.after_tool(ta)
+    assert guard.session_spent_usd == pytest.approx(1.0)
+
+
+def test_failure_on_exit_keeps_the_original_error_and_frees_the_slot(make_guard, now):
+    guard = make_guard()
+
+    def broken_now():
+        raise OSError("clock")
+
+    with pytest.raises(KeyError):
+        with guard.request("p") as req:
+            req.before_model_call(estimated_cost_usd=0.1)
+            now_backup = guard._now
+            guard._now = broken_now
+            raise KeyError("original")
+    guard._now = now_backup
+    assert req.log_errors
+    with guard.request("p") as req2:  # the concurrency slot was released
+        assert req2.level is Level.OK
+
+
+def test_parse_policy_rejects_nan():
+    doc = copy.deepcopy(TEST_POLICY)
+    doc["global"]["session_budget_usd"] = float("nan")
+    with pytest.raises(PolicyError, match="session_budget_usd"):
+        parse_policy(doc)
+
+
+def test_ok_must_be_a_bool(make_guard):
+    with make_guard().request("p") as req:
+        permit = req.before_tool("t", {})
+        with pytest.raises(TypeError):
+            req.after_tool(permit, ok="False")
+
+
+def test_exception_after_finish_is_not_logged_as_success(tmp_path, make_guard):
+    log = tmp_path / "usage.jsonl"
+    with pytest.raises(RuntimeError):
+        with make_guard(log_path=log).request("p") as req:
+            req.finish()
+            raise RuntimeError("after finish")
+    end = json.loads(log.read_text(encoding="utf-8").splitlines()[-1])
+    assert end["outcome"] == "error"

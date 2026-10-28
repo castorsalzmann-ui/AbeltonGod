@@ -21,6 +21,13 @@ _Date: 2026-10-28 · Re-verify the SDK option behaviour at the start of Phase 04
 | `max_concurrent_requests` | guard only | Entering `guard.request(...)` takes a slot; no slot → `GuardStop`. |
 | `warn_at_fraction` | guard → orchestrator | On `Level.WARN`: no new sub-tasks, shorter answers; show `warning_message_de(req.warnings)`. |
 
+## Known limits of the guard (Phase 04a)
+
+- **Other processes:** the daily total is re-read from the usage log before every model call, so settled calls of other Guards or processes on the same log count. Calls still *in flight* in another process are invisible. Run one copilot process at a time.
+- **Zero estimates:** `estimated_cost_usd=0` is accepted. With `max_concurrent_requests > 1`, parallel calls with low estimates can overshoot the session budget before they settle (the overshoot is detected and stops the request afterwards). The default policy allows one request at a time. In 04b, pass a real estimate or `None` (reserves all money left).
+- **Log size:** the re-read scans the whole log file on every model call. Fine for a personal log; rotate it if it grows large.
+- **Timeout:** the guard cannot interrupt a running call; it stops at the next guard step.
+
 ## Open for 04b
 
 - What the SDK returns when `max_turns` or `max_budget_usd` is hit, and how it reports per-call cost and tokens.

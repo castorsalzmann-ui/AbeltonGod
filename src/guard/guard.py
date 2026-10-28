@@ -27,6 +27,8 @@ Money and timeout limits stop as soon as they are exceeded, even by a call that 
 from __future__ import annotations
 
 import itertools
+import math
+import numbers
 import time
 import uuid
 from collections.abc import Callable
@@ -63,6 +65,7 @@ class Limit(StrEnum):
     LIVE_WRITES = "max_live_writes"
     CONCURRENCY = "max_concurrent_requests"
     USAGE_LOG = "usage_log"
+    UNREADABLE_USAGE = "unreadable_usage"
 
 
 _REASON_DE = {
@@ -78,6 +81,7 @@ _REASON_DE = {
     Limit.LIVE_WRITES: "zu viele Änderungen am Ableton-Set für diese Anfrage",
     Limit.CONCURRENCY: "es läuft schon eine andere Anfrage",
     Limit.USAGE_LOG: "das Nutzungsprotokoll konnte nicht geschrieben werden",
+    Limit.UNREADABLE_USAGE: "die gemeldete Nutzung eines Aufrufs war nicht lesbar",
 }
 
 
@@ -162,6 +166,7 @@ class ModelUsage:
 @dataclass(frozen=True)
 class ModelCallPermit:
     id: int
+    request_id: str
     max_output_tokens: int  # pass to the SDK/API as max_tokens
     reserved_cost_usd: float
     level: Level
@@ -170,6 +175,7 @@ class ModelCallPermit:
 @dataclass(frozen=True)
 class ToolPermit:
     id: int
+    request_id: str
     name: str
     level: Level
 
@@ -179,6 +185,7 @@ class _ModelReservation:
     max_output_tokens: int
     cost: float
     daily: Counter
+    date: str  # the day the call was reserved on; its cost is logged on this day
 
 
 @dataclass
@@ -189,7 +196,30 @@ class _ToolReservation:
 
 
 def _valid_count(value: object) -> bool:
+    """Strict check for values the orchestrator passes in (plain int >= 0)."""
     return isinstance(value, int) and not isinstance(value, bool) and value >= 0
+
+
+def _as_count(value: object) -> int | None:
+    """Reported count as int: 3, 3.0 and NumPy ints are accepted; anything else is None."""
+    if isinstance(value, bool) or not isinstance(value, numbers.Real):
+        return None
+    if isinstance(value, numbers.Integral):
+        number = int(value)
+    else:
+        f = float(value)
+        if not (math.isfinite(f) and f.is_integer()):
+            return None
+        number = int(f)
+    return number if number >= 0 else None
+
+
+def _as_amount(value: object) -> float | None:
+    """Reported USD amount as float (finite, >= 0); anything else is None."""
+    if isinstance(value, bool) or not isinstance(value, numbers.Real):
+        return None
+    f = float(value)
+    return f if math.isfinite(f) and f >= 0 else None
 
 
 class Guard:
@@ -219,6 +249,14 @@ class Guard:
 
     def _today(self) -> str:
         return self._now().date().isoformat()
+
+    def _refresh_daily(self, date: str) -> Counter:
+        """Daily counter for ``date``, raised to what the log shows. Other Guard instances or
+        processes sharing the log become visible once their calls are settled (call with the
+        lock held; raises UsageLogError if the log cannot be read)."""
+        counter = self._ledger.daily(date)
+        counter.used = max(counter.used, self._log.counted_cost_on(date))
+        return counter
 
     def request(self, profile_name: str) -> GuardedRequest:
         """Create a request for ``profile_name``. Unknown profiles raise ``UnknownProfileError``.
@@ -289,19 +327,26 @@ class GuardedRequest:
     def __exit__(self, exc_type: Any, exc: Any, tb: Any) -> bool:
         if self._state == "closed":
             return False
+        # Nothing in here may hide the original exception or leak the concurrency slot.
         with self._g._book.lock:
-            for pid in list(self._models):
-                self._settle_model(pid, None, log_errors_fatal=False)
-            for pid in list(self._tools):
-                self._settle_tool(pid, None, None, ok=False, label=None, log_errors_fatal=False)
-            outcome = (
-                "stopped" if self._stopped is not None
-                else "success" if self._state == "finished"
-                else "error" if exc_type is not None
-                else "abandoned"
-            )
-            self._state = "closed"
-            self._g._active -= 1
+            try:
+                for pid in list(self._models):
+                    self._settle_model(pid, None, log_errors_fatal=False)
+                for pid in list(self._tools):
+                    self._settle_tool(
+                        pid, None, None, ok=False, label=None, log_errors_fatal=False
+                    )
+            except Exception as err:  # noqa: BLE001 - recorded, never raised from __exit__
+                self.log_errors.append(f"settling on exit failed: {err!r}")
+            finally:
+                outcome = (
+                    "stopped" if self._stopped is not None
+                    else "error" if exc_type is not None
+                    else "success" if self._state == "finished"
+                    else "abandoned"
+                )
+                self._state = "closed"
+                self._g._active -= 1
         self._write_log(
             {"kind": "request_end", "outcome": outcome, **self._usage()}, fatal=False
         )
@@ -385,7 +430,11 @@ class GuardedRequest:
         with g._book.lock:
             self._require_running()
             self._check_timeout(open_item="Modellaufruf")
-            daily = g._ledger.daily(g._today())
+            today = g._today()
+            try:
+                daily = g._refresh_daily(today)
+            except UsageLogError as exc:
+                self._stop(Limit.USAGE_LOG, str(exc), open_item="Modellaufruf")
             money = (self._cost, g._ledger.session, daily)
             est = (
                 max(0.0, min(c.headroom for c in money))
@@ -405,14 +454,18 @@ class GuardedRequest:
             # A started call counts at once; only money is settled later.
             g._book.settle(self._model_calls, 1, 1)
             pid = next(self._ids)
-            self._models[pid] = _ModelReservation(max_output_tokens, est, daily)
-            return ModelCallPermit(pid, max_output_tokens, est, self._level_unlocked())
+            self._models[pid] = _ModelReservation(max_output_tokens, est, daily, today)
+            return ModelCallPermit(
+                pid, self.request_id, max_output_tokens, est, self._level_unlocked()
+            )
 
     def after_model_call(self, permit: ModelCallPermit, usage: ModelUsage | None) -> Level:
         """Settle a model call with its actual usage. Raises ``GuardStop`` if a limit was
         exceeded by it, or if the request was already stopped."""
         with self._g._book.lock:
             self._require_open_permits()
+            if getattr(permit, "request_id", None) != self.request_id:
+                raise ValueError("This model permit belongs to another request.")
             if permit.id not in self._models:
                 raise ValueError(f"Unknown or already settled model permit {permit.id}.")
             self._settle_model(permit.id, usage, log_errors_fatal=True)
@@ -460,7 +513,7 @@ class GuardedRequest:
             self._loop.record(key)
             pid = next(self._ids)
             self._tools[pid] = _ToolReservation(name, writes_files, live_writes)
-            return ToolPermit(pid, name, self._level_unlocked())
+            return ToolPermit(pid, self.request_id, name, self._level_unlocked())
 
     def after_tool(
         self,
@@ -473,8 +526,12 @@ class GuardedRequest:
     ) -> Level:
         """Settle a tool call. Missing counts use the reserved amount. A failed tool (``ok=False``)
         is listed as open, not done."""
+        if not isinstance(ok, bool):
+            raise TypeError(f"ok must be a bool, got {ok!r}")
         with self._g._book.lock:
             self._require_open_permits()
+            if getattr(permit, "request_id", None) != self.request_id:
+                raise ValueError("This tool permit belongs to another request.")
             if permit.id not in self._tools:
                 raise ValueError(f"Unknown or already settled tool permit {permit.id}.")
             self._settle_tool(
@@ -513,33 +570,40 @@ class GuardedRequest:
     def _settle_model(self, pid: int, usage: ModelUsage | None, *, log_errors_fatal: bool) -> None:
         g = self._g
         res = self._models.pop(pid)
-        actual_cost = usage.cost_usd if usage is not None else None
-        cost_known = is_valid_amount(actual_cost)
-        counted = float(actual_cost) if cost_known else res.cost
+        reported_cost = usage.cost_usd if usage is not None else None
+        reported_tokens = usage.output_tokens if usage is not None else None
+        cost = _as_amount(reported_cost)
+        tokens = _as_count(reported_tokens)
+        # A value that was reported but cannot be read may hide an overrun: count the
+        # reservation now and stop below. A missing value (None) only counts the reservation.
+        unreadable = [
+            f"{name}={value!r}"
+            for name, value, parsed in (
+                ("cost_usd", reported_cost, cost),
+                ("output_tokens", reported_tokens, tokens),
+            )
+            if value is not None and parsed is None
+        ]
+        counted = cost if cost is not None else res.cost
         for counter in (self._cost, g._ledger.session, res.daily):
             g._book.settle(counter, res.cost, counted)
-        tokens = usage.output_tokens if usage is not None else None
-        tokens_known = _valid_count(tokens)
-        counted_tokens = tokens if tokens_known else res.max_output_tokens
+        counted_tokens = tokens if tokens is not None else res.max_output_tokens
         self._output_tokens_total += counted_tokens
         self._max_call_tokens = max(self._max_call_tokens, counted_tokens)
         entry = {
             "kind": "model",
             "estimated_cost_usd": res.cost,
-            "actual_cost_usd": float(actual_cost) if cost_known else None,
+            "actual_cost_usd": cost,
             "counted_cost_usd": counted,
             "max_output_tokens": res.max_output_tokens,
-            "actual_output_tokens": tokens if tokens_known else None,
-            "input_tokens": (
-                usage.input_tokens if usage is not None and _valid_count(usage.input_tokens)
-                else None
-            ),
+            "actual_output_tokens": tokens,
+            "input_tokens": _as_count(usage.input_tokens) if usage is not None else None,
             "level": self._level_unlocked().value,
         }
-        self._write_log(entry, fatal=log_errors_fatal)
+        self._write_log(entry, fatal=log_errors_fatal, date=res.date)
         if not log_errors_fatal:
             return
-        if tokens_known and tokens > res.max_output_tokens:
+        if tokens is not None and tokens > res.max_output_tokens:
             self._stop(
                 Limit.OUTPUT_TOKENS,
                 f"call returned {tokens} output tokens, limit {res.max_output_tokens}",
@@ -550,12 +614,14 @@ class GuardedRequest:
                     Limit(counter.name),
                     f"spent {counter.used:g} of {counter.limit:g} USD",
                 )
+        if unreadable:
+            self._stop(Limit.UNREADABLE_USAGE, "model call reported " + ", ".join(unreadable))
 
     def _settle_tool(
         self,
         pid: int,
-        files_written: int | None,
-        live_writes: int | None,
+        files_written: object,
+        live_writes: object,
         *,
         ok: bool,
         label: str | None,
@@ -563,8 +629,18 @@ class GuardedRequest:
     ) -> None:
         g = self._g
         res = self._tools.pop(pid)
-        files = files_written if _valid_count(files_written) else res.files
-        live = live_writes if _valid_count(live_writes) else res.live
+        files_parsed = _as_count(files_written)
+        live_parsed = _as_count(live_writes)
+        unreadable = [
+            f"{name}={value!r}"
+            for name, value, parsed in (
+                ("files_written", files_written, files_parsed),
+                ("live_writes", live_writes, live_parsed),
+            )
+            if value is not None and parsed is None
+        ]
+        files = files_parsed if files_parsed is not None else res.files
+        live = live_parsed if live_parsed is not None else res.live
         g._book.settle(self._files, res.files, files)
         g._book.settle(self._live, res.live, live)
         item = label or f"Werkzeug {res.name}"
@@ -591,6 +667,8 @@ class GuardedRequest:
             self._stop(Limit.FILES, f"{res.name} wrote {files}; total {self._files.used:g}")
         if self._live.exceeded():
             self._stop(Limit.LIVE_WRITES, f"{res.name} made {live}; total {self._live.used:g}")
+        if unreadable:
+            self._stop(Limit.UNREADABLE_USAGE, f"{res.name} reported " + ", ".join(unreadable))
 
     def _warn_reasons(self) -> list[Limit]:
         p = self.profile
@@ -680,22 +758,24 @@ class GuardedRequest:
             )
         raise self._stopped
 
-    def _write_log(self, entry: dict[str, Any], *, fatal: bool) -> None:
-        full = {
-            "ts": self._g._now().isoformat(),
-            "date": self._g._today(),
-            "session": self._g.session_id,
-            "request": self.request_id,
-            "profile": self.profile.name,
-            **entry,
-        }
+    def _write_log(
+        self, entry: dict[str, Any], *, fatal: bool, date: str | None = None
+    ) -> None:
         try:
+            full = {
+                "ts": self._g._now().isoformat(),
+                "date": date or self._g._today(),
+                "session": self._g.session_id,
+                "request": self.request_id,
+                "profile": self.profile.name,
+                **entry,
+            }
             self._g._log.append(full)
-        except UsageLogError as exc:
+        except Exception as exc:  # noqa: BLE001 - any log failure is a stop (or recorded)
             if not fatal:
-                self.log_errors.append(str(exc))
+                self.log_errors.append(repr(exc))
                 return
-            self._stop(Limit.USAGE_LOG, str(exc))
+            self._stop(Limit.USAGE_LOG, repr(exc))
 
 
 __all__ = [

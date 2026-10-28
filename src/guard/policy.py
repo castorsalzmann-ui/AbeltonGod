@@ -9,6 +9,7 @@ clamped or silently replaced by a default.
 from __future__ import annotations
 
 import json
+import math
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -78,12 +79,25 @@ def _reject_constant(token: str) -> Any:
     raise PolicyError(f"Policy contains {token}; only finite numbers are allowed.")
 
 
+def _non_finite(value: Any, where: str = "(root)") -> Any:
+    """Yield the path of every NaN/Infinity, which JSON Schema range checks let through."""
+    if isinstance(value, float) and not math.isfinite(value):
+        yield where
+    elif isinstance(value, dict):
+        for key, item in value.items():
+            yield from _non_finite(item, key if where == "(root)" else f"{where}.{key}")
+
+
 def _schema() -> dict[str, Any]:
     return json.loads(POLICY_SCHEMA_FILE.read_text(encoding="utf-8"))
 
 
 def parse_policy(doc: Any) -> Policy:
     """Validate a decoded policy document and return a typed, read-only Policy."""
+    bad = list(_non_finite(doc))
+    if bad:
+        lines = "\n".join(f"- {b}: must be finite" for b in bad)
+        raise PolicyError("Invalid guard policy:\n" + lines)
     errors = sorted(Draft202012Validator(_schema()).iter_errors(doc), key=lambda e: list(e.path))
     if errors:
         lines = [f"- {'.'.join(str(p) for p in e.path) or '(root)'}: {e.message}" for e in errors]
