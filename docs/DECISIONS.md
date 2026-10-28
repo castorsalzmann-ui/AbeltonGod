@@ -126,3 +126,26 @@ _2026-10-28: "Rejected" lines added to D-001–D-011 as a clarification; no deci
 **Rejected.** ±10 % to `pitch_end_hz` regardless of settling. Restricting the schema so the pitch always settles (less sound-design range). A uniform ±3.5 % tolerance (tuned to observed failures). Comparing crossing counts of two signals in the same window (it produced false failures up to 13 %).
 
 **Consequences.** Do not loosen these tolerances, add skips or `xfail` without a new user decision. The schema wording follows in #7. Evidence and reviews: PR #8.
+
+## D-013 · 2026-10-28 · accepted — Engine version follows rendered bytes (user decision on #35)
+
+**Decision.** `audio_engine.ENGINE_VERSION` changes in every PR that changes the bytes of any rendered WAV (minor bump, e.g. 0.1.0 → 0.2.0; patch only for changes that keep all bytes identical). The same PR updates the golden SHA-256s in `tests/audio_engine/test_engine_version.py` and ticks the PR-template checkbox. `rerender_from_sidecar` refuses a sidecar from another engine name or version with `EngineVersionMismatch`; `allow_engine_mismatch=True` renders it with the current engine as a new render.
+
+**Reason.** `INTERFACES.md` and D-005 promise that a sidecar reproduces its WAV byte for byte. Three byte changes (#20, #26, #16) shipped under version 0.0.1, so a re-render silently gave different bytes (#35).
+
+**Rejected.** Bumping only for audible changes (format fixes would still break re-render silently). Migrating old sidecars (only test renders exist).
+
+**Consequences.** A byte change without a bump fails the golden-hash test; a bump without new hashes fails the version check. Golden hashes are a hard failure on Linux and Windows (Windows CI matched all 5 cases, PR #40). Old sidecars are not migrated. Evidence and reviews: PR #40.
+
+## D-014 · 2026-10-28 · accepted — Product auth: subscription login, default model Opus 5.5 (user decision; refines D-008)
+
+**Decision.** The Phase 04b orchestrator authenticates through the Claude Agent SDK with the user's Claude Max (5x) subscription login. The default model is Opus 5.5. The auth method stays a single configuration switch (D-008), so an API key can replace the login without code changes.
+
+**Reason.** User's choice after the research note (PR #47, fact-checked against official sources): the Agent SDK with plan login is allowed for ordinary, individual use of a personal local tool.
+
+**Rejected.** API key from a Console organization linked to the Max plan (monthly API credit, separate from the usage window) — offered as the recommended route, not chosen for now; the plan-to-organization link cannot be changed by the user afterwards. Sonnet 5.5 as default (cheaper; not chosen).
+
+**Consequences.**
+- Copilot requests share the 5-hour and weekly usage window with development sessions.
+- If anyone other than the user ever uses the tool, the subscription login is no longer allowed: switch to an API key first.
+- USD figures in `config/guard-policy.json` are API-equivalent estimates. With Opus 5.5 the `kick_generation` worst case (8 calls × 1.5k output) is estimated at ~$0.37, above its $0.25 cap; the guard then stops the request. The cap stays unchanged until Phase 04b measures real usage.
