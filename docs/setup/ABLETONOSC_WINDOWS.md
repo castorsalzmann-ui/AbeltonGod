@@ -43,9 +43,66 @@ python -c "from bridge.osc_client import AbletonBridge; AbletonBridge.connect().
 - **Keine Antwort:** Eine Fehlermeldung nennt die möglichen Ursachen. Vom Python-Programm aus lässt sich nicht unterscheiden, ob Live geschlossen ist oder AbletonOSC nicht ausgewählt ist — beides prüfen. Ein offener Dialog in Live (z. B. Speichern) kann Antworten ebenfalls aufhalten.
 - **„cannot bind reply port 127.0.0.1:11001“:** Ein anderes Programm empfängt schon auf Port 11001 (z. B. ein zweites Terminal mit demselben Befehl). Dieses schließen.
 
-Dieser Test ändert nichts im Set. Der ausführliche Check mit Tempo, Spuren und einer rückgängig gemachten Mute-Änderung kommt in #5 (`scripts/bridge_check.py`).
+Dieser Test ändert nichts im Set. Der ausführliche Check mit Tempo, Spuren und einer rückgängig gemachten Mute-Änderung steht in Abschnitt 5.
 
-## 5. Wo die Logs liegen
+## 5. Bridge-Check ausführen (Issue #5)
+
+Der Check liest ein paar Werte aus Live und schaltet danach — nur wenn du zweimal mit `y` bestätigst — eine Spur kurz stumm, wieder laut, wieder stumm und nimmt die letzte Änderung mit Undo zurück. Danach ist das Set wie vorher.
+
+**Vorbereitung:** In Live ein **neues, leeres Test-Set** anlegen (*Datei → Neues Live-Set*), zwei oder drei Spuren genügen, und es z. B. als `AbeltonGod-Test` speichern. Nicht mit einem echten Projekt ausführen.
+
+In PowerShell, im Projektordner:
+
+```powershell
+git pull
+.\.venv\Scripts\Activate.ps1
+pip install -e ".[dev]"
+python scripts/bridge_check.py
+```
+
+Das Script fragt dreimal:
+
+1. `Ist das geöffnete Set ein eigenes TEST-Set (kein echtes Projekt)? [y/N]` — nur `y`, wenn es wirklich das Test-Set ist. Alles andere (auch Enter) beendet das Script nach dem Lesen, ohne etwas zu ändern.
+2. `Welche Spur soll kurz stummgeschaltet werden? Index 0-… [Enter = 0 '…']` — Nummer der Spur oder Enter für die erste.
+3. Es zeigt die geplanten Schritte an. `Diese Änderungen jetzt ausführen? [y/N]` — `y` zum Ausführen.
+
+**Erwartete Ausgabe (gekürzt):**
+
+```text
+Verbindung zu AbletonOSC (127.0.0.1:11000) steht.
+
+--- Teil 1: nur lesen (ändert nichts) ---
+Live-Version (laut API, nur Haupt.Neben): 12.4
+Tempo: 120 BPM
+Taktart: 4/4
+Spuren (2):
+  0: 1-Audio
+  1: 2-MIDI
+...
+  R1: Spur 0 ist stumm (erwartet: stumm) OK
+  R2: Spur 0 ist nicht stumm (erwartet: nicht stumm) OK
+  R3: Spur 0 ist stumm (erwartet: stumm) OK
+  R4: Spur 0 ist nicht stumm (erwartet: nicht stumm) OK
+Undo hat die letzte Mute-Änderung zurückgenommen. Das Set ist wie vorher.
+```
+
+In Live siehst du den Mute-Knopf der Spur kurz an- und ausgehen. Die Live-Version zeigt nur `12.4`, weil AbletonOSC keine Patch-Nummer liefert; die genaue Version (12.4.5) steht schon in Issue #5.
+
+**Was ins Issue gehört:** Am Ende steht ein Block zwischen ` ```text ` und ` ``` `, beginnend mit `AbeltonGod bridge_check result`. Diesen Block **komplett** (mit den drei Backticks) als Kommentar in Issue #5 einfügen. Steht irgendwo `FAIL` oder `ABWEICHUNG`, bitte zusätzlich die letzten ~30 Zeilen von `abletonosc.log` (siehe Abschnitt 6) anhängen.
+
+**Fehlerfälle prüfen** (Abnahme von #5, je ein Durchlauf genügt):
+
+| Test | So geht's | Erwartet |
+| --- | --- | --- |
+| Live geschlossen | Live beenden, `python scripts/bridge_check.py` | `FEHLER: AbletonOSC antwortet nicht …` mit Liste der Ursachen, Exit-Code 2 |
+| AbletonOSC nicht ausgewählt | Live offen, Control Surface auf *Keine*, Script starten | dieselbe Meldung (beides ist von außen nicht zu unterscheiden) |
+| Port 11001 belegt | Zweites PowerShell-Fenster: `python -c "import socket,time; s=socket.socket(socket.AF_INET,socket.SOCK_DGRAM); s.bind(('127.0.0.1',11001)); time.sleep(60)"`, im ersten das Script starten | `FEHLER: Port 11001 (127.0.0.1) ist schon belegt.`, Exit-Code 3 |
+
+Den Exit-Code zeigt PowerShell direkt danach mit `$LASTEXITCODE`. Schreib bitte ins Issue, ob die Meldungen für dich verständlich waren.
+
+**Wenn etwas schiefgeht:** Meldet das Script `UNBEKANNT` oder `ABWEICHUNG`, sendet es keine weiteren Änderungen und kein Undo. Es sagt dir, ob die Spur ursprünglich stumm war — dann in Live nachsehen und den Mute-Knopf ggf. von Hand zurückstellen. *Strg + Z* in Live nur verwenden, wenn du sicher bist, was es zurücknimmt.
+
+## 6. Wo die Logs liegen
 
 | Log | Ort | Wofür |
 | --- | --- | --- |
