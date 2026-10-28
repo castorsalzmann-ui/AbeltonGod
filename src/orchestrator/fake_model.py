@@ -13,8 +13,14 @@ contract)::
          "usage": {"output_tokens": 120, "input_tokens": 900, "cost_usd": 0.01},
          "stop_reason": "tool_use"},
         {"error": "unavailable", "detail": "connection refused", "request_sent": false},
-        {"error": "protocol", "detail": "malformed answer"}
+        {"error": "protocol", "detail": "malformed answer"},
+        {"error": "limit", "subtype": "error_max_budget_usd", "detail": "...",
+         "usage": {"output_tokens": 900, "cost_usd": 0.31}}
      ]}
+
+The ``limit`` kind mimics the Agent SDK's stop path as described in the cluster-1 note
+(PR #79, not verified): a ``ResultMessage`` with ``error_max_turns`` / ``error_max_budget_usd``
+followed by ``ResultError``, with the usage still reported (a budget stop can overshoot).
 
 When the recording is used up (and ``repeat_last`` is false) the next call raises
 ``ModelUnavailable`` so a test can never silently run past its script. Every request the fake
@@ -31,6 +37,7 @@ from typing import Any
 
 from guard import ModelUsage
 from orchestrator.model_client import (
+    ModelLimitReached,
     ModelProtocolError,
     ModelRequest,
     ModelResponse,
@@ -39,13 +46,26 @@ from orchestrator.model_client import (
 )
 
 RECORDING_VERSION = 1
+LIMIT_SUBTYPES = ("error_max_turns", "error_max_budget_usd")
 
 
 class RecordingError(ValueError):
     """A recording file is malformed."""
 
 
-def _turn_from_json(raw: Any, where: str) -> ModelResponse | ModelUnavailable | ModelProtocolError:
+def _usage_from_json(raw: Any, where: str) -> ModelUsage | None:
+    if raw is None:
+        return None
+    if not isinstance(raw, Mapping):
+        raise RecordingError(f"{where}.usage must be an object")
+    return ModelUsage(
+        output_tokens=raw.get("output_tokens"),
+        input_tokens=raw.get("input_tokens"),
+        cost_usd=raw.get("cost_usd"),
+    )
+
+
+def _turn_from_json(raw: Any, where: str) -> ModelResponse | Exception:
     if not isinstance(raw, Mapping):
         raise RecordingError(f"{where}: a turn must be an object")
     if "error" in raw:
@@ -54,6 +74,13 @@ def _turn_from_json(raw: Any, where: str) -> ModelResponse | ModelUnavailable | 
             return ModelUnavailable(detail, request_sent=bool(raw.get("request_sent", True)))
         if raw["error"] == "protocol":
             return ModelProtocolError(detail)
+        if raw["error"] == "limit":
+            subtype = raw.get("subtype")
+            if subtype not in LIMIT_SUBTYPES:
+                raise RecordingError(f"{where}: limit subtype must be one of {LIMIT_SUBTYPES}")
+            return ModelLimitReached(
+                subtype, detail, usage=_usage_from_json(raw.get("usage"), where)
+            )
         raise RecordingError(f"{where}: unknown error kind {raw['error']!r}")
     unknown = set(raw) - {"text", "tool_calls", "usage", "stop_reason"}
     if unknown:
@@ -70,16 +97,7 @@ def _turn_from_json(raw: Any, where: str) -> ModelResponse | ModelUnavailable | 
                 arguments=copy.deepcopy(call.get("arguments")),
             )
         )
-    usage_raw = raw.get("usage")
-    usage = None
-    if usage_raw is not None:
-        if not isinstance(usage_raw, Mapping):
-            raise RecordingError(f"{where}.usage must be an object")
-        usage = ModelUsage(
-            output_tokens=usage_raw.get("output_tokens"),
-            input_tokens=usage_raw.get("input_tokens"),
-            cost_usd=usage_raw.get("cost_usd"),
-        )
+    usage = _usage_from_json(raw.get("usage"), where)
     text = raw.get("text", "")
     if not isinstance(text, str):
         raise RecordingError(f"{where}.text must be a string")

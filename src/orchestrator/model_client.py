@@ -14,6 +14,11 @@ Errors a client may raise:
   the model (e.g. connection refused), so it cost nothing; the default ``True`` is the
   conservative assumption.
 - ``ModelProtocolError``: the model answered, but the answer cannot be read.
+- ``ModelLimitReached``: the backend's own limit ended the run (for the Claude Agent SDK: a
+  ``ResultMessage`` with subtype ``error_max_turns`` / ``error_max_budget_usd`` followed by a
+  raised ``ResultError``, per the cluster-1 research note, PR #79, **not verified**). It
+  carries the usage the backend still reported, so the guard can count the spend; a budget
+  stop may have overshot the cap by one response.
 
 Anything else a client raises is a bug in the client.
 """
@@ -41,6 +46,16 @@ class ModelUnavailable(ModelError):
 
 class ModelProtocolError(ModelError):
     """The model answered, but the answer is malformed."""
+
+
+class ModelLimitReached(ModelError):
+    """The backend stopped the run on its own limit (``subtype`` names which one)."""
+
+    def __init__(self, subtype: str, detail: str, *, usage: ModelUsage | None = None) -> None:
+        super().__init__(f"{subtype}: {detail}")
+        self.subtype = subtype
+        self.detail = detail
+        self.usage = usage
 
 
 @dataclass(frozen=True)
@@ -99,8 +114,9 @@ class ModelRequest:
 
     - ``max_output_tokens``: from the guard permit (pass to the SDK/API as max tokens).
     - ``timeout_s``: seconds left in the guarded request.
-    - ``sdk_limits``: ``GuardedRequest.sdk_limits()`` (``max_turns``, ``max_budget_usd``) for
-      an SDK that enforces its own limits as the first line (D-011).
+    - ``sdk_limits``: ``GuardedRequest.sdk_limits()`` taken just before this call was
+      reserved (``max_turns`` >= 1, never 0: the Agent SDK reads 0 as "no limit"), for an SDK
+      that enforces its own limits as the first line (D-011).
     """
 
     system: str
@@ -133,6 +149,7 @@ __all__ = [
     "Message",
     "ModelClient",
     "ModelError",
+    "ModelLimitReached",
     "ModelProtocolError",
     "ModelRequest",
     "ModelResponse",
