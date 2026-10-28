@@ -25,7 +25,10 @@ where = ["src"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-ra -n auto --dist worksteal"  # pytest-xdist; `pytest -n 0` runs serially
+# -n auto: pytest-xdist on all cores (`pytest -n 0` runs serially).
+# --basetemp: fixed temp folder in the repo, wiped at the start of each run. Avoids the
+# shared %TEMP%\\pytest-of-<user> cleanup that crashed on Windows at session end (#21).
+addopts = "-ra -n auto --dist worksteal --basetemp=.pytest_tmp"
 
 [tool.ruff]
 line-length = 100
