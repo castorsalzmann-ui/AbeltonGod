@@ -10,9 +10,10 @@ Paths `SDK/…` mean `site-packages/claude_agent_sdk/…` in version 0.2.172. Li
 
 ## Summary for the implementer
 
-- **Agent SDK route (D-014, what 04b uses):** `@tool("generate_kick", desc, schema_dict)` passes our JSON Schema dict to the CLI **byte for byte**. Before the handler runs, the SDK validates the arguments with `jsonschema` against that same dict and returns any failure to Claude as a tool error. No transformation is required by anything that is documented. Two changes are recommended: drop `$id` and `$schema`, and write a tool-facing description. Whether the API accepts `$id`/`$schema` in a non-strict tool is **not documented** (see "To verify").
+- **Agent SDK route (D-014, what 04b uses):** `@tool("generate_kick", desc, schema_dict)` passes our JSON Schema dict to the CLI **unchanged** (same dict object; verified by identity and JSON equality, not by inspecting the bytes on the wire). Before the handler runs, the SDK validates the arguments with `jsonschema` against that same dict and returns any failure to Claude as a tool error. No transformation is required by anything that is documented. Two changes are recommended: drop `$id` and `$schema`, and write a tool-facing description. Whether the API accepts `$id`/`$schema` in a non-strict tool is **not documented** (see "To verify").
 - **Strict mode** (`strict: true`) exists, is GA and covers Opus 5.5. The Python Agent SDK's `@tool` has **no way to set it**. It would also drop our ranges (`minimum`/`maximum` are not supported in strict schemas). So our own validation (D-002) is the only range check either way.
-- **Tool search is on by default** in the Agent SDK. Claude then first sees only tool names and a summary, and loads the full schema with an extra search step. For three tools, set `ENABLE_TOOL_SEARCH=false`.
+- **Runtime topics are not in this note.** Tool search (which decides when the model first sees our schemas), the `mcp__<server>__<tool>` names at runtime and the closed tool surface are covered by the cluster-1 note `docs/research/2026-10-28_agent-sdk-behaviour.md` (PR #79, lead decision on the overlap). This note keeps only what is schema-specific.
+- **Web-doc claims were checked only through WebFetch summaries.** This covers the strict guarantees, the 400 behaviour, the name regex, the 24-optional-parameter limit and the `tool_choice` 400. `curl` to platform.claude.com was blocked, and the reviewer could not re-fetch the pages. These claims stay on the "To verify" list (item 7).
 
 ## Q1 — Which JSON Schema subset do tool `input_schema`s accept? What is ignored, what is rejected?
 
@@ -61,15 +62,18 @@ Paths `SDK/…` mean `site-packages/claude_agent_sdk/…` in version 0.2.172. Li
 | root `$id`, `$schema` | remove | not in the supported list; the result is not documented |
 | root | keep `additionalProperties: false` | already compliant |
 
-  - `anthropic.transform_schema` (2.3.0, `_transform.py:98-218`) does steps 1–2 automatically. It moves each removed constraint into the field's `description` as text, for example `{minimum: 0, maximum: 1, default: 0.2}` (`_transform.py:207-216`). After I added the three `type`s, it ran cleanly on our file.
-  - **Interpretation:** it also moves `default` into the description text, although `default` is in the documented strict subset. Not harmful, but worth knowing.
+  - `anthropic.transform_schema` (2.3.0, `_transform.py:98-218`) removes the unsupported keywords and appends each one to the field's `description` as text, for example `{minimum: 0, maximum: 1, default: 0.2}` (`_transform.py:207-216`). After I added the three `type`s, it ran without error on our file. **Running `transform_schema` is not enough**, because it also loses or leaks things (all reproduced locally on 2026-10-28):
+    - **It drops `const`.** `const` is not one of the keys it copies (`_transform.py:143-205`). `schema_version` becomes `{"type": "string", "description": "{const: 0.2}"}`, so under strict any string would be schema-valid. Add `const` back by hand: it is in the documented strict subset, or use `"enum": ["0.2"]`.
+    - **It leaks the root `$schema` and `$id` URLs into the root `description`**, which the model reads: `… {$schema: https://json-schema.org/draft/2020-12/schema, $id: https://github.com/castorsalzmann-ui/AbeltonGod/contracts/kick-params.schema.json}`. Remove both keys before transforming.
+    - It also moves `default` into the description text, although `default` is in the documented strict subset (interpretation: harmless, but the structured `default` is gone).
+  - So the strict table above lists what the *documentation* rules out. A transformed schema still needs a hand-check, and a real compile run (To verify, item 6), before it can be trusted.
 
 **Sources.**
 - `SDK/__init__.py:436-456` (`_build_input_schema`) and `:604-641` (`create_sdk_mcp_server`, validation at `:630`). Local run on 2026-10-28 (commands in the PR body).
 - `anthropic` 2.3.0 wheel, `anthropic/lib/_parse/_transform.py:98-218`.
 - [Structured outputs → How SDK transformation works](https://platform.claude.com/docs/en/build-with-claude/structured-outputs#json-schema-limitations).
 
-**Confidence.** High for what the SDK does with the dict (source read plus a local run). Medium for "the API accepts it as-is", which is not yet observed. High for the strict transformation table (documented unsupported list, transform behaviour reproduced).
+**Confidence.** High for what the SDK does with the dict (source read plus a local run). Medium for "the API accepts it as-is", which is not yet observed. Medium for the strict transformation table. It follows the documented unsupported list, but that list was read only through WebFetch summaries. The table has not been sent to the API, and the only tool that automates it (`transform_schema`) drops `const` and leaks URLs.
 
 ## Q3 — Does the model see `default` / `description`, and do they influence argument choice?
 
@@ -84,16 +88,12 @@ Paths `SDK/…` mean `site-packages/claude_agent_sdk/…` in version 0.2.172. Li
   - The Agent SDK guide says to "apply the default in the handler".
   - **Interpretation:** the model probably reads `default` as part of the JSON text and may treat it as a hint, but there is no documented effect. Our engine already fills defaults itself (`src/audio_engine/params.py:86-88`), so we do not depend on the model.
 - **Documented alternative for steering:** `input_examples`, schema-valid example inputs placed in the prompt. Invalid examples return 400. They add about 20–200 tokens each. This is a Messages API field; the Python `@tool` has no parameter for it (`SDK/__init__.py:277-282`).
-- **Agent SDK caveat (documented):**
-  - Tool search is on by default and also applies to custom SDK MCP tools. Claude "sees each tool's name in a compact list and loads its full schema on demand", which costs one extra round trip the first time.
-  - Until the schema is loaded, the model has not seen the field descriptions.
-  - With fewer than about 10 tools, Anthropic says loading everything upfront is "typically faster". `ENABLE_TOOL_SEARCH=false` turns tool search off.
+- **When the model sees the schema** depends on the Agent SDK's tool search. That is a runtime topic, covered in `docs/research/2026-10-28_agent-sdk-behaviour.md` (PR #79). The schema-specific point: field descriptions only help once the full schema is in the model's context.
 
 **Sources.**
 - [Define tools → Tool use system prompt / Best practices / Providing tool use examples](https://platform.claude.com/docs/en/agents-and-tools/tool-use/define-tools).
 - [Messages API reference, `tools[].description`](https://platform.claude.com/docs/en/api/messages/create).
-- [Agent SDK custom tools](https://code.claude.com/docs/en/agent-sdk/custom-tools) — "Make a parameter optional", tool-search note.
-- [Agent SDK tool search → Configure tool search](https://code.claude.com/docs/en/agent-sdk/tool-search).
+- [Agent SDK custom tools](https://code.claude.com/docs/en/agent-sdk/custom-tools) — "Make a parameter optional".
 
 **Confidence.** High that descriptions are model input and matter. High that `default` has no documented effect. The influence of `default` is an **interpretation**, not established.
 
@@ -122,7 +122,7 @@ Paths `SDK/…` mean `site-packages/claude_agent_sdk/…` in version 0.2.172. Li
 - [Python SDK reference → `@tool`](https://code.claude.com/docs/en/agent-sdk/python) — no `strict`.
 - `SDK/__init__.py` lines as cited.
 
-**Confidence.** High for the API facts (official, explicit). High that the Python `@tool` cannot set strict (signature read). Low for the CLI internals.
+**Confidence.** High for the API facts as the WebFetch summaries reported them. They are official and stated explicitly, but they have not been re-read at the source (To verify, item 7). High that the Python `@tool` cannot set strict (signature read). Low for the CLI internals.
 
 ## Q5 — How do the Agent SDK's custom tools take a schema, and how are tool names constrained?
 
@@ -135,9 +135,11 @@ Paths `SDK/…` mean `site-packages/claude_agent_sdk/…` in version 0.2.172. Li
   - The handler gets the arguments only after `jsonschema` validation (`:630`). A raised exception or `is_error: True` reaches Claude as an error result (`:633-641`).
 - **Names:**
   - The API requires `^[a-zA-Z0-9_-]{1,128}$` for every tool name.
-  - The Agent SDK exposes a custom tool as `mcp__{server_key}__{tool_name}`. `{server_key}` is the key in `mcp_servers`; characters such as `.` and spaces in it are replaced by `_`. That full name is what goes into `allowed_tools`, permission rules and hooks.
+  - At runtime the Agent SDK prefixes custom tools as `mcp__{server_key}__{tool_name}`. That naming, and its use in `allowed_tools` and hooks, is covered in `docs/research/2026-10-28_agent-sdk-behaviour.md` (PR #79).
   - The MCP spec's naming rule is only a SHOULD (1–128 chars, `A-Z a-z 0-9 _ - .`). The dot is allowed there but not by the API regex.
-  - The Python SDK does not check names itself: `tool()` stores the string, and `create_sdk_mcp_server` keys a dict by it, so a duplicate name silently overwrites (`:605`).
+  - **Duplicate names are not rejected, and they mix up schema, description and handler.** The Python SDK does not check names: `tool()` stores the string. `create_sdk_mcp_server` builds `tools_by_name` and `schemas` as dicts keyed by name, so there the later tool wins (`:605-606`). The advertised list `wire_tools` is built from the original list, so it keeps **both** entries (`:607-618`).
+    - Reviewer's repro on PR #80 (two tools named `dup`): the list shows two `dup` entries, the first with tool 1's description but tool 2's schema. Every call runs tool 2's handler (`:625`, `:633`).
+    - Recommendation: assert unique tool names when building the tool list, in code and in a CI test.
   - **Interpretation:** the API regex applies to the full `mcp__…` name the CLI sends. So server key plus tool name must stay within 128 characters and use no dots. `mcp__abeltongod__generate_kick` (31 chars) is fine.
 
 **Sources.**
@@ -153,9 +155,10 @@ Paths `SDK/…` mean `site-packages/claude_agent_sdk/…` in version 0.2.172. Li
 
 - **Whole-number floats pass as integers.** Both the SDK's `jsonschema` check and ours accept `variants: 2.0` for an `integer` field (2020-12 semantics, reproduced locally). `validate_params` converts such values to `int` (`params.py:83-85`), so the result is consistent. Do not add a second "is int" check that disagrees.
 - **Double validation, different messages.** The SDK rejects invalid arguments before our handler runs, with its own text "Input validation error: …" (`SDK/__init__.py:632`, first error only). Our `KickParamsError` lists all errors, but on the SDK path it only runs for inputs the SDK already accepted. Tests that expect our message must call the handler directly, or go through a fake model client (D-020 step 1).
-- **Shared dict.** The SDK keeps a reference to our schema dict, not a copy (`:444`). Never mutate the loaded schema after registering the tool. Build the tool-facing schema as a new dict.
+- **Shared dict, two copies.** The SDK keeps a reference to our schema dict, not a copy (`:444`, stored in `schemas` at `:606`), and validates every call against that live dict (`:630`). The advertised `Tool` is built once at registration (`Tool.model_validate`, `:608-616`). **Interpretation:** pydantic copies the dict at that point. If our dict is mutated after registration, validation changes but the schema the model sees does not, so the two diverge. Never mutate the loaded schema after registering; build the tool-facing schema as a new dict.
 - **Dict-of-types shortcut.** Using `{"bpm": float}` for convenience loses ranges, enums and optionality, and unknown types become strings (`:415`). Always pass the JSON Schema dict.
-- **Tool search** hides schemas behind an extra round trip by default (Q3). Set `ENABLE_TOOL_SEARCH=false` in `ClaudeAgentOptions.env`.
+- **Duplicate tool names** silently produce a mixed tool (Q5). Assert uniqueness.
+- **`transform_schema` drops `const` and leaks root URLs** into the description (Q2). Never use its output unchecked.
 - **Optional-parameter budget** (strict only): 16 of 24 used by `generate_kick` alone.
 
 ## Test-strategy hints (what CI can do)
@@ -165,6 +168,7 @@ Paths `SDK/…` mean `site-packages/claude_agent_sdk/…` in version 0.2.172. Li
   - Register it with `@tool` / `create_sdk_mcp_server` and assert the wire schema `create_sdk_mcp_server` lists is identical to the input (catches an SDK upgrade that starts transforming).
   - Feed recorded or fake tool calls through the in-process server's call path (no CLI needed) to confirm the SDK-level rejection and our `validate_params` agree on a seeded random set of valid and invalid inputs.
   - Inject a fault (e.g. raise `maximum` of `drive` to 1.02) and confirm the agreement test turns red.
+  - Assert unique tool names. Fault injection: register two tools with the same name and confirm the test turns red.
 - **Needs a real login (user's machine or a dev session; never CI):** the items under "To verify".
 
 ## To verify by experiment
@@ -172,22 +176,31 @@ Paths `SDK/…` mean `site-packages/claude_agent_sdk/…` in version 0.2.172. Li
 Each item becomes an issue for the owning role (`orchestrator-engineer` unless noted).
 
 1. **API/CLI accepts the as-is schema.**
-   - Run one real Agent SDK `query()` with `generate_kick` registered from the unchanged contract (including `$id`, `$schema`, `const` without `type`) and with `ENABLE_TOOL_SEARCH=false`.
+   - Run one real Agent SDK `query()` with `generate_kick` registered from the unchanged contract (including `$id`, `$schema`, `const` without `type`), using the closed tool surface from the cluster-1 note.
    - Expect no 400, and `mcp__<server>__generate_kick` in the init message's `tools`.
    - Repeat without `$id`/`$schema`.
 2. **What the model receives.**
    - Confirm that `description` and `default` text reach the model unchanged. Ask the model, in a throwaway session, to quote the `default` of `pitch_decay_ms` from its tool definition.
    - Record the result as observed behaviour, not as a documented guarantee.
-3. **Tool search with three tools.** Compare one request with `ENABLE_TOOL_SEARCH` unset vs. `false`: does the transcript show a `ToolSearch` call first, and does turning it off remove it? This matters for the `max_turns` count, which is cluster 1's topic.
+3. **Tool search:** moved to the cluster-1 note (`docs/research/2026-10-28_agent-sdk-behaviour.md`, PR #79, items V1/V6). It is not repeated here.
 4. **Out-of-range behaviour in practice.** Over N real requests (for example the three example prompts from the phase spec), count how often Opus 5.5 produces arguments the SDK or `validate_params` rejects, and save them as recorded fixtures for CI.
 5. **Strict through the Agent SDK.** Confirm there is no supported way to mark an SDK MCP tool `strict` in 0.2.172/0.2.174 (check the changelog at the start of 04b step 2). If one appears, re-run Q2's strict table against it.
-6. **Only if the API-key route is ever switched on (D-008/D-014 switch):** send the `transform_schema` output with `strict: true` and confirm it compiles (no 400, no "Schema is too complex"), and that the raw contract with `strict: true` returns 400 as documented.
+6. **Only if the API-key route is ever switched on (D-008/D-014 switch):** send the hand-checked strict schema with `strict: true` and confirm it compiles (no 400, no "Schema is too complex"). Use the `transform_schema` output with `const` restored and `$schema`/`$id` removed beforehand. Also confirm that the raw contract with `strict: true` returns 400 as documented.
+7. **Re-read the web-doc claims at the source.** They were checked only through WebFetch summaries, and the reviewer could not re-fetch them:
+   - the strict guarantees (input follows the schema; name always valid) and their exceptions (refusal, `max_tokens`, enum casing)
+   - 400 on unsupported strict keywords
+   - the name regex `^[a-zA-Z0-9_-]{1,128}$`
+   - the limits of 20 strict tools and 24 optional parameters
+   - the 400 on `tool_choice` `any`/`tool` for Opus 5.5
+
+   Owner: whoever starts 04b step 2, by opening the pages directly. Until then they count as "not verified".
 
 ## Implications (proposals for the lead; not decisions)
 
 - **Tool-schema builder.** Generate the `generate_kick` input schema in code from `contracts/kick-params.schema.json` rather than writing a second copy. It should drop `$id`, replace the root `description` with model-facing text, and keep every range, enum and `additionalProperties: false`, so the SDK's pre-check enforces the full contract. No new contract file is needed for this. Whether the derived schema should also drop `schema_version` (the orchestrator inserts `"0.2"`) is a design choice for the `orchestrator-engineer` issue.
 - **Tool and field descriptions are product text.** The `pitch_decay_ms` guideline already lives in the schema `description`. That is good, since it is what the model reads, but it is long. Write the tool description (what `generate_kick` does, when to use it, that ranges are enforced and out-of-range calls are rejected, not clamped) as part of the 04b step-2 issue.
 - **Keep D-002 validation as the authority.** Strict mode cannot replace it (no ranges), and it is not reachable from the Python Agent SDK anyway.
-- **Bridge tools need schemas first.** `list_tracks` and `import_sample` have no input schema in `contracts/`. D-002 says every tool has a JSON schema in `contracts/`, so a `contract-change` issue is needed before 04b step 2. Its owner is to be decided: the bridge-engineer owns capabilities, and the orchestrator-engineer would be the consumer.
-- **Set `ENABLE_TOOL_SEARCH=false`** in the orchestrator's SDK options. Three tools sit well under the roughly 10-tool threshold Anthropic gives for this.
+- **Bridge tools need schemas first.** `list_tracks` and `import_sample` have no input schema in `contracts/`. D-002 says every tool has a JSON schema in `contracts/`, This is now tracked as issue #81 (`contract-change: input schemas for list_tracks and import_sample (04b step 2)`).
+- **Assert unique tool names** in the tool builder (Q5).
+- **Tool-search setting:** see the cluster-1 note (PR #79). This note makes no separate proposal.
 - **Staleness.** Re-check Q4/Q5 against the SDK version pinned at the start of 04b step 2. 0.2.174 is already out.
