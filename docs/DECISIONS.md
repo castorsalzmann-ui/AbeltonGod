@@ -149,3 +149,13 @@ _2026-10-28: "Rejected" lines added to D-001–D-011 as a clarification; no deci
 - Copilot requests share the 5-hour and weekly usage window with development sessions.
 - If anyone other than the user ever uses the tool, the subscription login is no longer allowed: switch to an API key first.
 - USD figures in `config/guard-policy.json` are API-equivalent estimates. With Opus 5.5 the `kick_generation` worst case (8 calls × 1.5k output) is estimated at ~$0.37, above its $0.25 cap; the guard then stops the request. The cap stays unchanged until Phase 04b measures real usage.
+
+## D-015 · 2026-10-28 · accepted — Lead session and agent limits (user decision; supersedes the agent-count part of D-010)
+
+**Decision.** One cloud lead session coordinates (issues, PRs, reviews, merge go-aheads, `CURRENT_STATE.md`/`DECISIONS.md`); other sessions only run commands and Live tests. The lead may run up to 10 sub-agents at once, and each sub-agent may start up to 2 helpers of its own. The user still merges every PR, after an independent review says ready.
+
+**Reason.** The user wants the lead to delegate all non-lead work and to parallelise. Two lead sessions on 2026-10-28 produced duplicate PRs (#42) and a missed test run.
+
+**Rejected.** Two parallel lead sessions. The lead merging PRs itself (offered; user keeps merging).
+
+**Consequences.** D-010's single-writer rule for state files stays. Every agent and helper uses the shared Max 5x usage window; the lead starts agents only for independent work. Merge requests to the user name the PR in words first, with a direct link.
