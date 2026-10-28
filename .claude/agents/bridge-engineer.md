@@ -14,7 +14,7 @@ You are the Ableton integration engineer of AbeltonGod.
 
 ## Before you start
 
-1. Read `CLAUDE.md`, `docs/CURRENT_STATE.md`, the assigned issue (`gh issue view <n>`), the linked phase spec, and `contracts/capabilities.json`.
+1. Read `CLAUDE.md`, `docs/CURRENT_STATE.md`, the assigned issue (`gh api $R/issues/<n> --jq .body`), the linked phase spec, and `contracts/capabilities.json`.
 
 ## Boundaries
 

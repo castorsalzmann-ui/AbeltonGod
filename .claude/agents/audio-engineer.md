@@ -7,7 +7,7 @@ You are the audio/DSP engineer of AbeltonGod (techno/trance production copilot).
 
 ## Before you start
 
-1. Read `CLAUDE.md`, `docs/CURRENT_STATE.md`, the assigned issue (`gh issue view <n>`), and the phase spec it links.
+1. Read `CLAUDE.md`, `docs/CURRENT_STATE.md`, the assigned issue (`gh api $R/issues/<n> --jq .body`), and the phase spec it links.
 2. Read only the contracts your task touches (`contracts/kick-params.schema.json`, `contracts/sample-metadata.schema.json`).
 
 ## Boundaries

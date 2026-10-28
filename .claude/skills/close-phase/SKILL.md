@@ -4,7 +4,7 @@ description: Lead session only - after a PR is merged, apply its state update to
 ---
 
 1. `git switch main && git pull`.
-2. `gh pr view $ARGUMENTS` — read the "State update proposal" and the review verdict.
+2. `gh api $R/pulls/$ARGUMENTS --jq .body` plus its comments and reviews (`$R/issues/$ARGUMENTS/comments`, `$R/pulls/$ARGUMENTS/reviews`) — read the "State update proposal" and the review verdict.
 3. Update `docs/CURRENT_STATE.md` (date, phase status, "What works" with evidence links, next step). Keep it short; remove stale lines.
 4. If the PR introduced a binding choice, append a new decision to `docs/DECISIONS.md`.
 5. If a phase is complete, set its spec's Status to DONE and open the next phase's issues if they do not exist.

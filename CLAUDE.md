@@ -92,6 +92,23 @@ pytest                     # all automated tests
 ruff check .               # lint
 ```
 
+**GitHub access:** in cloud sessions GitHub GraphQL is blocked, so `gh issue view`, `gh pr view/diff/create/review` and `gh label list` fail. Use the REST API everywhere (works locally too); R = `repos/castorsalzmann-ui/abeltongod`:
+
+```
+gh api $R/issues/<n> --jq .body                      # read issue
+gh api $R/issues/<n>/comments --jq '.[].body'         # issue/PR comments
+gh api -X POST $R/issues/<n>/comments -f body="..."   # comment
+gh api -X POST $R/issues/<n>/labels -f 'labels[]=status:in-progress'
+gh api -X DELETE $R/issues/<n>/labels/status:ready
+git diff main...<branch>                              # PR diff (local)
+jq -n --rawfile b body.md --arg t "title" --arg h "<branch>" \
+  '{title:$t, head:$h, base:"main", body:$b}' | gh api -X POST $R/pulls --input -   # open PR
+jq -n --rawfile b review.md '{event:"COMMENT", body:$b}' | gh api -X POST $R/pulls/<n>/reviews --input -
+gh api "$R/actions/runs?head_sha=<sha>" --jq '.workflow_runs[0] | "\(.status) \(.conclusion)"'  # CI
+```
+
+Issue numbers are shared with PRs: read the returned `number` before referencing a new issue.
+
 ## Language
 
 Code, comments, commits and agent docs: English. Talk to the user in German unless they write in English.

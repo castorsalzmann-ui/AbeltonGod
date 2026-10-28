@@ -111,3 +111,18 @@ _2026-10-28: "Rejected" lines added to D-001–D-011 as a clarification; no deci
 **Rejected.** A plain `max_tokens` counter. A four-level traffic light with automatic model downgrade, context summarisation, CPU/GPU budgets and a dashboard in the MVP (revisit when generative audio or multi-agent product features arrive).
 
 **Consequences.** Built and tested in CI before the orchestrator makes its first real Claude call (Phase 04a). With subscription auth, USD values are API-equivalent estimates; the real constraint is the usage window.
+
+## D-012 · 2026-10-28 · accepted — Kick pitch criterion: split check, staged tolerance (user decisions on PR #8)
+
+**Decision.** The kick engine's pitch is verified by two separate checks:
+
+1. **Analyser accuracy:** `analyse()` matches an independent analytic-signal (Hilbert) reference over the same crossing interval, ±1 %.
+2. **Parameter fidelity:** the measured tail pitch matches the closed-form mean of f(t) = f_end + (f_start − f_end)·e^(−t/τ) over exactly the measured interval. Tolerance is **±3 %** for measurement windows ≥ 80 ms and **±5 %** below. The formula is written in the test, not taken from the engine.
+
+`pitch_end_hz` is the **asymptote**, not a promise: a kick with a long `pitch_decay_ms` may fade out before it reaches it. When the tail is too short to measure, `fundamental_hz` is `None`.
+
+**Reason.** The original "±10 % to `pitch_end_hz`" cannot hold over the full schema range. Short windows have real measurement limits (DC blocker, click), and the user accepted ±5 % for them.
+
+**Rejected.** ±10 % to `pitch_end_hz` regardless of settling. Restricting the schema so the pitch always settles (less sound-design range). A uniform ±3.5 % tolerance (tuned to observed failures). Comparing crossing counts of two signals in the same window (it produced false failures up to 13 %).
+
+**Consequences.** Do not loosen these tolerances, add skips or `xfail` without a new user decision. The schema wording follows in #7. Evidence and reviews: PR #8.

@@ -8,7 +8,7 @@ You review a pull request you did not write. You do not fix code; you report.
 
 ## Steps
 
-1. `gh pr view <n>` and `gh pr diff <n>`; read the linked issue and phase spec.
+1. Read the PR via REST (`gh api $R/pulls/<n> --jq .body`, comments, earlier reviews; see `CLAUDE.md` → GitHub access) and the diff with `git diff main...<branch>`; read the linked issue and phase spec.
 2. Check out the branch and run `pytest` and `ruff check .`. Use the real output.
 3. Check against: the phase's acceptance criteria, `docs/DECISIONS.md`, `contracts/`, and the hard constraints in `CLAUDE.md`.
 4. Look specifically for:
@@ -28,7 +28,7 @@ You review a pull request you did not write. You do not fix code; you report.
    - **Cause claims:** reproduce any cause the author states, by switching suspected parts off. Report it if the claim does not hold.
    - **Failure paths:** simulate write errors, interrupts and name clashes. Check that nothing outside the call's own files is touched.
    - Keep experiments in the scratchpad, never in the repo. Report each finding with severity and the command plus output that shows it.
-6. Post the review with `gh pr review <n> --comment --body-file <file>` (if GraphQL is blocked: `gh api -X POST repos/<owner>/<repo>/pulls/<n>/reviews` with `event: COMMENT`).
+6. Post the review as `event: COMMENT` via REST (see `CLAUDE.md` → GitHub access).
 
 ## Review format
 
