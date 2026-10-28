@@ -5,7 +5,7 @@ _Last updated: 2026-10-28 · Written only by the lead session on `main` after a 
 ## Phase
 
 - **Phase 00 — Setup:** DONE (#1 closed 2026-10-28).
-- **Phase 01 — Kick engine:** core merged (#2 via PR #8); drive anti-aliased (#13 via PR #20); contract semantics (#7 via PR #28). WAV/sidecar nits (#12 via PR #26). Open: #11, #36, #16, then #3.
+- **Phase 01 — Kick engine:** core merged (#2 via PR #8); drive anti-aliased (#13 via PR #20); contract semantics (#7 via PR #28). WAV/sidecar nits (#12 via PRs #26, #33); tone/drive/envelope tests (#11 via PR #34). Open: #35, #16, then #3; side findings #27, #30, #31, #32.
 - **Phase 02 — Ableton bridge:** OSC client and capability gate merged (#4 via PR #25). Open: #5 (bridge check on the user's machine).
 - **Phase 04a — Agent Resource Guard:** DONE (#6 via PR #15).
 
@@ -23,7 +23,9 @@ _Last updated: 2026-10-28 · Written only by the lead session on `main` after a 
 | Bug workflow: issue form "Bug" (required repro), labels `severity:blocker/major/minor/nit`, regression corpus `tests/regressions/` (1 case from PR #8 review 1), "Bugs" rules in `CLAUDE.md` | [PR #24](https://github.com/castorsalzmann-ui/AbeltonGod/pull/24), merged as 9b0b5a9 after one review round (3 minor fixed); `1132 passed, 2 skipped`; [CI run 40691016877](https://github.com/castorsalzmann-ui/AbeltonGod/actions/runs/40691016877) ubuntu + windows. User check of the form on GitHub open. |
 | AbletonOSC Windows guide (`docs/setup/ABLETONOSC_WINDOWS.md`), OSC client with nonce-marker bracketing per request, capability gate (`src/bridge/`), fake AbletonOSC server for CI | [PR #25](https://github.com/castorsalzmann-ui/AbeltonGod/pull/25), merged as ddef95a after three review rounds (7, 3, then no findings); 28/28 fault injections caught; merged tree `1252 passed, 2 skipped`; bridge tests 10/10 green under CPU load; CI on 1ff93e4 ubuntu + windows. **Not yet run against Live.** No capability status changed. |
 | kick-params **v0.2**: written envelope semantics (`pitch_decay_ms` = time constant τ, `amp_decay_ms` = time to −60 dB), default `pitch_decay_ms` 40 → 15; pitch-settle guideline `max_settled_pitch_decay_ms` / `pitch_settles` for presets and Claude; silent renders refused; v0.1 sidecars still re-render | [PR #28](https://github.com/castorsalzmann-ui/AbeltonGod/pull/28), merged as fd7ae72 after one pre-PR review round (5 findings fixed); 17/17 fault injections caught; `1377 passed, 2 skipped`; CI on d4507a4 ubuntu + windows green |
-| WAV/sidecar robustness (#12): RIFF pad byte for odd 24-bit data chunks, dangling symlinks count as taken names, `created_at` must be aware (whole-minute offset), Decimal/Fraction/complex rejected | [PR #26](https://github.com/castorsalzmann-ui/AbeltonGod/pull/26), merged as 816b042 **without review and with an empty PR template**; [post-merge review](https://github.com/castorsalzmann-ui/AbeltonGod/pull/26#pullrequestreview-5683501845): code sound, 276 WAV cases checked with stdlib `wave` and ffmpeg, 17/18 fault injections caught; CI on c9b3a1d ubuntu + windows. Follow-ups: #36 (engine version, test gap), format-tag question moved to #3. |
+| WAV/sidecar robustness (#12): RIFF pad byte for odd 24-bit data chunks, dangling symlinks count as taken names, `created_at` must be aware (whole-minute offset), Decimal/Fraction/complex rejected | [PR #26](https://github.com/castorsalzmann-ui/AbeltonGod/pull/26), merged as 816b042 **without review and with an empty PR template**; [post-merge review](https://github.com/castorsalzmann-ui/AbeltonGod/pull/26#pullrequestreview-5683501845): code sound, 276 WAV cases checked with stdlib `wave` and ffmpeg, 17/18 fault injections caught; CI on c9b3a1d ubuntu + windows. Follow-ups: test gap closed by PR #33; engine version → #35; format-tag question moved to #3. |
+| #12 follow-up: `KickParamsError` lists type errors together with all other problems; stricter "nothing written" tests (incl. missing nested `out_dir`) | [PR #33](https://github.com/castorsalzmann-ui/AbeltonGod/pull/33), merged as 69a5890 after one pre-PR review round; `1379 passed, 2 skipped`; 4/4 new mutants caught (incl. the post-merge review's survivor); CI on d7f7df9 ubuntu + windows |
+| Independent tests for tone, drive and the amplitude envelope (#11), 282 tests | [PR #34](https://github.com/castorsalzmann-ui/AbeltonGod/pull/34), merged as eb14b8d after one pre-PR review round (3 findings fixed); `1659 passed, 2 skipped`; 11 fault injections, all caught (drive × 0.5 by only 2 tests); CI on `main` eb14b8d green |
 
 **Known limits of the bridge** (details in `docs/research/2026-10-28_abletonosc-protocol-and-create-audio-clip.md`):
 - A timed-out write has an unknown outcome and may still be applied later; read back before any undo (rule for #5).
@@ -34,6 +36,8 @@ _Last updated: 2026-10-28 · Written only by the lead session on `main` after a 
 - About 10 % of very short, fast-decay kicks report `fundamental_hz: None`.
 - Byte identity is proven per platform only, not Linux vs. Windows.
 - Render with `drive > 0` costs ~3× more than before anti-aliasing (2 s kick ≈ 54 ms on the CI-like Linux box); every WAV with `drive > 0` differs from pre-#20 renders.
+- Odd-sized 24-bit renders differ from pre-#26 renders by one pad byte, so their SHA-256 differs; `ENGINE_VERSION` is still `0.0.1` (#35).
+- No crest-factor test covers click + tone > 0 (cause of the excess not established, #31). The 10 Hz DC blocker skews attack fits on the shipped output by up to 1.7 ms (PR #34) and raises the crest factor at high drive (#30).
 - No listening test yet.
 - The pitch-settle guideline describes the pitch curve. The measured `fundamental_hz` can still be up to ~17 % above `pitch_end_hz` for kicks that follow it (review of #7).
 - #27: on very fast decays (amp_decay ≈ 20–50 ms) the zero crossings drift from the body pitch around −37 dB; cause not established.
@@ -69,8 +73,8 @@ _Last updated: 2026-10-28 · Written only by the lead session on `main` after a 
 ## Next step
 
 - **Kick track:**
-  1. #11 — tests for tone, drive and the envelope; nothing protects them today.
-  2. #36 — bump `ENGINE_VERSION` for the pad-byte change (odd 24-bit files hash differently since PR #26) and cover the `created_at` check for a missing `out_dir`.
+  1. #35 — decide the `ENGINE_VERSION` rule (bump on every byte change?), then bump it and add golden SHA-256s.
+  2. Side findings #27, #30, #31, #32 (analysis accuracy, DC blocker, crest factor): triage before #3; none blocks it on its own.
   3. #16 — user decision: should `drive` start continuously at 0? Decide before the listening test.
   4. Then #3 — presets, variants, CLI and the first listening test, which includes #9. Presets must call `max_settled_pitch_decay_ms` (or be named as deliberately pitchy).
 - **Bridge track, in parallel:** #5 — `bridge_check.py` (`bridge-engineer`), then the user installs AbletonOSC per `docs/setup/ABLETONOSC_WINDOWS.md`, runs the ping and the check on a test set. Live version known: 12.4.5.
