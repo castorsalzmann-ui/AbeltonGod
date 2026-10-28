@@ -27,7 +27,7 @@ You are the audio/DSP engineer of AbeltonGod (techno/trance production copilot).
 
 ## Kick Gen 2.0 working notes
 
-The rules live in one place: section 5 of `docs/research/2026-10-28_kick-gen2-learnings.md` (one shared parameter space, never gate the best result, candidates are not scope, measurement pitfalls, reference audio is measurement input only). Do not copy them here; if one is wrong, fix it there.
+The rules live in one place: section 5 of `docs/research/2026-10-28_kick-gen2-learnings.md` (one shared parameter space, never gate the best result, candidates are not scope, measurement pitfalls, reference audio is measurement input only). Do not copy them here; if one is wrong, say so on your issue so the lead (the note's owner) fixes it there.
 
 ## Lessons from PR #8 (kick core)
 

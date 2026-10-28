@@ -101,6 +101,7 @@ Add one line per recurring waste pattern: pattern → what to do instead.
 
 - `docs/CURRENT_STATE.md` and `docs/DECISIONS.md`: **only the lead session on `main` after a merge.** Implementers put a "State update proposal" in their PR body instead, to avoid merge conflicts.
 - `contracts/`: changes need their own PR, labelled `contract-change`, reviewed before dependent work continues.
+- `contracts/capabilities.json`: a status may only become `tested` with evidence from the user's machine (log excerpt or user confirmation in the issue).
 
 **File ownership (D-017).** Every file has exactly one owner at a time. Default owners:
 
@@ -111,12 +112,13 @@ Add one line per recurring waste pattern: pattern → what to do instead.
 | `src/orchestrator/`, `src/guard/`, `config/guard-policy.json`, their tests | `orchestrator-engineer` |
 | `scripts/qa/`, `tests/conftest.py`, `tests/dev_tools/`, `tests/support/`, `tests/qa/`, `tests/regressions/test_regressions.py` | `qa-tester` |
 | `docs/research/<date>_<topic>.md` | the role that wrote the note (others add a new dated note that links it) |
-| `contracts/` | the role named in the `contract-change` issue (kick-params / sample-metadata → audio-engineer, capabilities → bridge-engineer, guard-policy schema → orchestrator-engineer) |
-| `pyproject.toml` | the role whose issue needs the change (reason in the PR) |
-| `CLAUDE.md`, `.claude/`, `.github/`, `docs/` outside `research/` and `setup/`, `config/dev-budget.json` | lead |
+| `contracts/` and the matching section of `docs/INTERFACES.md`, plus `tests/test_contracts.py` | the role named in the `contract-change` issue (kick-params / sample-metadata → audio-engineer, capabilities → bridge-engineer, guard-policy schema → orchestrator-engineer) |
+| `tests/regressions/bug_*.json`, `tests/regressions/test_bug_*.py` | the role that owns the code the bug is in |
+| `docs/setup/LISTENING_TEST_*.md` | `audio-engineer` (listening guides render kicks) |
+| `pyproject.toml`, `.env.example` | the role whose issue needs the change (reason in the PR) |
+| `CLAUDE.md`, `README.md`, `.gitignore`, `.claude/`, `.github/`, `docs/` outside `research/` and `setup/` (except the `INTERFACES.md` sections above), `config/dev-budget.json` | lead |
 
 An issue may hand a file to another role for that issue only (e.g. a qa-tester issue that changes `tests/bridge/fake_abletonosc.py`); the issue says so, and the default owner has no open work on that file.
-- `contracts/capabilities.json`: a status may only become `tested` with evidence from the user's machine (log excerpt or user confirmation in the issue).
 
 ## Agents
 

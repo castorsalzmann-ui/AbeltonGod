@@ -49,7 +49,9 @@ def frontmatter(path: Path) -> dict[str, str]:
 def tool_names(path: Path) -> list[str]:
     """Bare tool names, lower-case: `Agent(qa-tester)` -> `agent`, list form allowed."""
     raw = frontmatter(path).get("tools", "").strip().strip("[]")
-    names = [re.split(r"[\s(]", t.strip().strip("'\""), maxsplit=1)[0] for t in raw.split(",")]
+    # Separators: commas (flow form) and "- " items (an indented YAML block list).
+    items = re.split(r",|(?:^|\s)-\s+", raw)
+    names = [re.split(r"[\s(]", t.strip().strip("'\""), maxsplit=1)[0] for t in items]
     return [n.lower() for n in names if n]
 
 
@@ -90,6 +92,17 @@ def test_spawn_detection_catches_every_spelling(tmp_path: Path, tools: str) -> N
     f = tmp_path / "x.md"
     f.write_text(f"---\nname: x\ndescription: d\ntools: {tools}\n---\n", encoding="utf-8")
     assert set(tool_names(f)) & SPAWN_TOOLS
+
+
+def test_spawn_detection_catches_a_block_list(tmp_path: Path) -> None:
+    f = tmp_path / "x.md"
+    text = "---\nname: x\ndescription: d\ntools:\n  - Read\n  - Agent\n---\n"
+    f.write_text(text, encoding="utf-8")
+    assert tool_names(f) == ["read", "agent"]
+
+
+def test_reviewer_keeps_its_minimum_tools() -> None:
+    assert {"read", "bash"} <= set(tool_names(AGENTS / "reviewer.md"))
 
 
 def test_claude_md_has_one_role_line_per_role() -> None:
