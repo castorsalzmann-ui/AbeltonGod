@@ -17,7 +17,7 @@ from bridge.capabilities import (
     CapabilityRegistryError,
     UnknownCapabilityError,
 )
-from bridge.osc_client import ADDRESSES, PENDING_REGISTRY, AbletonBridge
+from bridge.osc_client import ADDRESSES, EXTENSION_ADDRESSES, PENDING_REGISTRY, AbletonBridge
 
 RAW = json.loads(CAPABILITIES_FILE.read_text(encoding="utf-8"))
 
@@ -68,8 +68,26 @@ def test_every_address_the_bridge_sends_is_registered_or_pending():
     assert literals, "scan found nothing: the pattern or the paths are broken"
     known = {a for addrs in ADDRESSES.values() for a in addrs}
     known |= {a for addrs, _ in PENDING_REGISTRY.values() for a in addrs}
+    known |= {a for addrs, _ in EXTENSION_ADDRESSES.values() for a in addrs}
     known |= {"/live/error", "/live/song/get/tempo"}  # reply error address; request marker
     assert literals - known == set()
+
+
+def test_extension_capabilities_are_registered_with_their_lom_target():
+    """Extension addresses are not AbletonOSC's own; the registry records the LOM call (#50)."""
+    targets = {c["id"]: c["target"] for c in RAW["capabilities"]}
+    assert set(EXTENSION_ADDRESSES) == {"clip_slot.create_audio_clip"}
+    for cap_id, (addresses, target) in EXTENSION_ADDRESSES.items():
+        assert targets[cap_id] == target
+        assert cap_id not in ADDRESSES
+        assert addresses == ("/live/clip_slot/create_audio_clip",)
+
+
+def test_import_capabilities_are_not_tested_yet():
+    """#50 must not unlock anything: Live evidence comes first (D-004)."""
+    status = {c["id"]: c["status"] for c in RAW["capabilities"]}
+    assert status["clip_slot.create_audio_clip"] == "unknown"
+    assert status["song.create_audio_track"] == "supported"
 
 
 def test_pending_entries_are_not_yet_in_the_registry_and_borrow_a_real_gate():
@@ -78,11 +96,17 @@ def test_pending_entries_are_not_yet_in_the_registry_and_borrow_a_real_gate():
     for cap_id, (addresses, borrowed) in PENDING_REGISTRY.items():
         assert cap_id not in targets, f"{cap_id} is registered now: move it into ADDRESSES"
         assert cap_id not in ADDRESSES
-        assert borrowed in ADDRESSES
+        assert borrowed in ADDRESSES or borrowed in EXTENSION_ADDRESSES
+        assert borrowed in targets
         assert not set(addresses) & {a for v in ADDRESSES.values() for a in v}
-    # track.mute.get moved into ADDRESSES and the registry in #42; nothing is pending now.
-    # A new pending entry must be added here deliberately.
-    assert set(PENDING_REGISTRY) == set()
+    # track.mute.get moved into ADDRESSES and the registry in #42. #50 added the four reads of
+    # the clip import; they borrow the import's own gate. New entries must be added deliberately.
+    assert {k: v[1] for k, v in PENDING_REGISTRY.items()} == {
+        "track.has_audio_input.get": "clip_slot.create_audio_clip",
+        "clip_slot.has_clip.get": "clip_slot.create_audio_clip",
+        "clip.file_path.get": "clip_slot.create_audio_clip",
+        "song.num_scenes.get": "clip_slot.create_audio_clip",
+    }
 
 
 @pytest.mark.parametrize("status", ["unknown", "supported"])
@@ -164,11 +188,37 @@ BRIDGE_CALLS = {
     "track.mute.set": lambda b: b.set_track_mute(0, True),
     "track.mute.get": lambda b: b.get_track_mute(0),
     "song.undo": lambda b: b.undo(),
+    "song.create_audio_track": lambda b: b.create_audio_track(-1),
+}
+
+# Extension and pending calls (#50): each is refused unless its gate capability is allowed.
+GATED_EXTRA_CALLS = {
+    "clip_slot.create_audio_clip": lambda b: b.create_audio_clip(0, 0, str(ROOT / "k.wav")),
+    "probe_audio_clip_extension": lambda b: b.probe_audio_clip_extension(),
+    "track.has_audio_input.get": lambda b: b.get_track_has_audio_input(0),
+    "clip_slot.has_clip.get": lambda b: b.get_clip_slot_has_clip(0, 0),
+    "clip.file_path.get": lambda b: b.get_clip_file_path(0, 0),
+    "song.num_scenes.get": lambda b: b.get_num_scenes(),
 }
 
 
 def test_every_bridge_capability_has_a_gate_test():
     assert set(BRIDGE_CALLS) == set(ADDRESSES)
+    assert set(GATED_EXTRA_CALLS) == (set(EXTENSION_ADDRESSES) | set(PENDING_REGISTRY)
+                                      | {"probe_audio_clip_extension"})
+
+
+@pytest.mark.parametrize("name", sorted(GATED_EXTRA_CALLS))
+def test_import_calls_refused_before_any_network_io(fake, transport, tmp_path, name):
+    """Even with every other capability tested, the import path stays locked (D-004)."""
+    others = set(ADDRESSES)
+    bridge = AbletonBridge(transport, CapabilityGate(registry_with(tmp_path, others)))
+    with pytest.raises(CapabilityNotTestedError) as err:
+        GATED_EXTRA_CALLS[name](bridge)
+    assert err.value.capability_id == "clip_slot.create_audio_clip"
+    bridge.ping()
+    fake.wait_received(2)
+    assert fake.payload() == []
 
 
 @pytest.mark.parametrize("cap_id", sorted(BRIDGE_CALLS))
