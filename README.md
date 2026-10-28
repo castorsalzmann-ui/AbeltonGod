@@ -62,6 +62,28 @@ Claude liest dann nur `CLAUDE.md`, den aktuellen Stand, das Issue und die passen
 
 Alles, was Ableton betrifft, testest du auf deinem Rechner. Die automatischen Tests auf GitHub laufen ohne Ableton.
 
+## Ressourcen-Wächter (Grenzen für Claude-Anfragen)
+
+Jede Claude-Anfrage des Copiloten läuft durch einen Wächter (`src/guard/`, Entscheidung D-011). Er begrenzt, wie viel eine einzelne Anfrage verbrauchen und verändern darf. Die Grenzen stehen in [`config/guard-policy.json`](config/guard-policy.json), je Anfrageart ein Profil (z. B. `kick_generation`, `mentor_answer`).
+
+| Einstellung | Bedeutung |
+| --- | --- |
+| `max_output_tokens` | Maximale Länge einer einzelnen Modellantwort. |
+| `max_model_calls` | Wie oft Claude pro Anfrage aufgerufen werden darf. |
+| `max_tool_calls` | Wie viele Werkzeugaufrufe (z. B. „Kick erzeugen“) pro Anfrage erlaubt sind. |
+| `max_budget_usd` | Kostengrenze pro Anfrage. Mit Abo sind das geschätzte API-Kosten, kein echtes Geld; die eigentliche Grenze ist dein Nutzungsfenster. |
+| `timeout_s` | Maximale Dauer einer Anfrage in Sekunden. |
+| `max_identical_tool_calls` | Wie oft dasselbe Werkzeug mit genau denselben Werten laufen darf, bevor es als Schleife gilt. |
+| `max_files_written` | Wie viele Dateien eine Anfrage schreiben darf. |
+| `max_live_writes` | Wie viele Änderungen am Ableton-Set eine Anfrage machen darf. Jede Änderung braucht trotzdem deine Freigabe. |
+| `warn_at_fraction` | Ab welchem Anteil einer Grenze gewarnt wird (0.8 = 80 %). |
+| `global.session_budget_usd` / `daily_budget_usd` | Kostengrenze für die ganze Sitzung bzw. den Tag (der Tageswert übersteht einen Neustart). |
+| `global.max_concurrent_requests` | Wie viele Anfragen gleichzeitig laufen dürfen. |
+
+**Was passiert:** Ab der Warnschwelle fasst sich der Copilot kurz und startet keine neuen Teilaufgaben. Wird eine Grenze überschritten, bricht die Anfrage ab, und du siehst, was fertig ist und was offen bleibt. Eine abgebrochene Anfrage wird nie als Erfolg gemeldet.
+
+**Ändern:** Werte in `config/guard-policy.json` anpassen und den Copiloten neu starten. Eine ungültige Datei (fehlender Wert, falscher Typ, `NaN`) wird mit einer Fehlerliste abgelehnt, nichts wird stillschweigend ersetzt. Prüfen mit `pytest tests/test_contracts.py`. Das Nutzungsprotokoll liegt in `logs/guard-usage.jsonl` (nicht im Repo).
+
 ## Lizenzhinweise
 
 - AbletonOSC (MIT) wird als externe Abhängigkeit genutzt, nicht ins Repo kopiert.
