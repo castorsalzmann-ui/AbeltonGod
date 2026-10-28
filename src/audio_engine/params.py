@@ -39,8 +39,8 @@ def resolve_kick_params(params: dict[str, Any]) -> dict[str, Any]:
 
     Out-of-range, missing, unknown or non-finite (NaN, Infinity) fields are rejected, never
     clamped or dropped. Numbers must be ``int`` or ``float`` (NumPy scalars are converted
-    first); ``Decimal``, ``Fraction`` and ``complex`` are rejected, and if any are present only
-    those type problems are listed. Whole-number floats for integer fields (``7.0`` for
+    first); ``Decimal``, ``Fraction`` and ``complex`` are rejected. All problems are listed
+    together. Whole-number floats for integer fields (``7.0`` for
     ``seed``) are accepted, as JSON Schema does, and converted to ``int`` losslessly.
     """
     if not isinstance(params, dict):
@@ -51,22 +51,29 @@ def resolve_kick_params(params: dict[str, Any]) -> dict[str, Any]:
     params = {k: _to_python(v) for k, v in params.items()}
     # Only int and float are numbers here. Decimal, Fraction and complex pass (or crash) the
     # schema's number check and then fail deep inside the DSP; JSON input never produces them.
-    # Reported on their own, before the schema check, which cannot compare complex values.
-    type_lines = [
-        f"- {key}: must be int or float, got {type(value).__name__} {value!r}"
+    # The schema check cannot compare complex values, so it sees a placeholder 0 for these keys
+    # (the key stays present, so "required" and "unknown field" are still reported) and its
+    # errors about the placeholder itself are dropped.
+    exotic = {
+        key
         for key, value in params.items()
         if isinstance(value, numbers.Number) and not isinstance(value, int | float)
-    ]
-    if type_lines:
-        raise KickParamsError("Invalid kick parameters:\n" + "\n".join(type_lines))
-    schema = load_schema(KICK_SCHEMA_FILE)
+    }
     lines = [
+        f"- {key}: must be int or float, got {type(params[key]).__name__} {params[key]!r}"
+        for key in sorted(exotic)
+    ]
+    lines += [
         f"- {key}: must be a finite number, got {value!r}"
         for key, value in params.items()
         if isinstance(value, float) and not math.isfinite(value)
     ]
-    errors = sorted(Draft202012Validator(schema).iter_errors(params), key=lambda e: list(e.path))
+    schema = load_schema(KICK_SCHEMA_FILE)
+    checked = {k: (0 if k in exotic else v) for k, v in params.items()}
+    errors = sorted(Draft202012Validator(schema).iter_errors(checked), key=lambda e: list(e.path))
     for err in errors:
+        if err.path and err.path[0] in exotic:
+            continue
         where = ".".join(str(p) for p in err.path) or "(root)"
         lines.append(f"- {where}: {err.message}")
     if lines:
