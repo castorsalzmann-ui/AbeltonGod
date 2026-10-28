@@ -424,9 +424,17 @@ DECAY20_SETS = [
 # Measured deviation of analyse()'s decay_20db_ms from attack + amp_decay/3 over 200 random
 # sets (half with amp_decay 20-100 ms): -12.4 ... +3.6 ms, -9.1 ... +11.9 %, every case within
 # 2.5 ms + 10 %; two earlier probes (210 sets) reached -11.2 %. The larger
-# relative deviations are at short decays (positive) and long decays (negative); cause not
-# established (the long-decay ones are not within one pitch period of the 40 ms analysis
-# frames). This is a coarse check of the sidecar feature; the precise check is the slope test.
+# relative deviations are at short decays (positive) and long decays (negative). Cause (#32,
+# triage comment), both in analyse()'s envelope:
+# (a) Frames are stamped at their start, but after the peak a frame's max is a later crest, so
+#     the time is early by up to half a pitch period (negative error). The earlier note "not
+#     within one pitch period of the frames" compared against the frame grid, not the crest.
+# (b) The threshold is relative to the signal peak, which lies up to 2.5 dB below the envelope
+#     peak, so the time is late by deficit_db / 60 * amp_decay_ms (up to ~5 ms; positive).
+# With (a) and (b) removed, the raw body is within -0.5 ... 0 ms. The DC blocker widens the
+# spread (see #27). Drive is 0 here on purpose: with drive the output decays more slowly
+# (median +40 %, up to +87 % or None), so never derive amp_decay_ms as 3 * decay_20db_ms.
+# This is a coarse check of the sidecar feature; the precise check is the slope test.
 DECAY20_TOLERANCE_MS = 3.0
 DECAY20_TOLERANCE = 0.12
 
