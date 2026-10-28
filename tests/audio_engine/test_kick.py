@@ -305,6 +305,14 @@ def test_fast_decay_short_kicks_are_measured_correctly_or_reported_unmeasurable(
     assert abs(measured - expected) <= tol * expected
 
 
+MAX_FAST_DECAY_UNMEASURABLE = 15  # 9 of 61 today; review 5 saw 32 under a "give up" mutation
+
+
+def test_fast_decay_unmeasurable_share_is_bounded() -> None:
+    unmeasurable = sum(_measure(p) is None for p in FAST_DECAY_SETS)
+    assert unmeasurable <= MAX_FAST_DECAY_UNMEASURABLE, unmeasurable
+
+
 def test_envelope_reaches_the_end_of_short_kicks() -> None:
     audio, r = render_kick(params("short"))
     f = analyse(audio, r["sample_rate"])
