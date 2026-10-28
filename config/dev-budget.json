@@ -1,0 +1,10 @@
+{
+  "_note": "Soft limits for Claude Code development sessions (not the product guard). Crossing one only warns; nothing is blocked. Tune freely.",
+  "identical_calls_without_change": 3,
+  "failure_streak": 4,
+  "edits_same_file": 15,
+  "tool_calls_first_warn": 300,
+  "tool_calls_warn_every": 150,
+  "subagents_per_session": 4,
+  "reviewer_runs_per_session": 3
+}

@@ -29,6 +29,10 @@ Closes #
 
 <!-- Answer honestly before requesting review. -->
 
+## Budget check
+
+<!-- Output of `python scripts/dev_budget_report.py --all --branch <branch>`, plus one line per warning: avoidable or not, and how. Also note anything wasteful the hook could not see. -->
+
 ## Side findings
 
 <!-- Out-of-scope problems noticed. Link the `side-finding` issues you opened. -->
