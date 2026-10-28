@@ -377,17 +377,33 @@ def test_git_branch_in_a_normal_checkout(tmp_path):
     assert ww.git_branch(tmp_path) == "main"
 
 
-def test_settings_register_the_hook_for_all_events():
+HOOK_COMMAND = (
+    'python3 "$CLAUDE_PROJECT_DIR/.claude/hooks/waste_watch.py" 2>/dev/null'
+    ' || python "$CLAUDE_PROJECT_DIR/.claude/hooks/waste_watch.py" || exit 0'
+)
+HOOK_ENTRY = {"type": "command", "command": HOOK_COMMAND, "timeout": 10}
+
+
+def test_settings_pin_exactly_the_budget_hook():
+    # The file configures the user's own sessions: pin it whole, so a narrowed matcher, a
+    # changed timeout or an added setting (e.g. permission rules) fails here (review of #46).
     settings = json.loads((ROOT / ".claude" / "settings.json").read_text(encoding="utf-8"))
-    for event in ("PostToolUse", "PostToolUseFailure", "PermissionDenied", "Stop"):
-        commands = [h["command"] for group in settings["hooks"][event] for h in group["hooks"]]
-        assert any("waste_watch.py" in c for c in commands), event
+    tool_group = {"matcher": "*", "hooks": [HOOK_ENTRY]}
+    assert settings == {
+        "hooks": {
+            "PostToolUse": [tool_group],
+            "PostToolUseFailure": [tool_group],
+            "PermissionDenied": [tool_group],
+            "Stop": [{"hooks": [HOOK_ENTRY]}],
+        }
+    }
 
 
 # --- #19: cloud reviewer runs and permission denials ------------------------
-# The PermissionDenied payloads below are synthetic. Only `hook_event_name` and the tool-name
-# matcher are documented facts (code.claude.com/docs/en/hooks); `tool_name`/`tool_input` on
-# this event are assumed, so the tests also cover payloads without them.
+# The PermissionDenied payloads below are synthetic, shaped like the published SDK type
+# (`@anthropic-ai/claude-agent-sdk@0.3.312` sdk.d.ts `PermissionDeniedHookInput`: tool_name,
+# tool_input, tool_use_id, reason). The parser stays tolerant, so the tests also cover payloads
+# without those fields.
 
 
 def denied(tool="Bash", tool_input=None, **extra):
@@ -416,6 +432,8 @@ def test_general_purpose_agent_described_as_review_counts_as_reviewer(descriptio
     [
         {"subagent_type": "general-purpose", "description": "Explore the bridge code"},
         {"subagent_type": "general-purpose", "description": "Rev iew"},
+        {"subagent_type": "general-purpose", "description": "Preview the WAV render"},
+        {"subagent_type": "general-purpose", "description": "PREVIEW kick variants"},
         {"subagent_type": "general-purpose", "description": None},
         {"subagent_type": "general-purpose", "description": ["review"]},
         {"subagent_type": "general-purpose", "prompt": "please review"},  # prompt not used
