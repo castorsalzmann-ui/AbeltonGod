@@ -248,3 +248,17 @@ _2026-10-28: "Rejected" lines added to D-001–D-011 as a clarification; no deci
 **Rejected.** Parking-lot pre-research on stock (D-018; issues #66/#67 closed as not planned, nothing committed). A technical hard stop at 15 in the budget watch (rule only).
 
 **Consequences.** The `sound-designer` keeps working on #57/#58 (it is not a researcher). Active WIP was reduced to one per role: #70 paused (work kept in the agent's worktree) while the audio-engineer finishes #64. The draft text for G0–G5, role cards and the label state machine is to be provided by the user for `docs/TEAM.md`; until then the existing workflow in `CLAUDE.md` applies plus the rules written out above.
+
+## D-020 · 2026-10-28 · accepted — Phase 04b pulled forward in two steps (user decision 22:03; exception to D-003)
+
+**Decision.** Phase 04b starts before Phase 03 is accepted, in two steps:
+1. **Now (CI only):** orchestrator loop, guard wiring (D-011, every model call and tool through `src/guard/`), approval levels, terminal chat, auth switch (D-014), all against an internal model-client interface with a fake model and recorded responses. No real Claude call in CI. Condition "#59 merged" is met (PR #60).
+2. **Only after the Phase 03 Live result** for `clip_slot.create_audio_clip` (`tested`/`unsupported`): the Claude tool definitions (`generate_kick`, `list_tracks`, `import_sample`) and their wiring to the bridge. D-004 still applies: only `tested` capabilities become tools.
+
+The researchers for 04b clusters 1 (Agent SDK behaviour) and 2 (tool-schema generation) started at the same time on the user's "start all" (exception to D-019's trigger "when Phase 03 is in review"); cluster 3 (AbletonOSC follow-ups) still waits for the Live result.
+
+**Reason.** The user wants all active work finished as fast as possible; the CI-only part of 04b does not depend on Phase 03.
+
+**Rejected.** Starting 04b tool definitions before the Live result (the import route depends on it).
+
+**Consequences.** The SDK-specific parts of step 1 stay behind the model-client interface until the cluster-1 note is merged; anything it marks "to verify" becomes an issue. Phase 04b is accepted only after Phase 03 is accepted and the user's end-to-end test (#23).
