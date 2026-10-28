@@ -8,6 +8,9 @@ checks it.
 
 The one-line descriptions below go into the sidecar ``description`` written by the CLI. They
 describe the parameters, not how the kick sounds: only the user's listening test can say that.
+They name no numbers (#63) and describe the preset as shipped. ``--set`` can change any value,
+so a custom render lists its changed values after this text ("Custom values: ..."); the exact
+values are in the preset JSON and in every sidecar's ``parameters``.
 """
 
 from __future__ import annotations
@@ -19,13 +22,12 @@ from typing import Any
 PRESETS_DIR = Path(__file__).resolve().parent
 
 DESCRIPTIONS = {
-    "centre": "Near the medians of the measured reference range (tail 52 Hz, clean body, "
-    "moderate click), with a slower pitch drop than most references (tau 40 ms, chosen by "
-    "ear in #3).",
-    "dark-dry": "Low tail (47 Hz), little click, darker tilt, no drive.",
-    "punchy": "Higher tail (56 Hz), fastest pitch drop, more click, light drive.",
-    "rumble-ready": "Long, clean, low tail (49 Hz) as a source for a rumble chain built in Live.",
-    "driven": "Maximum click, bright tilt, deliberate drive (0.45), tail 58 Hz.",
+    "centre": "Near the medians of the measured reference range (mid tail pitch, clean body, "
+    "moderate click), with a slower pitch drop than most references (chosen by ear).",
+    "dark-dry": "Low tail, little click, darker tilt, no drive.",
+    "punchy": "Higher tail, one of the two fastest pitch drops, more click, light drive.",
+    "rumble-ready": "Long, clean, low tail as a source for a rumble chain built in Live.",
+    "driven": "Maximum click, bright tilt, deliberate drive, high tail.",
 }
 
 
