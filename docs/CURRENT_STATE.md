@@ -67,7 +67,7 @@ _Last updated: 2026-10-28 · Written only by the lead session on `main` after a 
 | Ableton | Live 12 **Standard** 12.4.5 (Build 2026-08-19_225ce5e356), no Max for Live, always updated to the latest release |
 | Project sample rate | 48 kHz (engine default 48 kHz / 24-bit) |
 | GPU | NVIDIA RTX 5070 |
-| Claude access | Max subscription (no separate API key yet) |
+| Claude access | Max **5x** subscription; product auth = subscription login, default model Opus 5.5 (D-014) |
 | First sample type | Kick |
 | Languages | German and English |
 | Control surfaces / controllers in use | AbletonOSC in slot 1 (since 2026-10-28). An AbletonMCP server is installed on the PC; whether its remote script uses a slot is not known. |
@@ -80,7 +80,7 @@ Lead: this cloud session (user decision 2026-10-28); the PC session only runs co
 
 - **Kick track:** triage of #27/#32 and #30/#31 running (investigation comments on the issues); preset/variant/CLI design proposal for #3 running. Then #3 implementation and the first listening test (includes #9).
 - **Bridge track:** PR #42 rework (rebase, `track.mute.get`, undo limitation note) → review → merge closes #5 and Phase 02. #43 setup-guide fixes in a PR. Then Phase 03 (import) once Phase 01 is accepted.
-- **Phase 04b** (#23): auth research note for D-008 in progress; user decision needed before coding.
+- **Phase 04b** (#23): auth decided (D-014: subscription login, Opus 5.5); research note PR #47. Still blocked until Phases 01–03 are accepted.
 - **Process:** #19 budget watch gaps in a PR.
 - **User:**
   - Windows test of the budget watch (PR #18): let Claude Code run `git status` three times; a "Budget: …" message should appear.

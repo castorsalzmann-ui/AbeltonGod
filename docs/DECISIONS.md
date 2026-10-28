@@ -136,3 +136,16 @@ _2026-10-28: "Rejected" lines added to D-001–D-011 as a clarification; no deci
 **Rejected.** Bumping only for audible changes (format fixes would still break re-render silently). Migrating old sidecars (only test renders exist).
 
 **Consequences.** A byte change without a bump fails the golden-hash test; a bump without new hashes fails the version check. Golden hashes are a hard failure on Linux and Windows (Windows CI matched all 5 cases, PR #40). Old sidecars are not migrated. Evidence and reviews: PR #40.
+
+## D-014 · 2026-10-28 · accepted — Product auth: subscription login, default model Opus 5.5 (user decision; refines D-008)
+
+**Decision.** The Phase 04b orchestrator authenticates through the Claude Agent SDK with the user's Claude Max (5x) subscription login. The default model is Opus 5.5. The auth method stays a single configuration switch (D-008), so an API key can replace the login without code changes.
+
+**Reason.** User's choice after the research note (PR #47, fact-checked against official sources): the Agent SDK with plan login is allowed for ordinary, individual use of a personal local tool.
+
+**Rejected.** API key from a Console organization linked to the Max plan (monthly API credit, separate from the usage window) — offered as the recommended route, not chosen for now; the plan-to-organization link cannot be changed by the user afterwards. Sonnet 5.5 as default (cheaper; not chosen).
+
+**Consequences.**
+- Copilot requests share the 5-hour and weekly usage window with development sessions.
+- If anyone other than the user ever uses the tool, the subscription login is no longer allowed: switch to an API key first.
+- USD figures in `config/guard-policy.json` are API-equivalent estimates. With Opus 5.5 the `kick_generation` worst case (8 calls × 1.5k output) is estimated at ~$0.37, above its $0.25 cap; the guard then stops the request. The cap stays unchanged until Phase 04b measures real usage.
