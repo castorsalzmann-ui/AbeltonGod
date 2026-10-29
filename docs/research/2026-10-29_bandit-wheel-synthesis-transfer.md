@@ -36,7 +36,7 @@ All `L<n>` references below are line numbers in that file. "Knob" values in the 
 | --- | --- | --- | --- |
 | mulberry32 PRNG (two copies) | L2559 `rng`, L2850 `bwRng` | yes, given the seed | Replace by NumPy `default_rng` as in `kick.py:179`. Matching the artifact's random stream is not a goal. |
 | Seed creation | L2859 `bwSeed = Math.floor(Math.random()*1e6)`, L4155–4160 (acid spin), L1199/L1201 (kick) | **no** | Seed is a parameter (D-005). Does not transfer. |
-| Per-layer sub-seeds by addition | closed hat `seed+1`, open hat `seed+99` (L3368); clap `+3` (L3402); snare `+5` (L3417); perc noise `+11` (L3431); reverb IR `seed+7`, right channel `+77` (L3733, L2946) | yes | **Transfer with changes.** Additive offsets collide across voices: the open-hat noise of seed *s* is the closed-hat noise of seed *s*+98. Derive sub-streams with `np.random.SeedSequence([seed, layer_id])` (or an equivalent fixed hash), so layers stay independent and the same seed still gives the same bytes. |
+| Per-layer sub-seeds by addition | closed hat `seed+1`, open hat `seed+99` (L3368); clap `+3` (L3402); snare `+5` (L3417); perc noise `+11` (L3431); reverb IR `seed+7`, right channel `+77` (L3733, L2946); tambourine noise `+31` (L3472); clave voice `+9` (L3491); metal voice `+13` (L3493) | yes | **Transfer with changes.** Additive offsets collide across voices: the open-hat noise of seed *s* is the closed-hat noise of seed *s*+98. Derive sub-streams with `np.random.SeedSequence([seed, layer_id])` (or an equivalent fixed hash), so layers stay independent and the same seed still gives the same bytes. |
 | Seed range folding | `this.state.seed % 1000` for hats, clap, perc (L3652, L3721, L3862) | yes | Does not transfer: it limits every drum voice to 1,000 distinct noise streams. Use the full seed range of the contract. |
 | Seed derived from the sound, not from the seed | kick rumble IR seeded by `freq*997 + rumbleLen*7919` (L1541) | yes | Transfer with changes: the rumble IR cannot vary by seed in the artifact. In ours it should come from `seed` (sub-seed "rumble"). |
 | Seeded parameter jitter | acid knobs drawn inside a mode's ranges (L2565–2569), perc knobs per style (L3774–3782), tambourine detune `1 + (seed % 7) * 0.003` (L3471) | yes | Transfers as the `variants` mechanism already does it (`variants.py`): a variant draws inside a box around the base value. Ranges per style are the sound-designer's topic. |
@@ -47,7 +47,7 @@ All `L<n>` references below are line numbers in that file. "Knob" values in the 
 | Artifact construct | Where | Our equivalent today | Change needed |
 | --- | --- | --- | --- |
 | `OfflineAudioContext` render of a node graph | L2928–2934, L3354–3361 | `render_resolved` in `kick.py` (offline NumPy) | Re-implement each node; output will not equal the browser's samples, and does not need to. |
-| `BiquadFilterNode` `bandpass` (constant 0 dB peak, Q linear) | `bwFilt` L2951 | `dsp.biquad_bandpass` (RBJ, constant 0 dB peak gain) | Transfers as is. |
+| `BiquadFilterNode` `bandpass` (constant 0 dB peak, Q linear) | `bwFilt` L2951 | `dsp.biquad_bandpass` (RBJ, constant 0 dB peak gain) | Transfers as is, **if** the Web Audio band-pass is the RBJ constant-0-dB-peak form with linear Q (unverified, from memory; part of V3). |
 | `BiquadFilterNode` `lowpass` / `highpass` | `bwFilt` L2951 (default `Q = 0.707`) | none (only one-pole LP/HP) | Add RBJ LP/HP (`bwBq` L4604–4613 is the RBJ cookbook in plain JS). **Q meaning differs (unverified, from memory of the Web Audio spec):** for `lowpass`/`highpass` the node's Q is a resonance in **dB**, i.e. linear Q = 10^(Q/20); for `bandpass`/`peaking` it is linear. So the artifact's "Q 0.707" LP/HP is linear ≈ 1.085, the bass filter `Q = 1 + grit*5` (L4076) is 1 … 6 dB, linear 1.12 … 2.0, and the rumble LP "Q 1.1" (L1546) is linear ≈ 1.135. To verify (V3). |
 | `BiquadFilterNode` `peaking` without Q set | hat L3371 (+4 dB) | none | RBJ peaking (`bwBq('bell')` L4610). Default Q of the node is 1 (unverified). |
 | `OscillatorNode` square / sawtooth / triangle | hats L3367, ride L3390, rim L3435–3437, tamb L3471, cowbell L3480, snare L3415, bass L3948–3958 | none | Web Audio renders these band-limited (implementation-defined, unverified). Ours: additive band-limited synthesis for fixed frequencies (sum of harmonics below Nyquist; exact and cheap in NumPy), polyBLEP (as L2675) for swept frequencies. A naive `np.sign(sin)` square would alias: the tambourine's 8,900 Hz square already has its 3rd harmonic (26.7 kHz) above Nyquist at 48 kHz. |
@@ -79,7 +79,7 @@ All `L<n>` references below are line numbers in that file. "Knob" values in the 
 
 ### 1.6 Timing probe (the only thing run in this session)
 
-A plain-CPython loop with the structure of the 303 core (polyBLEP saw, 4-pole zero-delay ladder with `sat` in the feedback path, coefficient update every 4 samples; not a port, not repo code; script in the session scratchpad) rendered 341,280 samples (7.11 s at 48 kHz) in **0.41 s, 1.19 µs/sample**, and two renders were byte-identical (sha256 equal). Command: `python -I ladder_timing.py 7.11` with the repo `.venv`. The full voice (gate/accent smoothers, glide, drive, DC blocker, delay) adds work; its cost is not measured.
+A plain-CPython loop with the structure of the 303 core (polyBLEP saw, 4-pole zero-delay ladder with `sat` in the feedback path, coefficient update every 4 samples; not a port, not repo code; the script exists only in the author's session scratchpad and is not reproducible from the repo — V7 should put a timing script into the repo or the issue) rendered 341,280 samples (7.11 s at 48 kHz) in **0.41 s, 1.19 µs/sample**, and two renders were byte-identical (sha256 equal). Command: `python -I ladder_timing.py 7.11` with the repo `.venv`. The full voice (gate/accent smoothers, glide, drive, DC blocker, delay) adds work; its cost is not measured.
 
 ## 2. Bass, rumble, acid (303-style)
 
@@ -183,7 +183,7 @@ One shared space for bass and acid would follow kick-gen2 P2; whether acid is it
 | Snare | triangle oscillator, pitch 1.6·f → f exponential in 30 ms, f = 150 + 1.3·tone Hz (150 … 280 Hz); seeded noise | noise: HP 1,200 + 10·tone Hz | tone: peak 0.9, 0.8 ms, 70 + decay ms; noise: peak 0.8, 0.8 ms, 80 + 2.5·decay ms | L3411–3421 |
 | Clap + snare layer | sum 0.6 + 0.6 of the two rendered voices, no time or phase alignment beyond sample 0 | — | — | L3727–3731 |
 | Rim | square at f (1.7 … 2.3 kHz as `1700 + 6·tone`, L3726) through BP at f, Q 6; plus triangle at 0.28·f | — | square: 0.4 ms / 12 + 0.4·decay ms; triangle: peak 0.5, 8 ms | L3434–3437, L3725–3726 |
-| Transition snare (pure JS) | seeded noise, first difference + one-pole smoothing (0.6/0.4); sine 175 + 60·e^(−t/10 ms) Hz | — | noise e^(−t/75 ms) · 0.9; sine e^(−t/50 ms) · 0.55; 220 ms | L4872–4880 |
+| Transition snare (pure JS) | seeded noise, first difference + one-pole smoothing (0.6/0.4); sine `sin(2π·(175 + 60·e^(−t/10 ms))·t)`: the frequency term multiplies t instead of being integrated, so the instantaneous frequency is 175 + 60·e^(−t/τ)·(1 − t/τ) Hz (235 Hz at t = 0, below 175 Hz after 10 ms, minimum ≈ 166.9 Hz at 20 ms, then back toward 175 Hz) | — | noise e^(−t/75 ms) · 0.9; sine e^(−t/50 ms) · 0.55; 220 ms | L4872–4880 |
 | Room | voice convolved with a seeded stereo noise IR (noise·(1 − i/n)³), length 0.4 + 0.02·room s; HP 300 Hz before the convolver; wet 0.9·room/100; `normalize = true` | — | — | L3447–3459, L2941–2950, L3733 |
 
 ### 4.2 Transfer table
@@ -194,7 +194,7 @@ One shared space for bass and acid would follow kick-gen2 P2; whether acid is it
 | Snare tone + noise layers | transfers with changes | Band-limited triangle (or sine as in L4877) with integrated pitch envelope; RBJ HP on seeded noise. |
 | Layer sum (clap + snare) | transfers with changes | Kick-gen2 "layer phase check" applies: measure band energy with each layer on and off. Layer offset in ms should be explicit (artifact: 0). |
 | Rim (resonant BP on a square + low triangle) | transfers with changes | Q 6 band-pass on a band-limited square; short envelopes need the onset resolved finely in analysis (kick-gen2 M3). |
-| Transition snare | **transfers as is** | Plain JS on a seeded noise array; replace mulberry32 by NumPy. |
+| Transition snare | **transfers as is** | Plain JS on a seeded noise array; replace mulberry32 by NumPy. Turning it into pitch parameters needs the real instantaneous-frequency curve above (dip below 175 Hz), not "175 + 60·e^(−t/τ) Hz". |
 | Noise-IR room | transfers with changes | FFT convolution; our own IR normalisation; mono IR for a mono file, or stereo after a contract change. IR from a seed sub-stream. |
 
 ### 4.3 Candidate parameter set (future `clap-params` / `snare-params`; one space or two is open)
@@ -212,7 +212,7 @@ Clap: `bursts` (int), `burst_spacing_ms`, `burst_decay_ms`, `burst_level_falloff
 | Rim / clave | rim recipe (section 4); clave = rim at 2.4 kHz, decay 30 | L3434–3437, L3491 |
 | Tambourine | squares at 5,100 / 6,420 / 7,380 / 8,900 Hz × (1 + (seed mod 7)·0.003), 0.06 each, plus noise 0.7, HP 6.5 kHz, 4 ms attack, 130 ms dur, peak 0.7 | L3468–3476 |
 | Cowbell | squares 540 + 800 Hz, BP 2.6 kHz Q 1.4, 1 ms / 120 ms, peak 0.7 | L3477–3484 |
-| Tuning | percussion pitch = a scale degree of the song key (root, fifth, minor third, octave) in a fixed octave per voice, ± 2 semitones by the pitch knob: f · 2^((pitch − 50)/50 · 2/12) | L3798–3799, L3858, L3861 |
+| Tuning | percussion pitch = a scale degree of the song key (root, fifth, third degree, octave; options `deg` 0 / 4 / 2 / 7) in a fixed octave per voice. The option labelled `MINOR 3RD` is `deg: 2`, which `bwDegree` (L2884–2889) resolves to the scale's third degree, so it is a major third in major, Mixolydian and Lydian (label inconsistency, also reported in the sound-designer's note for #151), ± 2 semitones by the pitch knob: f · 2^((pitch − 50)/50 · 2/12) | L3798–3799, L3858, L3861 |
 | Per-hit variation | none at voice level: one rendered voice per machine, placed with gain and pan per step | L3862–3872 |
 
 ### 5.2 Transfer table
@@ -249,7 +249,7 @@ Each item becomes an issue for the audio-engineer when a category is scheduled (
 - **V4 Time-varying filter stability.** Sweep the bass filter envelope (3.2·cut → cut in ≤ 90 ms) and wobble at full depth through the chosen filter form; check for NaN/Inf and for output bursts above the input peak.
 - **V5 `sat` vs `tanh`.** Harmonic content difference between the rational `sat` (L2674) and `np.tanh` at the drive levels the 303 uses; decide on a measured basis.
 - **V6 Envelope convention.** Render `bwEnv` closed forms and our "−60 dB decay" with the converted value; the measured T60 (`length.py` method) must agree within the length rule's tolerance.
-- **V7 Full 303 voice speed.** Time the complete voice (with accent, glide, drive, DC blocker) for 1, 4 and 16 bars at 48 kHz; decide whether a pure-Python loop is acceptable or whether a dependency (e.g. Numba) is needed. A new dependency needs its reason in the PR.
+- **V7 Full 303 voice speed.** Time the complete voice (with accent, glide, drive, DC blocker) for 1, 4 and 16 bars at 48 kHz; decide whether a pure-Python loop is acceptable or whether a dependency (e.g. Numba) is needed. A new dependency needs its reason in the PR. The timing script goes into the repo or the issue (the 1.6 probe is not in the repo).
 - **V8 Layer phase.** Clap + snare and tom + tick: band energy with each layer on and off (kick-gen2 "layer phase check").
 - **V9 Contract scope.** Whether new categories become separate schemas or one schema with a `category` switch, and whether stereo (reverb, delay) is allowed — needs a `contract-change` issue; `sample-metadata.schema.json` currently allows only `"kick"`.
 
