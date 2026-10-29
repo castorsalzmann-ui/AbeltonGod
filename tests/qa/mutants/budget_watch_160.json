@@ -1,0 +1,32 @@
+{
+  "mutants": [
+    {
+      "id": "160_NO_PERMISSION_RETRY",
+      "file": ".claude/hooks/waste_watch.py",
+      "old": "        except (FileExistsError, PermissionError):",
+      "new": "        except FileExistsError:",
+      "tests": ["tests/dev_tools/test_budget_watch.py"],
+      "expected": "killed",
+      "note": "#160: the fix reverted (state before the PR)"
+    },
+    {
+      "id": "160_WRONG_ERROR_CLASS",
+      "file": ".claude/hooks/waste_watch.py",
+      "old": "        except (FileExistsError, PermissionError):",
+      "new": "        except (FileExistsError, IsADirectoryError):",
+      "tests": ["tests/dev_tools/test_budget_watch.py"],
+      "expected": "killed",
+      "note": "#160: retry on a different OSError subclass than the one Windows raises"
+    },
+    {
+      "id": "160_NO_DEADLINE",
+      "file": ".claude/hooks/waste_watch.py",
+      "old": "            if time.monotonic() > deadline:\n                raise TimeoutError(\"lock busy\") from None",
+      "new": "            if False:\n                raise TimeoutError(\"lock busy\") from None",
+      "tests": ["tests/dev_tools/test_budget_watch.py"],
+      "pytest_args": ["-k", "deadline"],
+      "expected": "killed",
+      "note": "#160: a lock that stays denied must still end at the deadline, not spin"
+    }
+  ]
+}

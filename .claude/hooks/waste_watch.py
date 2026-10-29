@@ -256,7 +256,14 @@ def file_lock(lock_path: Path):
     while fd is None:
         try:
             fd = os.open(lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-        except FileExistsError:
+        except (FileExistsError, PermissionError):
+            # PermissionError (#160): on Windows the exclusive create fails with access
+            # denied (errno 13) now and then while other hook calls take and release the
+            # lock (windows-latest CI: 12 of 18000 parallel calls). DeleteFile only marks a
+            # file for deletion while any handle on it is open, and CreateFile on such a
+            # file fails with ERROR_ACCESS_DENIED; who holds that handle is not
+            # established. Treat it as a busy lock. Elsewhere it would mean an unwritable
+            # directory: the deadline below still ends the wait.
             # Check the deadline first: if a stale lock cannot be removed (file held open on
             # Windows, no permission), the loop must still end instead of spinning until the
             # hook's 10 s timeout.
