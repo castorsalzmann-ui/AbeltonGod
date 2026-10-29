@@ -104,8 +104,8 @@ def test_only_tested_capabilities_become_tools():
     """Uses the real registry (contracts/capabilities.json): statuses as of origin/main."""
     gate = CapabilityGate(CapabilityRegistry.from_file())
     Toolbox([_cap_tool("track.mute.set")], capability_gate=gate)  # tested
-    for cap in ("clip_slot.create_audio_clip", "song.create_audio_track", "song.export_audio",
-                "no.such.capability"):
+    Toolbox([_cap_tool("clip_slot.create_audio_clip")], capability_gate=gate)  # tested in #50
+    for cap in ("song.create_audio_track", "song.export_audio", "no.such.capability"):
         with pytest.raises(ToolDefinitionError, match=cap.replace(".", r"\.")):
             Toolbox([_cap_tool(cap)], capability_gate=gate)
 
@@ -114,7 +114,7 @@ def test_only_tested_capabilities_become_tools():
     ("caps", "bad"),
     [
         (("track.mute.set", "song.tempo.get"), None),
-        (("track.mute.set", "clip_slot.create_audio_clip"), "clip_slot.create_audio_clip"),
+        (("track.mute.set", "song.create_audio_track"), "song.create_audio_track"),
         (("song.tempo.get", "track.mute.get", "song.export_audio"), "song.export_audio"),
         (("song.create_audio_track", "track.mute.set"), "song.create_audio_track"),
     ],
