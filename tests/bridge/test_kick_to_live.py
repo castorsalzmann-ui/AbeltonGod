@@ -203,8 +203,8 @@ def test_new_track_two_undos(fake, tmp_path, project):
         (ROOT / "contracts" / "capabilities.json").read_text("utf-8"))["capabilities"]}
     expected = sorted(c for c in ("song.create_audio_track", "clip_slot.create_audio_clip",
                                   "song.undo") if status[c] != "tested")
-    assert "song.create_audio_track" in expected
-    assert b["capability_overrides_used"] == ", ".join(expected)
+    assert expected == []  # all three `tested` since #143 (create_audio_track was the last)
+    assert b["capability_overrides_used"] == (", ".join(expected) or "-")
 
 
 def test_rendered_file_equals_the_engine_cli_render(fake, tmp_path, project):

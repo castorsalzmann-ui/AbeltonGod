@@ -1,0 +1,86 @@
+{
+  "description": "#147 fault injection on the subscription account check (tokenSource 'none', plan labels, pinned CLI version, autoupdater off). Run: python scripts/qa/mutate.py tests/orchestrator/mutants/issue147_auth.json",
+  "mutants": [
+    {
+      "id": "K1_NONE_ALSO_ACCEPTS_A_CONSOLE_KEY",
+      "file": "src/orchestrator/sdk_client.py",
+      "old": "            if source is not None:\n",
+      "new": "            if source is not None and account.get(\"tokenSource\") != \"none\":\n",
+      "tests": ["tests/orchestrator/test_sdk_client.py", "tests/regressions/test_bug_147_auth_token_source.py"],
+      "note": "accepting tokenSource 'none' must not accept '/login managed key' (Console, API-billed)"
+    },
+    {
+      "id": "K2_OLD_ALLOW_LIST",
+      "file": "src/orchestrator/sdk_client.py",
+      "old": "    \"none\", \"claude.ai\", \"CLAUDE_CODE_OAUTH_TOKEN\", \"CLAUDE_CODE_OAUTH_TOKEN_FILE_DESCRIPTOR\",\n",
+      "new": "    None, \"CLAUDE_CODE_OAUTH_TOKEN\", \"CLAUDE_CODE_OAUTH_TOKEN_FILE_DESCRIPTOR\",\n",
+      "tests": ["tests/regressions/test_bug_147_auth_token_source.py"],
+      "note": "the pre-fix allow-list: the user's Max login is refused again"
+    },
+    {
+      "id": "K3_CCR_HOST_TOKEN_ACCEPTED",
+      "file": "src/orchestrator/sdk_client.py",
+      "old": "    \"none\", \"claude.ai\", \"CLAUDE_CODE_OAUTH_TOKEN\", \"CLAUDE_CODE_OAUTH_TOKEN_FILE_DESCRIPTOR\",\n",
+      "new": "    \"none\", \"claude.ai\", \"CLAUDE_CODE_OAUTH_TOKEN\", \"CLAUDE_CODE_OAUTH_TOKEN_FILE_DESCRIPTOR\", \"CCR_OAUTH_TOKEN_FILE\",\n",
+      "tests": ["tests/orchestrator/test_sdk_client.py"]
+    },
+    {
+      "id": "K4_PLAN_NOT_REQUIRED",
+      "file": "src/orchestrator/sdk_client.py",
+      "old": "                if (not isinstance(plan, str) or not plan.startswith(SUBSCRIPTION_PLAN_PREFIX)\n",
+      "new": "                if False and (not isinstance(plan, str) or not plan.startswith(SUBSCRIPTION_PLAN_PREFIX)\n",
+      "tests": ["tests/orchestrator/test_sdk_client.py"],
+      "note": "an account without token and plan (Anthropic profile) passes"
+    },
+    {
+      "id": "K5_CLAUDE_API_PLAN_ACCEPTED",
+      "file": "src/orchestrator/sdk_client.py",
+      "old": "                        or plan == NOT_A_SUBSCRIPTION_PLAN):\n",
+      "new": "                        ):\n",
+      "tests": ["tests/orchestrator/test_sdk_client.py"]
+    },
+    {
+      "id": "K6_PLAN_PREFIX_NOT_CHECKED",
+      "file": "src/orchestrator/sdk_client.py",
+      "old": "                if (not isinstance(plan, str) or not plan.startswith(SUBSCRIPTION_PLAN_PREFIX)\n",
+      "new": "                if (not isinstance(plan, str)\n",
+      "tests": ["tests/orchestrator/test_sdk_client.py"]
+    },
+    {
+      "id": "K7_EXPLICIT_NULL_TOKEN_LIKE_MISSING",
+      "file": "src/orchestrator/sdk_client.py",
+      "old": "            if \"tokenSource\" not in account:\n",
+      "new": "            if token is None:\n",
+      "tests": ["tests/orchestrator/test_sdk_client.py"]
+    },
+    {
+      "id": "K8_VERSION_NOT_CHECKED",
+      "file": "src/orchestrator/sdk_client.py",
+      "old": "        if version != PINNED_CLI_VERSION:\n",
+      "new": "        if False:\n",
+      "tests": ["tests/orchestrator/test_sdk_client.py"]
+    },
+    {
+      "id": "K9_MISSING_VERSION_ACCEPTED",
+      "file": "src/orchestrator/sdk_client.py",
+      "old": "        if version != PINNED_CLI_VERSION:\n",
+      "new": "        if version not in (PINNED_CLI_VERSION, None):\n",
+      "tests": ["tests/orchestrator/test_sdk_client.py"]
+    },
+    {
+      "id": "K10_AUTOUPDATER_LEFT_ON",
+      "file": "src/orchestrator/sdk_client.py",
+      "old": "            \"DISABLE_AUTOUPDATER\": \"1\",\n",
+      "new": "",
+      "tests": ["tests/orchestrator/test_sdk_client.py"]
+    },
+    {
+      "id": "K11_CLAUDE_AI_TOKEN_REFUSED",
+      "file": "src/orchestrator/sdk_client.py",
+      "old": "    \"none\", \"claude.ai\", \"CLAUDE_CODE_OAUTH_TOKEN\", \"CLAUDE_CODE_OAUTH_TOKEN_FILE_DESCRIPTOR\",\n",
+      "new": "    \"none\", \"CLAUDE_CODE_OAUTH_TOKEN\", \"CLAUDE_CODE_OAUTH_TOKEN_FILE_DESCRIPTOR\",\n",
+      "tests": ["tests/orchestrator/test_sdk_client.py"],
+      "note": "over-strict direction: a valid claude.ai login is refused"
+    }
+  ]
+}

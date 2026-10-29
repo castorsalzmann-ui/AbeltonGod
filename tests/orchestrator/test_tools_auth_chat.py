@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import io
+import json
 from decimal import Decimal
 from fractions import Fraction
 
@@ -10,7 +11,7 @@ import numpy as np
 import pytest
 from orch_helpers import ECHO_SCHEMA, echo_tool, live_tool
 
-from bridge.capabilities import CapabilityGate, CapabilityRegistry
+from bridge.capabilities import CAPABILITIES_FILE, CapabilityGate, CapabilityRegistry
 from orchestrator.auth import (
     AUTH_VARIABLE,
     DEFAULT_MODEL,
@@ -100,9 +101,24 @@ def _cap_tool(cap: str) -> Tool:
                 max_live_writes=1, capabilities=(cap,))
 
 
-def test_only_tested_capabilities_become_tools():
-    """Uses the real registry (contracts/capabilities.json): statuses as of origin/main."""
-    gate = CapabilityGate(CapabilityRegistry.from_file())
+def _registry_with_one_supported(tmp_path, cap_id: str = "song.create_audio_track"):
+    """Copy of the real registry (contracts/capabilities.json) with ``cap_id`` set back to
+    ``supported`` (evidence removed). Since #143 the committed registry has no `supported`
+    entry left, so the "untested capability" example comes from this copy (#152)."""
+    doc = json.loads(CAPABILITIES_FILE.read_text(encoding="utf-8"))
+    (cap,) = [c for c in doc["capabilities"] if c["id"] == cap_id]
+    cap["status"] = "supported"
+    cap.pop("evidence", None)
+    path = tmp_path / "capabilities-one-supported.json"
+    path.write_text(json.dumps(doc), encoding="utf-8")
+    registry = CapabilityRegistry.from_file(path)
+    assert registry.get(cap_id).status == "supported"
+    return registry
+
+
+def test_only_tested_capabilities_become_tools(tmp_path):
+    """Real registry statuses, except song.create_audio_track set back to `supported` (#152)."""
+    gate = CapabilityGate(_registry_with_one_supported(tmp_path))
     Toolbox([_cap_tool("track.mute.set")], capability_gate=gate)  # tested
     Toolbox([_cap_tool("clip_slot.create_audio_clip")], capability_gate=gate)  # tested in #50
     for cap in ("song.create_audio_track", "song.export_audio", "no.such.capability"):
@@ -119,10 +135,11 @@ def test_only_tested_capabilities_become_tools():
         (("song.create_audio_track", "track.mute.set"), "song.create_audio_track"),
     ],
 )
-def test_every_capability_of_a_tool_is_checked(caps, bad):
+def test_every_capability_of_a_tool_is_checked(tmp_path, caps, bad):
     """Review of PR #89, finding 6 (D-004): one untested capability anywhere in the list
-    refuses the tool, not just the first one."""
-    gate = CapabilityGate(CapabilityRegistry.from_file())
+    refuses the tool, not just the first one. song.create_audio_track is `supported` only in
+    the registry copy (#152)."""
+    gate = CapabilityGate(_registry_with_one_supported(tmp_path))
     tool = Tool("live", "", {"type": "object"}, _noop, approval=Approval.CONFIRM,
                 max_live_writes=1, capabilities=caps)
     if bad is None:

@@ -26,10 +26,11 @@ Steps:
    and prints how to remove the import by hand later.
 9. Prints a result block to paste into issue #50.
 
-Capability gate: ``clip_slot.create_audio_clip`` is ``tested`` since #50 (user runs 2-4);
-``song.create_audio_track`` (``supported``) still goes through the gate's explicit
-check-script override, and so would the import and its pending reads if a bug set the clip
-entry back (D-004);
+Capability gate: ``clip_slot.create_audio_clip`` is ``tested`` since #50 (user runs 2-4),
+``song.create_audio_track`` and the four import reads (``song.num_scenes.get``,
+``track.has_audio_input.get``, ``clip_slot.has_clip.get``, ``clip.file_path.get``) since #143.
+Each of them is in ``ALLOWED``, so if a bug sets one back to ``supported`` (D-004) the script
+still runs through the gate's explicit check-script override and can re-test it;
 ``capability_overrides_used`` in the result block lists those whose write was really sent;
 ``capability_overrides_reads_only`` lists overrides used only for the extension probe and the
 pre-check reads. Statuses change only in a
@@ -83,7 +84,10 @@ from bridge.osc_client import (
 SCRIPT_VERSION = "0.3.0"
 
 ALLOWED = ("app.version", "song.track_names.get", "song.undo", "song.create_audio_track",
-           "clip_slot.create_audio_clip")
+           "clip_slot.create_audio_clip",
+           # import pre-check and read-back reads; own registry entries since #143
+           "song.num_scenes.get", "track.has_audio_input.get", "clip_slot.has_clip.get",
+           "clip.file_path.get")
 
 EXIT_OK = 0
 EXIT_CHECK_FAILED = 1
