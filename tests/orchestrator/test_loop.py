@@ -764,26 +764,42 @@ def _guard_with_now(tmp_path, clock, events, now, **policy):
                     now=now, events=events)
 
 
-@pytest.mark.parametrize("before", range(0, 40))
+def _midnight_run(tmp_path, clock, events, before):
+    now = MidnightNow(before)
+    folder = tmp_path / f"m{before}"
+    folder.mkdir()
+    guard = _guard_with_now(folder, clock, events, now, daily_budget_usd=0.5)
+    spend = recorded(events, [{"text": "a", "usage": {"output_tokens": 1, "cost_usd": 0.5}}])
+    first = orch(guard, spend).handle("x")
+    model = recorded(events, [{"text": "b", "usage": {"output_tokens": 1, "cost_usd": 0.01}}])
+    out = orch(guard, model).handle("y")
+    return now, guard, first, model, out
+
+
 def test_midnight_rollover_gives_the_client_the_budget_it_reserves_against(
-    tmp_path, clock, events, before
+    tmp_path, clock, events
 ):
     """Review of PR #89, finding 1: the old day's daily budget is used up (0.5 of 0.5). At
     local midnight a new request read sdk_limits from the old day (max_budget_usd 0.0) but
     reserved against the new day's fresh budget, so the client got a 0 budget and the user an
     "internal client error". Wherever midnight falls, the client must get a positive budget
-    that matches what the guard reserved, and the request must succeed."""
-    now = MidnightNow(before)
-    guard = _guard_with_now(tmp_path, clock, events, now, daily_budget_usd=0.5)
-    spend = recorded(events, [{"text": "a", "usage": {"output_tokens": 1, "cost_usd": 0.5}}])
-    first = orch(guard, spend).handle("x")
-    model = recorded(events, [{"text": "b", "usage": {"output_tokens": 1, "cost_usd": 0.01}}])
-    out = orch(guard, model).handle("y")
+    that matches what the guard reserved, and the request must succeed.
+
+    A calibration run counts how often the guard reads the wall clock; midnight is then put
+    before each of those reads once (every position distinct, none repeated)."""
+    reads = _midnight_run(tmp_path, clock, events, 10**9)[0].calls
+    assert reads >= 10, "too few clock reads - the sweep would prove little"
+    for before in range(reads + 1):
+        _now, guard, first, model, out = _midnight_run(tmp_path, clock, events, before)
+        _check_midnight_case(before, guard, first, model, out)
+
+
+def _check_midnight_case(before, guard, first, model, out):
     if not first.success:
         # midnight fell inside the first request; its spend is on the new day already
-        assert first.stop_reason is not None or first.error is not None
+        assert first.stop_reason is not None or first.error is not None, before
         return
-    assert out.error != "model_client_error", out.message_de
+    assert out.error != "model_client_error", (before, out.message_de)
     if out.success:
         assert len(model.requests) == 1
         budget = model.requests[0].sdk_limits["max_budget_usd"]
@@ -793,6 +809,46 @@ def test_midnight_rollover_gives_the_client_the_budget_it_reserves_against(
     else:
         # still before midnight: the old day's budget is used up -> a clean guard stop
         assert out.stop_reason is Limit.DAILY_BUDGET and model.requests == []
+
+
+def test_permit_without_limits_cannot_be_built():
+    from guard import Level, ModelCallPermit
+
+    with pytest.raises(TypeError):
+        ModelCallPermit(1, "r", 100, 0.1, Level.OK)  # sdk_limits has no default
+
+
+@pytest.mark.parametrize(
+    "bad_limits",
+    [{}, {"max_turns": 0, "max_budget_usd": 0.5}, {"max_turns": 2, "max_budget_usd": 0.0},
+     {"max_budget_usd": 0.5}],
+)
+def test_a_permit_with_unusable_limits_never_reaches_the_client(make_guard, events, bad_limits):
+    """Review round 2 of PR #89, finding 1: whatever the permit carries, the loop refuses to
+    hand the client a missing or disabling limit; the request is not a success and the
+    reserved call is settled at no cost."""
+    import dataclasses
+
+    guard = make_guard()
+    real = guard.request
+
+    def request(profile):
+        req = real(profile)
+        before = req.before_model_call
+
+        def broken_before(**kwargs):
+            return dataclasses.replace(before(**kwargs), sdk_limits=dict(bad_limits))
+
+        req.before_model_call = broken_before
+        return req
+
+    guard.request = request
+    model = recorded(events, [{"text": "ok"}])
+    out = orch(guard, model).handle("x")
+    assert model.requests == []
+    assert out.success is False and out.error == "model_client_error"
+    assert guard.session_spent_usd == 0.0
+    assert log_entries(guard)[-1]["outcome"] == "error"
 
 
 def test_permit_sdk_limits_include_the_call_and_match_the_reservation(make_guard):

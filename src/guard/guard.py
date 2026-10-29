@@ -175,8 +175,9 @@ class ModelCallPermit:
     # Limits for an SDK that enforces its own (D-011), taken in the same locked step and from
     # the same day's counter as this reservation, *including* this call: max_turns >= 1 and
     # max_budget_usd > 0 whenever a permit is issued. Use these, not a separate sdk_limits()
-    # read, which can see another day across local midnight (review of PR #89).
-    sdk_limits: dict[str, Any] = field(default_factory=dict)
+    # read, which can see another day across local midnight (review of PR #89). No default:
+    # a permit without limits is a construction error, never an empty dict.
+    sdk_limits: dict[str, Any]
 
 
 @dataclass(frozen=True)

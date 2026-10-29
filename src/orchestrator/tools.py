@@ -128,8 +128,16 @@ class CapabilityChecker(Protocol):
 
 
 def _has_non_finite(value: Any) -> bool:
-    # numbers.Real covers float, NumPy floats (float32 is not a float subclass) and ints
-    if isinstance(value, numbers.Real) and not isinstance(value, bool | numbers.Integral):
+    """True for NaN/Infinity and for numbers JSON cannot carry. jsonschema accepts any
+    ``numbers.Number`` as "number", so Decimal (incl. Decimal NaN), Fraction and complex
+    would otherwise pass range-free fields."""
+    if isinstance(value, bool) or isinstance(value, numbers.Integral):
+        return False
+    if isinstance(value, numbers.Number):
+        # NumPy floats count as JSON numbers (float32 is not a float subclass)
+        is_float = isinstance(value, float) or type(value).__module__ == "numpy"
+        if not (is_float and isinstance(value, numbers.Real)):
+            return True
         return not math.isfinite(float(value))
     if isinstance(value, Mapping):
         return any(_has_non_finite(v) for v in value.values())
@@ -143,7 +151,8 @@ def validation_errors(tool: Tool, arguments: Any) -> list[str]:
     if not isinstance(arguments, Mapping):
         return [f"arguments must be a JSON object, got {type(arguments).__name__}"]
     if _has_non_finite(arguments):
-        return ["arguments contain NaN or Infinity, which JSON does not allow"]
+        return ["arguments contain NaN, Infinity or a non-JSON number type (Decimal, "
+                "Fraction, complex), which JSON does not allow"]
     validator = Draft202012Validator(tool.input_schema)
     errors = sorted(validator.iter_errors(dict(arguments)), key=lambda e: list(e.path))
     return [

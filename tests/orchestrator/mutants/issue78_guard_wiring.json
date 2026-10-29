@@ -133,8 +133,8 @@
       "old": "                sdk_limits=checked_sdk_limits(limits),\n",
       "new": "                sdk_limits=limits,\n",
       "tests": ["tests/orchestrator"],
-      "expected": "survived",
-      "note": "redundant since the PR #89 review fix: limits now come from permit.sdk_limits, computed in the same locked step and from the same day's counter as the reservation that just succeeded (call headroom >= 1, money headroom > EPS via needs_room). The first version's claim that it was redundant was WRONG: sdk_limits() was read separately and could see the old day across local midnight (max_budget_usd 0.0 reached the client). The check stays as defence in depth; checked_sdk_limits itself is pinned by S1/S2, the rollover by S5."
+      "expected": "killed",
+      "note": "not redundant: the loop must refuse unusable limits whatever the permit carries. Killed by test_a_permit_with_unusable_limits_never_reaches_the_client (review round 2 of PR #89). History: round 0 called it redundant because limits were read before the reservation - WRONG, the separate read saw the old day across local midnight (fixed by permit.sdk_limits, pinned by S5); round 1 called it redundant again - also not a reason to leave the check untested."
     },
     {
       "id": "S6_SDKLIMIT_ERROR_SWALLOWED",
@@ -142,8 +142,8 @@
       "old": "            req.after_model_call(permit, ModelUsage(output_tokens=0, cost_usd=0.0))\n            raise _Abort(\"model_client_error\", str(exc)) from exc\n",
       "new": "            response = ModelResponse(text=\"ok\")\n",
       "tests": ["tests/orchestrator"],
-      "expected": "survived",
-      "note": "reviewer's X16; same root as S3: the SdkLimitError branch is unreachable while limits come from the permit"
+      "expected": "killed",
+      "note": "reviewer's X16; killed by the same test as S3 (a permit with unusable limits must end as an error, never as success)"
     },
     {
       "id": "S5_LIMITS_READ_SEPARATELY_FROM_RESERVATION",
@@ -191,8 +191,16 @@
     {
       "id": "V3_NUMPY_NAN_ALLOWED",
       "file": "src/orchestrator/tools.py",
-      "old": "    if isinstance(value, numbers.Real) and not isinstance(value, bool | numbers.Integral):\n",
-      "new": "    if isinstance(value, float):\n",
+      "old": "        is_float = isinstance(value, float) or type(value).__module__ == \"numpy\"\n",
+      "new": "        is_float = isinstance(value, float)\n",
+      "tests": ["tests/orchestrator"],
+      "note": "rewritten in review round 2 for the new _has_non_finite"
+    },
+    {
+      "id": "V4_NON_JSON_NUMBERS_ALLOWED",
+      "file": "src/orchestrator/tools.py",
+      "old": "            return True\n        return not math.isfinite(float(value))\n",
+      "new": "            return False\n        return not math.isfinite(float(value))\n",
       "tests": ["tests/orchestrator"]
     },
     {

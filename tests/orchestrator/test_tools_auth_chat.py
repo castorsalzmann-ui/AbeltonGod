@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import io
+from decimal import Decimal
+from fractions import Fraction
 
 import numpy as np
 import pytest
@@ -139,6 +141,20 @@ def test_numpy_non_finite_arguments_are_rejected(value):
     assert validation_errors(tool, {"g": value})
     assert validation_errors(tool, {"g": [1, {"h": value}]})
     assert validation_errors(tool, {"g": np.float32(0.5), "n": np.int64(3)}) == []
+
+
+@pytest.mark.parametrize(
+    "value",
+    [Decimal("NaN"), Decimal("Infinity"), Decimal("1.5"), complex(float("nan"), 0), 1j,
+     Fraction(1, 3)],
+)
+def test_non_json_number_types_are_rejected(value):
+    """Review round 2 of PR #89, nit: jsonschema treats any numbers.Number as "number"."""
+    tool = Tool("t", "", {"type": "object", "properties": {"g": {"type": "number"}}}, _noop)
+    assert validation_errors(tool, {"g": value})
+    assert validation_errors(tool, {"g": [value]})
+    for ok in (0, -3, 2.5, True, np.float64(1.0), np.int32(4)):
+        assert not [e for e in validation_errors(tool, {"x": ok}) if "JSON" in e], ok
 
 
 def test_capability_tool_without_gate_is_refused():

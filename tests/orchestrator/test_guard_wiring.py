@@ -14,7 +14,24 @@ Rules checked on the AST of every module under ``src/`` (``violations``):
    ``before_tool`` before validation, approval, handler and ``after_tool``.
 4. ``Orchestrator`` runs tools only through ``self.toolbox.run``.
 
+Also caught (review round 2): ``getattr``/``setattr``/``hasattr``/``delattr`` used other than
+as a direct call (alias ``g = getattr``), any attribute of a dynamic-access name
+(``builtins.getattr``, ``inspect.getattr_static``, ``operator.attrgetter``), ``from … import
+<one of them> [as x]``, and ``match`` class patterns with a ``complete=`` / ``handler=``
+keyword.
+
 The bad-snippet tests at the end prove each rule turns red (review of PR #89, finding 2).
+
+**What this check cannot see** (it is a syntax check, not a proof; the reviewer remains the
+other half of the criterion):
+
+- names built at runtime and resolved without a forbidden name: ``eval``/``exec``/``compile``
+  of strings, ``__import__``/``importlib`` returning ``builtins``, ``globals()["getattr"]``,
+  ``__builtins__`` lookups;
+- reaching a handler through a container or object that is not spelled ``.handler`` (e.g. a
+  ``functools.partial`` or a dict of callables built from tool objects elsewhere);
+- code outside ``src/`` (tests, scripts) and C extensions or third-party packages (the future
+  Agent SDK adapter must call into ``Toolbox.run``; its own wiring test is a step-2 item).
 """
 
 from __future__ import annotations
@@ -31,7 +48,8 @@ ALLOWED_SITES = {
     ("orchestrator/tools.py", "Toolbox.run", "tool.handler"),
 }
 DYNAMIC_ATTR_FUNCS = {"getattr", "setattr", "hasattr", "delattr"}
-FORBIDDEN_NAMES = {"attrgetter", "methodcaller", "vars", "__getattribute__"}
+FORBIDDEN_NAMES = {"attrgetter", "methodcaller", "vars", "__getattribute__", "getattr_static"}
+DYNAMIC_NAMES = DYNAMIC_ATTR_FUNCS | FORBIDDEN_NAMES
 
 
 def _modules() -> list[tuple[str, ast.Module]]:
@@ -78,10 +96,21 @@ def violations(modules: list[tuple[str, ast.Module]]) -> list[str]:
                         seen_sites.append(site)
                     else:
                         found.append(f"{where} {ast.unparse(node)} outside the guarded site")
-                if node.attr in ("__dict__", "__getattribute__") or node.attr in FORBIDDEN_NAMES:
+                if node.attr == "__dict__" or node.attr in DYNAMIC_NAMES:
                     found.append(f"{where} {node.attr} access")
             elif isinstance(node, ast.Name) and node.id in FORBIDDEN_NAMES:
                 found.append(f"{where} uses {node.id}")
+            elif isinstance(node, ast.Name) and node.id in DYNAMIC_ATTR_FUNCS and not (
+                isinstance(parents.get(id(node)), ast.Call)
+                and parents[id(node)].func is node
+            ):
+                found.append(f"{where} {node.id} used other than as a direct call (alias)")
+            elif isinstance(node, ast.ImportFrom) and any(
+                a.name in DYNAMIC_NAMES for a in node.names
+            ):
+                found.append(f"{where} imports a dynamic attribute accessor")
+            elif isinstance(node, ast.MatchClass) and set(node.kwd_attrs) & GUARDED:
+                found.append(f"{where} match pattern binds {set(node.kwd_attrs) & GUARDED}")
             elif isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and (
                 node.func.id in DYNAMIC_ATTR_FUNCS
             ):
@@ -178,6 +207,13 @@ def _with_extra(rel: str, source: str) -> list[tuple[str, ast.Module]]:
         "def q(t, a):\n    return type(t).__getattribute__(t, 'handler')(a)\n",
         "def q(t, a):\n    return [t.handler][0](a)\n",
         "class X:\n    def run(self, tool, a):\n        return tool.handler(a)\n",
+        # review round 2 spellings
+        "g = getattr\ndef q(m, r):\n    return g(m, 'complete')(r)\n",
+        "import builtins\ndef q(m, r):\n    return builtins.getattr(m, 'complete')(r)\n",
+        "from operator import attrgetter as ag\nq = ag('handler')\n",
+        "def q(m, r):\n    match m:\n        case object(complete=f):\n            return f(r)\n",
+        "import inspect\ndef q(m, r):\n    return inspect.getattr_static(m, 'complete')(m, r)\n",
+        "from inspect import getattr_static\n",
     ],
 )
 def test_each_dodge_in_a_new_module_is_caught(source):
