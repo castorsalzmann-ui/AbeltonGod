@@ -296,6 +296,24 @@ def test_undo_that_reaches_an_unknown_state_stops(fake, tmp_path):
         "undo_1: 'after set_cue_name' -> a state this run never had"]
 
 
+def test_undo_that_leaves_an_unseen_target_name_is_not_a_known_state(fake, tmp_path):
+    """Structure as after create_midi_clip, but the new track has a name this run never read:
+    not one of this run's states, so the chain stops."""
+    real = fake._undo
+
+    def undo_and_rename(p):
+        real(p)
+        if len(fake.tracks) == 3:
+            fake.tracks[2]["name"] = "someone else's name"
+
+    fake._undo = undo_and_rename
+    code, out, _ = run(fake, tmp_path, ["y", "y", "y"])
+    assert code == script.EXIT_CHECK_FAILED, out
+    assert writes(fake).count((UNDO, ())) == 1
+    assert block_list(out, "undo_chain") == [
+        "undo_1: 'after set_cue_name' -> a state this run never had"]
+
+
 def test_target_renamed_by_live_is_tolerated_but_a_foreign_rename_is_not(fake, tmp_path):
     def rename(n, prompt):
         if "Undo" in prompt and "OHNE" in prompt:
