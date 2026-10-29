@@ -30,4 +30,30 @@ jobs:
       - name: Lint
         run: ruff check .
       - name: Test
-        run: pytest
+        run: pytest --junitxml=pytest-junit.xml
+      # Job logs need a signed-in browser; check-run annotations are readable through the
+      # REST API. On failure, name every failed test as an annotation (#145).
+      - name: Annotate failed tests
+        if: failure()
+        shell: python
+        run: |
+          import pathlib
+          import xml.etree.ElementTree as ET
+          p = pathlib.Path("pytest-junit.xml")
+          if not p.exists():
+              print("::error title=pytest::no junit report (pytest did not finish)")
+          else:
+              n = 0
+              for case in ET.parse(p).getroot().iter("testcase"):
+                  for tag in ("failure", "error"):
+                      for bad in case.findall(tag):
+                          if n >= 40:
+                              break
+                          name = f"{case.get('classname')} / {case.get('name')}"[:200]
+                          title = (f"{tag} {name}".replace("%", "%25")
+                                   .replace(",", "%2C").replace(":", "%3A"))
+                          lines = (bad.get("message") or "").splitlines()
+                          msg = (lines[0] if lines else "")[:300].replace("%", "%25")
+                          print(f"::error title={title}::{msg}")
+                          n += 1
+              print(f"annotated {n} failed test(s)")

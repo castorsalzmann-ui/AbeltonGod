@@ -39,3 +39,4 @@ Thumbs.db
 
 # pytest temp folder (--basetemp in pyproject.toml)
 .pytest_tmp/
+pytest-junit.xml
