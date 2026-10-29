@@ -132,6 +132,8 @@ Den Exit-Code zeigt PowerShell direkt danach mit `$LASTEXITCODE`. Schreib bitte 
 | AbletonOSC | `...\Remote Scripts\AbletonOSC\logs\abletonosc.log` | Jede empfangene Nachricht und jeder Fehler des Scripts. |
 | Live | `%APPDATA%\Ableton\Live <Version>\Preferences\Log.txt` | Fehler beim Laden des Scripts (z. B. Python-Fehler beim Start). |
 
+Zeilen wie `[WARNING] AbletonOSC: Non-fatal socket error … ConnectionResetError: [WinError 10054]` sind harmlos: AbletonOSC hat eine Nachricht an Port 11001 geschickt (z. B. beim Start von Live), während dort kein Programm zuhörte, und Windows meldet das beim nächsten Empfang. AbletonOSC arbeitet danach normal weiter.
+
 Den Live-Ordner öffnest du am schnellsten mit `Win + R` → `%APPDATA%\Ableton` → Enter. Im Ordner deiner Live-Version liegt `Preferences\Log.txt`. Bei Problemen die letzten ~30 Zeilen beider Logs ins Issue kopieren.
 
 ## Gut zu wissen
@@ -189,7 +191,7 @@ Gibt es schon eine Sicherung `clip_slot.py.abeltongod-orig`, die nicht Byte für
 
 ### 7.2 Import testen
 
-**Vorbereitung:** neues Test-Set mit mindestens einer **Audiospur**, speichern, schließen und neu öffnen (siehe Abschnitt 5, Vorbereitung 1–4). Eine WAV-Datei bereitlegen, z. B. einen Kick aus Phase 01:
+**Vorbereitung:** neues Test-Set (hat es keine Audiospur, beim Ziel später `n` für eine neue Audiospur eingeben), speichern, schließen und neu öffnen (siehe Abschnitt 5, Vorbereitung 1–4). Eine WAV-Datei bereitlegen, z. B. einen Kick aus Phase 01:
 
 ```powershell
 python -m audio_engine.kick --preset centre --out "$env:USERPROFILE\Music\AbeltonGod-Test"
@@ -223,7 +225,7 @@ Select-String -Path "$env:USERPROFILE\Documents\Ableton\User Library\Remote Scri
 **Erwartete Ausgabe (gekürzt, Ziel Spur 0, leeres Set):**
 
 ```text
-AbeltonGod live_import 0.1.0
+AbeltonGod live_import 0.2.0
 
 Verbindung zu AbletonOSC (127.0.0.1:11000) steht.
 
@@ -241,6 +243,8 @@ Das Set ist wieder wie vor dem Import (geprüft: Spurnamen und Zellen der Zielsp
 ```
 
 Im Ergebnis-Block sollten dann stehen: `extension: PRESENT`, `clip_slot.create_audio_clip: PASS`, `clip_file_path_read: '<dein Pfad>'`, `user_hears_kick: yes`, `song.undo: PASS (clip removed; read back)`. Den ganzen Block (mit den drei Backticks) in **Issue #50** einfügen.
+
+Nach dem Import liest das Script bis zu 2 Sekunden lang alle 0,1 s zurück, bis Clip und Dateipfad zu sehen sind. Den Namen der Zielspur vergleicht es dabei nicht: Live benennt eine neue Spur nach dem Clip um (im ersten Lauf: `3 centre s1001`). Das Script meldet das mit `Live hat die Spur umbenannt: …`, im Ergebnis-Block steht der neue Name unter `target_track_name_after_import`. Zeigt das Zurücklesen nach 2 Sekunden immer noch nicht den Clip, meldet das Script `FEHLER: AbletonOSC hat den letzten Schritt bestätigt, aber das Zurücklesen zeigt nicht das erwartete Ergebnis`, sendet kein Undo, und du entfernst Clip/Spur von Hand.
 
 Ob Live den Dateipfad genau so zurückmeldet, wie er gesendet wurde (Groß/Klein, `\` statt `/`), ist nicht geprüft. Das Script vergleicht ohne Rücksicht auf Groß/Klein und Schrägstrich-Richtung. Steht `FAIL` mit einem anderen Pfad, bitte den Block trotzdem einfügen.
 

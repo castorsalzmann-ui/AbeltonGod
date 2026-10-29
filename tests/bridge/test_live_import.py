@@ -336,6 +336,38 @@ def test_undo_reverting_other_action_is_fail(fake, tmp_path):
     assert sum(1 for a, _ in writes(fake) if a == UNDO) == 1  # never a second undo
 
 
+@pytest.mark.parametrize("reverts_rename", [True, False])
+def test_user_run_1_two_midi_tracks_new_track_renamed(fake, tmp_path, reverts_rename):
+    """#50 user run 1 (Live 12.4.5): set with two MIDI tracks, target 'n', Live renames the
+    new track after the clip and shows the clip a moment later. Script 0.1.0 reported FAIL
+    (file_path=None) although the clip was there. Now: PASS, rename reported, two undos."""
+    fake.num_scenes = 8
+    fake.tracks = [{"name": "1-MIDI", "mute": False, "slots": [None] * 8},
+                   {"name": "2-MIDI", "mute": False, "slots": [None] * 8}]
+    fake.rename_on_clip = "3 centre s1001"
+    fake.clip_delay_s = 0.25
+    fake.undo_reverts_rename = reverts_rename
+    p = wav(tmp_path / "centre_s1001_v0.wav")
+    code, out, _ = run(fake, tmp_path, ["y", "n", "y", "y", "y"], path=p)
+    assert code == 0, out
+    b = block(out)
+    assert b["clip_slot.create_audio_clip"] == "PASS"
+    assert b["clip_file_path_read"] == repr(p)
+    assert b["target_track_name_after_import"] == "'3 centre s1001'"
+    assert "Live hat die Spur umbenannt: '3-Audio' -> '3 centre s1001'" in out
+    assert b["song.undo"].startswith("PASS (clip removed, track removed")
+    assert [t["name"] for t in fake.tracks] == ["1-MIDI", "2-MIDI"]
+
+
+def test_readback_that_never_matches_is_reported_as_unknown(fake, tmp_path):
+    fake.clip_delay_s = 30.0  # the clip never shows within the 2 s window
+    code, out, prompts = run(fake, tmp_path, ["y", "0", "y", "y", "y"])
+    assert code == 1
+    assert "zeigt nicht das erwartete Ergebnis" in out and "KEIN Undo" in out
+    assert not any("Undo" in p for p in prompts)
+    assert UNDO not in [a for a, _ in writes(fake)]
+
+
 def test_non_ascii_path_round_trip(fake, tmp_path):
     p = wav(tmp_path / "Kick Ä 東京.wav")
     code, out, _ = run(fake, tmp_path, ["y", "0", "y", "y", ""], path=p)
