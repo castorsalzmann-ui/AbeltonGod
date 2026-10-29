@@ -66,6 +66,7 @@ class Limit(StrEnum):
     CONCURRENCY = "max_concurrent_requests"
     USAGE_LOG = "usage_log"
     UNREADABLE_USAGE = "unreadable_usage"
+    UNDECLARED_WRITE = "undeclared_write"  # a tool did more than it declared (orchestrator)
 
 
 _REASON_DE = {
@@ -82,6 +83,7 @@ _REASON_DE = {
     Limit.CONCURRENCY: "es läuft schon eine andere Anfrage",
     Limit.USAGE_LOG: "das Nutzungsprotokoll konnte nicht geschrieben werden",
     Limit.UNREADABLE_USAGE: "die gemeldete Nutzung eines Aufrufs war nicht lesbar",
+    Limit.UNDECLARED_WRITE: "ein Werkzeug hat mehr geschrieben, als es angekündigt hatte",
 }
 
 
@@ -170,6 +172,12 @@ class ModelCallPermit:
     max_output_tokens: int  # pass to the SDK/API as max_tokens
     reserved_cost_usd: float
     level: Level
+    # Limits for an SDK that enforces its own (D-011), taken in the same locked step and from
+    # the same day's counter as this reservation, *including* this call: max_turns >= 1 and
+    # max_budget_usd > 0 whenever a permit is issued. Use these, not a separate sdk_limits()
+    # read, which can see another day across local midnight (review of PR #89). No default:
+    # a permit without limits is a construction error, never an empty dict.
+    sdk_limits: dict[str, Any]
 
 
 @dataclass(frozen=True)
@@ -382,7 +390,9 @@ class GuardedRequest:
         return max(0.0, self.profile.timeout_s - self.elapsed_s())
 
     def sdk_limits(self) -> dict[str, Any]:
-        """Limits to pass to the Claude Agent SDK as the first line of defence (D-011)."""
+        """Limits right now, for display. For a model call use ``permit.sdk_limits`` from
+        ``before_model_call``: this separate read can see the old day's budget across local
+        midnight while the reservation already uses the new day's (review of PR #89)."""
         with self._g._book.lock:
             daily = self._g._ledger.daily(self._g._today())
             budget = min(self._cost.headroom, self._g._ledger.session.headroom, daily.headroom)
@@ -436,11 +446,12 @@ class GuardedRequest:
             except UsageLogError as exc:
                 self._stop(Limit.USAGE_LOG, str(exc), open_item="Modellaufruf")
             money = (self._cost, g._ledger.session, daily)
-            est = (
-                max(0.0, min(c.headroom for c in money))
-                if estimated_cost_usd is None
-                else float(estimated_cost_usd)
-            )
+            money_left = max(0.0, min(c.headroom for c in money))
+            sdk_limits = {
+                "max_turns": max(0, int(self._model_calls.headroom)),
+                "max_budget_usd": money_left,
+            }
+            est = money_left if estimated_cost_usd is None else float(estimated_cost_usd)
             violation = g._book.reserve_all(
                 [(self._model_calls, 1, False)] + [(c, est, True) for c in money]
             )
@@ -456,7 +467,7 @@ class GuardedRequest:
             pid = next(self._ids)
             self._models[pid] = _ModelReservation(max_output_tokens, est, daily, today)
             return ModelCallPermit(
-                pid, self.request_id, max_output_tokens, est, self._level_unlocked()
+                pid, self.request_id, max_output_tokens, est, self._level_unlocked(), sdk_limits
             )
 
     def after_model_call(self, permit: ModelCallPermit, usage: ModelUsage | None) -> Level:
@@ -540,6 +551,15 @@ class GuardedRequest:
             self._raise_if_stopped()
             self._check_timeout(open_item=None)
             return self._level_unlocked()
+
+    def stop_request(self, reason: Limit, detail: str) -> None:
+        """Stop this request for a reason found outside the guard (e.g. a tool broke its own
+        declaration). Sticky like every stop; always raises ``GuardStop``."""
+        if not isinstance(reason, Limit):
+            raise TypeError(f"reason must be a Limit, got {reason!r}")
+        with self._g._book.lock:
+            self._require_open_permits()
+            self._stop(reason, str(detail))
 
     # ----- finishing ------------------------------------------------------------------------
 

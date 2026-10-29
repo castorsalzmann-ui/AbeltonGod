@@ -1,0 +1,278 @@
+{
+  "description": "#78 fault injection on the orchestrator guard wiring. Run: python scripts/qa/mutate.py tests/orchestrator/mutants/issue78_guard_wiring.json",
+  "mutants": [
+    {
+      "id": "B1_LOOP_CALLS_HANDLER_DIRECTLY",
+      "file": "src/orchestrator/loop.py",
+      "old": "                results.append(self.toolbox.run(req, call, self.approver))\n",
+      "new": "                self.toolbox._tools[call.name].handler(dict(call.arguments)) if call.name in self.toolbox._tools else None\n                results.append(self.toolbox.run(req, call, self.approver))\n",
+      "tests": ["tests/orchestrator"],
+      "note": "guard bypass: handler runs before the guard sees the call"
+    },
+    {
+      "id": "B2_TOOLBOX_SKIPS_GUARD_FOR_VALID_CALLS",
+      "file": "src/orchestrator/tools.py",
+      "old": "        name = call.name if isinstance(call.name, str) and call.name else \"<unnamed>\"\n        permit",
+      "new": "        name = call.name if isinstance(call.name, str) and call.name else \"<unnamed>\"\n        if tool is not None and not validation_errors(tool, call.arguments):\n            out = tool.handler(copy.deepcopy(dict(call.arguments)))\n            return ToolResult(call.id, tool.name, False, out.content)\n        permit",
+      "tests": ["tests/orchestrator"],
+      "note": "guard bypass: valid calls never reach before_tool/after_tool"
+    },
+    {
+      "id": "B3_FIRST_MODEL_CALL_UNGUARDED",
+      "file": "src/orchestrator/loop.py",
+      "old": "            response = self._call_model(req, messages)\n",
+      "new": "            response = self.model.complete(ModelRequest(self.system_prompt, tuple(messages), self.toolbox.specs(), 1000, 90.0, {\"max_turns\": 1, \"max_budget_usd\": 1.0})) if len(messages) == 1 else self._call_model(req, messages)\n",
+      "tests": ["tests/orchestrator"],
+      "note": "guard bypass: the first model call skips before/after_model_call"
+    },
+    {
+      "id": "B4_USAGE_NOT_SETTLED",
+      "file": "src/orchestrator/loop.py",
+      "old": "        req.after_model_call(permit, response.usage)\n",
+      "new": "        req.after_model_call(permit, None)\n",
+      "tests": ["tests/orchestrator"],
+      "note": "reported usage is dropped"
+    },
+    {
+      "id": "B5_TOOL_RESERVES_NO_FILES",
+      "file": "src/orchestrator/tools.py",
+      "old": "            writes_files=tool.max_files_written if tool else 0,\n",
+      "new": "            writes_files=0,\n",
+      "tests": ["tests/orchestrator"],
+      "note": "file budget no longer reserved before the handler"
+    },
+    {
+      "id": "B6_TOOL_RESERVES_NO_LIVE_WRITES",
+      "file": "src/orchestrator/tools.py",
+      "old": "            live_writes=tool.max_live_writes if tool else 0,\n",
+      "new": "            live_writes=0,\n",
+      "tests": ["tests/orchestrator"],
+      "note": "Live-write budget no longer reserved before the handler"
+    },
+    {
+      "id": "V1_NO_SCHEMA_VALIDATION",
+      "file": "src/orchestrator/tools.py",
+      "old": "        errors = validation_errors(tool, call.arguments)\n",
+      "new": "        errors = []\n",
+      "tests": ["tests/orchestrator"]
+    },
+    {
+      "id": "V2_NAN_ALLOWED",
+      "file": "src/orchestrator/tools.py",
+      "old": "    if _has_non_finite(arguments):\n",
+      "new": "    if False:\n",
+      "tests": ["tests/orchestrator"],
+      "note": "jsonschema may already reject NaN for bounded numbers; check whether survival is redundancy"
+    },
+    {
+      "id": "A1_CONFIRM_WITHOUT_APPROVER",
+      "file": "src/orchestrator/tools.py",
+      "old": "            approved = False\n            if approver is not None:\n",
+      "new": "            approved = approver is None\n            if approver is not None:\n",
+      "tests": ["tests/orchestrator"]
+    },
+    {
+      "id": "A2_TRUTHY_APPROVAL",
+      "file": "src/orchestrator/tools.py",
+      "old": "approver.confirm(tool, copy.deepcopy(arguments)) is True",
+      "new": "bool(approver.confirm(tool, copy.deepcopy(arguments)))",
+      "tests": ["tests/orchestrator"]
+    },
+    {
+      "id": "A3_LIVE_TOOL_MAY_BE_ROUTINE",
+      "file": "src/orchestrator/tools.py",
+      "old": "        if (self.max_live_writes > 0 or self.capabilities) and self.approval",
+      "new": "        if (self.capabilities) and self.approval",
+      "tests": ["tests/orchestrator"]
+    },
+    {
+      "id": "A4_APPROVER_ERROR_IS_YES",
+      "file": "src/orchestrator/tools.py",
+      "old": "                    approved = False\n",
+      "new": "                    approved = True\n",
+      "tests": ["tests/orchestrator"]
+    },
+    {
+      "id": "N1_DUPLICATE_TOOL_NAMES_ALLOWED",
+      "file": "src/orchestrator/tools.py",
+      "old": "        if tool.name in self._tools:\n",
+      "new": "        if False:\n",
+      "tests": ["tests/orchestrator"]
+    },
+    {
+      "id": "N2_DOTS_IN_TOOL_NAMES",
+      "file": "src/orchestrator/tools.py",
+      "old": "TOOL_NAME = re.compile(r\"[a-zA-Z0-9_-]{1,128}\")",
+      "new": "TOOL_NAME = re.compile(r\"[a-zA-Z0-9_.-]{1,128}\")",
+      "tests": ["tests/orchestrator"]
+    },
+    {
+      "id": "C1_CAPABILITY_GATE_SKIPPED",
+      "file": "src/orchestrator/tools.py",
+      "old": "                    self._gate.check(cap_id)\n",
+      "new": "                    pass\n",
+      "tests": ["tests/orchestrator"]
+    },
+    {
+      "id": "S1_MAX_TURNS_ZERO_ALLOWED",
+      "file": "src/orchestrator/loop.py",
+      "old": "or turns < 1:",
+      "new": "or turns < 0:",
+      "tests": ["tests/orchestrator"]
+    },
+    {
+      "id": "S2_ZERO_BUDGET_ALLOWED",
+      "file": "src/orchestrator/loop.py",
+      "old": "or not budget > 0:",
+      "new": "or budget < 0:",
+      "tests": ["tests/orchestrator"]
+    },
+    {
+      "id": "S3_LIMITS_NOT_CHECKED_IN_LOOP",
+      "file": "src/orchestrator/loop.py",
+      "old": "                sdk_limits=checked_sdk_limits(limits),\n",
+      "new": "                sdk_limits=limits,\n",
+      "tests": ["tests/orchestrator"],
+      "expected": "killed",
+      "note": "not redundant: the loop must refuse unusable limits whatever the permit carries. Killed by test_a_permit_with_unusable_limits_never_reaches_the_client (review round 2 of PR #89). History: round 0 called it redundant because limits were read before the reservation - WRONG, the separate read saw the old day across local midnight (fixed by permit.sdk_limits, pinned by S5); round 1 called it redundant again - also not a reason to leave the check untested."
+    },
+    {
+      "id": "S6_SDKLIMIT_ERROR_SWALLOWED",
+      "file": "src/orchestrator/loop.py",
+      "old": "            req.after_model_call(permit, ModelUsage(output_tokens=0, cost_usd=0.0))\n            raise _Abort(\"model_client_error\", str(exc)) from exc\n",
+      "new": "            response = ModelResponse(text=\"ok\")\n",
+      "tests": ["tests/orchestrator"],
+      "expected": "killed",
+      "note": "reviewer's X16; killed by the same test as S3 (a permit with unusable limits must end as an error, never as success)"
+    },
+    {
+      "id": "S5_LIMITS_READ_SEPARATELY_FROM_RESERVATION",
+      "file": "src/orchestrator/loop.py",
+      "old": "        permit = req.before_model_call(estimated_cost_usd=self._safe_estimate(draft))\n        # Same locked step and same day as the reservation, including this call (PR #89 review).\n        limits = permit.sdk_limits\n",
+      "new": "        limits = req.sdk_limits()\n        permit = req.before_model_call(estimated_cost_usd=self._safe_estimate(draft))\n",
+      "tests": ["tests/orchestrator"],
+      "note": "the pre-fix code (review of PR #89, finding 1): killed only by the midnight regression test"
+    },
+    {
+      "id": "G1_PERMIT_TURNS_OFF_BY_ONE",
+      "file": "src/guard/guard.py",
+      "old": "                \"max_turns\": max(0, int(self._model_calls.headroom)),\n                \"max_budget_usd\": money_left,",
+      "new": "                \"max_turns\": max(0, int(self._model_calls.headroom) - 1),\n                \"max_budget_usd\": money_left,",
+      "tests": ["tests/orchestrator", "tests/guard"]
+    },
+    {
+      "id": "G2_PERMIT_BUDGET_FROM_REQUEST_ONLY",
+      "file": "src/guard/guard.py",
+      "old": "                \"max_budget_usd\": money_left,",
+      "new": "                \"max_budget_usd\": max(0.0, self._cost.headroom),",
+      "tests": ["tests/orchestrator", "tests/guard"]
+    },
+    {
+      "id": "D1_OVERRUN_TOOL_MARKED_OK",
+      "file": "src/orchestrator/tools.py",
+      "old": "            ok=overrun is None,\n",
+      "new": "            ok=True,\n",
+      "tests": ["tests/orchestrator"]
+    },
+    {
+      "id": "D2_OVERRUN_NOT_STOPPED",
+      "file": "src/orchestrator/tools.py",
+      "old": "            req.stop_request(Limit.UNDECLARED_WRITE, f\"{tool.name} {overrun}\")\n",
+      "new": "            pass\n",
+      "tests": ["tests/orchestrator"]
+    },
+    {
+      "id": "D3_OVERRUN_OFF_BY_ONE",
+      "file": "src/orchestrator/tools.py",
+      "old": "reported > declared:",
+      "new": "reported > declared + 1:",
+      "tests": ["tests/orchestrator"]
+    },
+    {
+      "id": "V3_NUMPY_NAN_ALLOWED",
+      "file": "src/orchestrator/tools.py",
+      "old": "        is_float = isinstance(value, float) or type(value).__module__ == \"numpy\"\n",
+      "new": "        is_float = isinstance(value, float)\n",
+      "tests": ["tests/orchestrator"],
+      "note": "rewritten in review round 2 for the new _has_non_finite"
+    },
+    {
+      "id": "V4_NON_JSON_NUMBERS_ALLOWED",
+      "file": "src/orchestrator/tools.py",
+      "old": "            return True\n        return not math.isfinite(float(value))\n",
+      "new": "            return False\n        return not math.isfinite(float(value))\n",
+      "tests": ["tests/orchestrator"]
+    },
+    {
+      "id": "S4_LIMITS_TAKEN_AFTER_RESERVATION",
+      "file": "src/orchestrator/loop.py",
+      "old": "                sdk_limits=checked_sdk_limits(limits),\n",
+      "new": "                sdk_limits=checked_sdk_limits(req.sdk_limits()),\n",
+      "tests": ["tests/orchestrator"],
+      "note": "after the reservation the last allowed call would get max_turns 0"
+    },
+    {
+      "id": "U1_SENT_REQUEST_COSTS_NOTHING",
+      "file": "src/orchestrator/loop.py",
+      "old": "if not exc.request_sent else None",
+      "new": "if True else None",
+      "tests": ["tests/orchestrator"]
+    },
+    {
+      "id": "U2_LIMIT_USAGE_DROPPED",
+      "file": "src/orchestrator/loop.py",
+      "old": "            req.after_model_call(permit, exc.usage)\n",
+      "new": "            req.after_model_call(permit, ModelUsage(output_tokens=0, cost_usd=0.0))\n",
+      "tests": ["tests/orchestrator"]
+    },
+    {
+      "id": "R1_RESPONSE_NOT_CHECKED",
+      "file": "src/orchestrator/loop.py",
+      "old": "        problem = _response_problem(response)\n",
+      "new": "        problem = None\n",
+      "tests": ["tests/orchestrator"]
+    },
+    {
+      "id": "O1_OUTCOME_INVARIANT_OFF",
+      "file": "src/orchestrator/loop.py",
+      "old": "        if self.success != guard_success:\n",
+      "new": "        if False:\n",
+      "tests": ["tests/orchestrator"]
+    },
+    {
+      "id": "O2_OPEN_ITEMS_IGNORED",
+      "file": "src/orchestrator/loop.py",
+      "old": "        if req.open:\n",
+      "new": "        if False:\n",
+      "tests": ["tests/orchestrator"]
+    },
+    {
+      "id": "T1_FAILED_TOOL_COUNTS_NO_FILES",
+      "file": "src/orchestrator/tools.py",
+      "old": "            req.after_tool(permit, ok=False)  # counts the declared maximum of writes\n",
+      "new": "            req.after_tool(permit, files_written=0, live_writes=0, ok=False)\n",
+      "tests": ["tests/orchestrator"]
+    },
+    {
+      "id": "T2_FAILED_TOOL_MARKED_OK",
+      "file": "src/orchestrator/tools.py",
+      "old": "            req.after_tool(permit, ok=False)  # counts the declared maximum of writes\n",
+      "new": "            req.after_tool(permit)\n",
+      "tests": ["tests/orchestrator"]
+    },
+    {
+      "id": "P1_SUBSCRIPTION_ACCEPTS_KEY",
+      "file": "src/orchestrator/auth.py",
+      "old": "    if mode is AuthMode.SUBSCRIPTION and present:\n",
+      "new": "    if mode is AuthMode.SUBSCRIPTION and False:\n",
+      "tests": ["tests/orchestrator"]
+    },
+    {
+      "id": "W1_WARN_NOT_PASSED_TO_MODEL",
+      "file": "src/orchestrator/loop.py",
+      "old": "            system += WARN_SYSTEM_SUFFIX\n",
+      "new": "            pass\n",
+      "tests": ["tests/orchestrator"]
+    }
+  ]
+}
