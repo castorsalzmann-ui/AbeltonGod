@@ -134,7 +134,66 @@
       "new": "                sdk_limits=limits,\n",
       "tests": ["tests/orchestrator"],
       "expected": "survived",
-      "note": "redundant by design: limits are read before the reservation, and before_model_call already stops when no call or no money is left (needs_room), so the loop can never hand checked_sdk_limits a 0. The check stays as defence in depth for a future SDK adapter; checked_sdk_limits itself is pinned by S1/S2."
+      "note": "redundant since the PR #89 review fix: limits now come from permit.sdk_limits, computed in the same locked step and from the same day's counter as the reservation that just succeeded (call headroom >= 1, money headroom > EPS via needs_room). The first version's claim that it was redundant was WRONG: sdk_limits() was read separately and could see the old day across local midnight (max_budget_usd 0.0 reached the client). The check stays as defence in depth; checked_sdk_limits itself is pinned by S1/S2, the rollover by S5."
+    },
+    {
+      "id": "S6_SDKLIMIT_ERROR_SWALLOWED",
+      "file": "src/orchestrator/loop.py",
+      "old": "            req.after_model_call(permit, ModelUsage(output_tokens=0, cost_usd=0.0))\n            raise _Abort(\"model_client_error\", str(exc)) from exc\n",
+      "new": "            response = ModelResponse(text=\"ok\")\n",
+      "tests": ["tests/orchestrator"],
+      "expected": "survived",
+      "note": "reviewer's X16; same root as S3: the SdkLimitError branch is unreachable while limits come from the permit"
+    },
+    {
+      "id": "S5_LIMITS_READ_SEPARATELY_FROM_RESERVATION",
+      "file": "src/orchestrator/loop.py",
+      "old": "        permit = req.before_model_call(estimated_cost_usd=self._safe_estimate(draft))\n        # Same locked step and same day as the reservation, including this call (PR #89 review).\n        limits = permit.sdk_limits\n",
+      "new": "        limits = req.sdk_limits()\n        permit = req.before_model_call(estimated_cost_usd=self._safe_estimate(draft))\n",
+      "tests": ["tests/orchestrator"],
+      "note": "the pre-fix code (review of PR #89, finding 1): killed only by the midnight regression test"
+    },
+    {
+      "id": "G1_PERMIT_TURNS_OFF_BY_ONE",
+      "file": "src/guard/guard.py",
+      "old": "                \"max_turns\": max(0, int(self._model_calls.headroom)),\n                \"max_budget_usd\": money_left,",
+      "new": "                \"max_turns\": max(0, int(self._model_calls.headroom) - 1),\n                \"max_budget_usd\": money_left,",
+      "tests": ["tests/orchestrator", "tests/guard"]
+    },
+    {
+      "id": "G2_PERMIT_BUDGET_FROM_REQUEST_ONLY",
+      "file": "src/guard/guard.py",
+      "old": "                \"max_budget_usd\": money_left,",
+      "new": "                \"max_budget_usd\": max(0.0, self._cost.headroom),",
+      "tests": ["tests/orchestrator", "tests/guard"]
+    },
+    {
+      "id": "D1_OVERRUN_TOOL_MARKED_OK",
+      "file": "src/orchestrator/tools.py",
+      "old": "            ok=overrun is None,\n",
+      "new": "            ok=True,\n",
+      "tests": ["tests/orchestrator"]
+    },
+    {
+      "id": "D2_OVERRUN_NOT_STOPPED",
+      "file": "src/orchestrator/tools.py",
+      "old": "            req.stop_request(Limit.UNDECLARED_WRITE, f\"{tool.name} {overrun}\")\n",
+      "new": "            pass\n",
+      "tests": ["tests/orchestrator"]
+    },
+    {
+      "id": "D3_OVERRUN_OFF_BY_ONE",
+      "file": "src/orchestrator/tools.py",
+      "old": "reported > declared:",
+      "new": "reported > declared + 1:",
+      "tests": ["tests/orchestrator"]
+    },
+    {
+      "id": "V3_NUMPY_NAN_ALLOWED",
+      "file": "src/orchestrator/tools.py",
+      "old": "    if isinstance(value, numbers.Real) and not isinstance(value, bool | numbers.Integral):\n",
+      "new": "    if isinstance(value, float):\n",
+      "tests": ["tests/orchestrator"]
     },
     {
       "id": "S4_LIMITS_TAKEN_AFTER_RESERVATION",

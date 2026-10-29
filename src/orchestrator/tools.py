@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import copy
 import math
+import numbers
 import re
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
@@ -33,7 +34,7 @@ from typing import Any, Protocol
 from jsonschema import Draft202012Validator
 from jsonschema.exceptions import SchemaError
 
-from guard import GuardedRequest
+from guard import GuardedRequest, Limit
 from orchestrator.model_client import ToolCall, ToolResult, ToolSpec
 
 MAX_REPORTED_ERRORS = 5
@@ -127,8 +128,9 @@ class CapabilityChecker(Protocol):
 
 
 def _has_non_finite(value: Any) -> bool:
-    if isinstance(value, float):
-        return not math.isfinite(value)
+    # numbers.Real covers float, NumPy floats (float32 is not a float subclass) and ints
+    if isinstance(value, numbers.Real) and not isinstance(value, bool | numbers.Integral):
+        return not math.isfinite(float(value))
     if isinstance(value, Mapping):
         return any(_has_non_finite(v) for v in value.values())
     if isinstance(value, list | tuple):
@@ -230,10 +232,31 @@ class Toolbox:
         except Exception as exc:  # noqa: BLE001 - a handler bug must not end the session
             req.after_tool(permit, ok=False)
             return _error(call, "internal_error", f"{type(exc).__name__} in {tool.name}")
+        overrun = _overrun(tool, output)
+        # A tool that did more than it declared (e.g. a routine tool that touched Live without
+        # approval) is settled as failed with what it reported, then the request is stopped.
         req.after_tool(
-            permit, files_written=output.files_written, live_writes=output.live_writes, ok=True
+            permit,
+            files_written=output.files_written,
+            live_writes=output.live_writes,
+            ok=overrun is None,
         )
+        if overrun is not None:
+            req.stop_request(Limit.UNDECLARED_WRITE, f"{tool.name} {overrun}")
         return ToolResult(call.id, tool.name, False, copy.deepcopy(output.content))
+
+
+def _overrun(tool: Tool, output: ToolOutput) -> str | None:
+    """Text if the handler reports more writes than the tool declared, else None. Values the
+    guard cannot read are left to the guard (it stops on them)."""
+    for label, reported, declared in (
+        ("Live writes", output.live_writes, tool.max_live_writes),
+        ("files", output.files_written, tool.max_files_written),
+    ):
+        if isinstance(reported, numbers.Real) and not isinstance(reported, bool):
+            if math.isfinite(float(reported)) and reported > declared:
+                return f"reported {reported:g} {label}, declared at most {declared}"
+    return None
 
 
 def _error(call: ToolCall, kind: str, message: str, **extra: Any) -> ToolResult:

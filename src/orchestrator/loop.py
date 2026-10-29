@@ -216,7 +216,6 @@ class Orchestrator:
 
     def _call_model(self, req: GuardedRequest, messages: list[Message]) -> ModelResponse:
         """The only place that calls the model. Guarded on both sides."""
-        limits = req.sdk_limits()  # before the reservation: includes this call
         system = self.system_prompt
         if req.level is Level.WARN:
             system += WARN_SYSTEM_SUFFIX
@@ -226,9 +225,11 @@ class Orchestrator:
             tools=self.toolbox.specs(),
             max_output_tokens=req.profile.max_output_tokens,
             timeout_s=req.remaining_s(),
-            sdk_limits=limits,
+            sdk_limits={},  # filled from the permit below
         )
         permit = req.before_model_call(estimated_cost_usd=self._safe_estimate(draft))
+        # Same locked step and same day as the reservation, including this call (PR #89 review).
+        limits = permit.sdk_limits
         try:
             request = ModelRequest(
                 system=draft.system,

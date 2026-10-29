@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import io
 
+import numpy as np
 import pytest
 from orch_helpers import ECHO_SCHEMA, echo_tool, live_tool
 
@@ -21,7 +22,14 @@ from orchestrator.chat import TerminalApprover, main
 from orchestrator.clients import UnavailableModel, make_model_client
 from orchestrator.fake_model import FakeModel
 from orchestrator.model_client import ModelClient, ModelUnavailable
-from orchestrator.tools import Approval, Tool, Toolbox, ToolDefinitionError, ToolOutput
+from orchestrator.tools import (
+    Approval,
+    Tool,
+    Toolbox,
+    ToolDefinitionError,
+    ToolOutput,
+    validation_errors,
+)
 
 # --- tool definitions ---------------------------------------------------------------------
 
@@ -98,6 +106,39 @@ def test_only_tested_capabilities_become_tools():
                 "no.such.capability"):
         with pytest.raises(ToolDefinitionError, match=cap.replace(".", r"\.")):
             Toolbox([_cap_tool(cap)], capability_gate=gate)
+
+
+@pytest.mark.parametrize(
+    ("caps", "bad"),
+    [
+        (("track.mute.set", "song.tempo.get"), None),
+        (("track.mute.set", "clip_slot.create_audio_clip"), "clip_slot.create_audio_clip"),
+        (("song.tempo.get", "track.mute.get", "song.export_audio"), "song.export_audio"),
+        (("song.create_audio_track", "track.mute.set"), "song.create_audio_track"),
+    ],
+)
+def test_every_capability_of_a_tool_is_checked(caps, bad):
+    """Review of PR #89, finding 6 (D-004): one untested capability anywhere in the list
+    refuses the tool, not just the first one."""
+    gate = CapabilityGate(CapabilityRegistry.from_file())
+    tool = Tool("live", "", {"type": "object"}, _noop, approval=Approval.CONFIRM,
+                max_live_writes=1, capabilities=caps)
+    if bad is None:
+        assert Toolbox([tool], capability_gate=gate).names == ("live",)
+    else:
+        with pytest.raises(ToolDefinitionError, match=bad.replace(".", r"\.")):
+            Toolbox([tool], capability_gate=gate)
+
+
+@pytest.mark.parametrize("value", [np.float64("nan"), np.float32("nan"), np.float32("inf"),
+                                   np.float16("-inf"), float("nan")])
+def test_numpy_non_finite_arguments_are_rejected(value):
+    """Review of PR #89, finding 7: NaN/Inf as NumPy scalars (float32 is not a float
+    subclass), top level and nested."""
+    tool = Tool("t", "", {"type": "object"}, _noop)
+    assert validation_errors(tool, {"g": value})
+    assert validation_errors(tool, {"g": [1, {"h": value}]})
+    assert validation_errors(tool, {"g": np.float32(0.5), "n": np.int64(3)}) == []
 
 
 def test_capability_tool_without_gate_is_refused():

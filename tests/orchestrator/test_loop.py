@@ -111,9 +111,10 @@ def test_tool_call_then_answer_is_a_guarded_success(make_guard, events):
     assert out.done == ("Werkzeug echo", ANSWER_ITEM) and out.open == ()
     assert calls == [{"n": 3}]
     assert events.kinds() == [
-        "before_model", "model_call", "after_model",
+        "model_attempt", "before_model", "model_call", "after_model",
         "before_tool", "handler", "after_tool",
-        "before_model", "model_call", "after_model",
+        "model_attempt", "before_model", "model_call", "after_model",
+        "finish_called",
     ]
     assert_guarded(events)
     # the tool result went back to the model as structured data
@@ -326,6 +327,22 @@ def test_many_tool_calls_in_one_turn_hit_the_tool_limit(make_guard, events):
     out = orch(make_guard(), model, [echo_tool(events, calls)]).handle("x")
     assert out.stop_reason is Limit.TOOL_CALLS and len(calls) == 6
     assert len(out.done) == 6
+    # D-011 "Stop: no further model calls" - not even an attempt after the tool stop
+    assert events.kinds().count("model_attempt") == 1
+
+
+def test_a_tool_stop_ends_the_request_without_another_model_attempt(make_guard, events):
+    model = recorded(
+        events,
+        [{"tool_calls": [{"name": "echo", "arguments": {"n": 1}}]}],
+        repeat_last=True,
+    )
+    out = orch(make_guard(), model, [echo_tool(events)]).handle("loop")
+    assert out.stop_reason is Limit.LOOP
+    kinds = events.kinds()
+    # 3 identical calls run; the 4th model turn asks for a 4th, which the guard stops
+    assert kinds.count("model_attempt") == len(model.requests) == 4
+    assert kinds[-1] == "after_model"  # the refused before_tool records nothing after it
 
 
 def test_file_budget_stops_before_the_handler(make_guard, events):
@@ -722,6 +739,160 @@ def test_property_last_allowed_call_gets_max_turns_one(make_guard, events, max_c
                [echo_tool(events)]).handle("x")
     assert out.stop_reason is Limit.MODEL_CALLS
     assert [r.sdk_limits["max_turns"] for r in model.requests] == list(range(max_calls, 0, -1))
+
+
+class MidnightNow:
+    """Wall clock that reads 23:59:59 for the first ``before`` calls, then 00:00:01 the next
+    day. Injected into the guard to put local midnight between two guard steps."""
+
+    def __init__(self, before: int) -> None:
+        self.calls = 0
+        self.before = before
+
+    def __call__(self):
+        from datetime import datetime, timedelta, timezone
+
+        self.calls += 1
+        day, hms = (28, (23, 59, 59)) if self.calls <= self.before else (29, (0, 0, 1))
+        return datetime(2026, 10, day, *hms, tzinfo=timezone(timedelta(hours=1)))
+
+
+def _guard_with_now(tmp_path, clock, events, now, **policy):
+    from orch_helpers import SpyGuard, make_policy
+
+    return SpyGuard(make_policy(**policy), log_path=tmp_path / "midnight.jsonl", clock=clock,
+                    now=now, events=events)
+
+
+@pytest.mark.parametrize("before", range(0, 40))
+def test_midnight_rollover_gives_the_client_the_budget_it_reserves_against(
+    tmp_path, clock, events, before
+):
+    """Review of PR #89, finding 1: the old day's daily budget is used up (0.5 of 0.5). At
+    local midnight a new request read sdk_limits from the old day (max_budget_usd 0.0) but
+    reserved against the new day's fresh budget, so the client got a 0 budget and the user an
+    "internal client error". Wherever midnight falls, the client must get a positive budget
+    that matches what the guard reserved, and the request must succeed."""
+    now = MidnightNow(before)
+    guard = _guard_with_now(tmp_path, clock, events, now, daily_budget_usd=0.5)
+    spend = recorded(events, [{"text": "a", "usage": {"output_tokens": 1, "cost_usd": 0.5}}])
+    first = orch(guard, spend).handle("x")
+    model = recorded(events, [{"text": "b", "usage": {"output_tokens": 1, "cost_usd": 0.01}}])
+    out = orch(guard, model).handle("y")
+    if not first.success:
+        # midnight fell inside the first request; its spend is on the new day already
+        assert first.stop_reason is not None or first.error is not None
+        return
+    assert out.error != "model_client_error", out.message_de
+    if out.success:
+        assert len(model.requests) == 1
+        budget = model.requests[0].sdk_limits["max_budget_usd"]
+        assert budget > 0
+        entry = [e for e in log_entries(guard) if e["kind"] == "model"][-1]
+        assert budget == pytest.approx(entry["estimated_cost_usd"])
+    else:
+        # still before midnight: the old day's budget is used up -> a clean guard stop
+        assert out.stop_reason is Limit.DAILY_BUDGET and model.requests == []
+
+
+def test_permit_sdk_limits_include_the_call_and_match_the_reservation(make_guard):
+    guard = make_guard(session_budget_usd=0.4)
+    with guard.request("p") as req:
+        p1 = req.before_model_call()
+        assert p1.sdk_limits == {"max_turns": 5, "max_budget_usd": pytest.approx(0.4)}
+        assert p1.reserved_cost_usd == pytest.approx(0.4)
+        req.after_model_call(p1, ModelUsage(output_tokens=1, cost_usd=0.1))
+        p2 = req.before_model_call(estimated_cost_usd=0.05)
+        assert p2.sdk_limits == {"max_turns": 4, "max_budget_usd": pytest.approx(0.3)}
+        req.after_model_call(p2, ModelUsage(output_tokens=1, cost_usd=0.05))
+
+
+# --- review of PR #89: findings 3-8 ------------------------------------------------------
+
+
+def test_stop_raised_inside_finish_is_never_a_success(make_guard, events, clock):
+    """Finding 3: the timeout fires in ``finish()`` itself (after the last model call)."""
+
+    guard = make_guard()
+    # 99 s pass inside the model call (under the 100 s limit when after_model_call checks),
+    # then 2 s more right before finish(): only finish() itself can see the timeout.
+    guard.before_finish = lambda: setattr(clock, "t", clock.t + 2.0)
+
+    def slow(i, request):
+        clock.t += 99.0
+        return ModelResponse(text="fertig", usage=USAGE)
+
+    out = orch(guard, ScriptedModel(slow, events)).handle("x")
+    assert ("finish_called", "") in events.items
+    assert out.success is False and out.result.success is False
+    assert out.stop_reason is Limit.TIMEOUT
+    assert out.reply == ""  # the model's text is not presented as a finished answer
+    assert log_entries(guard)[-1]["outcome"] == "stopped"
+
+
+def test_unavailable_default_counts_the_reservation(make_guard, events):
+    """Finding 4: ``ModelUnavailable`` without ``request_sent`` means "maybe sent" -> the
+    guard counts what it reserved (1.0, all money left)."""
+    from orchestrator.model_client import ModelUnavailable
+
+    def down(i, r):
+        raise ModelUnavailable("reset by peer")
+
+    guard = make_guard()
+    out = orch(guard, ScriptedModel(down, events)).handle("x")
+    assert out.error == "model_unavailable"
+    assert ModelUnavailable("x").request_sent is True
+    assert guard.session_spent_usd == pytest.approx(1.0)
+
+
+def test_client_gets_the_time_left_as_timeout(make_guard, events, clock):
+    """Finding 5: ``timeout_s`` is the guard's remaining time, measured independently here."""
+    def step(i, request):
+        clock.t += 30.0
+        if i < 2:
+            return ModelResponse(tool_calls=(call("echo", {"n": i}, f"c{i}"),), usage=USAGE)
+        return ModelResponse(text="ok", usage=USAGE)
+
+    model = ScriptedModel(step, events)
+    out = orch(make_guard(), model, [echo_tool(events)]).handle("x")
+    assert out.success
+    assert [r.timeout_s for r in model.requests] == pytest.approx([100.0, 70.0, 40.0])
+
+
+def test_routine_tool_that_reports_a_live_write_is_stopped(make_guard, events):
+    """Finding 8: a routine tool declares no Live writes; if it reports one anyway it ran
+    without approval. The request stops and is never a success."""
+    from orchestrator.tools import Tool, ToolOutput
+
+    def sneaky(args):
+        events.add("handler", "sneaky")
+        return ToolOutput({"ok": True}, live_writes=1)
+
+    tool = Tool("sneaky", "", {"type": "object"}, sneaky)
+    model = recorded(events, [{"tool_calls": [{"name": "sneaky", "arguments": {}}]},
+                              {"text": "alles gut"}])
+    guard = make_guard()
+    out = orch(guard, model, [tool]).handle("x")
+    assert out.success is False and out.stop_reason is Limit.UNDECLARED_WRITE
+    assert len(model.requests) == 1  # no further model call after the violation
+    assert "Werkzeug sneaky" in out.open and "Werkzeug sneaky" not in out.done
+    assert out.usage["live_writes"] == 1  # what it reported is counted
+    assert "angekündigt" in out.message_de
+    assert log_entries(guard)[-1]["outcome"] == "stopped"
+
+
+@pytest.mark.parametrize(("declared", "reported", "stopped"),
+                         [(2, 2, False), (2, 1, False), (2, 3, True), (0, 1, True)])
+def test_files_beyond_the_declaration_stop(make_guard, events, declared, reported, stopped):
+    from orchestrator.tools import Tool, ToolOutput
+
+    tool = Tool("render", "", {"type": "object"},
+                lambda a: ToolOutput({}, files_written=reported), max_files_written=declared)
+    model = recorded(events, [{"tool_calls": [{"name": "render", "arguments": {}}]},
+                              {"text": "x"}])
+    out = orch(make_guard(), model, [tool]).handle("x")
+    assert (out.stop_reason is Limit.UNDECLARED_WRITE) == stopped
+    assert out.success is (not stopped)
 
 
 def test_session_budget_left_is_passed_as_sdk_budget(make_guard, events):

@@ -87,6 +87,7 @@ class SpyRequest(GuardedRequest):
     events: Events
 
     def before_model_call(self, **kwargs: Any):
+        self.events.add("model_attempt")  # recorded even when the guard refuses the call
         permit = super().before_model_call(**kwargs)
         self.events.add("before_model")
         return permit
@@ -103,6 +104,13 @@ class SpyRequest(GuardedRequest):
     def after_tool(self, permit, **kwargs: Any):
         self.events.add("after_tool", permit.name)
         return super().after_tool(permit, **kwargs)
+
+    def finish(self, summary=None):
+        hook = getattr(self._g, "before_finish", None)  # test hook: e.g. advance the clock
+        if hook is not None:
+            hook()
+        self.events.add("finish_called")
+        return super().finish(summary)
 
 
 class SpyGuard(Guard):
