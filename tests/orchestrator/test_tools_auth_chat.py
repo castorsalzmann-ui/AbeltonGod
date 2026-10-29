@@ -50,7 +50,11 @@ def _noop(args):
         {"max_files_written": -1},
         {"max_live_writes": True},
         {"max_live_writes": 1},  # Live writes need confirm
-        {"capabilities": ("track.mute.set",)},  # capabilities need confirm
+        # write capabilities need confirm: checked at registration since #148 (the kind comes
+        # from the registry), see test_write_capability_needs_confirm_at_registration
+        {"capabilities": ["track.mute.set"]},  # not a tuple
+        {"prepare": lambda a: None},  # a plan step is for confirm tools
+        {"files_for": 3},
         {"approval": "routine"},
     ],
 )
@@ -172,6 +176,45 @@ def test_non_json_number_types_are_rejected(value):
     assert validation_errors(tool, {"g": [value]})
     for ok in (0, -3, 2.5, True, np.float64(1.0), np.int32(4)):
         assert not [e for e in validation_errors(tool, {"x": ok}) if "JSON" in e], ok
+
+
+@pytest.mark.parametrize(
+    ("cap", "routine_ok"),
+    [("song.track_names.get", True), ("track.has_audio_input.get", True),
+     ("song.num_scenes.get", True), ("track.mute.set", False),
+     ("clip_slot.create_audio_clip", False), ("song.undo", False),
+     ("song.create_audio_track", False)],
+)
+def test_write_capability_needs_confirm_at_registration(cap, routine_ok):
+    """#148: a routine tool may name read capabilities (list_tracks); a write or an action
+    needs confirm. Kinds come from the real registry (all tested since #153)."""
+    gate = CapabilityGate(CapabilityRegistry.from_file())
+    routine = Tool("t", "", {"type": "object"}, _noop, capabilities=(cap,))
+    if routine_ok:
+        assert Toolbox([routine], capability_gate=gate).names == ("t",)
+    else:
+        with pytest.raises(ToolDefinitionError, match="not a read"):
+            Toolbox([routine], capability_gate=gate)
+    confirm = Tool("t", "", {"type": "object"}, _noop, approval=Approval.CONFIRM,
+                   capabilities=(cap,))
+    assert Toolbox([confirm], capability_gate=gate).names == ("t",)
+
+
+def test_checker_without_a_kind_counts_as_a_write():
+    class Opaque:
+        def check(self, cap_id):
+            return object()
+
+    with pytest.raises(ToolDefinitionError, match="not a read"):
+        Toolbox([Tool("t", "", {"type": "object"}, _noop, capabilities=("x",))],
+                capability_gate=Opaque())
+
+
+def test_gate_with_check_script_overrides_is_refused(tmp_path):
+    gate = CapabilityGate(_registry_with_one_supported(tmp_path),
+                          allow_untested=("song.create_audio_track",))
+    with pytest.raises(ToolDefinitionError, match="allow_untested"):
+        Toolbox([], capability_gate=gate)
 
 
 def test_capability_tool_without_gate_is_refused():

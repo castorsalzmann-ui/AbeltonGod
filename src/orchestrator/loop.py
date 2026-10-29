@@ -74,6 +74,16 @@ _BACKEND_LIMITS = {
 }
 
 
+def tools_sentence(names: tuple[str, ...]) -> str:
+    """Names exactly the registered tools and says nothing else exists (#163). Wording is
+    minimal on purpose: language and style are a D-022 questionnaire decision."""
+    if not names:
+        return ("You have no tools in this session. Nothing can be generated or changed; "
+                "do not offer it.")
+    return (f"Tools available in this session: {', '.join(names)}. Nothing else is "
+            "available yet; do not offer anything these tools cannot do.")
+
+
 class SdkLimitError(RuntimeError):
     """The orchestrator was about to hand the backend a limit that disables it."""
 
@@ -161,6 +171,7 @@ class Orchestrator:
         approver: Approver | None = None,
         system_prompt: str = DEFAULT_SYSTEM_PROMPT,
         estimate_cost_usd: Callable[[ModelRequest], float | None] | None = None,
+        context: Callable[[], str] | None = None,
     ) -> None:
         guard.policy.profile(profile)  # unknown profile fails here, not on the first request
         self.guard = guard
@@ -169,6 +180,10 @@ class Orchestrator:
         self.profile = profile
         self.approver = approver
         self.system_prompt = system_prompt
+        # Session facts appended to the system prompt once per request (e.g. the kicks this
+        # chat session made, so a later request can import one by its sample_id). Fixed for
+        # the whole request: the SDK session keeps the system prompt of its first call.
+        self.context = context
         # None = the guard reserves all money still available (most conservative).
         if estimate_cost_usd is None:
             estimate_cost_usd = getattr(model, "estimate_cost_usd", None)
@@ -220,23 +235,46 @@ class Orchestrator:
 
     # ----- internals ------------------------------------------------------------------------
 
+    def _request_system(self) -> str:
+        """System prompt for one request: the base text, the registered tools by name (#163:
+        the model offered features that do not exist), then the session context."""
+        system = f"{self.system_prompt}\n\n{tools_sentence(self.toolbox.names)}"
+        if self.context is None:
+            return system
+        try:
+            extra = self.context()
+        except Exception:  # noqa: BLE001 - missing context must not stop the request
+            return system
+        if not isinstance(extra, str) or not extra.strip():
+            return system
+        return f"{system}\n\n{extra.strip()}"
+
     def _run(self, req: GuardedRequest, text: str, warnings: list[str]) -> Outcome:
         messages: list[Message] = [UserMessage(text)]
+        system = self._request_system()
+        pending = getattr(self.model, "tool_call_pending", None)
+        still_waiting = pending if callable(pending) else None
         while True:
-            response = self._call_model(req, messages)
+            response = self._call_model(req, messages, system)
+            turn_started = self.toolbox.clock()
             self._note_warning(req, warnings)
             if not response.tool_calls:
                 return self._final(req, response, warnings)
             messages.append(AssistantMessage(response.text, response.tool_calls))
             results = []
             for call in response.tool_calls:
-                results.append(self.toolbox.run(req, call, self.approver))
+                results.append(self.toolbox.run(
+                    req, call, self.approver,
+                    turn_started=turn_started, still_waiting=still_waiting,
+                ))
                 self._note_warning(req, warnings)
             messages.append(ToolResultMessage(tuple(results)))
 
-    def _call_model(self, req: GuardedRequest, messages: list[Message]) -> ModelResponse:
+    def _call_model(
+        self, req: GuardedRequest, messages: list[Message], system: str | None = None
+    ) -> ModelResponse:
         """The only place that calls the model. Guarded on both sides."""
-        system = self.system_prompt
+        system = self.system_prompt if system is None else system
         if req.level is Level.WARN:
             system += WARN_SYSTEM_SUFFIX
         draft = ModelRequest(

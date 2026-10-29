@@ -268,6 +268,9 @@ class _Session:
     unapproved_relay_calls: int = 0
     stream_ended: bool = False  # the CLI's output ended: nobody would answer an interrupt
     watchdog: asyncio.Task | None = None
+    # True from a tool turn handed to the loop until its results come back: the CLI must be
+    # waiting in its hooks then, so a new model message is a call the guard did not permit.
+    awaiting_results: bool = False
 
 
 class SdkModelClient:
@@ -320,6 +323,30 @@ class SdkModelClient:
             fut.cancel()
             self.end_request()
             raise ModelUnavailable(f"no answer from Claude within {wait:.0f} s") from None
+
+    def tool_call_pending(self, call_id: str) -> bool:
+        """True only while the CLI still waits in its PreToolUse hook for exactly this call:
+        the session is open and clean, the hook for ``call_id`` is unanswered and was not
+        cancelled, and no model message arrived since the tool turn. ``Toolbox.run`` asks this
+        after the user's yes and before a confirm tool's handler (#83 V10: a CLI whose hook
+        timeout fired would have blocked the call and gone on without the guard)."""
+        if self._closed:
+            return False
+
+        async def check() -> bool:
+            sess = self._session
+            if sess is None or sess.closed or sess.violation or sess.stream_ended:
+                return False
+            hook = sess.hooks.get(call_id)
+            return (sess.awaiting_results and call_id in sess.returned and hook is not None
+                    and not hook.future.done())
+
+        fut = asyncio.run_coroutine_threadsafe(check(), self._loop)
+        try:
+            return fut.result(timeout=5) is True
+        except Exception:  # noqa: BLE001 - unknown means "not waiting"
+            fut.cancel()
+            return False
 
     def end_request(self) -> None:
         """Close the open SDK session (if any). The loop calls this when a request ends, so a
@@ -449,6 +476,12 @@ class SdkModelClient:
     async def _forward(self, sess: _Session, client: Any) -> None:
         try:
             async for message in client.receive_messages():
+                if (sess.awaiting_results and isinstance(message, SdkAssistantMessage)
+                        and message.message_id not in sess.seen_message_ids
+                        and sess.violation is None):
+                    # The CLI should be waiting in its hooks: this is a model call the guard
+                    # never permitted. Marked at once, so no confirm tool runs after it.
+                    sess.violation = "Claude Code made a model call the guard did not permit"
                 await sess.events.put(("msg", message))
             sess.stream_ended = True
             await sess.events.put(("end", None))
@@ -576,6 +609,7 @@ class SdkModelClient:
                 "the conversation does not continue the open Claude session", request_sent=False
             )
         sess.history_len = len(request.messages)
+        sess.awaiting_results = False  # the guard permitted the model call these results start
         note = ""
         if request.system != sess.system:
             extra = request.system[len(sess.system):] if request.system.startswith(
@@ -651,6 +685,14 @@ class SdkModelClient:
             result = await hook.future
             return self._decide(sess, tid, hook, result)
         except asyncio.CancelledError:
+            # Our own shutdown closes the session first. A cancel while it is still open
+            # comes from the CLI giving up on this hook (e.g. its hook timeout, #83 V10): it
+            # then goes on without the guard, so the request must fail.
+            open_sess = self._session
+            if open_sess is not None and not open_sess.closed and open_sess.violation is None:
+                reason = "Claude Code stopped waiting for a tool call (hook cancelled)"
+                open_sess.violation = reason
+                open_sess.events.put_nowait(("violation", reason))
             raise
         except Exception as exc:  # noqa: BLE001 - fail closed, without an answer
             await self._hold(self._session, f"internal error in the guard hook: {exc!r}")
@@ -755,6 +797,7 @@ class SdkModelClient:
                 calls.append(ToolCall(tid, hook.loop_name, copy.deepcopy(hook.arguments)))
         for call in calls:
             sess.returned[call.id] = call
+        sess.awaiting_results = True
         if request.reserved_cost_usd is not None:
             sess.counted_cost += float(request.reserved_cost_usd)
         else:

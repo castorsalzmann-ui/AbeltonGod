@@ -552,6 +552,15 @@ class GuardedRequest:
             self._check_timeout(open_item=None)
             return self._level_unlocked()
 
+    def check_deadline(self, open_item: str | None = None) -> None:
+        """Raise ``GuardStop`` (``timeout_s``) if the request's time is up, or if it was
+        stopped already. For a step that waited outside the guard after its permit, e.g. a
+        user confirmation (#81: re-check the deadline after the user said yes)."""
+        with self._g._book.lock:
+            self._require_open_permits()
+            self._raise_if_stopped()
+            self._check_timeout(open_item=open_item)
+
     def stop_request(self, reason: Limit, detail: str) -> None:
         """Stop this request for a reason found outside the guard (e.g. a tool broke its own
         declaration). Sticky like every stop; always raises ``GuardStop``."""

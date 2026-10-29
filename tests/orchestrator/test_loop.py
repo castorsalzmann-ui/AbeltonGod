@@ -568,7 +568,7 @@ class Approver:
         self.answer = answer
         self.asked: list = []
 
-    def confirm(self, tool, arguments):
+    def confirm(self, tool, arguments, plan):
         self.asked.append((tool.name, arguments))
         return self.answer
 
@@ -597,7 +597,7 @@ def test_live_tools_need_an_explicit_yes(make_guard, events, approver, ran):
 
 def test_approver_that_raises_is_a_decline(make_guard, events):
     class Broken:
-        def confirm(self, tool, arguments):
+        def confirm(self, tool, arguments, plan):
             raise OSError("terminal gone")
 
     model = recorded(
