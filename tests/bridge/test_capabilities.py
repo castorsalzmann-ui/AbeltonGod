@@ -93,8 +93,15 @@ def test_import_capability_statuses_follow_the_50_evidence():
         "https://github.com/castorsalzmann-ui/AbeltonGod/issues/50#issuecomment-")
     for limitation in ("undo after user interaction in Live is not reliable",
                        "cause not established", "the pre-check refused and sent nothing",
-                       "not on a new track with live_import 0.2.0"):
+                       "not on a new track with live_import 0.2.0",
+                       # PR #124 review: no claim stronger than #50 shows
+                       "not established whether the clip was launched in run 3 or in run 4",
+                       "most likely the user's own interaction in Live, not confirmed",
+                       "neither supports nor rules out the launch hypothesis",
+                       "Live 12.4 per API; user reports 12.4.5"):
         assert limitation in clip["notes"], limitation
+    for overstatement in ("nothing touched in Live", "reverted by the user", "user hears the kick"):
+        assert overstatement not in clip["notes"], overstatement
     assert track["status"] == "supported"
     assert "evidence" not in track
     assert "Missing for 'tested'" in track["notes"]
