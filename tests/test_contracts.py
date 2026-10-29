@@ -454,3 +454,311 @@ def test_sample_metadata_invalid_instances(doc) -> None:
     validator = Draft202012Validator(load("sample-metadata.schema.json"))
     with pytest.raises(ValidationError):
         validator.validate(doc)
+
+
+# --- tool input schemas list_tracks / import_sample (#81) ------------------------------------
+
+# D-002: every model-callable tool has an input schema in contracts/. Phase 04b names three.
+TOOL_SCHEMAS = {
+    "generate_kick": "kick-params.schema.json",
+    "list_tracks": "tool-list-tracks.schema.json",
+    "import_sample": "tool-import-sample.schema.json",
+}
+STRICT_TOOLS = ("list_tracks", "import_sample")
+
+# Written by hand from docs/research/2026-10-28_tool-schema-generation.md, Q1: the keywords that
+# are both in the documented strict subset (structured outputs / strict tool use) and in the
+# bundled CLI's strict-compatibility set. `default` is documented but not in the CLI set, so it
+# is left out; `minimum`, `maximum`, `minLength`, `maxLength`, `pattern`, `multipleOf`, `format`,
+# `$ref`, `allOf`, `oneOf`, `not`, `if`, `const` on objects ... are not used.
+STRICT_KEYWORDS = frozenset({
+    "type", "description", "title", "properties", "required", "additionalProperties", "items",
+    "enum", "const", "anyOf",
+})
+# Root-only metadata the tool builder drops before registering (research note, Q2).
+ROOT_ONLY_KEYWORDS = frozenset({"$schema", "$id"})
+JSON_TYPES = frozenset({"object", "array", "string", "integer", "number", "boolean", "null"})
+
+
+def strict_subset_problems(schema, where: str = "(root)", root: bool = True) -> list[str]:
+    """Every place where ``schema`` leaves the strict tool-schema subset (empty = inside)."""
+    if not isinstance(schema, dict):
+        return [f"{where}: a schema must be an object, got {type(schema).__name__}"]
+    problems = []
+    allowed = STRICT_KEYWORDS | (ROOT_ONLY_KEYWORDS if root else frozenset())
+    problems += [f"{where}: keyword {k!r} not in the strict subset"
+                 for k in sorted(set(schema) - allowed)]
+    if root and schema.get("type") != "object":
+        problems.append(f"{where}: root type must be 'object'")
+    kind = schema.get("type")
+    if "type" in schema and not (isinstance(kind, str) and kind in JSON_TYPES):
+        problems.append(f"{where}: type must be one JSON type name, got {kind!r}")
+    if "enum" in schema and not all(
+        isinstance(v, str | int | float | bool) or v is None for v in schema["enum"]
+    ):
+        problems.append(f"{where}: enum values must be scalars")
+    if "const" in schema and isinstance(schema["const"], dict | list):
+        problems.append(f"{where}: const must be a scalar")
+    if kind == "object" or "properties" in schema:
+        if not isinstance(schema.get("properties"), dict):
+            # the Agent SDK passes a dict through unchanged only with a string type and a
+            # properties key (research note, Q2)
+            problems.append(f"{where}: an object needs a 'properties' object")
+        if schema.get("additionalProperties") is not False:
+            problems.append(f"{where}: additionalProperties must be false")
+        props = schema.get("properties") if isinstance(schema.get("properties"), dict) else {}
+        unknown = [r for r in schema.get("required", []) if r not in props]
+        if unknown:
+            problems.append(f"{where}: required names unknown properties {unknown}")
+        for name, sub in props.items():
+            problems += strict_subset_problems(sub, f"{where}/{name}", root=False)
+    elif "additionalProperties" in schema:
+        problems.append(f"{where}: additionalProperties on a non-object")
+    if "items" in schema:
+        problems += strict_subset_problems(schema["items"], f"{where}[]", root=False)
+    for i, sub in enumerate(schema.get("anyOf", [])):
+        problems += strict_subset_problems(sub, f"{where}|anyOf{i}", root=False)
+    if not root and "description" not in schema:
+        problems.append(f"{where}: field has no description (the model reads it)")
+    return problems
+
+
+def optional_fields(schema: dict) -> int:
+    """Optional parameters counted the way the strict limit counts them (all nesting levels)."""
+    count = 0
+    props = schema.get("properties", {})
+    count += len(set(props) - set(schema.get("required", [])))
+    for sub in props.values():
+        count += optional_fields(sub) if isinstance(sub, dict) else 0
+    return count
+
+
+def _tool_validator(tool: str) -> Draft202012Validator:
+    return Draft202012Validator(load(TOOL_SCHEMAS[tool]))
+
+
+def test_every_phase_04b_tool_has_an_input_schema() -> None:
+    for tool, name in TOOL_SCHEMAS.items():
+        schema = load(name)
+        Draft202012Validator.check_schema(schema)
+        assert schema["type"] == "object", tool
+        assert schema["$schema"] == "https://json-schema.org/draft/2020-12/schema", tool
+        assert schema["$id"].endswith("/contracts/" + name), tool
+
+
+@pytest.mark.parametrize("tool", STRICT_TOOLS)
+def test_tool_schema_is_inside_the_strict_subset(tool: str) -> None:
+    assert strict_subset_problems(load(TOOL_SCHEMAS[tool])) == []
+
+
+def test_strict_tool_schemas_leave_room_for_generate_kick_optionals() -> None:
+    """Strict limit: 24 optional parameters across all strict tools of a request (research
+    note, Q4). generate_kick alone has 16 optional fields in v0.2 (counted by hand there)."""
+    assert optional_fields(load(TOOL_SCHEMAS["list_tracks"])) == 0
+    assert optional_fields(load(TOOL_SCHEMAS["import_sample"])) == 1
+    assert sum(optional_fields(load(TOOL_SCHEMAS[t])) for t in STRICT_TOOLS) <= 24 - 16
+
+
+STRICT_VIOLATIONS = {
+    "minimum": {"type": "integer", "description": "d", "minimum": 0},
+    "maximum": {"type": "integer", "description": "d", "maximum": 9},
+    "minLength": {"type": "string", "description": "d", "minLength": 1},
+    "maxLength": {"type": "string", "description": "d", "maxLength": 9},
+    "pattern": {"type": "string", "description": "d", "pattern": "^k"},
+    "format": {"type": "string", "description": "d", "format": "uri"},
+    "default": {"type": "integer", "description": "d", "default": 0},
+    "$id below the root": {"type": "integer", "description": "d", "$id": "x"},
+    "$ref": {"$ref": "#/$defs/x", "description": "d"},
+    "oneOf": {"oneOf": [{"type": "integer"}], "description": "d"},
+    "type list": {"type": ["integer", "null"], "description": "d"},
+    "enum of objects": {"enum": [{"a": 1}], "description": "d"},
+    "no description": {"type": "integer"},
+    "nested object open": {"type": "object", "description": "d", "properties": {}},
+    "nested object additionalProperties true": {
+        "type": "object", "description": "d", "properties": {}, "additionalProperties": True},
+    "nested object without properties": {
+        "type": "object", "description": "d", "additionalProperties": False},
+    "array items with minimum": {
+        "type": "array", "description": "d",
+        "items": {"type": "integer", "description": "d", "minimum": 0}},
+}
+
+
+@pytest.mark.parametrize("field_schema", STRICT_VIOLATIONS.values(), ids=STRICT_VIOLATIONS)
+def test_strict_check_finds_each_violation(field_schema: dict) -> None:
+    """The checker itself can fail: each violation, put into an otherwise clean schema, is
+    reported."""
+    clean = {"type": "object", "properties": {"x": {"type": "integer", "description": "d"}},
+             "required": ["x"], "additionalProperties": False}
+    assert strict_subset_problems(clean) == []
+    bad = {**clean, "properties": {"x": field_schema}}
+    assert strict_subset_problems(bad) != []
+
+
+@pytest.mark.parametrize("change", [
+    {"type": "array"}, {"additionalProperties": True}, {"required": ["x", "y"]},
+    {"unevaluatedProperties": False}, {"allOf": []}, {"$comment": "history"},
+], ids=lambda c: next(iter(c)))
+def test_strict_check_finds_root_violations(change: dict) -> None:
+    clean = {"type": "object", "properties": {"x": {"type": "integer", "description": "d"}},
+             "required": ["x"], "additionalProperties": False}
+    assert strict_subset_problems({**clean, **change}) != []
+
+
+def test_strict_check_requires_root_properties() -> None:
+    """The Agent SDK passes a schema through unchanged only with a properties key."""
+    assert strict_subset_problems({"type": "object", "additionalProperties": False}) != []
+    assert strict_subset_problems(
+        {"type": "object", "properties": {}, "additionalProperties": False}) == []
+
+
+def test_kick_params_is_not_inside_the_strict_subset() -> None:
+    """Positive control on a real contract: kick-params uses ranges and if/then (#131 tracks a
+    strict variant), so the checker must object to it."""
+    problems = strict_subset_problems(load("kick-params.schema.json"))
+    assert any("'minimum'" in p for p in problems), problems
+    assert any("'allOf'" in p for p in problems), problems
+
+
+def test_tool_descriptions_are_model_facing() -> None:
+    """The model reads every description: no change history, issue or PR numbers in them."""
+    for tool in STRICT_TOOLS:
+        schema = load(TOOL_SCHEMAS[tool])
+        texts = [schema["description"], *(p["description"] for p in schema["properties"].values())]
+        for text in texts:
+            assert "#" not in text and "issue" not in text.lower(), (tool, text)
+            assert text.strip() and len(text) <= 600, (tool, text)
+
+
+# list_tracks takes no arguments.
+
+LIST_TRACKS_INVALID = {
+    "unknown key": {"x": 1},
+    "a track index": {"track_index": 0},
+    "a path": {"path": "C:/x"},
+    "root is a list": [],
+    "root is null": None,
+    "root is a string": "",
+}
+
+
+def test_list_tracks_valid_instances() -> None:
+    _tool_validator("list_tracks").validate({})
+
+
+@pytest.mark.parametrize("doc", LIST_TRACKS_INVALID.values(), ids=LIST_TRACKS_INVALID)
+def test_list_tracks_invalid_instances(doc) -> None:
+    assert not _tool_validator("list_tracks").is_valid(doc)
+
+
+def test_list_tracks_schema_is_exactly_no_arguments() -> None:
+    schema = load(TOOL_SCHEMAS["list_tracks"])
+    assert schema["properties"] == {} and schema["additionalProperties"] is False
+    assert "required" not in schema
+
+
+# import_sample: a sample_id from generate_kick, never a path (decision in docs/INTERFACES.md).
+
+IMPORT_SAMPLE_FIELDS = {"sample_id", "track_index", "slot_index"}
+IMPORT_SAMPLE_REQUIRED = ["sample_id", "track_index"]
+
+
+def test_import_sample_fields_are_exactly_the_designed_ones() -> None:
+    """No field can carry a file path, a project folder or a new-track target (pinned)."""
+    schema = load(TOOL_SCHEMAS["import_sample"])
+    assert set(schema["properties"]) == IMPORT_SAMPLE_FIELDS
+    assert schema["required"] == IMPORT_SAMPLE_REQUIRED
+    props = schema["properties"]
+    assert props["sample_id"]["type"] == "string"
+    assert props["track_index"]["type"] == "integer"
+    assert props["slot_index"]["type"] == "integer"
+    assert "path" in props["sample_id"]["description"]  # tells the model it is not a path
+
+
+IMPORT_SAMPLE_VALID = {
+    "minimal": {"sample_id": "k1", "track_index": 0},
+    "with slot": {"sample_id": "k1", "track_index": 3, "slot_index": 7},
+    "unicode id": {"sample_id": "kick_ä_1", "track_index": 0},
+    # Schema-valid on purpose: the strict subset has no minimum and no minLength. The handler
+    # refuses them against the live set and the session's sample list (INTERFACES.md).
+    "negative track (handler refuses)": {"sample_id": "k1", "track_index": -1},
+    "empty id (handler refuses)": {"sample_id": "", "track_index": 0},
+    "path-like id (handler refuses: not a known id)": {
+        "sample_id": "C:/Users/x/kick.wav", "track_index": 0},
+    # 2020-12 counts 2.0 as an integer (research note, known pitfalls).
+    "whole-number float index": {"sample_id": "k1", "track_index": 2.0, "slot_index": 0.0},
+}
+
+
+@pytest.mark.parametrize("doc", IMPORT_SAMPLE_VALID.values(), ids=IMPORT_SAMPLE_VALID)
+def test_import_sample_valid_instances(doc: dict) -> None:
+    _tool_validator("import_sample").validate(doc)
+
+
+IMPORT_SAMPLE_INVALID = {
+    "empty": {},
+    "missing sample_id": {"track_index": 0},
+    "missing track_index": {"sample_id": "k1"},
+    "path instead of sample_id": {"path": "C:/kick.wav", "track_index": 0},
+    "extra path": {"sample_id": "k1", "track_index": 0, "path": "C:/kick.wav"},
+    "extra file_path": {"sample_id": "k1", "track_index": 0, "file_path": "C:/kick.wav"},
+    "extra project_dir": {"sample_id": "k1", "track_index": 0, "project_dir": "C:/p"},
+    "new track as string": {"sample_id": "k1", "track_index": "new"},
+    "new_track flag": {"sample_id": "k1", "track_index": 0, "new_track": True},
+    "sample_id number": {"sample_id": 1, "track_index": 0},
+    "sample_id null": {"sample_id": None, "track_index": 0},
+    "sample_id list": {"sample_id": ["k1"], "track_index": 0},
+    "track_index string": {"sample_id": "k1", "track_index": "0"},
+    "track_index fraction": {"sample_id": "k1", "track_index": 1.5},
+    "track_index true": {"sample_id": "k1", "track_index": True},
+    "track_index null": {"sample_id": "k1", "track_index": None},
+    "slot_index fraction": {"sample_id": "k1", "track_index": 0, "slot_index": 0.5},
+    "slot_index string": {"sample_id": "k1", "track_index": 0, "slot_index": "1"},
+    "slot_index false": {"sample_id": "k1", "track_index": 0, "slot_index": False},
+    "slot_index null": {"sample_id": "k1", "track_index": 0, "slot_index": None},
+    "root is a list": [{"sample_id": "k1", "track_index": 0}],
+    "root is a string": "k1",
+}
+
+
+@pytest.mark.parametrize("doc", IMPORT_SAMPLE_INVALID.values(), ids=IMPORT_SAMPLE_INVALID)
+def test_import_sample_invalid_instances(doc) -> None:
+    assert not _tool_validator("import_sample").is_valid(doc)
+
+
+def _random_string(rng: random.Random) -> str:
+    alphabet = "abcXYZ019_-.:/\\ äß€😀\x00\n"
+    return "".join(rng.choice(alphabet) for _ in range(rng.randint(0, 40)))
+
+
+WRONG_TYPES = (None, True, False, 1.5, -0.25, "1", "", [], [1], {}, {"a": 1})
+
+
+def test_import_sample_random_instances_over_the_whole_range() -> None:
+    """Seeded: any string id and any integer index (huge and negative included) pass the
+    schema; a wrong type in any field, a missing required field or any extra key fails."""
+    rng = random.Random(81)
+    validator = _tool_validator("import_sample")
+    for _ in range(500):
+        doc = {"sample_id": _random_string(rng),
+               "track_index": rng.choice([rng.randint(-10, 200), rng.randint(-2**63, 2**63)])}
+        if rng.random() < 0.5:
+            doc["slot_index"] = rng.randint(-(2**40), 2**40)
+        assert validator.is_valid(doc), doc
+        field_name = rng.choice(sorted(doc))
+        wrong = rng.choice([w for w in WRONG_TYPES
+                            if not (field_name == "sample_id" and isinstance(w, str))])
+        assert not validator.is_valid({**doc, field_name: wrong}), (field_name, wrong)
+        missing = rng.choice(IMPORT_SAMPLE_REQUIRED)
+        assert not validator.is_valid({k: v for k, v in doc.items() if k != missing}), missing
+        extra = _random_string(rng) or "x"
+        if extra not in IMPORT_SAMPLE_FIELDS:
+            assert not validator.is_valid({**doc, extra: rng.choice(WRONG_TYPES)}), extra
+
+
+def test_list_tracks_random_extra_keys_fail() -> None:
+    rng = random.Random(8101)
+    validator = _tool_validator("list_tracks")
+    for _ in range(200):
+        key = _random_string(rng)
+        assert not validator.is_valid({key: rng.choice((0, "x", None, [], {}))}), key
