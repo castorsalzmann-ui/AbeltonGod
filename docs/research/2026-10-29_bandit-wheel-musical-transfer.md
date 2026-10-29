@@ -3,7 +3,7 @@
 - **Date:** 2026-10-29.
 - **Author role:** sound-designer.
 - **Receiving issue:** #151 (user request 2026-10-29 16:47: reuse what the Bandit Wheel already knows). Also feeds the arrangement planner (D-024, [arrangement note](2026-10-29_arrangement-planner-sections-energy.md), #139) and the circle-picker categories (questionnaire tab 3, task B3).
-- **Researched against:** the user's artifact "Bandit Wheel", local copy `bandit_wheel.html` (9,259 lines, HTML/JS) in the lead's session scratchpad. It was **read as text, not run**. Every `file:line` below refers to that copy. No web sources were opened for this note. Where the artifact cites sources, they are quoted second-hand and marked **S**.
+- **Researched against:** the user's artifact "Bandit Wheel", local copy `bandit_wheel.html` in the lead's session scratchpad: 9,259 lines, HTML/JS, sha256 `d236360c714cb6b9dbe71aed7543b258702e16abedcd3da5dc5ee0a15795497f` (`sha256sum bandit_wheel.html`; same value as in the audio-engineer's note, #154). It was **read as text, not run**. Every `file:line` below refers to that copy. No web sources were opened for this note. Where the artifact cites sources, they are quoted second-hand and marked **S**.
 - **Companion note:** the audio-engineer writes the technical/DSP transfer for #151 (voices, envelopes, filters, noise, determinism of the synthesis). This note covers only the **musical** side: roles, patterns, groove, keys, levels, arrangement, variations. Voice recipes (`dvHat`, `dvClap`, `dvSnare`, `dvPerc`, …) are left to that note.
 - **Scope:** read-only. No code. Nothing here says how anything sounds. No artist or track names (the artifact has some in its genre "facts", e.g. `bandit_wheel.html:1251-1319`; none are carried over). Every value is a starting point for the user's ear, not a default.
 
@@ -157,7 +157,7 @@ Three patterns, velocity 0.35–0.55:
 - `bounce`: the last 16th of every beat.
 - `roll`: step 7, then 29–31.
 
-The ghost is the same kick with an 80 ms fade at 0.55 gain, "so it pushes without adding low-end mud" (`:3589`). Typical only in hard groove; offered in peak, dark, hard techno, schranz and tech house (`:2490-2499`). **A**. Relevant later for kick variants. Out of scope for #151.
+The ghost is the same kick, cut to 90 ms with a linear fade over the last 40 % (36 ms), at 0.55 gain (code at `:3590`). The comment at `:3589` says "80 ms fade" and "so it pushes without adding low-end mud". Typical only in hard groove; offered in peak, dark, hard techno, schranz and tech house (`:2490-2499`). **A**. Relevant later for kick variants. Out of scope for #151.
 
 ### 3.6 Bass / rumble (machine `:3968-4099`)
 
@@ -195,7 +195,7 @@ STYLE reel positions inside each bar (`:4019-4030`):
 ### 3.7 Acid (`ACID` block, `:2512-2836`; machine `:4103-4200`)
 
 The block's comments are in German, unlike the rest of the file. That suggests it comes from an earlier separate tool. Whether the user wrote it is **not established**.
-- **Interval weights for note choice** (`:2529-2530`): root 10, fifth 7, minor third 6, minor seventh 5, b2/m6 (1, 4) 4. The comment says root, fifth, minor third and minor seventh "carry acid". **A**.
+- **Interval weights for note choice** (`:2529-2530`): root 10, fifth 7, minor third 6, minor seventh 5, b2 (1) 4, major third (4) 4, then fourth, minor sixth and major seventh 3, and 2nd, tritone and major sixth 2. The table is indexed by semitone (`IW`, used at `:2590`). The comment says root, fifth, minor third and minor seventh "carry acid". **A**.
 - **11 modes**, each a set of probabilities: density, tie, mutation, accent, slide, octave jumps, note pool size, knob ranges (`:2533-2556`). **A**. Several modes are **per section**:
   - `buildup`: "the filter opens, notes get denser, the last bar rolls up".
   - `drop`: "wide open, hard accents".
@@ -221,6 +221,8 @@ The block's comments are in German, unlike the rest of the file. That suggests i
 
   **A**.
 
+Confidence Q3: high (patterns read directly); the swing table is arithmetic, also high; the register comparison with the kick taste is low (interpretation).
+
 ## Q4. Key and scale handling
 
 - **Scales:** six modes, ordered dark → bright: Phrygian, minor, Dorian, Mixolydian, major, Lydian (`:2842-2846`). The 303 has 10, including harmonic minor, minor pentatonic, blues and Phrygian dominant (`:2517-2528`). **G**.
@@ -229,6 +231,8 @@ The block's comments are in German, unlike the rest of the file. That suggests i
 - **Note spelling:** flats or sharps follow the parent key (`bwSetKey`, `:2866-2872`). The track also gets a **Camelot code** for DJs (`:5268-5270`). **G**.
 - **Clash rule** (symbiosis option, `:7536-7570`): avoid a minor second or a tritone against the sounding chord. Accented notes may move at most one scale step onto a chord tone. **G** for the rule. The default level GENTLE is **X** (an agent decision without user feedback, `:7525`).
 - **Mood → scale** (`bwMoodScale`, `:5507-5513`): "sad" stays at minor or darker; "hopeful" goes one step brighter; "euphoric" goes 2–4 steps brighter. **A**.
+
+Confidence Q4: high (content).
 
 ## Q5. Level and mix heuristics
 
@@ -258,6 +262,8 @@ The block's comments are in German, unlike the rest of the file. That suggests i
 
 Mapping to our engine: these are **mix/arrangement** heuristics. They matter once several categories play together (arrangement planner A10, Live import). For a single one-shot sample the per-element level is not defined. A one-shot has no "loop loudness vs kick". _Interpretation_.
 
+Confidence Q5: high for what the artifact contains; low as targets (no published standard, as the artifact itself says).
+
 ## Q6. Arrangement: what the artifact does vs the D-024 planner note
 
 **Section types** (`BW_SECT`, `:2456-2469`) map onto the planner note's 7 types:
@@ -282,7 +288,10 @@ Template lengths (`BW_ARR`, `:2470-2478`, sources **S** at `:2450-2455`), times 
 | techno | intro 16 · intro2 16 · groove 32 · build 16 · drop 32 · break 16 · drop2 32 · outro 16 · outro2 16 | 192 | 5:39 / 5:29 / 5:16 |
 | trance | intro 16 · intro2 16 · groove 32 · build 16 · drop 32 · break 32 · build2 16 · drop2 32 · outro 16 · outro2 16 | 224 | 6:35 / 6:24 / 6:08 |
 
-The artifact's trance template has the same order and the same 224 bars as the planner's **T3 Trance**. The techno template is the planner's T2 without its 8-bar break and 8-bar build, and with only one build.
+The artifact's trance template has the same order and the same 224 bars as the planner's **T3 Trance**. The artifact's techno template (192 bars) differs from the planner's **T2 Techno** (224 bars) in three ways:
+- Its only build is 16 bars, **before drop 1**. T2 has an 8-bar break and an 8-bar build before drop 1.
+- Between the drops it has a **16-bar `brk`**. T2 has a 32-bar `breakdown` there.
+- There is **no build before drop 2**. T2 has a 16-bar build there.
 
 **Events** (`bwPlanEvents`, `:4810-4837`):
 - Before every drop: a riser over the last 8 bars, and a snare roll over the last 4 in roll genres. Roll genres are the trance, hardstyle, dnb and half families plus hard techno and schranz.
@@ -313,8 +322,8 @@ The two shapes agree within about 0.1 everywhere except the short `break`. They 
 | # | Topic | Artifact | Planner note default | Proposal |
 | --- | --- | --- | --- | --- |
 | D1 | **Bass in intro and outro** | out of the whole intro and outro. The track rating subtracts points for bass in the intro: "so two basslines never clash while mixing" (`:6271`, `:2458`) | `intro_outro_bass = on` (bass stays to the outro's last bar) | The user's own artifact points to `off` or `outside_mix_zone`. Ask the user which default he wants (listening plan step 1). The setting already exists (D-024) |
-| D2 | **Change grid** | 16-bar phrases; the rating warns on any section that is not a multiple of 16 (`:6277`) | `change_grid = 8` | Keep 8 as a setting; offer 16 as an option. Ask the user |
-| D3 | **Kick before the drop** | kick out for the last 4 bars of every build (`:4820`) | `pre_drop_gap` = 1 bar; `build_kick = filtered_in_build` | Add "2 bars" and "4 bars" to the allowed `pre_drop_gap` values (planner contract, A5). The user picks the default |
+| D2 | **Change grid** | 16-bar phrases; the rating warns on any section that is not a multiple of 16 (`:6277`) | `change_grid = 8` (allowed 4, 8, 16) | The value 16 already exists. Only the default is open: ask the user whether 8 or 16 |
+| D3 | **Kick before the drop** | last 4 bars of every build: `kickout` + `lowfade` (kick out, bass fading). Hats, clap and riser keep running (`:4820`) | `pre_drop_gap` = 1 bar (silences drums and bass); `build_kick = filtered_in_build` | The closer planner equivalent is `build_kick = at_drop` for the last 4 bars plus a bass fade. Extending `pre_drop_gap` to 2 or 4 bars would be a different behaviour (all drums silent). Proposal for A5: a `build_kick` option "out for the last N bars" (N = 2 or 4) with a bass fade. The user picks the default |
 | D4 | **Clap in the intro** | joins at bar 17 (intro2) | clap threshold 0.55 is above intro energy 0.30–0.45, so no clap in the intro | Ask the user; the artifact gives one data point for "clap in the 2nd half of the intro" |
 | D5 | **Fills** | every 8 bars, bigger every 16 | one fill before a section change (T4) | Make fill density a setting (`fills`: `off`, `section_change`, `every_8`) |
 | D6 | **Two hooks** | lead and acid take turns between sections | no rule | Add a planner rule: at most one hook element per section by default (_Interpretation_ of `:4667`, `:4670`) |
@@ -335,6 +344,8 @@ The two shapes agree within about 0.1 everywhere except the short `break`. They 
 
 **A**; the sources for the DJ-intro parts are **S** (`:2450-2455`).
 
+Confidence Q6: high (content and comparison); low for the proposals D1–D7.
+
 ## Q7. Variations per section
 
 - **Eight kinds** (`BW_VAR_KINDS`, `:5895-5904`): fill, mute, filter (up or down), mutate (a few notes/hits move), add (extra hits or a perc layer), throw (last beat into reverb), octave, accent. **A**, each a **G** technique.
@@ -352,6 +363,8 @@ The two shapes agree within about 0.1 everywhere except the short `break`. They 
 
 Transfer: the planner's "parameter changes inside a phrase" (note section 5) and the T4 fill rule can take this set almost as is. It is a contract question for A5 (`events[]` would gain a `variation` kind). _Interpretation_.
 
+Confidence Q7: high (content); low for the contract mapping.
+
 ## Q8. What does not transfer
 
 | Item | Where | Why not |
@@ -363,6 +376,8 @@ Transfer: the planner's "parameter changes inside a phrase" (note section 5) and
 | Symbiosis default level | `:7525` | Agent decision without user feedback (**X**) |
 | Quiz-to-mood mapping | `:5460-5530` | No basis beyond the artifact. Possible later chat vocabulary ("darker", "wider"); park it |
 | Web Audio voices and offline rendering | throughout | Technical side; covered by the audio-engineer note |
+
+Confidence Q8: high for U items (stated by the user); medium for the rest (my judgement against project rules).
 
 ---
 
@@ -415,10 +430,12 @@ Each item is a **hypothesis**. The measurement can confirm that the signal prope
 
 No new render is needed: the user can open his artifact. The lead or the user sets it up; every answer is "to be checked by ear". Genre **Peak Time** (or Hard Groove for step 2), 140 BPM if the range allows; otherwise use the top of the range, 140. One question per pair.
 
-1. **Outro bass (H1, D1), 4 min.** Build the track. Play the last 32 bars once as built (no bass). Then play them again with BASS switched on in OUTRO and OUTRO 2. Question: *"Soll der Bass bis zum Ende des Outros bleiben?"* Answer → `intro_outro_bass` default.
-2. **Swing (H2), 3 min.** Same loop, hats GROOVE reel on STRAIGHT, then on LIGHT SWING. Question: *"Welche Variante passt zu deinen Tracks?"* Answer → family swing default.
-3. **Clap in the intro (H6, D4), 3 min.** Play INTRO + INTRO 2 as built (clap from bar 17). Then mute CLAP in INTRO 2. Question: *"Soll die Clap schon im Intro kommen?"*
-4. **Kick-out before the drop (D3), 3 min.** Play BUILD → DROP as built (kick out for 4 bars). Question: *"Ist eine 4-Takt-Pause der Kick vor dem Drop zu lang, richtig oder zu kurz?"* Answer → `pre_drop_gap` values.
+**Set-up to be checked.** Steps 1 and 3 assume that a machine can be switched on or off for a single section. The code supports that: `toggleLoop` sets the lane of the currently selected section (`:8169`), and `laneOn` sets it on (`:8629`). The mixer mute is global, not per section (`mixSet`, `:8170`). Which button calls `toggleLoop` in the track view was not traced. The lead checks this before the user starts.
+
+1. **Outro bass (H1, D1), 4 min.** Build the track. Play the last 32 bars once as built (no bass). Then play them again with BASS switched on in OUTRO and OUTRO 2 (per-section switch, see above). Question: *"Soll der Bass bis zum Ende des Outros bleiben?"* Answer → `intro_outro_bass` default.
+2. **Swing (H2), 3 min.** Same loop, hats GROOVE reel (`:3622-3626`) on STRAIGHT, then on LIGHT SWING. Question: *"Welche Variante passt zu deinen Tracks?"* Answer → family swing default.
+3. **Clap in the intro (H6, D4), 3 min.** Play INTRO + INTRO 2 as built (clap from bar 17). Then switch CLAP off in INTRO 2 only (per-section switch, not the global mixer mute). Question: *"Soll die Clap schon im Intro kommen?"*
+4. **Kick-out before the drop (D3), 3 min.** Play BUILD → DROP as built (kick out for 4 bars). Question: *"Ist eine 4-Takt-Pause der Kick vor dem Drop zu lang, richtig oder zu kurz?"* Answer → the `build_kick` option from D3.
 
 Order: 1 → 4. Steps 1 and 3 feed settings that already exist (D-024), so they come first.
 
@@ -429,7 +446,7 @@ Each item becomes an issue for the owning role (the lead files them).
 | # | What | How | Owner | Where |
 | --- | --- | --- | --- | --- |
 | V1 | Defaults D1, D3, D4 and swing (H1, H2, H6) | Listening plan steps 1–4 | user (by ear); set-up by the lead | user's PC |
-| V2 | Planner settings: `pre_drop_gap` gets 2 and 4 bars; `fills` gets `every_8`; `change_grid` keeps 16 as an option; one-hook rule (D3, D5, D2, D6) | Contract proposal for task A5. Property test: every generated plan keeps fills/gaps on the grid for every setting value | contract owner for the plan format | CI |
+| V2 | Planner settings: `build_kick` gets "out for the last N bars" + bass fade; `fills` gets `every_8`; `change_grid` keeps 16 as an option (default open); one-hook rule (D3, D5, D2, D6) | Contract proposal for task A5. Property test: every generated plan keeps fills/gaps on the grid for every setting value | contract owner for the plan format | CI |
 | V3 | Rating checks (Q6 list) as planner tests | Seeded property tests over generated plans; fault injection (e.g. bass moved into the intro) must turn each check red | owner of the planner generator (A10) | CI |
 | V4 | Evenly spread perc rhythm and per-family hat/clap rules are reproducible from a stored seed | Same seed + parameters → identical step pattern, byte for byte; different seeds cover all 16 rotations | audio-engineer (if patterns are rendered) | CI |
 | V5 | Level offsets (H4) on our own renders | BS.1770 integrated loudness per stem vs kick stem, over seeded random patterns and the full parameter range | audio-engineer | CI |
