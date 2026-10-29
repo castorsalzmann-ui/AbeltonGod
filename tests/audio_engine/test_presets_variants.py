@@ -350,10 +350,32 @@ def test_variants_are_reproducible_and_differ_from_each_other(name: str) -> None
     assert len({v["seed"] for v in first}) == 8
 
 
-@pytest.mark.parametrize("name", NAMES)
+# Presets exempt from the -40 dB rule below, each with its reason. Keep this list narrow: one
+# named preset per user decision, never a pattern.
+MINUS_40_DB_EXEMPT = {
+    # User decision on #116 (option a, lead comment
+    # https://github.com/castorsalzmann-ui/AbeltonGod/issues/116#issuecomment-6495172822):
+    # dense must stay byte-identical to the file chosen in listening tests 1 and 2 (#103).
+    # Its drive lifts the tail; variant 0 ends about 36.5 dB below its peak (analysis.py
+    # envelope) and is then faded over the last 5 ms, so -40 dB is not reached inside 480 ms.
+    "dense": "#116: byte-identical to the user's listening-test pick; tail ends near -36.5 dB",
+}
+MINUS_40_DB_CHECKED = [n for n in NAMES if n not in MINUS_40_DB_EXEMPT]
+
+
+def test_minus_40_db_exemption_is_narrow() -> None:
+    """Only the named, decided preset is exempt, every other preset is still checked, and the
+    exemption is still needed (if dense ever reaches -40 dB, drop it from the list)."""
+    assert set(MINUS_40_DB_EXEMPT) == {"dense"}
+    assert sorted(MINUS_40_DB_CHECKED) == sorted(set(NAMES) - {"dense"})
+    audio, r = render_kick(preset("dense"))
+    assert analyse(audio, r["sample_rate"])["decay_40db_ms"] is None
+
+
+@pytest.mark.parametrize("name", MINUS_40_DB_CHECKED)
 def test_every_variant_reaches_minus_40_db_inside_the_file(name: str) -> None:
     """CI rule from the design: variants 0-7 of every preset decay 40 dB before the file ends
-    (found while prototyping: driven at 360 ms was cut off)."""
+    (found while prototyping: driven at 360 ms was cut off). Exempt: MINUS_40_DB_EXEMPT."""
     for v in make_variants(preset(name), 8):
         audio, r = render_kick(v)
         env = _rms_envelope_db(audio, r["sample_rate"])
