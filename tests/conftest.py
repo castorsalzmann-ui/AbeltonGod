@@ -12,6 +12,9 @@ conftest is only loaded by the controller once that folder is collected there, a
 
 It also installs the opt-in render cache (#77, ``tests/support/render_cache.py``) for the
 test functions listed there, for the duration of each such test only.
+
+``--fresh-seeds=N`` (#105) shifts the seed base of the shared kick-params generator
+(``tests/support/kick_params.py``), so every property test runs on new parameter sets.
 """
 
 from __future__ import annotations
@@ -23,6 +26,33 @@ import pytest
 
 _ROOT = Path(__file__).resolve().parent.parent
 _GOLDEN_LINES: list[str] = []
+
+
+def pytest_addoption(parser) -> None:
+    parser.addoption(
+        "--fresh-seeds",
+        type=int,
+        default=0,
+        metavar="N",
+        help="shift the seed base of every kick-params property generator by N * 2**32 "
+        "(tests/support/kick_params.py, #105); 0 = the default sets",
+    )
+
+
+def pytest_configure(config) -> None:
+    from support import kick_params
+
+    n = config.getoption("fresh_seeds")
+    if n < 0:
+        raise pytest.UsageError(f"--fresh-seeds must be >= 0, got {n}")
+    kick_params.set_fresh_seeds(n)
+
+
+def pytest_report_header(config) -> str | None:
+    n = config.getoption("fresh_seeds")
+    if n:
+        return f"fresh seeds: {n} (kick-params seed bases shifted by {n} * 2**32, #105)"
+    return None
 
 
 def _test_key(item) -> str:

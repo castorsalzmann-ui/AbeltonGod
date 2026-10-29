@@ -14,6 +14,7 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+from support import kick_params as kp
 
 import audio_engine.io as io_mod
 from audio_engine.kick import render_kick
@@ -104,22 +105,9 @@ def test_pitch_settles_examples() -> None:
 
 
 def _random_params(rng: random.Random) -> dict:
-    p = {
-        "schema_version": "0.2",
-        "seed": rng.randrange(2**32),
-        "sample_rate": rng.choice([44100, 48000]),
-        "length_ms": rng.uniform(80, 2000),
-        "pitch_start_hz": rng.uniform(60, 600),
-        "amp_attack_ms": rng.uniform(0, 20),
-        "amp_decay_ms": rng.uniform(20, 2000),
-        "click_level": rng.uniform(0, 1),
-        "click_tone_hz": rng.uniform(500, 12000),
-        "drive": rng.uniform(0, 1),
-        "tone": rng.uniform(-1, 1),
-        "peak_ceiling_dbfs": rng.uniform(-12, -0.1),
-    }
-    p["pitch_end_hz"] = rng.uniform(30, min(120, p["pitch_start_hz"]))
-    return p
+    """The shared generator ``tests/support/kick_params.py`` (#105) without pitch_decay_ms
+    and bit_depth."""
+    return kp.draw(rng, kp.SETTLE)
 
 
 def _cycles(audio: np.ndarray, sr: int) -> list[tuple[float, float]]:
@@ -189,7 +177,7 @@ def check_guideline_against_render(p: dict) -> int:
     return checked
 
 
-SETTLE_SETS = [_random_params(random.Random(7000 + i)) for i in range(200)]
+SETTLE_SETS = [_random_params(kp.rng(7000 + i)) for i in range(200)]
 
 
 def test_guideline_limit_matches_measured_pitch() -> None:
