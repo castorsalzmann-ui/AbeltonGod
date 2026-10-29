@@ -1,0 +1,23 @@
+{
+  "description": "#86: faults in the conftest name-trap checker (tests/support/conftest_names.py). Each must turn tests/qa/test_conftest_name_trap.py red.",
+  "mutants": [
+    {
+      "id": "CNT_NO_EXTRA_CONFTEST_CHECK",
+      "file": "tests/support/conftest_names.py",
+      "old": "        if conftest not in allowed:\n",
+      "new": "        if False:\n",
+      "tests": ["tests/qa/test_conftest_name_trap.py"],
+      "expected": "killed",
+      "note": "a second sub-folder conftest.py (the #78 trap) is no longer reported"
+    },
+    {
+      "id": "CNT_TOP_LEVEL_IMPORTS_ONLY",
+      "file": "tests/support/conftest_names.py",
+      "old": "        for node in ast.walk(tree):\n",
+      "new": "        for node in tree.body:\n",
+      "tests": ["tests/qa/test_conftest_name_trap.py"],
+      "expected": "killed",
+      "note": "imports inside test functions (bug39 style) are no longer found"
+    }
+  ]
+}
