@@ -14,6 +14,7 @@ import math
 
 import numpy as np
 import pytest
+from support import kick_params as kp
 
 from audio_engine import kick as K
 from audio_engine.dsp import fft_size, kaiser_lowpass, oversampled
@@ -93,22 +94,9 @@ WORST = {
 
 
 def _random_params(rng: np.random.Generator) -> dict:
-    start = float(rng.uniform(60, 600))
-    return {
-        "schema_version": "0.2",
-        "seed": int(rng.integers(0, 2**32)),
-        "sample_rate": int(rng.choice([44100, 48000])),
-        "length_ms": float(rng.uniform(80, 2000)),
-        "pitch_start_hz": start,
-        "pitch_end_hz": float(rng.uniform(30, min(120.0, start))),
-        "pitch_decay_ms": float(rng.uniform(2, 300)),
-        "amp_attack_ms": float(rng.choice([0.0, rng.uniform(0, 20)])),
-        "amp_decay_ms": float(rng.uniform(20, 2000)),
-        "click_level": float(rng.uniform(0, 1)),
-        "click_tone_hz": float(rng.uniform(500, 12000)),
-        "drive": float(rng.uniform(0.01, 1)),
-        "tone": float(rng.uniform(-1, 1)),
-    }
+    """The shared generator ``tests/support/kick_params.py`` (#105): no peak_ceiling_dbfs or
+    bit_depth (normalisation is patched out), drive from 0.01, amp_attack_ms 0 half the time."""
+    return kp.draw(rng, kp.ALIASING)
 
 
 def _hard_params(rng: np.random.Generator) -> dict:
@@ -122,8 +110,8 @@ def _hard_params(rng: np.random.Generator) -> dict:
     return p
 
 
-RANDOM_CASES = [_random_params(np.random.default_rng(1300 + i)) for i in range(24)] + [
-    _hard_params(np.random.default_rng(7700 + i)) for i in range(8)
+RANDOM_CASES = [_random_params(kp.np_rng(1300 + i)) for i in range(24)] + [
+    _hard_params(kp.np_rng(7700 + i)) for i in range(8)
 ]
 
 
@@ -231,7 +219,7 @@ def _direct_oversampled(x: np.ndarray, factor: int, fn, h: np.ndarray) -> np.nda
 @pytest.mark.parametrize("factor", [1, 2, 8])
 @pytest.mark.parametrize("n", [1, 2, 7, 81, 1000, 4801])
 def test_oversampled_matches_direct_convolution(factor: int, n: int) -> None:
-    rng = np.random.default_rng(factor * 1000 + n)
+    rng = kp.np_rng(factor * 1000 + n)
     x = 0.5 * rng.standard_normal(n)
     h = kaiser_lowpass(factor, 0.08, 10.0) if factor > 1 else np.array([1.0])
     np.testing.assert_allclose(
@@ -260,7 +248,7 @@ def test_spectrum_cache_separates_factors() -> None:
     common = sorted(set(size_for[2]) & set(size_for[4]))[0]
     for factor in (2, 4):
         n = size_for[factor][common]
-        x = 0.5 * np.random.default_rng(n).standard_normal(n)
+        x = 0.5 * kp.np_rng(n).standard_normal(n)
         np.testing.assert_allclose(
             oversampled(x, factor, np.tanh, h), _direct_oversampled(x, factor, np.tanh, h),
             rtol=0, atol=1e-12,

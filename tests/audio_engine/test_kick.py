@@ -19,6 +19,7 @@ from datetime import UTC, datetime
 import numpy as np
 import pytest
 from jsonschema import Draft202012Validator
+from support import kick_params as kp
 
 import audio_engine.io as io_mod
 from audio_engine.analysis import analyse, tail_window, zero_crossing_frequency
@@ -71,28 +72,12 @@ def params(name: str) -> dict:
 
 
 def random_params(rng: random.Random) -> dict:
-    """Uniform draw over the whole kick-params schema range (pitch_end <= pitch_start)."""
-    p = {
-        "schema_version": "0.2",
-        "seed": rng.randrange(2**32),
-        "sample_rate": rng.choice([44100, 48000]),
-        "bit_depth": rng.choice([16, 24]),
-        "length_ms": rng.uniform(80, 2000),
-        "pitch_start_hz": rng.uniform(60, 600),
-        "pitch_decay_ms": rng.uniform(2, 300),
-        "amp_attack_ms": rng.uniform(0, 20),
-        "amp_decay_ms": rng.uniform(20, 2000),
-        "click_level": rng.uniform(0, 1),
-        "click_tone_hz": rng.uniform(500, 12000),
-        "drive": rng.uniform(0, 1),
-        "tone": rng.uniform(-1, 1),
-        "peak_ceiling_dbfs": rng.uniform(-12, -0.1),
-    }
-    p["pitch_end_hz"] = rng.uniform(30, min(120, p["pitch_start_hz"]))
-    return p
+    """Uniform draw over the whole kick-params schema range (pitch_end <= pitch_start); the
+    shared generator ``tests/support/kick_params.py`` (#105)."""
+    return kp.draw(rng, kp.RENDER)
 
 
-RANDOM_SETS = [random_params(random.Random(1000 + i)) for i in range(N_RANDOM)]
+RANDOM_SETS = [random_params(kp.rng(1000 + i)) for i in range(N_RANDOM)]
 
 
 def all_sets() -> list:
@@ -282,9 +267,9 @@ FAST_DECAY_SETS = [
         "click_tone_hz": 662.3, "drive": 0.214, "tone": -0.703,
     },
     *(
-        {**random_params(random.Random(4242_000 + i)),
-         "length_ms": random.Random(i).uniform(80, 130),
-         "amp_decay_ms": random.Random(10_000 + i).uniform(20, 120)}
+        {**random_params(kp.rng(4242_000 + i)),
+         "length_ms": kp.rng(i).uniform(80, 130),
+         "amp_decay_ms": kp.rng(10_000 + i).uniform(20, 120)}
         for i in range(60)
     ),
 ]

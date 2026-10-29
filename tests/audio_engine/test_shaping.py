@@ -29,6 +29,7 @@ from functools import cache
 
 import numpy as np
 import pytest
+from support import kick_params as kp
 
 from audio_engine import kick as K
 from audio_engine.analysis import analyse
@@ -43,30 +44,14 @@ N_RANDOM = 30
 
 
 def _draw(rng: random.Random) -> dict:
-    """Uniform draw over the whole kick-params contract range (pitch_end <= pitch_start)."""
-    p = {
-        "schema_version": SCHEMA_VERSION,
-        "seed": rng.randrange(2**32),
-        "sample_rate": rng.choice([44100, 48000]),
-        "bit_depth": rng.choice([16, 24]),
-        "length_ms": rng.uniform(80, 2000),
-        "pitch_start_hz": rng.uniform(60, 600),
-        "pitch_decay_ms": rng.uniform(2, 300),
-        "amp_attack_ms": rng.uniform(0, 20),
-        "amp_decay_ms": rng.uniform(20, 2000),
-        "click_level": rng.uniform(0, 1),
-        "click_tone_hz": rng.uniform(500, 12000),
-        "drive": rng.uniform(0, 1),
-        "tone": rng.uniform(-1, 1),
-        "peak_ceiling_dbfs": rng.uniform(-12, -0.1),
-    }
-    p["pitch_end_hz"] = rng.uniform(30, min(120, p["pitch_start_hz"]))
-    return p
+    """Uniform draw over the whole kick-params contract range (pitch_end <= pitch_start); the
+    shared generator ``tests/support/kick_params.py`` (#105)."""
+    return kp.draw(rng, kp.RENDER)
 
 
 def _sets(curated: dict[str, dict], seed0: int, n: int = N_RANDOM) -> list:
     return [pytest.param({**BASE, **c}, id=name) for name, c in curated.items()] + [
-        pytest.param(_draw(random.Random(seed0 + i)), id=f"random-{seed0 + i}") for i in range(n)
+        pytest.param(_draw(kp.rng(seed0 + i)), id=f"random-{seed0 + i}") for i in range(n)
     ]
 
 
@@ -269,7 +254,7 @@ STEADY_SETS = [
         },
         id=f"steady-{i}",
     )
-    for i, rng in enumerate(random.Random(13000 + k) for k in range(12))
+    for i, rng in enumerate(kp.rng(13000 + k) for k in range(12))
 ]
 
 
@@ -352,7 +337,7 @@ ATTACK_SETS = [
 ] + [
     pytest.param(
         {
-            **(q := _draw(random.Random(14000 + i))),
+            **(q := _draw(kp.rng(14000 + i))),
             "length_ms": max(ATTACK_MIN_LENGTH_MS, q["length_ms"]),
         },
         id=f"random-{14000 + i}",
@@ -382,7 +367,7 @@ def _half_cycle_peaks(x: np.ndarray, sr: int) -> tuple[np.ndarray, np.ndarray]:
 def _decay_rate_sets() -> list:
     out = []
     for i in range(N_RANDOM):
-        rng = random.Random(15000 + i)
+        rng = kp.rng(15000 + i)
         p = _draw(rng)
         # Conditions under which the body is a settled, decaying sine in the measured region:
         # no drive, click or tone, a fast pitch drop, and a decay long enough for >= 6 peaks.
@@ -421,7 +406,7 @@ def test_amp_decay_sets_the_decay_rate(p: dict) -> None:
 DECAY20_SETS = [
     pytest.param(
         {
-            **(q := _draw(random.Random(16000 + i))),
+            **(q := _draw(kp.rng(16000 + i))),
             "drive": 0.0,
             "click_level": 0.0,
             "tone": 0.0,
