@@ -85,7 +85,7 @@
     },
     "length_beats": {
       "type": "number",
-      "description": "File length in beats (quarter notes) at bpm: length_ms = length_beats * 60000 / bpm, so 1/16, 1/8, 1/4 notes are 0.25, 0.5, 1. Range 0.25 ... 4. Requires bpm; do not combine with length_ms. The result must lie in 80 ... 2000 ms. The kick is made to be 60 dB down before the end (see amp_decay_ms). No default (absent = length_ms is used)."
+      "description": "File length in beats (quarter notes) at bpm: length_ms = length_beats * 60000 / bpm, so 1/16, 1/8, 1/4 notes are 0.25, 0.5, 1. Range 0.25 ... 4. Requires bpm; do not combine with length_ms. The result must lie in 80 ... 2000 ms. The kick is made to be 60 dB down before the end (see amp_decay_ms). If no derived value fits (a very short length with a long attack, offset or click), the request is rejected. No default (absent = length_ms is used)."
     },
     "click_decay_ms": {
       "type": "number",

@@ -1,15 +1,16 @@
 """Strict tool variant of kick-params 0.3: contracts/tool-generate-kick.schema.json (#131).
 
 The rules (docs/INTERFACES.md, "Strict tool variant") are written here by hand. The structure the
-tool file must have is regenerated from contracts/kick-params.schema.json and compared, so a
-contract change that is not carried over to the tool file turns a test red. The strict-subset
-rule follows docs/research/2026-10-28_tool-schema-generation.md Q1, as PR #144 uses it for the
-other two tools; this file keeps its own copy so it does not depend on that PR (to be merged
-into one checker once both are on main).
+tool file must have is regenerated from contracts/kick-params.schema.json and compared, and every
+range, default and length limit in the descriptions is parsed and compared for equality, so a
+contract change that is not carried over to the tool file (or a wrong number in the tool file)
+turns a test red. Strict subset, root metadata, model-facing descriptions and the optional-field
+budget are checked by the one strict checker in tests/test_contracts.py (``STRICT_TOOLS``).
 """
 
 import json
 import random
+import re
 from pathlib import Path
 
 import pytest
@@ -28,109 +29,10 @@ CANON = load("kick-params.schema.json")
 TOOL = load(TOOL_FILE)
 V03_BRANCH_IF = {"properties": {"schema_version": {"const": "0.3"}}}
 
-# --- strict subset (research note Q1; same keyword set as PR #144) ---------------------------
-
-STRICT_KEYWORDS = frozenset({
-    "type", "description", "properties", "required", "additionalProperties", "items",
-    "enum", "const", "anyOf",
-})
-ROOT_ONLY_KEYWORDS = frozenset({"$schema", "$id", "title"})
-JSON_TYPES = frozenset({"object", "array", "string", "integer", "number", "boolean", "null"})
-
-
-def strict_problems(schema, where: str = "(root)", root: bool = True,
-                    allow_root_metadata: bool = True) -> list[str]:
-    """Every place where ``schema`` leaves the strict subset (empty list = inside)."""
-    if not isinstance(schema, dict):
-        return [f"{where}: not an object"]
-    allowed = STRICT_KEYWORDS | (ROOT_ONLY_KEYWORDS if root and allow_root_metadata
-                                 else frozenset())
-    problems = [f"{where}: keyword {k!r}" for k in sorted(set(schema) - allowed)]
-    if root and schema.get("type") != "object":
-        problems.append(f"{where}: root type must be object")
-    kind = schema.get("type")
-    if "type" in schema and not (isinstance(kind, str) and kind in JSON_TYPES):
-        problems.append(f"{where}: type must be one JSON type name")
-    if "enum" in schema and not all(
-        isinstance(v, str | int | float | bool) or v is None for v in schema["enum"]
-    ):
-        problems.append(f"{where}: enum values must be scalars")
-    if "const" in schema and isinstance(schema["const"], dict | list):
-        problems.append(f"{where}: const must be a scalar")
-    if kind == "object" or "properties" in schema:
-        props = schema.get("properties")
-        if not isinstance(props, dict):
-            problems.append(f"{where}: object needs properties")
-            props = {}
-        if schema.get("additionalProperties") is not False:
-            problems.append(f"{where}: additionalProperties must be false")
-        missing = [r for r in schema.get("required", []) if r not in props]
-        if missing:
-            problems.append(f"{where}: required names unknown properties {missing}")
-        for name, sub in props.items():
-            problems += strict_problems(sub, f"{where}/{name}", root=False)
-    elif "additionalProperties" in schema:
-        problems.append(f"{where}: additionalProperties on a non-object")
-    if "items" in schema:
-        problems += strict_problems(schema["items"], f"{where}[]", root=False)
-    for i, sub in enumerate(schema.get("anyOf", [])):
-        problems += strict_problems(sub, f"{where}|anyOf{i}", root=False)
-    if not root and "description" not in schema:
-        problems.append(f"{where}: no description")
-    return problems
-
-
-def optional_count(schema: dict) -> int:
-    """Optional parameters at every nesting level (the strict limit counts all of them)."""
-    props = schema.get("properties", {})
-    count = len(set(props) - set(schema.get("required", [])))
-    return count + sum(optional_count(s) for s in props.values() if isinstance(s, dict))
-
-
 def test_tool_schema_is_a_valid_schema_with_its_own_id() -> None:
     Draft202012Validator.check_schema(TOOL)
     assert TOOL["$schema"] == CANON["$schema"]
     assert TOOL["$id"].endswith("/contracts/" + TOOL_FILE)
-
-
-def test_tool_schema_is_inside_the_strict_subset() -> None:
-    assert strict_problems(TOOL) == []
-    stripped = {k: v for k, v in TOOL.items() if k not in ROOT_ONLY_KEYWORDS}
-    assert strict_problems(stripped, allow_root_metadata=False) == []
-    # The root metadata is the only thing the builder has to drop.
-    raw = strict_problems(TOOL, allow_root_metadata=False)
-    assert sorted(raw) == sorted(f"(root): keyword {k!r}" for k in ROOT_ONLY_KEYWORDS), raw
-
-
-def test_the_contract_itself_is_not_inside_the_strict_subset() -> None:
-    """Positive control on a real file: the canonical contract must be reported."""
-    problems = strict_problems(CANON)
-    for keyword in ("allOf", "unevaluatedProperties", "$comment"):
-        assert f"(root): keyword {keyword!r}" in problems, problems
-    assert "(root)/drive: keyword 'minimum'" in problems
-    assert "(root)/preset: keyword 'maxLength'" in problems
-
-
-@pytest.mark.parametrize("bad", [
-    {"minimum": 0}, {"maximum": 1}, {"default": 0.2}, {"maxLength": 9}, {"type": ["number"]},
-    {"not": {}}, {"enum": [{"a": 1}]},
-], ids=lambda c: next(iter(c)))
-def test_strict_check_finds_a_violation_put_into_the_tool_schema(bad: dict) -> None:
-    props = {**TOOL["properties"], "drive": {**TOOL["properties"]["drive"], **bad}}
-    assert strict_problems({**TOOL, "properties": props}) != []
-
-
-@pytest.mark.parametrize("change", [
-    {"additionalProperties": True}, {"unevaluatedProperties": False}, {"allOf": []},
-    {"dependentRequired": {}}, {"required": ["schema_version", "seed", "nope"]},
-], ids=lambda c: next(iter(c)))
-def test_strict_check_finds_root_violations(change: dict) -> None:
-    assert strict_problems({**TOOL, **change}) != []
-
-
-def test_strict_check_finds_a_field_without_description() -> None:
-    props = {**TOOL["properties"], "drive": {"type": "number"}}
-    assert strict_problems({**TOOL, "properties": props}) != []
 
 
 # --- structure regenerated from the contract --------------------------------------------------
@@ -173,22 +75,59 @@ def test_tool_field_structure_follows_the_contract(name: str) -> None:
     assert tool_field == expected_structure(name, contract_fields()[name])
 
 
-def _num(value) -> str:
-    return json.dumps(value)
+# A whole number token: not followed by another digit or by '.digit' (so "1" is never read out
+# of "12" or "1.5", and "0" never out of "0.5"). JSON parses it, so 4 and 4.0 stay different.
+NUM = r"(-?\d+(?:\.\d+)?)(?!\.?\d)"
+
+
+def _numbers(pattern: str, text: str) -> list:
+    """Every match of ``pattern`` (with NUM groups) in ``text``, numbers parsed as JSON."""
+    return [tuple(json.loads(g) for g in m.groups()) for m in re.finditer(pattern, text)]
+
+
+def _same(a, b) -> bool:
+    return a == b and type(a) is type(b)
 
 
 @pytest.mark.parametrize("name", list(contract_fields()))
-def test_dropped_constraints_are_stated_in_the_description(name: str) -> None:
+def test_dropped_constraints_are_stated_exactly_in_the_description(name: str) -> None:
+    """Range, default and maximum length are parsed out of the tool text and must equal the
+    contract's values exactly (exactly one statement each; none where the contract has none)."""
     prop = contract_fields()[name]
     text = TOOL["properties"][name]["description"]
+    ranges = _numbers(rf"Range {NUM} \.\.\. {NUM}", text)
     if "minimum" in prop:
-        assert f"Range {_num(prop['minimum'])} ... {_num(prop['maximum'])}" in text, text
+        assert len(ranges) == 1, (name, text)
+        lo, hi = ranges[0]
+        assert _same(lo, prop["minimum"]) and _same(hi, prop["maximum"]), (name, ranges)
+    else:
+        assert ranges == [] and "Range" not in text, (name, text)
+    defaults = _numbers(rf"Default {NUM}", text)
     if "default" in prop:
-        assert f"Default {_num(prop['default'])}." in text, text
-    elif name not in CANON["required"] and name != "schema_version":
-        assert "No default" in text, text
-    if "maxLength" in prop:
-        assert f"At most {prop['maxLength']} characters" in text, text
+        assert len(defaults) == 1 and "No default" not in text, (name, text)
+        assert _same(defaults[0][0], prop["default"]), (name, defaults)
+    else:
+        assert defaults == [] and "Default" not in text, (name, text)
+        if name not in CANON["required"]:
+            assert "No default" in text, (name, text)
+    lengths = _numbers(rf"At most {NUM} characters", text)
+    assert lengths == ([(prop["maxLength"],)] if "maxLength" in prop else []), (name, text)
+
+
+def test_length_limits_in_the_length_beats_text_are_the_length_ms_range() -> None:
+    text = TOOL["properties"]["length_beats"]["description"]
+    limits = _numbers(rf"must lie in {NUM} \.\.\. {NUM} ms", text)
+    ms = CANON["properties"]["length_ms"]
+    assert limits == [(ms["minimum"], ms["maximum"])], text
+
+
+def test_number_parser_does_not_read_prefixes() -> None:
+    """The parser itself: the prefixes that a substring check would accept are not matches."""
+    assert _numbers(rf"Range {NUM} \.\.\. {NUM}", "Range 0 ... 12.") == [(0, 12)]
+    assert _numbers(rf"Range {NUM} \.\.\. {NUM}", "Range 80 ... 20000.") == [(80, 20000)]
+    assert _numbers(rf"Default {NUM}", "Default 0.5.") == [(0.5,)]
+    assert _numbers(rf"Default {NUM}", "Default -0.3.") == [(-0.3,)]
+    assert not _same(_numbers(rf"Default {NUM}", "Default 4.0.")[0][0], 4)
 
 
 def test_exclusions_and_dependency_are_stated() -> None:
@@ -202,23 +141,25 @@ def test_exclusions_and_dependency_are_stated() -> None:
     assert "rejected" in TOOL["description"] and "never clamped" in TOOL["description"]
 
 
+def test_meaning_sentences_are_stated() -> None:
+    """Free text whose meaning the engine relies on (review nit 5 of PR #162)."""
+    props = TOOL["properties"]
+    assert "sets pitch_end_hz = 440 * 2 ** ((tail_note - 69) / 12)" in (
+        props["tail_note"]["description"])
+    assert "Must not be lower than pitch_end_hz (or the frequency of tail_note)" in (
+        props["pitch_start_hz"]["description"])
+    assert "applied in whole samples" in props["offset_ms"]["description"]
+    assert "length_ms = length_beats * 60000 / bpm" in props["length_beats"]["description"]
+    assert "If no derived value fits" in props["length_beats"]["description"]
+    assert "the request is rejected" in props["length_beats"]["description"]
+    assert "-1 gives the exactly inverted file" in props["polarity"]["description"]
+
+
 def test_descriptions_are_model_facing() -> None:
     texts = [TOOL["description"], *(p["description"] for p in TOOL["properties"].values())]
     for text in texts:
         assert text.strip() and len(text) <= 600, text
         assert "#" not in text and "issue" not in text.lower() and "PR " not in text, text
-
-
-# Counted by hand: 25 fields - 2 required = 23. PR #144 budgets 23 (generate_kick) + 0
-# (list_tracks) + 1 (import_sample) = 24, the strict limit per request (research note Q4).
-TOOL_OPTIONAL = 23
-STRICT_OPTIONAL_LIMIT = 24
-OTHER_TOOLS_OPTIONAL = 0 + 1
-
-
-def test_optional_parameter_budget() -> None:
-    assert optional_count(TOOL) == TOOL_OPTIONAL
-    assert optional_count(TOOL) + OTHER_TOOLS_OPTIONAL <= STRICT_OPTIONAL_LIMIT
 
 
 # --- instances: tool schema vs. contract ------------------------------------------------------
