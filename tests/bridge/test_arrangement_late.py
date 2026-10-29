@@ -9,6 +9,7 @@ other timed-out case stays an unknown outcome without undo.
 from __future__ import annotations
 
 import socket
+import threading
 import time
 
 import pytest
@@ -223,6 +224,58 @@ def test_late_error_after_the_timeout_stops_without_undo(fake, tmp_path):
     assert "late failure" in step_line(out, "create_midi_track")
     assert "UNBEKANNT" in out
     assert log_entries(tmp_path)[-1]["status"] == "timeout"
+
+
+def test_late_error_with_a_lost_end_echo_stops_without_undo(fake, tmp_path):
+    """Review #167 finding 1 (mutant R1): Live is slow past the timeout, then reports an
+    error for the write, and the end echo is lost. The read-back shows the change (the fake
+    applies it before raising); the error alone must keep the outcome unknown."""
+    real = fake._create_midi_track
+
+    def create_then_raise(p):
+        real(p)
+        fake._held, _ = [], fake.released.clear()  # hold() without the lock we are under
+        fake.release_after(2 * RUN_TIMEOUT_S)
+        raise RuntimeError("late failure")
+
+    fake._create_midi_track = create_then_raise
+    fake.drop_next_marker_after.add(CREATE_TRACK)
+    code, out, prompts = run(fake, tmp_path, ["y", "y", "y"])
+    assert code == script.EXIT_CHECK_FAILED, out
+    assert (UNDO, ()) not in writes(fake) and len(prompts) == 2
+    assert block(out)["song.create_midi_track"] == "FAIL (AbletonOSC error after the timeout)"
+    entry = log_entries(tmp_path)[-1]
+    assert entry["status"] == "timeout"
+    assert entry["late_reply"]["end_seen"] is False and entry["late_reply"]["errors"]
+
+
+def test_change_visible_only_at_a_later_poll_is_settled(fake, tmp_path):
+    """Review #167 R5: the settlement polls within the window, not just once."""
+    real = fake._create_midi_track
+
+    def create_later(p):
+        def apply():
+            with fake._lock:
+                real(p)
+        timer = threading.Timer(2 * RUN_TIMEOUT_S, apply)
+        timer.daemon = True
+        timer.start()
+
+    fake._create_midi_track = create_later
+    fake.drop_next_marker_after.add(CREATE_TRACK)
+    code, out, _ = run(fake, tmp_path, ["y", "y", "y"])
+    assert code == script.EXIT_OK, out
+    line = step_line(out, "create_midi_track")
+    assert line.startswith("create_midi_track: confirmed (late:") and "(1 read(s))" not in line
+
+
+def test_reads_after_a_timeout_wait_three_times_the_timeout(fake, tmp_path):
+    """Review #167 R6: Live busy 3x the timeout after the call; the first read waits about
+    2x the timeout, which the 3x read timeout covers and a 1.5x one would not."""
+    fault(fake, CREATE_TRACK, "busy", stall=3 * RUN_TIMEOUT_S)
+    code, out, _ = run(fake, tmp_path, ["y", "y", "y"])
+    assert code == script.EXIT_OK, out
+    assert block(out)["song.create_midi_track"] == "PASS (late: read-back after timeout)"
 
 
 def test_timed_out_write_that_never_happened_stays_unknown(fake, tmp_path):
