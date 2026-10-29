@@ -97,9 +97,9 @@ def test_extension_capabilities_are_registered_with_their_lom_target():
 
 def test_import_capability_statuses_follow_the_50_evidence():
     """#50 contract-change: create_audio_clip is `tested` from user runs 2-4 and keeps its
-    limitations; create_audio_track stays `supported` until its undo is run in Live (D-004)."""
+    limitations."""
     caps = {c["id"]: c for c in RAW["capabilities"]}
-    clip, track = caps["clip_slot.create_audio_clip"], caps["song.create_audio_track"]
+    clip = caps["clip_slot.create_audio_clip"]
     assert clip["status"] == "tested"
     assert clip["evidence"].startswith(
         "https://github.com/castorsalzmann-ui/AbeltonGod/issues/50#issuecomment-")
@@ -114,13 +114,93 @@ def test_import_capability_statuses_follow_the_50_evidence():
         assert limitation in clip["notes"], limitation
     for overstatement in ("nothing touched in Live", "reverted by the user", "user hears the kick"):
         assert overstatement not in clip["notes"], overstatement
-    assert track["status"] == "supported"
-    assert "evidence" not in track
-    assert "Missing for 'tested'" in track["notes"]
 
 
-def test_pending_entries_are_not_yet_in_the_registry_and_borrow_a_real_gate():
-    """Pending ids must move into ADDRESSES (and the registry) in the contract-change PR."""
+ISSUE = "https://github.com/castorsalzmann-ui/AbeltonGod/issues/"
+
+# #143 contract-change: each entry, the exact evidence link (the user's run it rests on) and
+# the phrases its notes must keep (limitations and result lines quoted from that run). The
+# values are written here by hand from the issue comments, not taken from the registry.
+EVIDENCE_143 = {
+    "song.create_audio_track": (
+        ISSUE + "143#issuecomment-6501223162",
+        ("'song.undo: PASS (one undo reverted track and clip together)'",
+         "'create_audio_track: confirmed'", "'target: new audio track 4, slot 0'",
+         "ONE song.undo right after create_audio_track + create_audio_clip",
+         "reverted track and clip together",
+         "did not send the second undo",
+         "Whether Live always merges the two writes into one undo step, and why, is not "
+         "established (one run)",
+         "An undo of create_audio_track alone (without a clip after it) was never run",
+         "'Nothing touched in Live' was the plan, not separately confirmed by the user",
+         "Only index -1 (append) was used", "not with index >= 0, not in Arrangement",
+         "Live 12.4 per API; user reports 12.4.5")),
+    "song.num_scenes.get": (
+        ISSUE + "50#issuecomment-6495458918",
+        ("'num_scenes: 8'", "Until #143 it borrowed the clip_slot.create_audio_clip gate",
+         "only the value 8 was ever seen", "or 0 scenes, was not read in Live")),
+    "track.has_audio_input.get": (
+        ISSUE + "143#issuecomment-6501223162",
+        ("Until #143 it borrowed the clip_slot.create_audio_clip gate",
+         "the value false (for the MIDI tracks) was read but is in no pasted output",
+         "not read on group, return or master tracks")),
+    "clip_slot.has_clip.get": (
+        ISSUE + "50#issuecomment-6493629463",
+        ("has_clip [0,0,0,0,0,0,0,0]", "has_clip [1,0,0,0,0,0,0,0]",
+         "Until #143 it borrowed the clip_slot.create_audio_clip gate",
+         "verified only on audio tracks in Session view with 8 scenes")),
+    "clip.file_path.get": (
+        ISSUE + "50#issuecomment-6495458918",
+        ("'clip_file_path_read'", "Until #143 it borrowed the clip_slot.create_audio_clip gate",
+         "did not request it", "an empty slot makes AbletonOSC's handler fail",
+         "not exercised in Live", "reported as 'file path read back' in the lead's summary only",
+         "not read for clips recorded or dragged in by the user")),
+}
+
+
+@pytest.mark.parametrize("cap_id", sorted(EVIDENCE_143))
+def test_143_statuses_follow_their_evidence(cap_id):
+    """Each #143 entry is `tested` with the link to the user run it rests on and keeps its
+    limitations (D-004). Flipping a status, changing the link or dropping a limitation fails."""
+    cap = {c["id"]: c for c in RAW["capabilities"]}[cap_id]
+    link, phrases = EVIDENCE_143[cap_id]
+    assert cap["status"] == "tested"
+    assert cap["evidence"] == link
+    assert cap["reversible"] is True
+    for phrase in phrases:
+        assert phrase in cap["notes"], phrase
+    # No claim stronger than the logs (#143): one run shows one undo reverting both writes; it
+    # does not show that Live merges them as a rule, nor that the user touched nothing.
+    for overstatement in ("Live merged both writes", "Live merges", "is always one undo step",
+                          "user confirmed that nothing", "nothing was touched in Live"):
+        assert overstatement not in cap["notes"], overstatement
+
+
+def test_143_read_kinds_and_targets_are_their_own_osc_reads():
+    caps = {c["id"]: c for c in RAW["capabilities"]}
+    expected = {
+        "song.num_scenes.get": "/live/song/get/num_scenes",
+        "track.has_audio_input.get": "/live/track/get/has_audio_input",
+        "clip_slot.has_clip.get": "/live/clip_slot/get/has_clip",
+        "clip.file_path.get": "/live/clip/get/file_path",
+    }
+    for cap_id, target in expected.items():
+        assert caps[cap_id]["kind"] == "read", cap_id
+        assert caps[cap_id]["target"] == target, cap_id
+        assert ADDRESSES[cap_id] == (target,), cap_id
+    assert caps["song.create_audio_track"]["kind"] == "write"
+
+
+def test_undo_notes_record_the_143_granularity_observation():
+    undo = {c["id"]: c for c in RAW["capabilities"]}["song.undo"]
+    assert ISSUE + "143#issuecomment-6501223162" in undo["notes"]
+    assert "two writes may be one undo step" in undo["notes"]
+    assert "Only a single undo after a single write was verified" in undo["notes"]
+
+
+def test_no_capability_borrows_a_gate_any_more():
+    """#143 emptied PENDING_REGISTRY; a new pending id must be added deliberately and must still
+    borrow a real gate."""
     targets = {c["id"]: c["target"] for c in RAW["capabilities"]}
     for cap_id, (addresses, borrowed) in PENDING_REGISTRY.items():
         assert cap_id not in targets, f"{cap_id} is registered now: move it into ADDRESSES"
@@ -128,14 +208,9 @@ def test_pending_entries_are_not_yet_in_the_registry_and_borrow_a_real_gate():
         assert borrowed in ADDRESSES or borrowed in EXTENSION_ADDRESSES
         assert borrowed in targets
         assert not set(addresses) & {a for v in ADDRESSES.values() for a in v}
-    # track.mute.get moved into ADDRESSES and the registry in #42. #50 added the four reads of
-    # the clip import; they borrow the import's own gate. New entries must be added deliberately.
-    assert {k: v[1] for k, v in PENDING_REGISTRY.items()} == {
-        "track.has_audio_input.get": "clip_slot.create_audio_clip",
-        "clip_slot.has_clip.get": "clip_slot.create_audio_clip",
-        "clip.file_path.get": "clip_slot.create_audio_clip",
-        "song.num_scenes.get": "clip_slot.create_audio_clip",
-    }
+    assert PENDING_REGISTRY == {}
+    # Every id the bridge gates on is a registry entry of its own.
+    assert set(ADDRESSES) | set(EXTENSION_ADDRESSES) <= set(targets)
 
 
 @pytest.mark.parametrize("status", ["unknown", "supported"])
@@ -219,16 +294,17 @@ BRIDGE_CALLS = {
     "track.mute.get": lambda b: b.get_track_mute(0),
     "song.undo": lambda b: b.undo(),
     "song.create_audio_track": lambda b: b.create_audio_track(-1),
-}
-
-# Extension and pending calls (#50): each is refused unless its gate capability is allowed.
-GATED_EXTRA_CALLS = {
-    "clip_slot.create_audio_clip": lambda b: b.create_audio_clip(0, 0, str(ROOT / "k.wav")),
-    "probe_audio_clip_extension": lambda b: b.probe_audio_clip_extension(),
+    # The clip-import reads, gated by their own entries since #143 (borrowed before).
     "track.has_audio_input.get": lambda b: b.get_track_has_audio_input(0),
     "clip_slot.has_clip.get": lambda b: b.get_clip_slot_has_clip(0, 0),
     "clip.file_path.get": lambda b: b.get_clip_file_path(0, 0),
     "song.num_scenes.get": lambda b: b.get_num_scenes(),
+}
+
+# Extension calls (#50): each is refused unless clip_slot.create_audio_clip is allowed.
+GATED_EXTRA_CALLS = {
+    "clip_slot.create_audio_clip": lambda b: b.create_audio_clip(0, 0, str(ROOT / "k.wav")),
+    "probe_audio_clip_extension": lambda b: b.probe_audio_clip_extension(),
 }
 
 
@@ -268,14 +344,21 @@ def test_bridge_refuses_untested_before_any_network_io(fake, transport, tmp_path
 @pytest.mark.parametrize("cap_id", sorted(BRIDGE_CALLS))
 def test_bridge_refuses_when_only_other_capabilities_are_tested(fake, transport, tmp_path,
                                                                 cap_id):
-    others = set(ADDRESSES) - {cap_id}
+    """Every other id tested, including clip_slot.create_audio_clip: no call may pass on a
+    borrowed gate (#143), and nothing reaches the network."""
+    others = (set(ADDRESSES) | set(EXTENSION_ADDRESSES)) - {cap_id}
     bridge = AbletonBridge(transport, CapabilityGate(registry_with(tmp_path, others)))
-    with pytest.raises(CapabilityNotTestedError):
+    with pytest.raises(CapabilityNotTestedError) as err:
         BRIDGE_CALLS[cap_id](bridge)
+    assert err.value.capability_id == cap_id
+    bridge.ping()
+    fake.wait_received(2)
+    assert fake.payload() == []
 
 
 @pytest.mark.parametrize("cap_id", sorted(BRIDGE_CALLS))
 def test_bridge_override_lets_check_script_call(fake, transport, tmp_path, cap_id):
+    fake.tracks[0].update(audio=True, slots=[str(ROOT / "k.wav")] + [None] * (fake.num_scenes - 1))
     gate = CapabilityGate(registry_with(tmp_path, set()), allow_untested={cap_id})
     BRIDGE_CALLS[cap_id](AbletonBridge(transport, gate))
     assert gate.overrides_used and set(gate.overrides_used) == {cap_id}

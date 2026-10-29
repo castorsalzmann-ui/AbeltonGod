@@ -99,6 +99,20 @@ ADDRESSES: dict[str, tuple[str, ...]] = {
     # README "Song API": ``/live/song/create_audio_track index`` (-1 = end); source
     # ``abletonosc/song.py`` line 24 (method list, generic ``_call_method``, no reply).
     "song.create_audio_track": ("/live/song/create_audio_track",),
+    # The four reads below are the pre-checks and read-backs of the clip import (#50). Until
+    # #143 they borrowed the clip_slot.create_audio_clip gate; now each has its own entry.
+    # README "Track API": ``/live/track/get/has_audio_input track_id`` -> ``track_id,
+    # has_audio_input``; source ``abletonosc/track.py`` line 39 (``properties_r``).
+    "track.has_audio_input.get": ("/live/track/get/has_audio_input",),
+    # README "Clip Slot API": ``/live/clip_slot/get/has_clip track_index, clip_index`` ->
+    # ``track_index, clip_index, has_clip``; source ``abletonosc/clip_slot.py`` line 34.
+    "clip_slot.has_clip.get": ("/live/clip_slot/get/has_clip",),
+    # README "Clip API": ``/live/clip/get/file_path track_id, clip_id`` -> ``track_id,
+    # clip_id, file_path``; source ``abletonosc/clip.py`` line 74 (``properties_r``).
+    "clip.file_path.get": ("/live/clip/get/file_path",),
+    # README "Song API": ``/live/song/get/num_scenes`` -> ``num_scenes``; source
+    # ``abletonosc/song.py`` line 228.
+    "song.num_scenes.get": ("/live/song/get/num_scenes",),
 }
 
 # Capabilities that AbletonOSC does not expose itself and that the AbeltonGod extension adds
@@ -147,24 +161,8 @@ EXTENSION_ADDRESSES: dict[str, tuple[tuple[str, ...], str]] = {
 # Addresses the bridge sends that have no registry entry of their own YET, with the capability
 # whose gate they borrow: {cap_id: (addresses, borrowed_cap_id)}. Each must get its own entry
 # in a contract-change PR (then it moves into ADDRESSES; ``test_capabilities.py`` fails until
-# it does). The four reads below are the pre-checks and read-backs of the clip import (#50);
-# they borrow the import's gate, so they are as locked as the import itself.
-PENDING_REGISTRY: dict[str, tuple[tuple[str, ...], str]] = {
-    # README "Track API": ``/live/track/get/has_audio_input track_id`` -> ``track_id,
-    # has_audio_input``; source ``abletonosc/track.py`` line 39 (``properties_r``).
-    "track.has_audio_input.get": (("/live/track/get/has_audio_input",),
-                                  "clip_slot.create_audio_clip"),
-    # README "Clip Slot API": ``/live/clip_slot/get/has_clip track_index, clip_index`` ->
-    # ``track_index, clip_index, has_clip``; source ``abletonosc/clip_slot.py`` line 34.
-    "clip_slot.has_clip.get": (("/live/clip_slot/get/has_clip",),
-                               "clip_slot.create_audio_clip"),
-    # README "Clip API": ``/live/clip/get/file_path track_id, clip_id`` -> ``track_id,
-    # clip_id, file_path``; source ``abletonosc/clip.py`` line 74 (``properties_r``).
-    "clip.file_path.get": (("/live/clip/get/file_path",), "clip_slot.create_audio_clip"),
-    # README "Song API": ``/live/song/get/num_scenes`` -> ``num_scenes``; source
-    # ``abletonosc/song.py`` line 228.
-    "song.num_scenes.get": (("/live/song/get/num_scenes",), "clip_slot.create_audio_clip"),
-}
+# it does). Empty since #143 (the four clip-import reads of #50 moved into ADDRESSES).
+PENDING_REGISTRY: dict[str, tuple[tuple[str, ...], str]] = {}
 
 # The three addresses the track.py extension adds (probe: all must answer).
 ARRANGEMENT_EXTENSION = ("track.create_midi_clip", "arrangement_clip.notes.add",
@@ -610,11 +608,8 @@ class AbletonBridge:
         self._transport.send_confirmed(ADDRESSES["song.undo"][0])
 
     # -- clip import (#50) -------------------------------------------------------------------
-    # The reads below have no registry entry yet (PENDING_REGISTRY); they borrow the gate of
-    # clip_slot.create_audio_clip, so nothing of the import path runs while that is locked.
-
-    def _check_pending(self, cap_id: str) -> None:
-        self.gate.check(PENDING_REGISTRY[cap_id][1])
+    # The reads below are gated by their own registry entries since #143 (before, they
+    # borrowed the clip_slot.create_audio_clip gate).
 
     @staticmethod
     def _bool_reply(reply: tuple, what: str) -> bool:
@@ -625,8 +620,8 @@ class AbletonBridge:
 
     def get_num_scenes(self) -> int:
         """Number of scenes = number of clip slots per track."""
-        self._check_pending("song.num_scenes.get")
-        reply = self._query(PENDING_REGISTRY["song.num_scenes.get"][0][0])
+        self.gate.check("song.num_scenes.get")
+        reply = self._query(ADDRESSES["song.num_scenes.get"][0])
         if len(reply) != 1 or type(reply[0]) is not int or reply[0] < 0:
             raise BridgeProtocolError(f"num_scenes reply must be one int >= 0, got {reply!r}")
         return reply[0]
@@ -634,8 +629,8 @@ class AbletonBridge:
     def get_track_has_audio_input(self, track_index: int) -> bool:
         """LOM ``Track.has_audio_input``: "1 for audio tracks"."""
         _require_int(track_index, "track_index", minimum=0)
-        self._check_pending("track.has_audio_input.get")
-        reply = self._query(PENDING_REGISTRY["track.has_audio_input.get"][0][0], (track_index,),
+        self.gate.check("track.has_audio_input.get")
+        reply = self._query(ADDRESSES["track.has_audio_input.get"][0], (track_index,),
                             expect_prefix=(track_index,))
         return self._bool_reply(reply, "has_audio_input")
 
@@ -643,8 +638,8 @@ class AbletonBridge:
                                timeout_s: float | None = None) -> bool:
         _require_int(track_index, "track_index", minimum=0)
         _require_int(slot_index, "slot_index", minimum=0)
-        self._check_pending("clip_slot.has_clip.get")
-        reply = self._query(PENDING_REGISTRY["clip_slot.has_clip.get"][0][0],
+        self.gate.check("clip_slot.has_clip.get")
+        reply = self._query(ADDRESSES["clip_slot.has_clip.get"][0],
                             (track_index, slot_index), expect_prefix=(track_index, slot_index),
                             timeout_s=timeout_s)
         return self._bool_reply(reply, "has_clip")
@@ -657,8 +652,8 @@ class AbletonBridge:
         """
         _require_int(track_index, "track_index", minimum=0)
         _require_int(slot_index, "slot_index", minimum=0)
-        self._check_pending("clip.file_path.get")
-        reply = self._query(PENDING_REGISTRY["clip.file_path.get"][0][0],
+        self.gate.check("clip.file_path.get")
+        reply = self._query(ADDRESSES["clip.file_path.get"][0],
                             (track_index, slot_index), expect_prefix=(track_index, slot_index))
         if len(reply) != 1 or not isinstance(reply[0], str):
             raise BridgeProtocolError(f"file_path reply must be one string, got {reply!r}")
