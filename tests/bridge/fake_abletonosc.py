@@ -73,6 +73,18 @@ class FakeAbletonOSC:
         self.file_path_delay_s = 0.0  # file_path reads as None (OSC nil) this long after
         self.undo_reverts_rename = True  # undo of the clip also restores the old track name
         self._clip_made_at: dict[tuple[int, int], float] = {}
+        # Arrangement check (#140). Tracks may hold "arrangement": [{"start", "length",
+        # "notes"}]. All simulated; which writes Live records as undo steps is NOT known.
+        self.song_time = 0.0
+        self.is_playing = False
+        self.cue_points: list[list] = []  # [name, time] in Live's (here: insertion) order
+        self.arrangement_extension_installed = True
+        self.cue_default_name = "1"
+        self.cue_time_offset = 0.0  # a locator lands this far from the song time
+        self.not_undoable: set[str] = {"song_time"}  # kinds Live does not record (simulated)
+        self.undo_batch = 1  # undo entries one /live/song/undo reverts (simulated grouping)
+        self.undo_noop = False  # /live/song/undo changes nothing (like #50 run 2, cause open)
+        self.drop_notes_on_add = 0  # add/notes stores this many notes fewer (fault)
 
         self._held: list[tuple[bytes, tuple[str, int]]] | None = None
         self.released = threading.Event()  # set by release(); lets tests check ordering
@@ -105,7 +117,114 @@ class FakeAbletonOSC:
             "/live/clip/get/file_path": self._get_file_path,
             **({"/live/clip_slot/create_audio_clip": self._create_audio_clip}
                if self.extension_installed else {}),
+            # Arrangement check (#140)
+            "/live/song/create_midi_track": self._create_midi_track,
+            "/live/track/get/has_midi_input": lambda p: (int(p[0]), self._is_midi(int(p[0]))),
+            "/live/track/get/arrangement_clips/start_time": lambda p: (
+                int(p[0]), *[c["start"] for c in self._arr(int(p[0]))]),
+            "/live/track/get/arrangement_clips/length": lambda p: (
+                int(p[0]), *[c["length"] for c in self._arr(int(p[0]))]),
+            "/live/song/get/is_playing": lambda p: (self.is_playing, *p),
+            "/live/song/get/current_song_time": lambda p: (self.song_time, *p),
+            "/live/song/set/current_song_time": self._set_song_time,
+            "/live/song/get/cue_points": lambda p: tuple(v for c in self.cue_points for v in c),
+            "/live/song/cue_point/add_or_delete": self._toggle_cue,
+            "/live/song/cue_point/set/name": self._set_cue_name,
+            **({"/live/track/create_midi_clip": self._create_midi_clip,
+                "/live/track/arrangement_clip/add/notes": self._add_notes,
+                "/live/track/arrangement_clip/get/notes": self._get_notes}
+               if self.arrangement_extension_installed else {}),
         }
+
+    # -- arrangement model (#140) ------------------------------------------------------------
+
+    def _is_midi(self, idx: int) -> bool:
+        track = self.tracks[idx]
+        return bool(track.get("midi", not track.get("audio", False)))
+
+    def _arr(self, idx: int) -> list:
+        return self.tracks[idx].setdefault("arrangement", [])
+
+    def _record(self, kind: str, *entry) -> None:
+        if kind not in self.not_undoable:
+            self.undo_stack.append((kind, *entry))
+
+    def _create_midi_track(self, p: tuple) -> None:
+        index = int(p[0])
+        track = {"name": f"{len(self.tracks) + 1}-MIDI", "mute": False, "midi": True,
+                 "slots": [None] * self.num_scenes, "arrangement": []}
+        pos = len(self.tracks) if index == -1 else index
+        self.tracks.insert(pos, track)
+        self._record("track", pos)
+
+    def _create_midi_clip(self, p: tuple) -> None:
+        # track.py:15/18: params[0] first (IndexError for the no-argument probe).
+        if p[0] == "*":
+            raise ValueError("'*' not used here")
+        idx = int(p[0])
+        start, length = float(p[1]), float(p[2])
+        if not self._is_midi(idx):
+            raise RuntimeError("Track.create_midi_clip: not a MIDI track")
+        clips = self._arr(idx)
+        clips.append({"start": start, "length": length, "notes": []})
+        clips.sort(key=lambda c: c["start"])
+        self._record("arr_clip", idx, start)
+
+    def _add_notes(self, p: tuple) -> None:
+        idx = int(p[0])
+        clip = self._arr(idx)[int(p[1])]
+        values = p[2:]
+        if not values or len(values) % 5:
+            raise ValueError("notes must be groups of 5")
+        notes = [tuple(values[i:i + 5]) for i in range(0, len(values), 5)]
+        if self.drop_notes_on_add:
+            notes = notes[:-self.drop_notes_on_add]
+        old = list(clip["notes"])
+        clip["notes"] += [(int(a), float(b), float(c), float(d), bool(e))
+                          for a, b, c, d, e in notes]
+        self._record("notes", idx, int(p[1]), old)
+
+    def _get_notes(self, p: tuple) -> tuple:
+        idx, ci = int(p[0]), int(p[1])
+        clip = self._arr(idx)[ci]
+        return (idx, ci, *[v for n in clip["notes"] for v in n])
+
+    def _set_song_time(self, p: tuple) -> None:
+        old = self.song_time
+        self.song_time = float(p[0])
+        self._record("song_time", old)
+
+    def _toggle_cue(self, p: tuple) -> None:
+        at = self.song_time + self.cue_time_offset
+        for i, (_name, t) in enumerate(self.cue_points):
+            if abs(t - at) < 1e-9:
+                removed = self.cue_points.pop(i)
+                self._record("cue_del", i, removed)
+                return
+        self.cue_points.append([self.cue_default_name, at])
+        self._record("cue_add", len(self.cue_points) - 1)
+
+    def _set_cue_name(self, p: tuple) -> None:
+        i = p[0]
+        old = self.cue_points[i][0]
+        self.cue_points[i][0] = p[1]
+        self._record("cue_name", i, old)
+
+    def _undo_entry(self, entry: tuple) -> None:
+        kind = entry[0]
+        if kind == "arr_clip":
+            clips = self._arr(entry[1])
+            clips[:] = [c for c in clips if c["start"] != entry[2]]
+        elif kind == "notes":
+            self._arr(entry[1])[entry[2]]["notes"] = entry[3]
+        elif kind == "song_time":
+            self.song_time = entry[1]
+        elif kind == "cue_add":
+            del self.cue_points[entry[1]]
+        elif kind == "cue_del":
+            self.cue_points.insert(entry[1], entry[2])
+        elif kind == "cue_name":
+            self.cue_points[entry[1]][0] = entry[2]
 
     # -- clip import model -------------------------------------------------------------------
 
@@ -173,10 +292,17 @@ class FakeAbletonOSC:
         self.tracks[idx]["mute"] = bool(p[1])
 
     def _undo(self, p: tuple) -> None:
-        if not self.undo_stack:
+        if self.undo_noop:
             return
-        entry = self.undo_stack.pop()
-        if entry[0] == "track":
+        for _ in range(self.undo_batch):
+            if not self.undo_stack:
+                return
+            self._undo_one(self.undo_stack.pop())
+
+    def _undo_one(self, entry: tuple) -> None:
+        if entry[0] in ("arr_clip", "notes", "song_time", "cue_add", "cue_del", "cue_name"):
+            self._undo_entry(entry)
+        elif entry[0] == "track":
             del self.tracks[entry[1]]
         elif entry[0] == "clip":
             self.tracks[entry[1]]["slots"][entry[2]] = None

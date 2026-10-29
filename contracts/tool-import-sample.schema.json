@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/castorsalzmann-ui/AbeltonGod/contracts/tool-import-sample.schema.json",
+  "title": "import_sample input",
+  "description": "Imports one kick that generate_kick produced in this session into an empty clip slot of an existing audio track in the open Live set (Session view). The file is named only by its sample_id; there is no path argument. The user must confirm before anything is sent to Live. Refused without any change in Live: an unknown sample_id, a kick file that changed since generate_kick wrote it, a track index that does not exist or is not an audio track, a slot that does not exist or already holds a clip.",
+  "type": "object",
+  "properties": {
+    "sample_id": {
+      "type": "string",
+      "description": "The sample_id that generate_kick returned for this kick in this session. Copy it exactly; it is not a file name or a path."
+    },
+    "track_index": {
+      "type": "integer",
+      "description": "0-based index of an existing audio track, as list_tracks returned it. A MIDI track is refused."
+    },
+    "slot_index": {
+      "type": "integer",
+      "description": "0-based clip slot (scene) on that track. Leave it out to use the first empty slot. An occupied slot is refused, never overwritten."
+    }
+  },
+  "required": ["sample_id", "track_index"],
+  "additionalProperties": false
+}
