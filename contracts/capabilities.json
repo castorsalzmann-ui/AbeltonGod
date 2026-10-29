@@ -89,6 +89,96 @@
       "status": "unsupported",
       "reversible": true,
       "notes": "No known API route. Use resampling or manual export."
+    },
+    {
+      "id": "song.create_midi_track",
+      "kind": "write",
+      "target": "/live/song/create_midi_track",
+      "status": "unknown",
+      "notes": "Added for the Arrangement capability check (#140, PR #150); not yet run in Live. AbletonOSC README 'Song API' (checked 2026-10-29): '/live/song/create_midi_track | index | | Create a new MIDI track at the specified index (-1 = end of list)'; source abletonosc/song.py line 25 (method list), lines 47-48 (generic _call_method, no reply) at commit 0ca68214. Only index -1 is used. Undo cost not verified."
+    },
+    {
+      "id": "track.has_midi_input.get",
+      "kind": "read",
+      "target": "/live/track/get/has_midi_input",
+      "status": "unknown",
+      "reversible": true,
+      "notes": "Added for #140; not yet run in Live. AbletonOSC README 'Track API': '/live/track/get/has_midi_input | track_id | track_id, has_midi_input'; source abletonosc/track.py line 41 (properties_r), lines 66-68 (_get_property) at commit 0ca68214."
+    },
+    {
+      "id": "track.arrangement_clips.get",
+      "kind": "read",
+      "target": "/live/track/get/arrangement_clips/start_time, /live/track/get/arrangement_clips/length",
+      "status": "unknown",
+      "reversible": true,
+      "notes": "Added for #140; not yet run in Live. AbletonOSC README 'Track API': arrangement_clips/start_time and /length, reply 'track_id, [value, ...]'; source abletonosc/track.py lines 123-127 and 136-137 at commit 0ca68214. Whether Live lists Arrangement clips in time order is not verified."
+    },
+    {
+      "id": "song.is_playing.get",
+      "kind": "read",
+      "target": "/live/song/get/is_playing",
+      "status": "unknown",
+      "reversible": true,
+      "notes": "Added for #140; not yet run in Live. AbletonOSC README 'Song API': '/live/song/get/is_playing | | is_playing'; source abletonosc/song.py line 84 (properties_r), lines 89-90 at commit 0ca68214."
+    },
+    {
+      "id": "song.current_song_time.get",
+      "kind": "read",
+      "target": "/live/song/get/current_song_time",
+      "status": "unknown",
+      "reversible": true,
+      "notes": "Added for #140; not yet run in Live. AbletonOSC README 'Song API': 'Query the current song time, in beats'; source abletonosc/song.py line 57 (properties_rw), lines 89-90 at commit 0ca68214."
+    },
+    {
+      "id": "song.current_song_time.set",
+      "kind": "write",
+      "target": "/live/song/set/current_song_time",
+      "status": "unknown",
+      "notes": "Added for #140; not yet run in Live. AbletonOSC README 'Song API': 'Set the current song time, in beats'; source abletonosc/song.py line 57 (properties_rw), lines 93-94 (setattr, no reply) at commit 0ca68214. Needed because song.cue_point.add_or_delete works at the current position. Whether Live records it as an undo step is not verified; the check script does not undo it but reports it."
+    },
+    {
+      "id": "song.cue_points.get",
+      "kind": "read",
+      "target": "/live/song/get/cue_points",
+      "status": "unknown",
+      "reversible": true,
+      "notes": "Added for #140; not yet run in Live. AbletonOSC README 'Song API': '/live/song/get/cue_points | | name, time, ...'; source abletonosc/song.py lines 241-245 at commit 0ca68214. The order of the list (time or creation order) is not verified."
+    },
+    {
+      "id": "song.cue_point.add_or_delete",
+      "kind": "write",
+      "target": "/live/song/cue_point/add_or_delete",
+      "status": "unknown",
+      "notes": "Added for #140; not yet run in Live. AbletonOSC README 'Song API': 'Add a cue point under the cursor, or, if one exists, delete it'; source abletonosc/song.py line 258 (_call_method on Song.set_or_delete_cue, no reply) at commit 0ca68214. A TOGGLE: callers must read song.cue_points.get first and never send it with a locator at the current position. Live's default locator name and the undo cost are not verified."
+    },
+    {
+      "id": "song.cue_point.set_name",
+      "kind": "write",
+      "target": "/live/song/cue_point/set/name",
+      "status": "unknown",
+      "notes": "Added for #140; not yet run in Live. AbletonOSC README 'Song API': 'Rename a cue point, given its index'; source abletonosc/song.py lines 259-264 (song.cue_points[index].name = name, no reply) at commit 0ca68214. The index is into Live's own cue_points order. Undo cost not verified."
+    },
+    {
+      "id": "track.create_midi_clip",
+      "kind": "write",
+      "target": "LOM Track.create_midi_clip(start_time, length)",
+      "status": "unknown",
+      "notes": "Added for #140; not yet run in Live. Not in the AbletonOSC README; sent as /live/track/create_midi_clip track_index, start_time, length through the AbeltonGod extension 0.2.0 (scripts/install_abletonosc_extension.py: 'create_midi_clip' added to the methods list of abletonosc/track.py lines 32-35, registered at lines 62-64; lines 18-25 resolve song.tracks[int(params[0])] and pass params[1:]; handler.py lines 27-29 call it; no reply; pinned to commit 0ca68214). LOM (docs.cycling74.com/apiref/lom/track/, checked 2026-10-29): errors on non-MIDI or frozen tracks, on tracks being recorded into, and outside [0, 1576800] beats. Undo cost not verified."
+    },
+    {
+      "id": "arrangement_clip.notes.add",
+      "kind": "write",
+      "target": "AbeltonGod extension: Clip.add_new_notes on track.arrangement_clips[i]",
+      "status": "unknown",
+      "notes": "Added for #140; not yet run in Live. Sent as /live/track/arrangement_clip/add/notes track_index, clip_index, (pitch, start, duration, velocity, mute)*: an own handler of the AbeltonGod extension 0.2.0 inserted after abletonosc/track.py line 109 (commit 0ca68214), because every /live/clip/* handler resolves track.clip_slots[i].clip (clip.py lines 53-55, Session clips only). It builds Live.Clip.MidiNoteSpecification per note and makes one add_new_notes call, as AbletonOSC's clip.py lines 145-155. Whether note times are clip time (0 = clip start) for Arrangement clips is not verified. Undo cost not verified."
+    },
+    {
+      "id": "arrangement_clip.notes.get",
+      "kind": "read",
+      "target": "AbeltonGod extension: Clip.get_notes_extended on track.arrangement_clips[i]",
+      "status": "unknown",
+      "reversible": true,
+      "notes": "Added for #140; not yet run in Live. Sent as /live/track/arrangement_clip/get/notes track_index, clip_index; reply track_index, clip_index, (pitch, start, duration, velocity, mute)*: own handler of the AbeltonGod extension 0.2.0 (after abletonosc/track.py line 109, commit 0ca68214), reading get_notes_extended(0, 127, -8192, 16384) as AbletonOSC's clip.py lines 136 and 139. If pitch_span is a count, pitch 127 is outside that range (research note 2026-10-29_live-midi-arrangement-devices Q1); the bridge refuses to write pitch 127."
     }
   ]
 }

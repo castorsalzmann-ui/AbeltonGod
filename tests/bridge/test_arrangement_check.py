@@ -163,7 +163,7 @@ def test_full_run_with_undo_restores_the_set(fake, tmp_path):
     assert b["song_time_before"] == "0" and b["song_time_after"] == "16"
     assert b["extension"] == "PRESENT" and b["signature"] == "4/4"
     assert b["user_sees_result"] == "not asked (undo chosen before looking)"
-    assert b["capability_overrides_used"] == ", ".join(sorted(script.ALLOW_UNREGISTERED))
+    assert b["capability_overrides_used"] == ", ".join(sorted(script.ALLOWED))
     assert not any("Siehst du" in p for p in prompts)
     assert [e["action"] + ":" + e["status"] for e in log_entries(tmp_path)] == [
         f"{a}:{s}" for a in ("set_song_time", "create_midi_track", "create_midi_clip",
@@ -574,16 +574,90 @@ def test_writer_refuses_a_locator_at_the_start_on_its_own(fake, transport, tmp_p
 
     from bridge.capabilities import CapabilityGate
     from bridge.clip_import import ActionLog
-    from bridge.osc_client import ADDRESSES, UNREGISTERED, AbletonBridge
+    from bridge.osc_client import AbletonBridge
 
-    b = AbletonBridge(transport, CapabilityGate(registry_with(tmp_path, set(ADDRESSES)), (),
-                                                tuple(UNREGISTERED)))
+    b = AbletonBridge(transport, CapabilityGate(registry_with(tmp_path, set()),
+                                                script.ALLOWED + ("song.track_names.get",)))
     fake.cue_points = [["mine", 16.0]]
     writer = arr.ArrangementWriter(b, ActionLog(tmp_path / "a.jsonl"), timeout_s=0.3)
     state = arr.read_arrangement_state(b, len(fake.tracks))
     with pytest.raises(arr.ImportAborted, match="toggle would delete"):
         writer.run(arr.make_plan(5, 1, "x"), state)
     assert writes(fake) == [] and writer.last_outcome is None
+
+
+# Review round 1 of PR #150 (mutants R3, R4, R5): each read-back must also fail on a change
+# outside the field it is about.
+
+def test_name_ignored_by_live_fails_the_name_read_back(fake, tmp_path):
+    def keep_default_name():
+        fake.cue_points[-1][0] = fake.cue_default_name
+
+    wrap_handler(fake, "_set_cue_name", keep_default_name)
+    code, out, prompts = run(fake, tmp_path, ["y", "y", "y"])
+    assert code == script.EXIT_CHECK_FAILED, out
+    assert block(out)["song.cue_point.set_name"] == "FAIL (read-back differs)"
+    assert (UNDO, ()) not in writes(fake) and len(prompts) == 2
+
+
+def test_toggle_that_also_changes_the_notes_fails_the_locator_read_back(fake, tmp_path):
+    real = fake._toggle_cue  # the toggle takes no arguments, so wrap_handler does not fit
+    fake._toggle_cue = lambda p: (real(p), fake.tracks[-1]["arrangement"][0]["notes"].pop())[0]
+    code, out, _ = run(fake, tmp_path, ["y", "y", "y"])
+    assert code == script.EXIT_CHECK_FAILED, out
+    assert block(out)["song.cue_point.add_or_delete"] == "FAIL (read-back differs)"
+    assert CUE_NAME not in [a for a, _ in writes(fake)]
+
+
+def test_track_create_that_removes_a_locator_fails_the_track_read_back(fake, tmp_path):
+    wrap_handler(fake, "_create_midi_track", lambda: fake.cue_points.clear())
+    code, out, _ = run(fake, tmp_path, ["y", "y", "y"])
+    assert code == script.EXIT_CHECK_FAILED, out
+    assert block(out)["song.create_midi_track"] == "FAIL (read-back differs)"
+    assert CREATE_CLIP not in [a for a, _ in writes(fake)]
+
+
+@pytest.mark.parametrize("label,method", [("create_midi_track", "create_midi_track"),
+                                          ("add_notes", "add_arrangement_clip_notes"),
+                                          ("set_cue_name", "set_cue_name")])
+def test_ctrl_c_during_a_read_back_is_unknown_exit_130(fake, tmp_path, monkeypatch, label,
+                                                       method):
+    """Review nit 4 (mutant R10): Ctrl+C while the read-back polls, not during the send."""
+    sent = {"done": False, "raised": False}
+    real_send = getattr(script.AbletonBridge, method)
+    real_read = script.AbletonBridge.get_cue_points
+
+    def send(self, *a, **k):
+        real_send(self, *a, **k)
+        sent["done"] = True
+
+    def read(self, *a, **k):
+        if sent["done"] and not sent["raised"]:
+            sent["raised"] = True
+            raise KeyboardInterrupt
+        return real_read(self, *a, **k)
+
+    monkeypatch.setattr(script.AbletonBridge, method, send)
+    monkeypatch.setattr(script.AbletonBridge, "get_cue_points", read)
+    code, out, prompts = run(fake, tmp_path, ["y", "y", "y"])
+    assert sent["raised"]
+    assert code == script.EXIT_INTERRUPTED, out
+    assert (UNDO, ()) not in writes(fake) and len(prompts) == 2
+    assert "UNBEKANNT" in out
+    entries = [e for e in log_entries(tmp_path) if e["action"] == label]
+    assert [e["status"] for e in entries] == ["planned", "interrupted"]
+    assert "read-back" in entries[-1]["note"]
+
+
+def test_allowed_is_an_explicit_list_of_unknown_entries():
+    """Review nit 3: written out, so a later registry entry is not opted in by itself."""
+    assert set(script.ALLOWED) == {
+        "song.create_midi_track", "track.has_midi_input.get", "track.arrangement_clips.get",
+        "song.is_playing.get", "song.current_song_time.get", "song.current_song_time.set",
+        "song.cue_points.get", "song.cue_point.add_or_delete", "song.cue_point.set_name",
+        "track.create_midi_clip", "arrangement_clip.notes.add", "arrangement_clip.notes.get"}
+    assert len(script.ALLOWED) == 12
+    assert "ALLOWED = (\n" in Path(script.__file__).read_text(encoding="utf-8")
 
 
 def test_live_error_on_a_write_stops_without_undo(fake, tmp_path):

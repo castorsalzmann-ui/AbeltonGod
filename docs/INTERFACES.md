@@ -6,7 +6,7 @@ Machine-readable contracts live in `contracts/`. This file explains them. Changi
 | --- | --- | --- |
 | `contracts/kick-params.schema.json` | Orchestrator / CLI → audio engine | draft v0.3 proposal (#104); the engine renders 0.2 only |
 | `contracts/sample-metadata.schema.json` | Audio engine → library, orchestrator | draft v0.1 — finalised in Phase 01 |
-| `contracts/capabilities.json` (+ `capabilities.schema.json`) | Bridge → orchestrator | v1 — statuses updated in Phase 02 (#42: entry `track.mute.get` added, no format change) and Phase 03 (#50: `clip_slot.create_audio_clip` → `tested`, no format change) |
+| `contracts/capabilities.json` (+ `capabilities.schema.json`) | Bridge → orchestrator | v1 — statuses updated in Phase 02 (#42: entry `track.mute.get` added, no format change) and Phase 03 (#50: `clip_slot.create_audio_clip` → `tested`, no format change; #140: 12 Arrangement-check entries added as `unknown`, no format change) |
 | `contracts/guard-policy.schema.json` → `config/guard-policy.json` | User config → resource guard | v1 — default values are untuned starting points |
 
 ## Kick parameters

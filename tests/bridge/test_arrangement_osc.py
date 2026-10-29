@@ -1,21 +1,23 @@
-"""AbletonBridge calls of the Arrangement check (#140) against the fake server: the
-unregistered-capability gate, argument checks and reply parsing. CI only."""
+"""AbletonBridge calls of the Arrangement check (#140) against the fake server: their registry
+entries (status `unknown`), the gate, argument checks and reply parsing. CI only."""
 
 from __future__ import annotations
+
+import json
 
 import pytest
 from conftest import registry_with
 from fake_abletonosc import build
 
 from bridge.capabilities import (
+    CAPABILITIES_FILE,
     CapabilityGate,
     CapabilityNotTestedError,
-    CapabilityRegistry,
-    CapabilityRegistryError,
+    UnknownCapabilityError,
 )
 from bridge.osc_client import (
     ADDRESSES,
-    UNREGISTERED,
+    EXTENSION_ADDRESSES,
     AbletonBridge,
     BridgeProtocolError,
     ExtensionMissingError,
@@ -39,33 +41,72 @@ CALLS = {
 }
 
 
-def bridge_with(transport, tmp_path, unregistered=(), tested=None):
-    reg = registry_with(tmp_path, set(ADDRESSES) if tested is None else tested)
-    return AbletonBridge(transport, CapabilityGate(reg, (), unregistered))
+ARR = tuple(sorted(CALLS))
+# Every other bridge capability (import, mute, undo, ...): tested in the fixture registry.
+OTHERS = (set(ADDRESSES) | set(EXTENSION_ADDRESSES)) - set(ARR)
+RAW = {c["id"]: c for c in json.loads(CAPABILITIES_FILE.read_text("utf-8"))["capabilities"]}
+
+# Written by hand from AbletonOSC 0ca68214 (and the extension), not taken from the code.
+TARGETS = {
+    "song.create_midi_track": "/live/song/create_midi_track",
+    "track.has_midi_input.get": "/live/track/get/has_midi_input",
+    "track.arrangement_clips.get": "/live/track/get/arrangement_clips/start_time, "
+                                   "/live/track/get/arrangement_clips/length",
+    "song.is_playing.get": "/live/song/get/is_playing",
+    "song.current_song_time.get": "/live/song/get/current_song_time",
+    "song.current_song_time.set": "/live/song/set/current_song_time",
+    "song.cue_points.get": "/live/song/get/cue_points",
+    "song.cue_point.add_or_delete": "/live/song/cue_point/add_or_delete",
+    "song.cue_point.set_name": "/live/song/cue_point/set/name",
+    "track.create_midi_clip": "LOM Track.create_midi_clip(start_time, length)",
+    "arrangement_clip.notes.add": "AbeltonGod extension: Clip.add_new_notes on "
+                                  "track.arrangement_clips[i]",
+    "arrangement_clip.notes.get": "AbeltonGod extension: Clip.get_notes_extended on "
+                                  "track.arrangement_clips[i]",
+}
+WRITES = {"song.create_midi_track", "song.current_song_time.set", "song.cue_point.add_or_delete",
+          "song.cue_point.set_name", "track.create_midi_clip", "arrangement_clip.notes.add"}
 
 
-def test_every_unregistered_capability_has_a_call_here():
-    assert set(CALLS) == set(UNREGISTERED)
+def bridge_with(transport, tmp_path, allow=(), tested=None):
+    reg = registry_with(tmp_path, OTHERS if tested is None else tested)
+    return AbletonBridge(transport, CapabilityGate(reg, allow))
 
 
-def test_unregistered_ids_are_really_not_in_the_registry():
-    reg = CapabilityRegistry.from_file()
-    assert not set(UNREGISTERED) & set(reg.ids())
+def test_every_140_capability_has_a_call_here():
+    assert set(CALLS) == set(TARGETS)
 
 
-@pytest.mark.parametrize("cap_id", sorted(CALLS))
-def test_refused_without_opt_in_before_any_network_io(fake, transport, tmp_path, cap_id):
-    """Even with every registered capability tested (D-004)."""
+@pytest.mark.parametrize("cap_id", ARR)
+def test_registry_entry_is_unknown_with_its_source(cap_id):
+    """#140 contract-change: each call is registered as `unknown` (no evidence yet, D-004),
+    with the target and kind written above and its source lines in the notes."""
+    cap = RAW[cap_id]
+    assert cap["status"] == "unknown" and "evidence" not in cap
+    assert cap["target"] == TARGETS[cap_id]
+    assert cap["kind"] == ("write" if cap_id in WRITES else "read")
+    assert "#140" in cap["notes"] and "0ca68214" in cap["notes"]
+    assert "not yet run in Live" in cap["notes"]
+    assert ("reversible" not in cap) if cap_id in WRITES else cap["reversible"] is True
+
+
+def test_toggle_entry_says_it_is_a_toggle():
+    assert "TOGGLE" in RAW["song.cue_point.add_or_delete"]["notes"]
+
+
+@pytest.mark.parametrize("cap_id", ARR)
+def test_refused_without_override_before_any_network_io(fake, transport, tmp_path, cap_id):
+    """Even with every other bridge capability tested (D-004)."""
     b = bridge_with(transport, tmp_path)
     with pytest.raises(CapabilityNotTestedError) as err:
         CALLS[cap_id](b)
-    assert err.value.capability_id == cap_id and err.value.status == "unregistered"
+    assert err.value.capability_id == cap_id and err.value.status == "unknown"
     b.ping()
     fake.wait_received(2)
     assert fake.payload() == []
 
 
-def test_probe_refused_without_opt_in(fake, transport, tmp_path):
+def test_probe_refused_without_override(fake, transport, tmp_path):
     b = bridge_with(transport, tmp_path)
     with pytest.raises(CapabilityNotTestedError):
         b.probe_arrangement_extension()
@@ -74,9 +115,9 @@ def test_probe_refused_without_opt_in(fake, transport, tmp_path):
     assert fake.payload() == []
 
 
-@pytest.mark.parametrize("cap_id", sorted(CALLS))
-def test_opt_in_for_one_id_unlocks_only_that_one(fake, transport, tmp_path, cap_id):
-    b = bridge_with(transport, tmp_path, unregistered={cap_id})
+@pytest.mark.parametrize("cap_id", ARR)
+def test_override_for_one_id_unlocks_only_that_one(fake, transport, tmp_path, cap_id):
+    b = bridge_with(transport, tmp_path, allow={cap_id})
     fake.tracks[0]["midi"] = True
     fake.tracks[0]["arrangement"] = [{"start": 0.0, "length": 4.0, "notes": []}]
     fake.cue_points = [["a", 0.0]]
@@ -87,31 +128,15 @@ def test_opt_in_for_one_id_unlocks_only_that_one(fake, transport, tmp_path, cap_
             CALLS[other](b)
 
 
-def test_connect_refuses_typos_and_registered_ids(fake):
-    with pytest.raises(ValueError, match="not an unregistered"):
+def test_override_typo_fails_loudly(fake):
+    with pytest.raises(UnknownCapabilityError):
         AbletonBridge.connect(send_port=fake.port, receive_port=0,
-                              allow_unregistered=["song.create_midi_trak"])
-    with pytest.raises(ValueError, match="not an unregistered"):
-        AbletonBridge.connect(send_port=fake.port, receive_port=0,
-                              allow_unregistered=["song.undo"])
-    reg = CapabilityRegistry.from_file()
-    with pytest.raises(CapabilityRegistryError, match="in the registry now"):
-        CapabilityGate(reg, (), ["song.undo"])
-
-
-def test_registered_id_goes_through_the_normal_gate(tmp_path):
-    gate = CapabilityGate(registry_with(tmp_path, set()))
-    with pytest.raises(CapabilityNotTestedError) as err:
-        gate.check_unregistered("song.undo")
-    assert err.value.status == "supported"
-
-
-ALL = tuple(UNREGISTERED)
+                              allow_untested=["song.create_midi_trak"])
 
 
 @pytest.fixture
 def b(transport, tmp_path):
-    return bridge_with(transport, tmp_path, unregistered=ALL)
+    return bridge_with(transport, tmp_path, allow=ARR)
 
 
 def test_reads_parse_the_fake_replies(fake, b):

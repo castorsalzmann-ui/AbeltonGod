@@ -8,6 +8,7 @@ from pathlib import Path
 
 import pytest
 from conftest import registry_with, registry_with_status
+from test_arrangement_osc import CALLS as ARRANGEMENT_CALLS
 
 from bridge.capabilities import (
     CAPABILITIES_FILE,
@@ -17,13 +18,7 @@ from bridge.capabilities import (
     CapabilityRegistryError,
     UnknownCapabilityError,
 )
-from bridge.osc_client import (
-    ADDRESSES,
-    EXTENSION_ADDRESSES,
-    PENDING_REGISTRY,
-    UNREGISTERED,
-    AbletonBridge,
-)
+from bridge.osc_client import ADDRESSES, EXTENSION_ADDRESSES, PENDING_REGISTRY, AbletonBridge
 
 RAW = json.loads(CAPABILITIES_FILE.read_text(encoding="utf-8"))
 
@@ -75,7 +70,6 @@ def test_every_address_the_bridge_sends_is_registered_or_pending():
     known = {a for addrs in ADDRESSES.values() for a in addrs}
     known |= {a for addrs, _ in PENDING_REGISTRY.values() for a in addrs}
     known |= {a for addrs, _ in EXTENSION_ADDRESSES.values() for a in addrs}
-    known |= {a for addrs, _kind, _src in UNREGISTERED.values() for a in addrs}
     known |= {"/live/error", "/live/song/get/tempo"}  # reply error address; request marker
     # The installer quotes AbletonOSC's own track.py line 109 as its patch anchor (#140); the
     # bridge never sends that address. Allowed only there, nowhere else.
@@ -89,11 +83,16 @@ def test_every_address_the_bridge_sends_is_registered_or_pending():
 def test_extension_capabilities_are_registered_with_their_lom_target():
     """Extension addresses are not AbletonOSC's own; the registry records the LOM call (#50)."""
     targets = {c["id"]: c["target"] for c in RAW["capabilities"]}
-    assert set(EXTENSION_ADDRESSES) == {"clip_slot.create_audio_clip"}
-    for cap_id, (addresses, target) in EXTENSION_ADDRESSES.items():
+    expected = {  # written by hand: extension 0.1.0 (#50) and 0.2.0 (#140)
+        "clip_slot.create_audio_clip": ("/live/clip_slot/create_audio_clip",),
+        "track.create_midi_clip": ("/live/track/create_midi_clip",),
+        "arrangement_clip.notes.add": ("/live/track/arrangement_clip/add/notes",),
+        "arrangement_clip.notes.get": ("/live/track/arrangement_clip/get/notes",),
+    }
+    assert {k: v[0] for k, v in EXTENSION_ADDRESSES.items()} == expected
+    for cap_id, (_addresses, target) in EXTENSION_ADDRESSES.items():
         assert targets[cap_id] == target
         assert cap_id not in ADDRESSES
-        assert addresses == ("/live/clip_slot/create_audio_clip",)
 
 
 def test_import_capability_statuses_follow_the_50_evidence():
@@ -234,9 +233,12 @@ GATED_EXTRA_CALLS = {
 
 
 def test_every_bridge_capability_has_a_gate_test():
-    assert set(BRIDGE_CALLS) == set(ADDRESSES)
-    assert set(GATED_EXTRA_CALLS) == (set(EXTENSION_ADDRESSES) | set(PENDING_REGISTRY)
-                                      | {"probe_audio_clip_extension"})
+    # The 12 Arrangement-check calls (#140) have their gate tests in test_arrangement_osc.py.
+    assert not set(BRIDGE_CALLS) & set(ARRANGEMENT_CALLS)
+    assert set(BRIDGE_CALLS) | set(ARRANGEMENT_CALLS) == (
+        set(ADDRESSES) | (set(EXTENSION_ADDRESSES) & set(ARRANGEMENT_CALLS)))
+    assert set(GATED_EXTRA_CALLS) == ((set(EXTENSION_ADDRESSES) - set(ARRANGEMENT_CALLS))
+                                      | set(PENDING_REGISTRY) | {"probe_audio_clip_extension"})
 
 
 @pytest.mark.parametrize("name", sorted(GATED_EXTRA_CALLS))

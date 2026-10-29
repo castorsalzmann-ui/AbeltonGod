@@ -25,10 +25,10 @@ Steps:
    prints how to remove it by hand.
 7. Prints a result block to paste into issue #140.
 
-Capability gate: none of the new calls has a registry entry yet; they run only through the
-explicit ``allow_unregistered`` opt-in below and are listed in ``capability_overrides_used``.
-``song.undo`` is ``tested``. Statuses and entries change only in a separate contract-change PR
-with the pasted output as evidence (D-004).
+Capability gate: the 12 new calls are registry status ``unknown`` (#140); they run only
+through the explicit check-script override ``ALLOWED`` below and are listed in
+``capability_overrides_used``. ``song.undo`` is ``tested``. Statuses change only in a later
+contract-change PR with the pasted output as evidence (D-004).
 
 Never sends destructive commands. User-facing text is German; code and comments are English.
 """
@@ -75,7 +75,6 @@ from bridge.osc_client import (
     DEFAULT_RECEIVE_PORT,
     DEFAULT_SEND_PORT,
     DEFAULT_TIMEOUT_S,
-    UNREGISTERED,
     AbletonBridge,
     BridgeError,
     BridgeUnavailableError,
@@ -84,8 +83,22 @@ from bridge.osc_client import (
 
 SCRIPT_VERSION = "0.1.0"
 
-# Every unregistered capability this script may call (#140); nothing else is opted in.
-ALLOW_UNREGISTERED = tuple(UNREGISTERED)
+# The `unknown` capabilities this script may call through the check-script override (#140),
+# written out: a capability added to the registry later is NOT opted in automatically.
+ALLOWED = (
+    "song.create_midi_track",
+    "track.has_midi_input.get",
+    "track.arrangement_clips.get",
+    "song.is_playing.get",
+    "song.current_song_time.get",
+    "song.current_song_time.set",
+    "song.cue_points.get",
+    "song.cue_point.add_or_delete",
+    "song.cue_point.set_name",
+    "track.create_midi_clip",
+    "arrangement_clip.notes.add",
+    "arrangement_clip.notes.get",
+)
 
 EXIT_OK = 0
 EXIT_CHECK_FAILED = 1
@@ -470,7 +483,7 @@ def main(argv: list[str] | None = None, input_fn: Callable[[str], str] = input,
             bridge = AbletonBridge.connect(
                 DEFAULT_HOST, send_port, receive_port, timeout_s=args.timeout,
                 registry=CapabilityRegistry.from_file(),
-                allow_unregistered=ALLOW_UNREGISTERED)
+                allow_untested=ALLOWED)
         except ReceivePortInUseError as exc:
             print(MSG_PORT_IN_USE.format(port=receive_port, host=DEFAULT_HOST), file=out)
             report.error = f"ReceivePortInUseError: {exc}"

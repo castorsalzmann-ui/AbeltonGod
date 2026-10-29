@@ -61,6 +61,29 @@ MARKER_ADDRESS = "/live/song/get/tempo"
 
 # Capability id -> OSC address(es). Cited from the AbletonOSC README tables and source.
 ADDRESSES: dict[str, tuple[str, ...]] = {
+    # -- Arrangement capability check (#140): registry status `unknown` until the user's run.
+    # File:line at AbletonOSC commit 0ca68214 (re-read 2026-10-29 from raw.githubusercontent).
+    # song.py:25 (method list), :47-48 (``partial(self._call_method, self.song, method)``);
+    # README "Song API": ``/live/song/create_midi_track index`` (-1 = end). No reply.
+    "song.create_midi_track": ("/live/song/create_midi_track",),
+    # track.py:41 (``properties_r``), :66-68 (``_get_property``) -> ``track_id, value``.
+    "track.has_midi_input.get": ("/live/track/get/has_midi_input",),
+    # track.py:123-127, :136-137: ``track_id, *start_times`` / ``track_id, *lengths``.
+    "track.arrangement_clips.get": ("/live/track/get/arrangement_clips/start_time",
+                                    "/live/track/get/arrangement_clips/length"),
+    # song.py:84 (``properties_r``), :89-90 -> ``is_playing``.
+    "song.is_playing.get": ("/live/song/get/is_playing",),
+    # song.py:57 (``properties_rw``), :89-90 get, :93-94 set (``setattr``, no reply). Beats.
+    "song.current_song_time.get": ("/live/song/get/current_song_time",),
+    "song.current_song_time.set": ("/live/song/set/current_song_time",),
+    # song.py:241-245: flat ``name, time, name, time, ...``.
+    "song.cue_points.get": ("/live/song/get/cue_points",),
+    # song.py:258: ``Song.set_or_delete_cue()``, a TOGGLE at the current song time (an existing
+    # locator there is deleted). Callers must read the cue points first. No reply.
+    "song.cue_point.add_or_delete": ("/live/song/cue_point/add_or_delete",),
+    # song.py:259-264: ``song.cue_points[index].name = name``. No reply.
+    "song.cue_point.set_name": ("/live/song/cue_point/set/name",),
+    # -- end of #140 entries
     "app.version": ("/live/application/get/version",),
     "song.tempo.get": ("/live/song/get/tempo",),
     "song.signature.get": (
@@ -98,6 +121,27 @@ EXTENSION_ADDRESSES: dict[str, tuple[tuple[str, ...], str]] = {
         ("/live/clip_slot/create_audio_clip",),
         "LOM ClipSlot.create_audio_clip(path)",
     ),
+    # #140, extension 0.2.0 (patch of abletonosc/track.py): "create_midi_clip" in the
+    # ``methods`` list (track.py:32-35), registered at :62-64 with
+    # ``create_track_callback(self._call_method, method)``; :18-25 resolve
+    # ``song.tracks[int(params[0])]`` and pass ``params[1:]``, so handler.py:27-29 calls
+    # ``track.create_midi_clip(start_time, length)``. No reply. LOM Track.create_midi_clip:
+    # errors on non-MIDI or frozen tracks and outside [0, 1576800].
+    "track.create_midi_clip": (
+        ("/live/track/create_midi_clip",),
+        "LOM Track.create_midi_clip(start_time, length)",
+    ),
+    # #140: own handlers in track.py (after :109), because every /live/clip/* handler resolves
+    # ``track.clip_slots[i].clip`` (clip.py:53-55): Session clips only. They use
+    # ``track.arrangement_clips[i]`` and the same calls as clip.py:139 and :145-155.
+    "arrangement_clip.notes.add": (
+        ("/live/track/arrangement_clip/add/notes",),
+        "AbeltonGod extension: Clip.add_new_notes on track.arrangement_clips[i]",
+    ),
+    "arrangement_clip.notes.get": (
+        ("/live/track/arrangement_clip/get/notes",),
+        "AbeltonGod extension: Clip.get_notes_extended on track.arrangement_clips[i]",
+    ),
 }
 
 # Addresses the bridge sends that have no registry entry of their own YET, with the capability
@@ -120,57 +164,6 @@ PENDING_REGISTRY: dict[str, tuple[tuple[str, ...], str]] = {
     # README "Song API": ``/live/song/get/num_scenes`` -> ``num_scenes``; source
     # ``abletonosc/song.py`` line 228.
     "song.num_scenes.get": (("/live/song/get/num_scenes",), "clip_slot.create_audio_clip"),
-}
-
-# Arrangement capability check (#140): calls with NO registry entry yet. They are reachable
-# only through ``CapabilityGate.check_unregistered`` with an explicit ``allow_unregistered``
-# opt-in (``scripts/arrangement_check.py``); a later contract-change PR registers them with the
-# user's log as evidence (then they move into ADDRESSES and ``test_capabilities.py`` fails until
-# they do). {cap_id: (addresses, kind, source)}. File:line refer to AbletonOSC commit 0ca68214
-# (re-read 2026-10-29 from raw.githubusercontent.com).
-UNREGISTERED: dict[str, tuple[tuple[str, ...], str, str]] = {
-    # song.py:25 (method list), :47-48 (``partial(self._call_method, self.song, method)``);
-    # README "Song API": ``/live/song/create_midi_track index`` (-1 = end). No reply.
-    "song.create_midi_track": (("/live/song/create_midi_track",), "write",
-                               "AbletonOSC song.py:25,47-48"),
-    # track.py:41 (``properties_r``), :66-68 (``_get_property``) -> ``track_id, value``.
-    "track.has_midi_input.get": (("/live/track/get/has_midi_input",), "read",
-                                 "AbletonOSC track.py:41,66-68"),
-    # track.py:123-127, :136-137: ``track_id, *lengths`` / ``track_id, *start_times``.
-    "track.arrangement_clips.get": (("/live/track/get/arrangement_clips/start_time",
-                                     "/live/track/get/arrangement_clips/length"), "read",
-                                    "AbletonOSC track.py:123-127,136-137"),
-    # song.py:84 (``properties_r``), :89-90 -> ``is_playing``.
-    "song.is_playing.get": (("/live/song/get/is_playing",), "read", "AbletonOSC song.py:84,89-90"),
-    # song.py:57 (``properties_rw``), :89-90 get, :93-94 set (``setattr``, no reply). Beats.
-    "song.current_song_time.get": (("/live/song/get/current_song_time",), "read",
-                                   "AbletonOSC song.py:57,89-90"),
-    "song.current_song_time.set": (("/live/song/set/current_song_time",), "write",
-                                   "AbletonOSC song.py:57,93-94"),
-    # song.py:241-245: flat ``name, time, name, time, ...``.
-    "song.cue_points.get": (("/live/song/get/cue_points",), "read", "AbletonOSC song.py:241-245"),
-    # song.py:258: ``Song.set_or_delete_cue()``, a TOGGLE at the current song time (an existing
-    # locator there is deleted). Callers must read the cue points first. No reply.
-    "song.cue_point.add_or_delete": (("/live/song/cue_point/add_or_delete",), "write",
-                                     "AbletonOSC song.py:258"),
-    # song.py:259-264: ``song.cue_points[index].name = name``. No reply.
-    "song.cue_point.set_name": (("/live/song/cue_point/set/name",), "write",
-                                "AbletonOSC song.py:259-264"),
-    # AbeltonGod extension (scripts/install_abletonosc_extension.py, patch of track.py):
-    # "create_midi_clip" in the ``methods`` list (track.py:32-35), registered at :62-64 with
-    # ``create_track_callback(self._call_method, method)``; :18-25 resolve
-    # ``song.tracks[int(params[0])]`` and pass ``params[1:]``, so handler.py:27-29 calls
-    # ``track.create_midi_clip(start_time, length)``. No reply. LOM Track.create_midi_clip:
-    # errors on non-MIDI or frozen tracks and outside [0, 1576800].
-    "track.create_midi_clip": (("/live/track/create_midi_clip",), "write",
-                               "AbeltonGod extension of AbletonOSC track.py"),
-    # AbeltonGod extension: own handlers in track.py (after :109), because every /live/clip/*
-    # handler resolves ``track.clip_slots[i].clip`` (clip.py:53-55): Session clips only. They
-    # use ``track.arrangement_clips[i]`` and the same calls as clip.py:139 and :145-155.
-    "arrangement_clip.notes.add": (("/live/track/arrangement_clip/add/notes",), "write",
-                                   "AbeltonGod extension of AbletonOSC track.py"),
-    "arrangement_clip.notes.get": (("/live/track/arrangement_clip/get/notes",), "read",
-                                   "AbeltonGod extension of AbletonOSC track.py"),
 }
 
 # The three addresses the track.py extension adds (probe: all must answer).
@@ -494,15 +487,10 @@ class AbletonBridge:
         timeout_s: float = DEFAULT_TIMEOUT_S,
         registry: CapabilityRegistry | None = None,
         allow_untested: Iterable[str] = (),
-        allow_unregistered: Iterable[str] = (),
     ) -> AbletonBridge:
         if registry is None:
             registry = CapabilityRegistry.from_file()
-        unregistered = tuple(allow_unregistered)
-        unknown = sorted(set(unregistered) - set(UNREGISTERED))
-        if unknown:  # a typo must fail loudly, not silently allow nothing
-            raise ValueError(f"not an unregistered bridge capability: {unknown}")
-        gate = CapabilityGate(registry, allow_untested, unregistered)
+        gate = CapabilityGate(registry, allow_untested)
         return cls(OscTransport(host, send_port, receive_port, timeout_s=timeout_s), gate)
 
     @classmethod
@@ -731,23 +719,26 @@ class AbletonBridge:
         )
 
     # -- arrangement capability check (#140) -------------------------------------------------
-    # None of these has a registry entry yet (UNREGISTERED): each call needs the caller's
-    # explicit allow_unregistered opt-in, or it is refused before any network I/O.
+    # All of these are registry status `unknown` until the user's run: each call needs the
+    # caller's explicit allow_untested override, or it is refused before any network I/O.
 
-    def _unregistered(self, cap_id: str) -> str:
-        self.gate.check_unregistered(cap_id)
-        return UNREGISTERED[cap_id][0][0]
+    def _gated(self, cap_id: str) -> str:
+        """Gate check, then the (first) address of ``cap_id``."""
+        self.gate.check(cap_id)
+        if cap_id in EXTENSION_ADDRESSES:
+            return EXTENSION_ADDRESSES[cap_id][0][0]
+        return ADDRESSES[cap_id][0]
 
     def create_midi_track(self, index: int = -1, *, timeout_s: float | None = None) -> None:
         """LOM ``Song.create_midi_track(index)``; -1 appends at the end. No reply."""
         _require_int(index, "index", minimum=-1)
-        address = self._unregistered("song.create_midi_track")
+        address = self._gated("song.create_midi_track")
         self._transport.send_confirmed(address, (index,), timeout_s=timeout_s)
 
     def get_track_has_midi_input(self, track_index: int, *,
                                  timeout_s: float | None = None) -> bool:
         _require_int(track_index, "track_index", minimum=0)
-        address = self._unregistered("track.has_midi_input.get")
+        address = self._gated("track.has_midi_input.get")
         reply = self._query(address, (track_index,), expect_prefix=(track_index,),
                             timeout_s=timeout_s)
         return self._bool_reply(reply, "has_midi_input")
@@ -756,8 +747,8 @@ class AbletonBridge:
                               ) -> tuple[tuple[float, float], ...]:
         """((start_time, length), ...) of the track's Arrangement clips, in Live's order."""
         _require_int(track_index, "track_index", minimum=0)
-        self.gate.check_unregistered("track.arrangement_clips.get")
-        starts_addr, lengths_addr = UNREGISTERED["track.arrangement_clips.get"][0]
+        self.gate.check("track.arrangement_clips.get")
+        starts_addr, lengths_addr = ADDRESSES["track.arrangement_clips.get"]
         starts = self._query(starts_addr, (track_index,), expect_prefix=(track_index,),
                              timeout_s=timeout_s)
         lengths = self._query(lengths_addr, (track_index,), expect_prefix=(track_index,),
@@ -778,7 +769,7 @@ class AbletonBridge:
         """
         _require_int(track_index, "track_index", minimum=0)
         _require_int(clip_index, "clip_index", minimum=0)
-        address = self._unregistered("arrangement_clip.notes.get")
+        address = self._gated("arrangement_clip.notes.get")
         try:
             flat = self._query(address, (track_index, clip_index),
                                expect_prefix=(track_index, clip_index), timeout_s=timeout_s)
@@ -797,12 +788,12 @@ class AbletonBridge:
         return tuple(notes)
 
     def get_is_playing(self) -> bool:
-        reply = self._query(self._unregistered("song.is_playing.get"))
+        reply = self._query(self._gated("song.is_playing.get"))
         return self._bool_reply(reply, "is_playing")
 
     def get_song_time(self, *, timeout_s: float | None = None) -> float:
         """``Song.current_song_time`` in beats."""
-        reply = self._query(self._unregistered("song.current_song_time.get"),
+        reply = self._query(self._gated("song.current_song_time.get"),
                             timeout_s=timeout_s)
         if len(reply) != 1 or not _is_number(reply[0]):
             raise BridgeProtocolError(f"current_song_time reply must be one number, got {reply!r}")
@@ -810,7 +801,7 @@ class AbletonBridge:
 
     def get_cue_points(self, *, timeout_s: float | None = None) -> tuple[tuple[str, float], ...]:
         """((name, time), ...) in Live's order (whether that is time order: not verified)."""
-        flat = self._query(self._unregistered("song.cue_points.get"), timeout_s=timeout_s)
+        flat = self._query(self._gated("song.cue_points.get"), timeout_s=timeout_s)
         if len(flat) % 2:
             raise BridgeProtocolError(f"cue_points reply must be name/time pairs, got {flat!r}")
         pairs = []
@@ -823,20 +814,20 @@ class AbletonBridge:
 
     def set_song_time(self, beats: float, *, timeout_s: float | None = None) -> None:
         beats = _require_beats(beats, "beats")
-        address = self._unregistered("song.current_song_time.set")
+        address = self._gated("song.current_song_time.set")
         self._transport.send_confirmed(address, (beats,), timeout_s=timeout_s)
 
     def toggle_cue_at_song_time(self, *, timeout_s: float | None = None) -> None:
         """LOM ``Song.set_or_delete_cue()``: adds a locator at the current song time, or
         DELETES the one that is there. Callers must check the cue points first."""
-        address = self._unregistered("song.cue_point.add_or_delete")
+        address = self._gated("song.cue_point.add_or_delete")
         self._transport.send_confirmed(address, (), timeout_s=timeout_s)
 
     def set_cue_name(self, cue_index: int, name: str, *, timeout_s: float | None = None) -> None:
         _require_int(cue_index, "cue_index", minimum=0)
         if not isinstance(name, str) or not name or "\x00" in name:
             raise ValueError(f"name must be a non-empty string (got {name!r})")
-        address = self._unregistered("song.cue_point.set_name")
+        address = self._gated("song.cue_point.set_name")
         self._transport.send_confirmed(address, (cue_index, name), timeout_s=timeout_s)
 
     def create_arrangement_midi_clip(self, track_index: int, start_beats: float,
@@ -852,7 +843,7 @@ class AbletonBridge:
         if length <= 0 or start + length > ARRANGEMENT_MAX_BEATS:
             raise ValueError(f"clip {start}+{length} beats must have length > 0 and end by "
                              f"{ARRANGEMENT_MAX_BEATS:g}")
-        address = self._unregistered("track.create_midi_clip")
+        address = self._gated("track.create_midi_clip")
         try:
             self._transport.send_confirmed(address, (track_index, start, length),
                                            timeout_s=timeout_s)
@@ -882,7 +873,7 @@ class AbletonBridge:
             if duration <= 0 or not isinstance(mute, bool):
                 raise ValueError(f"duration must be > 0 and mute a bool (got {note!r})")
             flat += [pitch, start, duration, velocity, int(mute)]
-        address = self._unregistered("arrangement_clip.notes.add")
+        address = self._gated("arrangement_clip.notes.add")
         try:
             self._transport.send_confirmed(address, (track_index, clip_index, *flat),
                                            timeout_s=timeout_s)
@@ -899,7 +890,7 @@ class AbletonBridge:
         """
         missing = []
         for cap_id in ARRANGEMENT_EXTENSION:
-            address = self._unregistered(cap_id)
+            address = self._gated(cap_id)
             try:
                 self._transport.send_confirmed(address, ())
             except AbletonOSCError as exc:
