@@ -1,6 +1,7 @@
 """Checks that every contract is a valid JSON Schema and that the capability registry obeys it."""
 
 import json
+import random
 from pathlib import Path
 
 import pytest
@@ -99,6 +100,154 @@ def test_kick_params_rejects_unknown_and_out_of_range() -> None:
         validator.validate({"schema_version": "0.2", "seed": 1, "pitch_end_hz": 5})
     with pytest.raises(ValidationError):
         validator.validate({"schema_version": "0.2", "seed": 1, "wobble": 3})
+
+
+# --- kick-params v0.3 proposal (#104) --------------------------------------------------------
+
+# Written by hand from the issue's design, not read from the schema: (min, max, default).
+# None as default = the field has no default; absent means "use the 0.2 field as before".
+V03_NUMBERS = {
+    "tail_note": (23, 46, None),
+    "length_beats": (0.25, 4, None),
+    "click_decay_ms": (0.5, 12, 3),
+    "click_q": (0.5, 8, 0.9),
+    "offset_ms": (0, 12, 0),
+    "clip_db": (0, 12, 0),
+}
+V03_FIELDS = (*V03_NUMBERS, "polarity")
+V02 = {"schema_version": "0.2", "seed": 1}
+V03 = {"schema_version": "0.3", "seed": 1}
+# Every v0.2 field set to a non-default in-range value.
+V02_FULL = {
+    "schema_version": "0.2", "seed": 4294967295, "variants": 8, "bpm": 200, "sample_rate": 44100,
+    "bit_depth": 16, "length_ms": 2000, "pitch_start_hz": 600, "pitch_end_hz": 120,
+    "pitch_decay_ms": 300, "amp_attack_ms": 20, "amp_decay_ms": 2000, "click_level": 1,
+    "click_tone_hz": 12000, "drive": 1, "tone": -1, "peak_ceiling_dbfs": -12, "preset": "x",
+}
+
+
+def _kick_validator() -> Draft202012Validator:
+    return Draft202012Validator(load("kick-params.schema.json"))
+
+
+def _valid(doc: dict) -> bool:
+    return _kick_validator().is_valid(doc)
+
+
+def test_kick_params_v03_fields_and_defaults_are_as_designed() -> None:
+    branch = load("kick-params.schema.json")["allOf"][0]
+    assert branch["if"] == {"properties": {"schema_version": {"const": "0.3"}}}
+    props = branch["then"]["properties"]
+    assert set(props) == set(V03_FIELDS)
+    for name, (lo, hi, default) in V03_NUMBERS.items():
+        assert (props[name]["minimum"], props[name]["maximum"]) == (lo, hi), name
+        assert props[name].get("default") == default, name
+    assert props["polarity"] == {**props["polarity"], "enum": [1, -1], "default": 1}
+    # None of them is a top-level property: the engine fills those defaults into every sidecar.
+    assert not set(V03_FIELDS) & set(load("kick-params.schema.json")["properties"])
+
+
+def test_kick_params_v03_defaults_are_todays_engine_constants() -> None:
+    """The defaults keep today's renders: they equal the fixed values of engine 0.1.0."""
+    from audio_engine import kick
+
+    assert (kick.CLICK_DECAY_MS, kick.CLICK_Q, kick.CLICK_LENGTH_MS) == (3.0, 0.9, 15.0)
+    props = load("kick-params.schema.json")["allOf"][0]["then"]["properties"]
+    assert props["click_decay_ms"]["default"] == kick.CLICK_DECAY_MS
+    assert props["click_q"]["default"] == kick.CLICK_Q
+    assert max(15, 5 * props["click_decay_ms"]["default"]) == kick.CLICK_LENGTH_MS
+
+
+KICK_V03_VALID = {
+    "0.2 minimal": V02,
+    "0.2 every field": V02_FULL,
+    "0.3 minimal": V03,
+    "0.3 every 0.2 field": {**V02_FULL, "schema_version": "0.3"},
+    "0.3 every v0.3 field at its minimum": {
+        **V03, "bpm": 180, "tail_note": 23, "length_beats": 0.25, "click_decay_ms": 0.5,
+        "click_q": 0.5, "polarity": -1, "offset_ms": 0, "clip_db": 0,
+    },
+    "0.3 every v0.3 field at its maximum": {
+        **V03, "bpm": 120, "tail_note": 46, "length_beats": 4, "click_decay_ms": 12,
+        "click_q": 8, "polarity": 1, "offset_ms": 12, "clip_db": 12,
+    },
+    "0.3 tail_note with pitch_start_hz": {**V03, "tail_note": 33, "pitch_start_hz": 200},
+    "0.3 length_beats with bpm": {**V03, "length_beats": 1, "bpm": 128},
+    "0.3 polarity -1": {**V03, "polarity": -1},
+    "0.3 whole-number float note": {**V03, "tail_note": 33.0},
+}
+
+
+@pytest.mark.parametrize("doc", KICK_V03_VALID.values(), ids=KICK_V03_VALID)
+def test_kick_params_valid_instances(doc: dict) -> None:
+    _kick_validator().validate(doc)
+
+
+KICK_V03_INVALID = {
+    **{f"0.2 with {f}": {**V02, f: V03_NUMBERS.get(f, (1,))[0]} for f in V03_FIELDS},
+    **{f"0.3 {f} below minimum": {**V03, "bpm": 120, f: lo - (1 if f == "tail_note" else 1e-6)}
+       for f, (lo, _, _) in V03_NUMBERS.items()},
+    **{f"0.3 {f} above maximum": {**V03, "bpm": 120, f: hi + (1 if f == "tail_note" else 1e-6)}
+       for f, (_, hi, _) in V03_NUMBERS.items()},
+    **{f"0.3 {f} as string": {**V03, "bpm": 120, f: "1"} for f in V03_FIELDS},
+    "0.3 tail_note not whole": {**V03, "tail_note": 33.5},
+    "0.3 tail_note with pitch_end_hz": {**V03, "tail_note": 33, "pitch_end_hz": 55},
+    "0.3 length_beats without bpm": {**V03, "length_beats": 1},
+    "0.3 length_beats with length_ms": {**V03, "length_beats": 1, "bpm": 128, "length_ms": 450},
+    "0.3 polarity 0": {**V03, "polarity": 0},
+    "0.3 polarity 2": {**V03, "polarity": 2},
+    "0.3 polarity true": {**V03, "polarity": True},
+    "0.3 polarity -0.5": {**V03, "polarity": -0.5},
+    "0.3 unknown field": {**V03, "wobble": 3},
+    "0.3 0.2 field out of range": {**V03, "drive": 1.02},
+    "0.3 without seed": {"schema_version": "0.3"},
+    "schema_version 0.1": {**V02, "schema_version": "0.1"},
+    "schema_version 0.4": {**V02, "schema_version": "0.4"},
+    "schema_version as number": {**V02, "schema_version": 0.3},
+}
+
+
+@pytest.mark.parametrize("doc", KICK_V03_INVALID.values(), ids=KICK_V03_INVALID)
+def test_kick_params_invalid_instances(doc: dict) -> None:
+    assert not _valid(doc)
+
+
+def test_kick_params_v03_random_values_over_the_whole_range() -> None:
+    """Seeded property test: in-range draws of every v0.3 field pass, draws just outside fail."""
+    rng = random.Random(104)
+    for _ in range(400):
+        doc = dict(V03)
+        for name, (lo, hi, _) in V03_NUMBERS.items():
+            if rng.random() < 0.5:
+                continue
+            doc[name] = rng.randint(lo, hi) if name == "tail_note" else rng.uniform(lo, hi)
+        if "length_beats" in doc:
+            doc["bpm"] = rng.uniform(60, 200)
+        if rng.random() < 0.5:
+            doc["polarity"] = rng.choice([1, -1])
+        assert _valid(doc), doc
+        name, (lo, hi, _) = rng.choice(sorted(V03_NUMBERS.items()))
+        step = rng.choice([1e-6, 1e-3, 1.0, 100.0]) * rng.uniform(1.0, 2.0)
+        outside = rng.choice([lo - step, hi + step])
+        assert not _valid({**doc, "bpm": 120, name: outside}), (name, outside)
+
+
+def test_kick_params_old_sidecars_still_validate() -> None:
+    """Parameters of a 0.2 sidecar written by today's engine, of every preset, and of the 0.1
+    fixture sidecar after the documented 0.1 -> 0.2 upgrade (INTERFACES.md) still validate."""
+    from audio_engine.kick import render_kick
+    from audio_engine.presets import load_preset, preset_names
+
+    validator = _kick_validator()
+    _, resolved = render_kick({"schema_version": "0.2", "seed": 7, "bpm": 128})
+    validator.validate(resolved)
+    for name in preset_names():
+        validator.validate(load_preset(name))
+    fixture = ROOT / "tests" / "fixtures" / "sidecars" / "kick-v01.json"
+    params = json.loads(fixture.read_text(encoding="utf-8"))["parameters"]
+    assert params["schema_version"] == "0.1" and "pitch_decay_ms" in params
+    assert not validator.is_valid(params)
+    validator.validate({**params, "schema_version": "0.2"})
 
 
 # --- sample-metadata instances (#70) ---------------------------------------------------------

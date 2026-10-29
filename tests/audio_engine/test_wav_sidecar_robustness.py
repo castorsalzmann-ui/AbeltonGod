@@ -202,7 +202,8 @@ def test_numeric_field_list_covers_the_contract() -> None:
     numeric = {
         n for n, p in SCHEMA_PROPS.items()
         if p.get("type") in ("number", "integer") or "enum" in p
-    }
+    } - {"schema_version"}  # an enum of strings since v0.3 (#104), not a number
+    assert SCHEMA_PROPS["schema_version"]["enum"] == ["0.2", "0.3"]
     assert numeric == set(NUMERIC_FIELDS)
 
 

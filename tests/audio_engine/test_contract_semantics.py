@@ -23,6 +23,7 @@ from audio_engine.params import (
     load_schema,
     max_settled_pitch_decay_ms,
     pitch_settles,
+    resolve_kick_params,
 )
 
 BASE = {"schema_version": "0.2", "seed": 7}
@@ -42,8 +43,41 @@ def test_envelope_fields_are_described(field: str) -> None:
 
 def test_schema_version_and_new_default() -> None:
     schema = load_schema(KICK_SCHEMA_FILE)
-    assert schema["properties"]["schema_version"]["const"] == "0.2"
+    assert schema["properties"]["schema_version"]["enum"] == ["0.2", "0.3"]
     assert schema["properties"]["pitch_decay_ms"]["default"] == 15
+
+
+# --- v0.3 (#104): specified in the contract, refused by this engine ---------------------------
+
+# Resolved 0.2 parameters as engine 0.1.0 writes them into every sidecar (written out by hand).
+# The v0.3 proposal must not add a key here, or every sidecar's bytes change.
+RESOLVED_V02_KEYS = {
+    "schema_version", "seed", "variants", "sample_rate", "bit_depth", "length_ms",
+    "pitch_start_hz", "pitch_end_hz", "pitch_decay_ms", "amp_attack_ms", "amp_decay_ms",
+    "click_level", "click_tone_hz", "drive", "tone", "peak_ceiling_dbfs",
+}
+
+
+def test_v02_resolution_gains_no_v03_field() -> None:
+    assert set(resolve_kick_params({"schema_version": "0.2", "seed": 1})) == RESOLVED_V02_KEYS
+
+
+@pytest.mark.parametrize(
+    "extra",
+    [{}, {"click_q": 0.9}, {"polarity": 1}, {"tail_note": 33}],
+    ids=["no v0.3 field", "click_q default", "polarity default", "tail_note"],
+)
+def test_engine_refuses_v03_until_implemented(extra: dict) -> None:
+    with pytest.raises(KickParamsError) as exc:
+        resolve_kick_params({"schema_version": "0.3", "seed": 1, **extra})
+    assert "kick-params 0.3 is specified in the contract but not implemented" in str(exc.value)
+
+
+def test_v03_field_at_v02_is_an_unknown_field() -> None:
+    with pytest.raises(KickParamsError) as exc:
+        resolve_kick_params({"schema_version": "0.2", "seed": 1, "click_q": 2.0})
+    assert "click_q" in str(exc.value)
+    assert "not implemented" not in str(exc.value)
 
 
 # --- guideline helper: hand-computed values ---------------------------------------------------

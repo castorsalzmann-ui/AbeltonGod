@@ -4,7 +4,7 @@ Machine-readable contracts live in `contracts/`. This file explains them. Changi
 
 | Contract | Producer → Consumer | Status |
 | --- | --- | --- |
-| `contracts/kick-params.schema.json` | Orchestrator / CLI → audio engine | draft v0.2 — finalised in Phase 01 |
+| `contracts/kick-params.schema.json` | Orchestrator / CLI → audio engine | draft v0.3 proposal (#104); the engine renders 0.2 only |
 | `contracts/sample-metadata.schema.json` | Audio engine → library, orchestrator | draft v0.1 — finalised in Phase 01 |
 | `contracts/capabilities.json` (+ `capabilities.schema.json`) | Bridge → orchestrator | v1 — statuses updated in Phase 02 (#42: entry `track.mute.get` added, no format change) |
 | `contracts/guard-policy.schema.json` → `config/guard-policy.json` | User config → resource guard | v1 — default values are untuned starting points |
@@ -20,6 +20,21 @@ Envelope semantics (v0.2, issue #7; full text in the schema's `description`s):
 - **Pitch-settle guideline** (not enforced by the schema): presets and Claude keep `pitch_decay_ms ≤ audio_engine.params.max_settled_pitch_decay_ms(params)`, so the pitch is within 5 % of `pitch_end_hz` once the level is 20 dB down (or at `length_ms`). Larger values only for a deliberately pitchy kick.
 - A silent render never gets a sidecar: `write_kick` refuses it, so `features.peak_dbfs` stays a required number.
 - Version coupling: `sample-metadata` stays at 0.1, but its `parameters` object now carries kick-params 0.2. A **request** with kick-params 0.1 is rejected (it may rely on the old default). A **sidecar** with 0.1 parameters can still be rendered, because it stores every resolved value: `rerender_from_sidecar` upgrades it to 0.2 when `pitch_decay_ms` is present and rejects it otherwise. Every 0.1 sidecar written so far comes from engine 0.0.1, so it needs `allow_engine_mismatch=True` (see below).
+
+v0.3 proposal (#104, Phase 05 tasks "Grundton nach Tonart", "Kick-Länge nach Tempo", "mehr Biss im Klick", "zwei Kicks abstimmen"; `clip_db` weighted by listening test 1 pair P3, #103; full text in the schema):
+
+| Field | Range | Default | Meaning |
+| --- | --- | --- | --- |
+| `tail_note` | integer 23 … 46 | absent → `pitch_end_hz` | MIDI note (69 = 440 Hz, equal temperament); sets `pitch_end_hz` = 440 · 2^((n − 69)/12). 23 … 46 = the notes inside 30 … 120 Hz. Excludes `pitch_end_hz`. |
+| `length_beats` | 0.25 … 4 | absent → `length_ms` | File length in quarter notes at `bpm` (required); excludes `length_ms`; the resulting ms must lie in 80 … 2000 (engine check). Length only, not decay. |
+| `click_decay_ms` | 0.5 … 12 | 3 (engine 0.1.0 constant) | Click decay time constant; click window max(15, 5 · τ) ms. |
+| `click_q` | 0.5 … 8 | 0.9 (engine 0.1.0 constant) | Q of the click band-pass. |
+| `polarity` | 1 or −1 | 1 | Sign of the whole output, after the peak ceiling. |
+| `offset_ms` | 0 … 12 | 0 | Silence before the kick; file length unchanged. |
+| `clip_db` | 0 … 12 | 0 (stage off) | Hard clip before the ceiling: peaks pushed `clip_db` over the clip point (oversampled), then back to `peak_ceiling_dbfs`. |
+
+- The v0.3 fields are allowed only with `schema_version` "0.3" (they sit in the schema's `allOf` 0.3 branch; the schema uses `unevaluatedProperties: false`). A 0.2 document is unchanged: every 0.2 request, preset and sidecar still validates, and resolving it adds no new key, so sidecar and WAV bytes stay the same.
+- The engine refuses `schema_version` "0.3" until it implements these fields (`audio_engine.params.RENDERED_SCHEMA_VERSIONS`), so no field is ever silently ignored. The implementation PR moves the fields into `properties`.
 
 ## Sample metadata
 
