@@ -59,6 +59,9 @@ COMMON = {"schema_version": "0.2", "sample_rate": 48000, "bit_depth": 24,
 EXPECTED_PRESETS = {
     "centre": (1001, 480, 200, 52, 40, 0.5, 560, 0.35, 3500, 0.0, 0.0),
     "dark-dry": (1002, 450, 160, 47, 9, 0.5, 500, 0.12, 2500, 0.0, -0.4),
+    # #116: centre + drive 0.45, the user's pick in listening tests 1 and 2 (#103). Same seed
+    # as centre on purpose: it must render the exact file the user chose.
+    "dense": (1001, 480, 200, 52, 40, 0.5, 560, 0.35, 3500, 0.45, 0.0),
     "punchy": (1003, 400, 260, 56, 6, 0.3, 420, 0.6, 4500, 0.15, 0.3),
     "rumble-ready": (1004, 750, 180, 49, 10, 1.0, 800, 0.2, 3000, 0.0, -0.2),
     "driven": (1005, 420, 300, 58, 6, 0.2, 380, 1.0, 5000, 0.45, 0.6),
@@ -149,6 +152,16 @@ def test_centre_has_the_pitch_decay_the_user_chose() -> None:
     assert load_schema(KICK_SCHEMA_FILE)["properties"]["pitch_decay_ms"]["default"] == 15
     assert abs(max_settled_pitch_decay_ms(p) - 46.3089) < 1e-4
     assert pitch_settles(p)
+
+
+def test_dense_is_centre_with_drive() -> None:
+    """#116: dense differs from centre only in its name and drive, so it renders the bytes of
+    ``--preset centre --set drive=0.45`` (the file the user chose, #103). The SHA-256 of that
+    file is pinned in test_engine_version.py (golden case preset-dense)."""
+    dense, centre = preset("dense"), preset("centre")
+    assert {k for k in dense if dense[k] != centre[k]} == {"preset", "drive"}
+    assert dense["drive"] == 0.45
+    assert render_kick_wav(dense)[0] == render_kick_wav({**centre, "drive": 0.45})[0]
 
 
 @pytest.mark.parametrize("name", NAMES)
@@ -337,10 +350,32 @@ def test_variants_are_reproducible_and_differ_from_each_other(name: str) -> None
     assert len({v["seed"] for v in first}) == 8
 
 
-@pytest.mark.parametrize("name", NAMES)
+# Presets exempt from the -40 dB rule below, each with its reason. Keep this list narrow: one
+# named preset per user decision, never a pattern.
+MINUS_40_DB_EXEMPT = {
+    # User decision on #116 (option a, lead comment
+    # https://github.com/castorsalzmann-ui/AbeltonGod/issues/116#issuecomment-6495172822):
+    # dense must stay byte-identical to the file chosen in listening tests 1 and 2 (#103).
+    # Its drive lifts the tail; variant 0 ends about 36.5 dB below its peak (analysis.py
+    # envelope) and is then faded over the last 5 ms, so -40 dB is not reached inside 480 ms.
+    "dense": "#116: byte-identical to the user's listening-test pick; tail ends near -36.5 dB",
+}
+MINUS_40_DB_CHECKED = [n for n in NAMES if n not in MINUS_40_DB_EXEMPT]
+
+
+def test_minus_40_db_exemption_is_narrow() -> None:
+    """Only the named, decided preset is exempt, every other preset is still checked, and the
+    exemption is still needed (if dense ever reaches -40 dB, drop it from the list)."""
+    assert set(MINUS_40_DB_EXEMPT) == {"dense"}
+    assert sorted(MINUS_40_DB_CHECKED) == sorted(set(NAMES) - {"dense"})
+    audio, r = render_kick(preset("dense"))
+    assert analyse(audio, r["sample_rate"])["decay_40db_ms"] is None
+
+
+@pytest.mark.parametrize("name", MINUS_40_DB_CHECKED)
 def test_every_variant_reaches_minus_40_db_inside_the_file(name: str) -> None:
     """CI rule from the design: variants 0-7 of every preset decay 40 dB before the file ends
-    (found while prototyping: driven at 360 ms was cut off)."""
+    (found while prototyping: driven at 360 ms was cut off). Exempt: MINUS_40_DB_EXEMPT."""
     for v in make_variants(preset(name), 8):
         audio, r = render_kick(v)
         env = _rms_envelope_db(audio, r["sample_rate"])
