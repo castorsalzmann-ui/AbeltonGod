@@ -37,7 +37,11 @@ cc = _load()
     ("Phase 04B and 03, again 03", ["03", "04b"]),
     ("None.", []),
     ("PR #100 and #205 merged", []),  # digits inside longer numbers are not phases
-    ("Phase 05 and 10", []),  # only 00..04 exist
+    ("Phase 05 and 10", ["05"]),  # 05..09 count since #125; 10 is not a phase id
+    ("Phases 03–05 accepted", ["03", "04a", "05"]),
+    ("Phases 05-07 and 09", ["05", "06", "07", "09"]),
+    ("Phase 06b later", ["06b"]),
+    ("Phase 4 and 5", []),  # a phase id always has two digits
 ])
 def test_expand_phase_refs(text, expected):
     assert cc.expand_phase_refs(text) == expected
@@ -88,6 +92,123 @@ def test_collect_phases(tmp_path):
          "file_status": "IN PROGRESS", "criteria_total": 0, "criteria_met": 0,
          "depends_on": "01, 02, 03, 04a", "tested_in": "CI", "order": 2},
     ]
+
+
+def test_collect_phases_after_04(tmp_path):
+    d = tmp_path / "docs" / "phases"
+    d.mkdir(parents=True)
+    (d / "PHASE_05_KICK_CHARACTER.md").write_text(
+        "# PHASE 05 — Kick character\n\n**Status:** IN PROGRESS · **Tested in:** CI\n\n"
+        "## Prerequisites\n\nPhases 01–03 and 04b accepted. Phase 06 later.\n",
+        encoding="utf-8",
+    )
+    (d / "PHASE_06_MIX_CHECK.md").write_text(
+        "# PHASE 06 — Mix check (loudness, LUFS)\n\n## Prerequisites\n\nPhase 05 accepted.\n",
+        encoding="utf-8",
+    )
+    (d / "PHASE_07_NO_TITLE.md").write_text("Phase 07 without a title line.\n",
+                                            encoding="utf-8")
+    (d / "PHASE_08_HYPHEN.md").write_text("# PHASE 08 - Hats and claps\n", encoding="utf-8")
+    rows = cc.collect_phases(tmp_path)
+    assert [(r["phase"], r["name"], r["depends_on"], r["file_status"]) for r in rows] == [
+        ("05", "Kick-Charakter", "01, 02, 03, 04b", "IN PROGRESS"),
+        ("06", "Mix check", "05", "PLANNED"),
+        ("07", "07", "", "PLANNED"),
+        ("08", "Hats and claps", "", "PLANNED"),
+    ]
+
+
+@pytest.mark.parametrize(("txt", "expected"), [
+    ("# PHASE 06 — Mix check (loudness, LUFS)\n", "Mix check"),
+    ("# PHASE 04b — Claude orchestrator (kick workflow end-to-end)\n", "Claude orchestrator"),
+    ("intro\n# PHASE 09 – Drums\nmore", "Drums"),
+    ("## PHASE 06 — level 2 is not the title\n", ""),
+    ("# Phase notes\n", ""),
+    ("", ""),
+])
+def test_phase_title(txt, expected):
+    assert cc.phase_title(txt) == expected
+
+
+def test_phase_05_known_and_commit_kinds():
+    assert (cc.PHASE_NAMES["05"], cc.TRACK["05"]) == ("Kick-Charakter", "Kick")
+    assert {k: cc.COMMIT_KINDS[k] for k in ("phase-04b", "phase-05", "phase-09")} == {
+        "phase-04b": "Phase 04b", "phase-05": "Phase 05", "phase-09": "Phase 09",
+    }
+    assert "phase-04" not in cc.COMMIT_KINDS  # unchanged: bare phase-04 stays "Sonstiges"
+
+
+def test_issue_phase_05_track(tmp_path, monkeypatch):
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "docs" / "CURRENT_STATE.md").write_text("## Next step\n\n#41\n",
+                                                         encoding="utf-8")
+    canned = [
+        _issue(40, "Phase 05: preset dense", ["agent:audio"]),
+        _issue(41, "Reference kicks", ["phase:05", "status:ready"]),
+        _issue(42, "Phase 06 thing", ["phase:06"]),
+    ]
+    monkeypatch.setattr(cc, "gh_all", lambda p: [dict(i) for i in canned])
+    rows, _ = cc.collect_issues(tmp_path)
+    assert [(r["number"], r["phase"], r["track"], r["next_rank"]) for r in rows] == [
+        (40, "05", "Kick", None), (41, "05", "Kick", 1), (42, "06", "Sonstiges", None),
+    ]
+
+
+# ---------- pipeline ----------
+ROADMAP = (
+    "# Roadmap\n\n| Phase | Spec | Goal | Tested where |\n| --- | --- | --- | --- |\n"
+    "| 00 | `x` | not the pipeline | CI |\n\n"
+    "## Pipeline (parallel tracks, D-020 / D-023)\n\nIntro text.\n\n"
+    "| Track | Phase | Role(s) | Goal | Status |\n"
+    "| --- | :---: | --- | --- | --- |\n"
+    "| A | 03 finish | bridge-engineer | A kick lands in Live | Import verified (#50); `place_kick` next |\n"  # noqa: E501
+    "| C | 05 kick character | audio-engineer, sound-designer | Own character | PR #123 a \\| b |\n"  # noqa: E501
+    "|R|parking-lot|researcher|Notes||\n"
+    "\nWaiting for user decisions | not a row |\n\n"
+    "| Other | table |\n| --- | --- |\n| x | y |\n\n"
+    "## Non-goals\n\n| Track | Phase |\n| --- | --- |\n| Z | 99 |\n"
+)
+
+
+def _roadmap(tmp_path: Path, text: str) -> Path:
+    (tmp_path / "docs").mkdir(exist_ok=True)
+    (tmp_path / "docs" / "ROADMAP.md").write_text(text, encoding="utf-8")
+    return tmp_path
+
+
+def test_collect_pipeline(tmp_path):
+    assert cc.collect_pipeline(_roadmap(tmp_path, ROADMAP)) == [
+        {"track": "A", "phase": "03 finish", "roles": "bridge-engineer",
+         "goal": "A kick lands in Live", "status": "Import verified (#50); `place_kick` next",
+         "next": ""},
+        {"track": "C", "phase": "05 kick character", "roles": "audio-engineer, sound-designer",
+         "goal": "Own character", "status": "PR #123 a | b", "next": ""},
+        {"track": "R", "phase": "parking-lot", "roles": "researcher", "goal": "Notes",
+         "status": "", "next": ""},
+    ]
+
+
+def test_collect_pipeline_next_column_and_order(tmp_path):
+    text = ("## Pipeline\n| Status | Track | Next | Extra | Roles |\n|---|---|---|---|---|\n"
+            "| busy | B | #81 | ignored | orchestrator-engineer |\n| short | D |\n")
+    assert cc.collect_pipeline(_roadmap(tmp_path, text)) == [
+        {"track": "B", "phase": "", "roles": "orchestrator-engineer", "goal": "",
+         "status": "busy", "next": "#81"},
+        {"track": "D", "phase": "", "roles": "", "goal": "", "status": "short", "next": ""},
+    ]
+
+
+@pytest.mark.parametrize("text", [
+    "# Roadmap\n\n| Track | Phase |\n| --- | --- |\n| A | 01 |\n",  # no Pipeline section
+    "## Pipeline\n\nNo table yet.\n\n## Next\n\n| Track |\n| --- |\n| A |\n",
+    "## Pipelines elsewhere\n\n| Track |\n| --- |\n| A |\n",  # other heading word
+])
+def test_collect_pipeline_without_table(tmp_path, text):
+    assert cc.collect_pipeline(_roadmap(tmp_path, text)) == []
+
+
+def test_collect_pipeline_without_roadmap(tmp_path):
+    assert cc.collect_pipeline(tmp_path) == []
 
 
 # ---------- issues ----------
