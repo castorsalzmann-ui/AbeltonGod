@@ -38,10 +38,13 @@ class ModelError(Exception):
 class ModelUnavailable(ModelError):
     """The model could not be reached (network, auth, adapter missing, rate limit)."""
 
-    def __init__(self, detail: str, *, request_sent: bool = True) -> None:
+    def __init__(
+        self, detail: str, *, request_sent: bool = True, usage: ModelUsage | None = None
+    ) -> None:
         super().__init__(detail)
         self.detail = detail
         self.request_sent = request_sent
+        self.usage = usage  # what the backend still reported (e.g. cost of a failed run)
 
 
 class ModelProtocolError(ModelError):
@@ -117,6 +120,9 @@ class ModelRequest:
     - ``sdk_limits``: ``GuardedRequest.sdk_limits()`` taken just before this call was
       reserved (``max_turns`` >= 1, never 0: the Agent SDK reads 0 as "no limit"), for an SDK
       that enforces its own limits as the first line (D-011).
+    - ``reserved_cost_usd``: what the guard reserved for this call. The guard counts exactly
+      this when the response reports no cost, so a backend that only knows the total at the
+      end (Agent SDK) can report ``total - already counted``. ``None`` = not known.
     """
 
     system: str
@@ -125,6 +131,7 @@ class ModelRequest:
     max_output_tokens: int
     timeout_s: float
     sdk_limits: dict[str, Any]
+    reserved_cost_usd: float | None = None
 
 
 @dataclass(frozen=True)
@@ -139,6 +146,14 @@ class ModelResponse:
 
 @runtime_checkable
 class ModelClient(Protocol):
+    """Optional extras the loop uses when a client has them:
+
+    - ``end_request()``: called once when a request ends (any outcome), so a client that keeps
+      a backend session open between ``complete`` calls closes it.
+    - ``estimate_cost_usd(request) -> float | None``: per-call reservation, used when the
+      orchestrator got no estimator of its own.
+    """
+
     def complete(self, request: ModelRequest) -> ModelResponse:
         """Make exactly one model call. Raise ``ModelUnavailable`` / ``ModelProtocolError``."""
         ...

@@ -67,6 +67,13 @@ _FAILURE_DE = {
 }
 
 
+# Agent SDK result subtypes for the limits the guard hands it (permit.sdk_limits).
+_BACKEND_LIMITS = {
+    "error_max_turns": Limit.MODEL_CALLS,
+    "error_max_budget_usd": Limit.REQUEST_BUDGET,
+}
+
+
 class SdkLimitError(RuntimeError):
     """The orchestrator was about to hand the backend a limit that disables it."""
 
@@ -163,10 +170,23 @@ class Orchestrator:
         self.approver = approver
         self.system_prompt = system_prompt
         # None = the guard reserves all money still available (most conservative).
+        if estimate_cost_usd is None:
+            estimate_cost_usd = getattr(model, "estimate_cost_usd", None)
         self._estimate = estimate_cost_usd or (lambda _request: None)
 
     def handle(self, text: str) -> Outcome:
         """Run one user request to its end. Never raises for model, tool or guard failures."""
+        try:
+            return self._handle(text)
+        finally:
+            end = getattr(self.model, "end_request", None)
+            if callable(end):
+                try:
+                    end()
+                except Exception:  # noqa: BLE001 - closing a session must not hide the outcome
+                    pass
+
+    def _handle(self, text: str) -> Outcome:
         warnings: list[str] = []
         req: GuardedRequest | None = None
         try:
@@ -238,15 +258,24 @@ class Orchestrator:
                 max_output_tokens=permit.max_output_tokens,
                 timeout_s=req.remaining_s(),
                 sdk_limits=checked_sdk_limits(limits),
+                reserved_cost_usd=permit.reserved_cost_usd,
             )
             response = self.model.complete(request)
         except ModelUnavailable as exc:
-            # Provably not sent -> it cost nothing; otherwise count the reservation.
-            usage = ModelUsage(output_tokens=0, cost_usd=0.0) if not exc.request_sent else None
-            req.after_model_call(permit, usage)
+            # Reported usage wins; else provably not sent -> it cost nothing; else count the
+            # reservation.
+            usage = exc.usage
+            if usage is None and not exc.request_sent:
+                usage = ModelUsage(output_tokens=0, cost_usd=0.0)
+            req.after_model_call(permit, usage if isinstance(usage, ModelUsage) else None)
             raise _Abort("model_unavailable", exc.detail) from exc
         except ModelLimitReached as exc:
-            req.after_model_call(permit, exc.usage)
+            usage = exc.usage if isinstance(exc.usage, ModelUsage) else None
+            req.after_model_call(permit, usage)  # may already stop on the overshoot
+            limit = _BACKEND_LIMITS.get(exc.subtype)
+            if limit is not None:
+                # The backend enforced a limit the guard gave it: report it as the guard's stop.
+                req.stop_request(limit, f"Agent SDK {exc.subtype}: {exc.detail}")
             raise _Abort("model_limit", exc.subtype) from exc
         except ModelProtocolError as exc:
             req.after_model_call(permit, None)

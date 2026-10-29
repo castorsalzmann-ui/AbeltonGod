@@ -1,10 +1,10 @@
-"""Minimal terminal chat (Phase 04b step 1).
+"""Minimal terminal chat (Phase 04b).
 
-    python -m orchestrator.chat                       # configured model (not built yet)
+    python -m orchestrator.chat                       # Claude via the Agent SDK (#106)
     python -m orchestrator.chat --replay FILE.json    # fake model replaying a recording
 
 Each line is one guarded request (profile ``kick_generation``). Empty line, ``exit`` or
-``quit`` (or Ctrl+D / Ctrl+C) ends the chat. Step 1 has no product tools yet (D-020 step 2).
+``quit`` (or Ctrl+D / Ctrl+C) ends the chat. No product tools yet (D-020 step 2, #81).
 
 Exit codes: 0 normal end · 2 usage or setup error (bad policy, bad recording).
 """
@@ -76,9 +76,13 @@ def main(
     parser.add_argument("--profile", default=DEFAULT_PROFILE)
     args = parser.parse_args(argv)
     try:
-        if model is None:
-            model = FakeModel.from_file(args.replay) if args.replay else make_model_client()
         guard = guard or Guard()
+        if model is None:
+            model = (
+                FakeModel.from_file(args.replay)
+                if args.replay
+                else make_model_client(profile=guard.policy.profile(args.profile))
+            )
         orchestrator = Orchestrator(
             guard,
             model,
@@ -89,7 +93,12 @@ def main(
     except (RecordingError, PolicyError) as exc:
         out.write(f"Fehler: {exc}\n")
         return EXIT_SETUP
-    return run_chat(orchestrator, read, out)
+    try:
+        return run_chat(orchestrator, read, out)
+    finally:
+        close = getattr(model, "close", None)
+        if callable(close):
+            close()
 
 
 if __name__ == "__main__":  # pragma: no cover
