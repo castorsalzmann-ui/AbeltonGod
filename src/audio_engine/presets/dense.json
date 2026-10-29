@@ -1,0 +1,18 @@
+{
+  "schema_version": "0.2",
+  "preset": "dense",
+  "seed": 1001,
+  "sample_rate": 48000,
+  "bit_depth": 24,
+  "peak_ceiling_dbfs": -0.3,
+  "length_ms": 480,
+  "pitch_start_hz": 200,
+  "pitch_end_hz": 52,
+  "pitch_decay_ms": 40,
+  "amp_attack_ms": 0.5,
+  "amp_decay_ms": 560,
+  "click_level": 0.35,
+  "click_tone_hz": 3500,
+  "drive": 0.45,
+  "tone": 0.0
+}
