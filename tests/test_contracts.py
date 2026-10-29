@@ -1,6 +1,7 @@
 """Checks that every contract is a valid JSON Schema and that the capability registry obeys it."""
 
 import json
+import math
 import random
 from pathlib import Path
 
@@ -230,6 +231,112 @@ def test_kick_params_v03_random_values_over_the_whole_range() -> None:
         step = rng.choice([1e-6, 1e-3, 1.0, 100.0]) * rng.uniform(1.0, 2.0)
         outside = rng.choice([lo - step, hi + step])
         assert not _valid({**doc, "bpm": 120, name: outside}), (name, outside)
+
+
+# Resolved form (review of PR #114, problem 1). Written by hand from the contract text: every
+# default filled, tail_note -> pitch_end_hz, length_beats -> length_ms, derived amp_decay_ms
+# stored as amp_decay_ms. The engine refuses 0.3 today, so the rule is applied here.
+V02_DEFAULTS = {
+    "variants": 1, "sample_rate": 48000, "bit_depth": 24, "length_ms": 450,
+    "pitch_start_hz": 220, "pitch_end_hz": 48, "pitch_decay_ms": 15, "amp_attack_ms": 0.5,
+    "amp_decay_ms": 320, "click_level": 0.35, "click_tone_hz": 3500, "drive": 0.2, "tone": 0,
+    "peak_ceiling_dbfs": -0.3,
+}
+V03_DEFAULTS = {"click_decay_ms": 3, "click_q": 0.9, "polarity": 1, "offset_ms": 0, "clip_db": 0}
+
+
+def _resolve_by_contract(request: dict, derived_decay_ms: float | None = None) -> dict:
+    out = dict(request)
+    if "tail_note" in out:
+        out["pitch_end_hz"] = 440.0 * 2.0 ** ((out.pop("tail_note") - 69) / 12)
+    if "length_beats" in out:
+        out["length_ms"] = out.pop("length_beats") * 60000.0 / out["bpm"]
+        if "amp_decay_ms" not in out:
+            out["amp_decay_ms"] = derived_decay_ms
+    for key, value in {**V02_DEFAULTS, **V03_DEFAULTS}.items():
+        out.setdefault(key, value)
+    return out
+
+
+def test_kick_params_resolved_v03_instance_validates() -> None:
+    request = {**V03, "tail_note": 33, "length_beats": 1, "bpm": 128, "polarity": -1}
+    resolved = _resolve_by_contract(request, derived_decay_ms=401.3)
+    assert resolved["pitch_end_hz"] == 55.0  # note 33 = A1
+    assert resolved["length_ms"] == 468.75  # one beat at 128 BPM
+    assert "tail_note" not in resolved and "length_beats" not in resolved
+    _kick_validator().validate(resolved)
+    # Resolving the resolved form again changes nothing (re-render without a new derivation).
+    assert _resolve_by_contract(resolved) == resolved
+    # The other design (input kept next to the filled default) is not a valid resolved form.
+    assert not _valid({**resolved, "tail_note": 33})
+    assert not _valid({**resolved, "length_beats": 1})
+
+
+def test_kick_params_resolved_form_is_valid_over_the_whole_range() -> None:
+    """Seeded: every v0.3 request (inside the ranges the engine accepts) resolves, by the
+    contract's rule, to a valid instance that holds no input field and recovers the inputs."""
+    rng = random.Random(1142)
+    for _ in range(400):
+        request = dict(V03)
+        if rng.random() < 0.7:
+            request["tail_note"] = rng.randint(23, 46)
+        if rng.random() < 0.7:
+            request["bpm"] = rng.uniform(60, 200)
+            lo, hi = max(0.25, 80 * request["bpm"] / 60000), min(4, 2000 * request["bpm"] / 60000)
+            request["length_beats"] = rng.uniform(lo, hi)
+            if rng.random() < 0.5:
+                request["amp_decay_ms"] = rng.uniform(20, 2000)
+        for name in ("click_decay_ms", "click_q", "offset_ms", "clip_db"):
+            if rng.random() < 0.5:
+                lo, hi, _ = V03_NUMBERS[name]
+                request[name] = rng.uniform(lo, hi)
+        if rng.random() < 0.5:
+            request["polarity"] = rng.choice([1, -1])
+        assert _valid(request), request
+        resolved = _resolve_by_contract(request, derived_decay_ms=rng.uniform(20, 2000))
+        assert _valid(resolved), (request, resolved)
+        assert not {"tail_note", "length_beats"} & set(resolved)
+        if "tail_note" in request:
+            note = 69 + 12 * math.log2(resolved["pitch_end_hz"] / 440)
+            assert abs(note - request["tail_note"]) < 1e-9
+        if "length_beats" in request:
+            beats = resolved["length_ms"] * resolved["bpm"] / 60000
+            assert math.isclose(beats, request["length_beats"], rel_tol=1e-12)
+
+
+def test_kick_params_v03_rules_are_written_exactly() -> None:
+    """The resolved form and the -60 dB rule are contract text the engine (#120) implements;
+    pin every number and choice so a silent edit shows up here."""
+    schema = load("kick-params.schema.json")
+    root = schema["description"]
+    for phrase in (
+        "tail_note is replaced by the derived pitch_end_hz",
+        "length_beats by the derived length_ms",
+        "an amp_decay_ms derived under length_beats is stored as amp_decay_ms",
+        "never contains tail_note or length_beats",
+    ):
+        assert phrase in root, phrase
+    rule = schema["allOf"][0]["then"]["properties"]["length_beats"]["description"]
+    for phrase in (
+        "the samples written to the WAV (after quantisation",
+        "rectangular RMS over N = sample_rate // 200 samples (240 at 48 kHz, 220 at 44.1 kHz)",
+        "hop 1 sample",
+        "i_max = the first i with r[i] = R",
+        "T60 = (i60 + N) / sample_rate, the END of the first window i60 > i_max",
+        "20 * log10(r[i60] / R) <= -60",
+        "T60 <= (n - n_fade) / sample_rate",
+        "the end fade-out never counts",
+        "rejected, never shortened",
+        "k = 0 ... 19800, value round(20 + k / 10, 1)",
+        "2000.0 fits -> 2000.0; 20.0 does not fit -> rejected",
+        "lo = 0, hi = 19800, while hi - lo > 1: mid = (lo + hi) // 2, lo = mid if mid fits",
+        "result k = lo",
+    ):
+        assert phrase in rule, phrase
+    assert (48000 // 200, 44100 // 200, round((2000 - 20) / 0.1)) == (240, 220, 19800)
+    for name, default in (("pitch_end_hz", 48), ("length_ms", 450), ("amp_decay_ms", 320)):
+        text = schema["properties"][name]["description"]
+        assert f"the default {default} is not used" in text, name
 
 
 def test_kick_params_old_sidecars_still_validate() -> None:
