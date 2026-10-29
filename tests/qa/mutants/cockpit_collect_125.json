@@ -1,0 +1,95 @@
+{
+  "description": "#125: faults in the cockpit collector's Phase 05+ handling and the new pipeline.json parser (scripts/qa/cockpit_collect.py). Each must turn tests/dev_tools/test_cockpit_collect.py red.",
+  "mutants": [
+    {
+      "id": "CC_SINGLE_REF_0_4",
+      "file": "scripts/qa/cockpit_collect.py",
+      "old": "re.findall(r\"\\b(0\\d[abAB]?)\\b\", text)",
+      "new": "re.findall(r\"\\b(0[0-4][abAB]?)\\b\", text)",
+      "tests": ["tests/dev_tools/test_cockpit_collect.py"],
+      "expected": "killed",
+      "note": "single phase references fall back to 00..04 (the pre-#125 regex)"
+    },
+    {
+      "id": "CC_RANGE_END_0_4",
+      "file": "scripts/qa/cockpit_collect.py",
+      "old": "re.findall(r\"\\b(0\\d)\\s*[–-]\\s*(0\\d[ab]?)\\b\", text)",
+      "new": "re.findall(r\"\\b(0\\d)\\s*[–-]\\s*(0[0-4][ab]?)\\b\", text)",
+      "tests": ["tests/dev_tools/test_cockpit_collect.py"],
+      "expected": "killed",
+      "note": "a range ending in 05..09 is not expanded"
+    },
+    {
+      "id": "CC_NO_NAME_05",
+      "file": "scripts/qa/cockpit_collect.py",
+      "old": " \"05\": \"Kick-Charakter\",\n",
+      "new": "\n",
+      "tests": ["tests/dev_tools/test_cockpit_collect.py"],
+      "expected": "killed",
+      "note": "Phase 05 falls back to the English title"
+    },
+    {
+      "id": "CC_NO_TRACK_05",
+      "file": "scripts/qa/cockpit_collect.py",
+      "old": " \"05\": \"Kick\",\n",
+      "new": "\n",
+      "tests": ["tests/dev_tools/test_cockpit_collect.py"],
+      "expected": "killed",
+      "note": "Phase 05 issues land in track Sonstiges"
+    },
+    {
+      "id": "CC_TITLE_KEEPS_PARENS",
+      "file": "scripts/qa/cockpit_collect.py",
+      "old": "re.sub(r\"\\s*\\(.*\\)$\", \"\", m.group(1)).strip() if m",
+      "new": "m.group(1).strip() if m",
+      "tests": ["tests/dev_tools/test_cockpit_collect.py"],
+      "expected": "killed",
+      "note": "readable name keeps the '(detail)' part of the title"
+    },
+    {
+      "id": "CC_PIPE_ESCAPE_IGNORED",
+      "file": "scripts/qa/cockpit_collect.py",
+      "old": "re.split(r\"(?<!\\\\)\\|\", inner)",
+      "new": "re.split(r\"\\|\", inner)",
+      "tests": ["tests/dev_tools/test_cockpit_collect.py"],
+      "expected": "killed",
+      "note": "an escaped \\| inside a cell splits the cell"
+    },
+    {
+      "id": "CC_ROLES_HEADER_UNMAPPED",
+      "file": "scripts/qa/cockpit_collect.py",
+      "old": "\"role(s)\": \"roles\", ",
+      "new": "",
+      "tests": ["tests/dev_tools/test_cockpit_collect.py"],
+      "expected": "killed",
+      "note": "the ROADMAP header 'Role(s)' is not recognised, roles stay empty"
+    },
+    {
+      "id": "CC_TABLE_NOT_ENDED",
+      "file": "scripts/qa/cockpit_collect.py",
+      "old": "        if not ln.lstrip().startswith(\"|\"):\n            break\n",
+      "new": "        if not ln.lstrip().startswith(\"|\"):\n            continue\n",
+      "tests": ["tests/dev_tools/test_cockpit_collect.py"],
+      "expected": "killed",
+      "note": "a second table in the section is merged into the pipeline"
+    },
+    {
+      "id": "CC_NEXT_COLUMN_IGNORED",
+      "file": "scripts/qa/cockpit_collect.py",
+      "old": " \"next\": \"next\",\n",
+      "new": "\n",
+      "tests": ["tests/dev_tools/test_cockpit_collect.py"],
+      "expected": "killed",
+      "note": "an existing Next column is dropped"
+    },
+    {
+      "id": "CC_COMMIT_KIND_RANGE",
+      "file": "scripts/qa/cockpit_collect.py",
+      "old": "for n in range(5, 10)}",
+      "new": "for n in range(5, 9)}",
+      "tests": ["tests/dev_tools/test_cockpit_collect.py"],
+      "expected": "killed",
+      "note": "phase-09 commits are not classified"
+    }
+  ]
+}
