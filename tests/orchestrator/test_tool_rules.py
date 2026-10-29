@@ -78,9 +78,12 @@ def test_files_for_sets_the_reservation(make_guard):
     with guard.request("p") as req:
         box.run(req, ToolCall("a", "t", {"n": 4}), None)
         box.run(req, ToolCall("b", "t", {"n": 4}), None)
-        with pytest.raises(GuardStop) as stop:  # 8 used, 4 more would be 12 > 10
-            box.run(req, ToolCall("c", "t", {"n": 4}), None)
-    assert stop.value.reason is Limit.FILES and len(seen) == 2
+        third = box.run(req, ToolCall("c", "t", {"n": 4}), None)  # 8 used, 4 more > 10
+        assert req.files_left() == 2
+        fourth = box.run(req, ToolCall("d", "t", {"n": 2}), None)  # exactly fits
+        assert req.files_left() == 0
+    assert third.content["error"] == "file_budget" and len(seen) == 3
+    assert not fourth.is_error
     # with the static maximum (8) the second call would already have been stopped
     assert Tool("u", "", OBJ, handler, max_files_written=8).declared_files({"n": 4}) == 8
 
@@ -212,6 +215,47 @@ def test_window_and_backend_check_apply_to_confirm_tools_only(make_guard, events
     assert bool(ran) == routine
     if not routine:
         assert result.content["error"] == "too_late"
+
+
+@pytest.mark.parametrize("answer", [False, None, "yes", RuntimeError("x")])
+def test_confirm_tool_not_presented_is_refused_before_anything(make_guard, events, answer):
+    asked_presented = []
+
+    def presented(call_id, wait_s):
+        asked_presented.append((call_id, wait_s))
+        if isinstance(answer, Exception):
+            raise answer
+        return answer
+
+    yes = Yes()
+    plans = []
+    tool = _confirm_tool(lambda a: plans.append(a) or Plan({}), events)
+    guard = make_guard()
+    result = run(guard, Toolbox([tool]), {"n": 1}, yes, presented=presented)
+    assert result.content["error"] == "not_presented"
+    assert asked_presented == [("c1", 2.0)]
+    assert plans == [] and yes.plans == [] and ("handler", "t") not in events.items
+    assert log_tools(guard)[-1]["live_writes"] == 0
+
+
+def test_presented_is_not_asked_for_routine_tools_and_true_goes_on(make_guard, events):
+    asked = []
+    routine = Tool("t", "", OBJ, lambda a: ToolOutput({}))
+    run(make_guard(), Toolbox([routine]), {"n": 1}, None,
+        presented=lambda c, w: asked.append(c) or False)
+    assert asked == []
+    tool = _confirm_tool(lambda a: Plan({"ok": 1}), events)
+    result = run(make_guard(), Toolbox([tool]), {"n": 1}, Yes(), presented=lambda c, w: True)
+    assert result.content == {"plan": {"ok": 1}}
+
+
+def test_files_left(make_guard):
+    guard = make_guard(max_files_written=10)
+    tool = Tool("t", "", OBJ, lambda a: ToolOutput({}, files_written=3), max_files_written=3)
+    with guard.request("p") as req:
+        assert req.files_left() == 10
+        Toolbox([tool]).run(req, ToolCall("a", "t", {"n": 1}), None)
+        assert req.files_left() == 7
 
 
 # --- tool_call_pending (SDK client) ---------------------------------------------------------

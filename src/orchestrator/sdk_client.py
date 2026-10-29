@@ -348,6 +348,36 @@ class SdkModelClient:
             fut.cancel()
             return False
 
+    def tool_call_presented(self, call_id: str, wait_s: float) -> bool:
+        """Wait up to ``wait_s`` until the CLI has presented ``call_id`` in its PreToolUse hook
+        (and the call is still pending). A turn's later calls arrive only after the earlier
+        hooks were answered in the fake CLI (the real CLI's order is not established), and
+        those answers come at the next model call; so a confirm tool that is not first in its
+        turn gets ``False`` here and is refused before anyone is asked (PR #168 review)."""
+        if self._closed:
+            return False
+
+        async def wait() -> bool:
+            until = time.monotonic() + max(0.0, float(wait_s))
+            while True:
+                sess = self._session
+                if not sess or sess.closed or sess.violation is not None or sess.stream_ended:
+                    return False
+                hook = sess.hooks.get(call_id)
+                if hook is not None:
+                    return (call_id in sess.returned and sess.awaiting_results
+                            and not hook.future.done())
+                if time.monotonic() >= until:
+                    return False
+                await asyncio.sleep(0.02)
+
+        fut = asyncio.run_coroutine_threadsafe(wait(), self._loop)
+        try:
+            return fut.result(timeout=max(0.0, float(wait_s)) + 5) is True
+        except Exception:  # noqa: BLE001 - unknown means "not presented"
+            fut.cancel()
+            return False
+
     def end_request(self) -> None:
         """Close the open SDK session (if any). The loop calls this when a request ends, so a
         CLI waiting in the hook can never go on to an unpermitted model call."""

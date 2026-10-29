@@ -59,7 +59,6 @@ from bridge.clip_import import (
     DEFAULT_ACTION_LOG,
     ActionLog,
     ClipImporter,
-    ImportAborted,
     ImportPathError,
     SlotState,
     first_empty_slot,
@@ -251,8 +250,15 @@ class KickSession:
 
     # ----- tools -----------------------------------------------------------------------------
 
-    def tools(self) -> list[Tool]:
+    def tools(self, files_per_request: int | None = None) -> list[Tool]:
+        """``files_per_request``: the guard profile's ``max_files_written``; when given, the
+        generate_kick description names the resulting kick limit per request."""
         kick_schema = contract_input_schema(TOOL_CONTRACTS["generate_kick"])
+        description = GENERATE_DESCRIPTION
+        if files_per_request is not None:
+            description += (f" At most {int(files_per_request) // FILES_PER_KICK} kicks per "
+                            f"request ({FILES_PER_KICK} files each, request limit "
+                            f"{int(files_per_request)} files).")
         # From the parameter contract, not the tool schema (a strict tool schema has no
         # `maximum`, #131).
         max_variants = int(
@@ -261,15 +267,19 @@ class KickSession:
         import_schema = contract_input_schema(TOOL_CONTRACTS["import_sample"])
 
         def kick_files(arguments: Any) -> int:
+            """Files one call writes, read before validation. A value the schema refuses
+            (not an object, a string, 2.5, null, < 1) never reaches the handler, so it
+            declares 0 and comes back as invalid_arguments, not as a guard stop (PR #168
+            review). A whole number above the maximum declares what it asks for."""
             if not isinstance(arguments, Mapping):
-                raise ValueError("arguments are not an object")
+                return 0
             n = _whole_int(arguments.get("variants", 1))
-            if n is None or not 1 <= n <= max_variants:
-                raise ValueError("variants unreadable")  # -> the declared maximum
+            if n is None or n < 1:
+                return 0
             return FILES_PER_KICK * n
 
         return [
-            Tool("generate_kick", GENERATE_DESCRIPTION, kick_schema, self._generate,
+            Tool("generate_kick", description, kick_schema, self._generate,
                  approval=Approval.ROUTINE, max_files_written=FILES_PER_KICK * max_variants,
                  files_for=kick_files),
             Tool("list_tracks", list_schema["description"], list_schema, self._list_tracks,
@@ -454,7 +464,8 @@ class KickSession:
             outcome = importer.run(path=path, track_index=data.track_index,
                                    slot_index=data.slot_index, num_slots=data.num_scenes,
                                    expected_before=data.state)
-        except (ImportAborted, BridgeError, CapabilityError, OSError, ValueError) as exc:
+        except Exception as exc:  # noqa: BLE001 - ImportAborted, BridgeError, OSError, a bug:
+            # the model must always learn whether Live may have changed
             last = importer.last_outcome if importer is not None else None
             sent = last is not None and bool(last.steps)
             raise ToolError(

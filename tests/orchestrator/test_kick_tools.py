@@ -121,12 +121,14 @@ def test_one_untested_capability_refuses_its_tool(tmp_path, cap, status):
 @pytest.mark.parametrize(
     ("args", "files"),
     [({}, 2), ({"variants": 3}, 6), ({"variants": 3.0}, 6), ({"variants": 8}, 16),
-     ({"variants": 1}, 2), ({"variants": 0}, 16), ({"variants": 9}, 16),
-     ({"variants": "3"}, 16), ({"variants": True}, 16), ({"variants": None}, 16),
-     ({"variants": 2.5}, 16), ({"variants": float("nan")}, 16), ([], 16), (None, 16)],
+     ({"variants": 1}, 2), ({"variants": 0}, 0), ({"variants": -2}, 0),
+     ({"variants": 9}, 16), ({"variants": 10**9}, 16),
+     ({"variants": "3"}, 0), ({"variants": True}, 0), ({"variants": None}, 0),
+     ({"variants": 2.5}, 0), ({"variants": float("nan")}, 0), ([], 0), (None, 0)],
 )
 def test_declared_files_per_call(tmp_path, args, files):
-    """Declared before validation: exact for readable variants, else the maximum."""
+    """Declared before validation (PR #168 review): exact for whole numbers (capped at the
+    tool maximum of 16); 0 for values the schema refuses, which never reach the handler."""
     gen = {t.name: t for t in make_session(tmp_path).tools()}["generate_kick"]
     assert gen.declared_files(args) == files
 
@@ -184,13 +186,49 @@ def test_random_requests_over_the_contract_write_exactly_what_they_report(tmp_pa
     assert outcomes["ok"] >= 7, outcomes
 
 
-def test_more_kicks_than_the_file_budget_stop_before_any_render(tmp_path, make_guard):
-    """TEST_POLICY allows 10 files: 6 kicks (12 files) are stopped by the guard first."""
+def test_more_kicks_than_the_file_budget_are_refused_before_any_render(tmp_path, make_guard):
+    """TEST_POLICY allows 10 files: 6 kicks (12 files) are refused with the numbers, nothing
+    rendered, the request goes on."""
     session = make_session(tmp_path)
-    with pytest.raises(GuardStop) as stop:
-        generate(make_guard(), toolbox(session), n=6)
-    assert stop.value.reason is Limit.FILES
+    guard = make_guard()
+    result = generate(guard, toolbox(session), n=6)
+    assert result.content["error"] == "file_budget"
+    assert "12 files" in result.content["message"] and "only 10 more" in result.content["message"]
     assert kick_files(session) == []
+    assert tool_log(guard)[-1]["files_written"] == 0
+
+
+SHIPPED_POLICY = kt.CONTRACTS_DIR.parent / "config" / "guard-policy.json"
+
+
+@pytest.mark.parametrize(("variants", "outcome"), [
+    (1, "ok"), (6, "ok"), (7, "file_budget"), (8, "file_budget"),
+    ("3", "invalid_arguments"), (2.5, "invalid_arguments"), (None, "invalid_arguments"),
+    (0, "invalid_arguments"), (9, "invalid_arguments")])
+def test_shipped_profile_never_stops_on_a_kick_count(tmp_path, variants, outcome):
+    """The real kick_generation profile (config/guard-policy.json, 12 files): a too-large
+    valid count is refused with the limit, a malformed one is a schema refusal; neither stops
+    the request, and the second call of the request still works."""
+    from guard import Guard, load_policy
+
+    policy = load_policy(SHIPPED_POLICY)
+    limit = policy.profile("kick_generation").max_files_written
+    session = make_session(tmp_path)
+    box = Toolbox(session.tools(files_per_request=limit), capability_gate=session.gate())
+    guard = Guard(policy, log_path=tmp_path / "usage.jsonl")
+    args = {**FAST_KICK, "variants": variants}
+    with guard.request("kick_generation") as req:
+        first = box.run(req, ToolCall("a", "generate_kick", args), None)
+        second = box.run(req, ToolCall("b", "generate_kick", {**FAST_KICK, "seed": 1}), None)
+    got = "ok" if not first.is_error else first.content["error"]
+    assert got == outcome, first.content
+    files = 2 * variants if outcome == "ok" else 0
+    assert len(kick_files(session)) == files + (2 if files + 2 <= limit else 0)
+    if outcome == "file_budget":
+        assert f"limit max_files_written {limit}" in first.content["message"]
+    gen = {t.name: t for t in session.tools(files_per_request=limit)}["generate_kick"]
+    assert f"At most {limit // 2} kicks per request" in gen.description
+    assert second.is_error == (files + 2 > limit)
 
 
 @pytest.mark.parametrize(
@@ -604,6 +642,50 @@ def test_live_gone_after_the_plan(tmp_path, make_guard, fake):
                  Approver(True, during=lambda: fake.drop.add("/live/song/get/track_names")))
     assert result.is_error and result.content["live"] == "unchanged"
     assert writes_sent(fake) == []
+
+
+def test_symlink_to_an_identical_file_outside_the_library_is_refused(tmp_path, make_guard,
+                                                                    fake):
+    """INTERFACES.md: right before the import the path is checked again with
+    validate_wav_path(path, library_root=<kick folder>). A WAV replaced by a symlink to a
+    byte-identical copy outside the library passes the hash pin; only that check refuses it
+    (reviewer mutant R7)."""
+    import os
+
+    session, box, guard = _ready(tmp_path, make_guard, fake)
+    wav = session.kick_folder / session.entry("kick-1").file
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    copy_path = outside / wav.name
+    copy_path.write_bytes(wav.read_bytes())
+    wav.unlink()
+    try:
+        os.symlink(copy_path, wav)
+    except (OSError, NotImplementedError) as exc:  # Windows without the symlink privilege
+        pytest.skip(f"symlinks not available here: {exc}")
+    approver = Approver(True)
+    result = run(guard, box, "import_sample", {"sample_id": "kick-1", "track_index": 0},
+                 approver)
+    assert result.is_error and "outside the sample library" in result.content["message"]
+    assert approver.asked == [] and writes_sent(fake) == []
+
+
+def test_unexpected_bridge_error_tells_the_model_to_look_in_live(tmp_path, make_guard, fake,
+                                                                monkeypatch):
+    import orchestrator.kick_tools as mod
+
+    session, box, guard = _ready(tmp_path, make_guard, fake)
+
+    class Broken(mod.ClipImporter):
+        def run(self, **kwargs):
+            raise RuntimeError("bug in the bridge")
+
+    monkeypatch.setattr(mod, "ClipImporter", Broken)
+    result = run(guard, box, "import_sample", {"sample_id": "kick-1", "track_index": 0},
+                 Approver(True))
+    assert result.content["error"] == "tool_error"
+    assert result.content["live"] == "unchanged"  # nothing was sent before the bug
+    assert "RuntimeError" in result.content["message"]
 
 
 def test_live_refuses_the_write(tmp_path, make_guard, fake):

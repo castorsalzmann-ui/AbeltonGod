@@ -40,6 +40,13 @@ _YES = {"j", "ja", "y", "yes"}
 _QUIT = {"", "exit", "quit"}
 
 
+def _live_number(index: Any) -> str:
+    """0-based tool index -> Live's 1-based number; anything else shown as is."""
+    if isinstance(index, int) and not isinstance(index, bool) and index >= 0:
+        return str(index + 1)
+    return str(index)
+
+
 class TerminalApprover:
     """Asks before any ``confirm`` tool. Only an explicit yes counts."""
 
@@ -50,10 +57,12 @@ class TerminalApprover:
     def confirm(self, tool: Tool, arguments: dict[str, Any], plan: Plan | None = None) -> bool:
         if plan is not None and tool.name == "import_sample":
             s = plan.summary
+            # Live counts tracks and scenes from 1; the tools count from 0 (PR #168 review).
+            track, slot = _live_number(s.get("track_index")), _live_number(s.get("slot_index"))
             self._out.write(
                 f"Bestätigen: {s.get('file')} ({s.get('sample_id')}) in Spur "
-                f"{s.get('track_index')} \"{s.get('track_name')}\", Zelle (Szene) "
-                f"{s.get('slot_index')} importieren. Das ändert das Ableton-Set.\n"
+                f"\"{s.get('track_name')}\" (Spur {track} von links), Zelle in Szene {slot} "
+                "importieren. Das ändert das Ableton-Set.\n"
                 f"Bitte innerhalb von {CONFIRM_WINDOW_S:g} s antworten, sonst wird nichts "
                 "ausgeführt.\n"
             )
@@ -108,7 +117,8 @@ def main(
                 session = session_factory(args.project)
             except ProjectCheckUnavailable as exc:  # until #149 is merged
                 unavailable = str(exc)
-        toolbox = (Toolbox(session.tools(), capability_gate=session.gate())
+        limit = guard.policy.profile(args.profile).max_files_written
+        toolbox = (Toolbox(session.tools(files_per_request=limit), capability_gate=session.gate())
                    if session is not None else Toolbox())
         if model is None:
             model = (

@@ -230,6 +230,167 @@ def test_model_call_while_the_hook_waits_blocks_the_write(tmp_path, make_guard, 
     assert writes_sent(fake) == []
 
 
+# --- several calls in one model turn (PR #168 review, problem 1) ----------------------------
+
+
+def _orch(tmp_path, make_guard, clients, fake, script2, approver):
+    session = make_session(tmp_path, fake)
+    factory = FakeCLIFactory(scripts()[0], script2)
+    orch = Orchestrator(make_guard(), make_client(clients, factory), toolbox(session),
+                        profile="p", approver=approver, context=session.context)
+    assert orch.handle(REQUEST_1).success
+    return session, factory, orch
+
+
+def test_list_tracks_and_import_in_one_turn(tmp_path, make_guard, events, clients, fake):
+    """The fake CLI hands a turn's calls to the hook one after another, so import_sample's
+    hook is not there while the loop runs it. It is refused before the user is asked, with a
+    reason saying so; the model's retry alone in the next turn imports. No yes is lost."""
+    imp = {"sample_id": "kick-2", "track_index": 0}
+    script = {"turns": [
+        {"tool_uses": [use("t2", "list_tracks", {}), use("t3", "import_sample", imp)]},
+        {"tool_uses": [use("t4", "import_sample", imp)]},
+        {"text": "kick-2 ist importiert."}]}
+    approver = Approver(True)
+    session, factory, orch = _orch(tmp_path, make_guard, clients, fake, script, approver)
+    out = orch.handle("Importiere kick-2 auf Spur 1-Kick")
+    assert out.success, out.message_de
+    assert [a[0] for a in approver.asked] == ["import_sample"]  # asked once: for t4
+    assert writes_sent(fake) == [("/live/clip_slot/create_audio_clip",
+                                  (0, 0, session.entry("kick-2").path))]
+    cli = factory.made[1]
+    denied = [h for h in cli.events("hook") if h[3] == "t3"]
+    assert denied and denied[0][2] == "deny"
+    assert [h[2] for h in cli.events("hook") if h[3] in ("t2", "t4")] == ["allow", "allow"]
+    assert cli.model_calls == 3
+
+
+def test_two_imports_in_one_turn(tmp_path, make_guard, events, clients, fake):
+    a = {"sample_id": "kick-1", "track_index": 0}
+    b = {"sample_id": "kick-2", "track_index": 0}
+    script = {"turns": [
+        {"tool_uses": [use("t2", "import_sample", a), use("t3", "import_sample", b)]},
+        {"tool_uses": [use("t4", "import_sample", b)]},
+        {"text": "beide importiert"}]}
+    approver = Approver(True)
+    session, factory, orch = _orch(tmp_path, make_guard, clients, fake, script, approver)
+    out = orch.handle("Importiere kick-1 und kick-2")
+    assert out.success, out.message_de
+    assert len(approver.asked) == 2  # t2 and t4; t3 was refused before asking
+    paths = [p[2] for _, p in writes_sent(fake)]
+    assert paths == [session.entry("kick-1").path, session.entry("kick-2").path]
+
+
+def test_not_presented_reason_reaches_the_model(tmp_path, make_guard, events, clients, fake):
+    """What the model reads for the refused second call names the real reason."""
+    imp = {"sample_id": "kick-2", "track_index": 0}
+    script = {"turns": [
+        {"tool_uses": [use("t2", "list_tracks", {}), use("t3", "import_sample", imp)]},
+        {"text": "ok"}]}
+    approver = Approver(True)
+    session, factory, orch = _orch(tmp_path, make_guard, clients, fake, script, approver)
+    results = []
+
+    class Spy(Toolbox):
+        def run(self, *args, **kwargs):
+            out = super().run(*args, **kwargs)
+            results.append(out)
+            return out
+
+    spy = Spy(session.tools(), capability_gate=session.gate())
+    orch.toolbox = spy
+    out = orch.handle("x")
+    assert out.success is False and approver.asked == []
+    [listed, refused] = results
+    assert not listed.is_error
+    assert refused.content["error"] == "not_presented"
+    assert "not the first tool call of its turn" in refused.content["message"]
+    assert "Nobody was asked" in refused.content["message"]
+    reasons = [e for e in factory.made[1].log if e[0] == "hook" and e[3] == "t3"]
+    assert reasons[0][2] == "deny"
+
+
+def test_stream_end_while_the_user_decides_blocks_the_write(tmp_path, make_guard, events,
+                                                            clients, fake):
+    """Reviewer mutant R10: the CLI's output ends while the user decides; nobody would answer
+    the session any more, so the import must not run."""
+    session = make_session(tmp_path, fake)
+
+    class EndingCLI(FakeCLI):
+        async def _run_tool(self, use):
+            if use["name"].endswith("import_sample"):
+                asyncio.get_running_loop().call_later(0.1, self.out.put_nowait, None)
+            return await super()._run_tool(use)
+
+    class Factory(FakeCLIFactory):
+        def __call__(self, options):
+            cli = EndingCLI(self.scripts[min(len(self.made), len(self.scripts) - 1)], options)
+            self.made.append(cli)
+            self.options.append(options)
+            return cli
+
+    factory = Factory(*scripts())
+    orch = Orchestrator(make_guard(), make_client(clients, factory), toolbox(session),
+                        profile="p", approver=Approver(True, during=lambda: time.sleep(0.4)),
+                        context=session.context)
+    assert orch.handle(REQUEST_1).success
+    out = orch.handle("Importiere kick-2")
+    assert out.success is False and writes_sent(fake) == []
+
+
+# --- the confirmation window through the loop (PR #168 review, problem 2) -------------------
+
+
+class Ticks:
+    def __init__(self) -> None:
+        self.t = 5000.0
+
+    def __call__(self) -> float:
+        return self.t
+
+
+@pytest.mark.parametrize(("slow_s", "decide_s", "writes"), [
+    (0.0, 19.0, 1), (0.0, 21.0, 0),    # the user alone
+    (15.0, 4.0, 1), (15.0, 6.0, 0),    # an earlier call of the same turn counts (per turn)
+])
+def test_confirmation_window_runs_per_turn_in_the_loop(tmp_path, make_guard, events, fake,
+                                                       slow_s, decide_s, writes):
+    """Reviewer mutants R2 (loop passes no turn start) and R4 (start per call): the window
+    is measured from the model turn, through Orchestrator._run, with the toolbox clock."""
+    from orchestrator.fake_model import FakeModel
+    from orchestrator.tools import Tool, ToolOutput
+
+    ticks = Ticks()
+    session = make_session(tmp_path, fake)
+
+    def slow(args):
+        ticks.t += slow_s
+        return ToolOutput({"done": True}, files_written=0, live_writes=0)
+
+    tools = session.tools() + [Tool("slow", "", {"type": "object", "properties": {},
+                                                 "additionalProperties": False}, slow)]
+    box = Toolbox(tools, capability_gate=session.gate(), clock=ticks)
+    model = FakeModel([
+        {"tool_calls": [{"id": "g", "name": "generate_kick",
+                         "arguments": {**FAST_KICK, "variants": 1}}]},
+        {"tool_calls": [{"id": "s", "name": "slow", "arguments": {}},
+                        {"id": "i", "name": "import_sample",
+                         "arguments": {"sample_id": "kick-1", "track_index": 0}}]},
+        {"text": "fertig"}])
+
+    def user():
+        ticks.t += decide_s
+
+    out = Orchestrator(make_guard(), model, box, profile="p", estimate_cost_usd=lambda r: 0.01,
+                       approver=Approver(True, during=user)).handle("x")
+    assert len(writes_sent(fake)) == writes, out.message_de
+    result = model.requests[2].messages[-1].results[1]
+    if writes:
+        assert out.success and not result.is_error
+    else:
+        assert out.success is False and result.content["error"] == "too_late"
+
+
 def test_system_prompt_names_exactly_the_registered_tools(tmp_path, make_guard, clients, fake):
     """#163: the model must not offer what does not exist."""
     session = make_session(tmp_path, fake)
@@ -259,8 +420,12 @@ def test_terminal_approver_shows_track_and_slot(tmp_path):
                  "track_name": "1-Kick", "slot_index": 3, "scene_count": 8})
     assert approver.confirm(tool, {"sample_id": "kick-2", "track_index": 0}, plan) is True
     text = out.getvalue()
-    assert "kick_s1_v1.wav" in text and '"1-Kick"' in text and "Zelle (Szene) 3" in text
-    assert "40 s" in text
+    # Live's 1-based numbers next to the name (PR #168 review): index 0 -> Spur 1, slot 3 ->
+    # Szene 4
+    assert "kick_s1_v1.wav" in text and '"1-Kick"' in text
+    assert "(Spur 1 von links)" in text and "Szene 4" in text
+    assert "Spur 0" not in text and "Szene 3" not in text
+    assert "20 s" in text
 
 
 def test_chat_without_project_has_no_tools(make_guard):

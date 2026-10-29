@@ -12,8 +12,8 @@
     {
       "id": "B2_TOOLBOX_SKIPS_GUARD_FOR_VALID_CALLS",
       "file": "src/orchestrator/tools.py",
-      "old": "        declared_files = tool.declared_files(call.arguments) if tool else 0\n        permit",
-      "new": "        declared_files = tool.declared_files(call.arguments) if tool else 0\n        if tool is not None and tool.prepare is None and not validation_errors(tool, call.arguments):\n            out = tool.handler(copy.deepcopy(dict(call.arguments)))\n            return ToolResult(call.id, tool.name, False, out.content)\n        permit",
+      "old": "        over_budget = declared_files > files_left\n        permit",
+      "new": "        over_budget = declared_files > files_left\n        if tool is not None and tool.prepare is None and not validation_errors(tool, call.arguments):\n            out = tool.handler(copy.deepcopy(dict(call.arguments)))\n            return ToolResult(call.id, tool.name, False, out.content)\n        permit",
       "tests": ["tests/orchestrator"],
       "note": "guard bypass: valid calls never reach before_tool/after_tool"
     },
@@ -36,7 +36,7 @@
     {
       "id": "B5_TOOL_RESERVES_NO_FILES",
       "file": "src/orchestrator/tools.py",
-      "old": "            writes_files=declared_files,\n",
+      "old": "            writes_files=0 if over_budget else declared_files,\n",
       "new": "            writes_files=0,\n",
       "tests": ["tests/orchestrator"],
       "note": "file budget no longer reserved before the handler"

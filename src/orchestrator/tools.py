@@ -7,8 +7,12 @@
    role as a catch-all PreToolUse deny hook in the Agent SDK). A ``GuardStop`` here means the
    handler never runs. The files a call may write are declared per call (``files_for``), from
    the raw arguments, before they are validated; anything unreadable declares the maximum.
+   A call that declares more files than the request has left reserves nothing and is
+   refused with the numbers (``file_budget``) after validation, instead of a guard stop.
 2. Unknown tool name -> rejected.
-3. Arguments validated against the tool's JSON Schema -> rejected if invalid.
+3. Arguments validated against the tool's JSON Schema -> rejected if invalid. A confirm tool
+   then waits up to ``PRESENT_WAIT_S`` until the backend has handed this very call to the
+   guard (``presented``); if not, it is refused (``not_presented``) before anyone is asked.
 4. ``prepare`` (confirm tools only, read only): checks against the current state and builds
    the ``Plan`` the user is shown, e.g. the track name and slot read from Live. A
    ``ToolError`` here refuses the call before anyone is asked.
@@ -17,12 +21,14 @@
    (#81, #83 V10):
    - the request deadline again (``GuardedRequest.check_deadline``): a yes that comes after
      the request timed out stops the request, and nothing runs;
-   - the yes must come within ``CONFIRM_WINDOW_S`` of the model turn that asked for the call,
-     else it is refused as too late. Reason: while the user decides, the Claude Code CLI waits
-     in its PreToolUse hook. The client hands it a 7-day hook timeout, and whether the real
-     CLI keeps that value is V10 (#83, not verified). If it fell back to its documented
-     default of 60 s, it would block the call and make a model call the guard never
-     permitted. The window keeps a confirmed Live write inside those 60 s;
+   - the yes must come within ``CONFIRM_WINDOW_S`` of the model turn that asked for the call
+     (per turn, not per call), else it is refused as too late. Reason: while the user
+     decides, the Claude Code CLI waits in its PreToolUse hook. The client hands it a 7-day
+     hook timeout, and whether the real CLI keeps that value is V10 (#83, not verified). If it
+     fell back to a default, it would block the call and make a model call the guard never
+     permitted. Defaults named so far: 60 s (comment on ``HookMatcher.timeout`` in
+     claude-agent-sdk 0.2.174 ``types.py``) and 600 s (Claude Code hooks docs, research note
+     ``2026-10-28_agent-sdk-behaviour.md``); the window is set well below the smaller one;
    - the model client, if it can tell (``still_waiting``), must still be waiting for exactly
      this call (no hook cancelled by the CLI, no model call seen since the tool turn).
 6. The handler runs (with the plan when the tool has ``prepare``).
@@ -56,10 +62,15 @@ from orchestrator.model_client import ToolCall, ToolResult, ToolSpec
 
 MAX_REPORTED_ERRORS = 5
 TOOL_NAME = re.compile(r"[a-zA-Z0-9_-]{1,128}")
-# Longest time from the model turn that asked for a confirm tool to the user's yes. Claude
-# Code's documented default hook timeout is 60 s; with this window and a short handler the
-# confirmed write stays inside it even if the CLI ignored the client's 7-day value (V10, #83).
-CONFIRM_WINDOW_S = 40.0
+# Longest time from the model turn that asked for a confirm tool to the user's yes (user
+# decision on PR #168: 20 s). The smallest hook-timeout default named anywhere is 60 s (SDK
+# types.py comment; the hooks docs say 600 s), so a confirmed write starts well inside it even
+# if the CLI ignored the client's 7-day value (V10, #83).
+CONFIRM_WINDOW_S = 20.0
+# How long a confirm tool waits for the backend to present its own call (its PreToolUse hook)
+# before the user is asked. The fake CLI presents a turn's calls one after another, each only
+# after the previous hook was answered; whether the real CLI does so is not established.
+PRESENT_WAIT_S = 2.0
 
 
 class Approval(StrEnum):
@@ -300,20 +311,28 @@ class Toolbox:
         *,
         turn_started: float | None = None,
         still_waiting: Callable[[str], bool] | None = None,
+        presented: Callable[[str, float], bool] | None = None,
     ) -> ToolResult:
         """Run one model tool call through the guard. ``GuardStop`` propagates; every other
         failure becomes an error result the model can read.
 
         ``turn_started``: ``self.clock()`` when the model turn that asked for this call
-        arrived (for ``CONFIRM_WINDOW_S``). ``still_waiting(call_id)``: whether the model
-        backend still waits for this call (``SdkModelClient.tool_call_pending``)."""
+        arrived (for ``CONFIRM_WINDOW_S``; the same value for every call of the turn).
+        ``still_waiting(call_id)``: whether the model backend still waits for this call
+        (``SdkModelClient.tool_call_pending``). ``presented(call_id, wait_s)``: whether the
+        backend has presented this call to the guard, waiting up to ``wait_s``
+        (``SdkModelClient.tool_call_presented``); a confirm tool asks it before the user."""
         tool = self._tools.get(call.name) if isinstance(call.name, str) else None
         name = call.name if isinstance(call.name, str) and call.name else "<unnamed>"
         declared_files = tool.declared_files(call.arguments) if tool else 0
+        # A call that would not fit the request's file budget reserves nothing and is refused
+        # below with the numbers, instead of stopping the whole request (PR #168 review).
+        files_left = req.files_left()
+        over_budget = declared_files > files_left
         permit = req.before_tool(
             name,
             call.arguments,
-            writes_files=declared_files,
+            writes_files=0 if over_budget else declared_files,
             live_writes=tool.max_live_writes if tool else 0,
         )
         if tool is None:
@@ -326,6 +345,30 @@ class Toolbox:
                 call, "invalid_arguments", "; ".join(errors[:MAX_REPORTED_ERRORS]),
                 errors=errors[:MAX_REPORTED_ERRORS],
             )
+        if over_budget:
+            req.after_tool(permit, files_written=0, live_writes=0, ok=False)
+            return _error(
+                call, "file_budget",
+                f"this call would write {declared_files} files, but this request may write "
+                f"only {files_left} more (guard limit max_files_written "
+                f"{req.profile.max_files_written} per request). Nothing was written; ask for "
+                "less in one call.",
+                files_needed=declared_files, files_left=files_left,
+            )
+        if tool.approval is Approval.CONFIRM and presented is not None:
+            try:
+                shown = presented(call.id, PRESENT_WAIT_S) is True
+            except Exception:  # noqa: BLE001 - unknown counts as "not presented"
+                shown = False
+            if not shown:
+                req.after_tool(permit, files_written=0, live_writes=0, ok=False)
+                return _error(
+                    call, "not_presented",
+                    f"Claude Code had not handed this {name} call to the guard within "
+                    f"{PRESENT_WAIT_S:g} s (it is not the first tool call of its turn). Nobody "
+                    "was asked and nothing was sent to Live. Call it again as the only tool "
+                    "call of your next turn.",
+                )
         arguments = copy.deepcopy(dict(call.arguments))
         plan: Plan | None = None
         if tool.prepare is not None:
@@ -453,6 +496,7 @@ def _error(call: ToolCall, kind: str, message: str, **extra: Any) -> ToolResult:
 
 __all__ = [
     "CONFIRM_WINDOW_S",
+    "PRESENT_WAIT_S",
     "Approval",
     "Approver",
     "CapabilityChecker",

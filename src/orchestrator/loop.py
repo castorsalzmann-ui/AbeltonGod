@@ -254,8 +254,12 @@ class Orchestrator:
         system = self._request_system()
         pending = getattr(self.model, "tool_call_pending", None)
         still_waiting = pending if callable(pending) else None
+        handed = getattr(self.model, "tool_call_presented", None)
+        presented = handed if callable(handed) else None
         while True:
             response = self._call_model(req, messages, system)
+            # One start for the whole turn: the confirmation window is per model turn, so time
+            # spent on earlier calls of the turn counts (the CLI waits for all of them).
             turn_started = self.toolbox.clock()
             self._note_warning(req, warnings)
             if not response.tool_calls:
@@ -266,6 +270,7 @@ class Orchestrator:
                 results.append(self.toolbox.run(
                     req, call, self.approver,
                     turn_started=turn_started, still_waiting=still_waiting,
+                    presented=presented,
                 ))
                 self._note_warning(req, warnings)
             messages.append(ToolResultMessage(tuple(results)))

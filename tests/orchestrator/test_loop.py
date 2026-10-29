@@ -352,8 +352,13 @@ def test_file_budget_stops_before_the_handler(make_guard, events):
          for i in range(6)],
     )
     out = orch(make_guard(), model, [file_tool(events, files=4)]).handle("x")
-    assert out.stop_reason is Limit.FILES
+    # #148 (PR #168 review): a call over the file budget is refused with the numbers instead
+    # of stopping the request; it never reaches the handler and reserves nothing.
     assert events.kinds().count("handler") == 2  # 4 + 4 of 10; the third would make 12
+    third = model.requests[3].messages[-1].results[0]
+    assert third.content["error"] == "file_budget"
+    assert (third.content["files_needed"], third.content["files_left"]) == (4, 2)
+    assert out.success is False
     assert_guarded(events)
 
 
