@@ -212,6 +212,8 @@ class ImportOutcome:
     target_name_before: str | None = None  # target track's name right before the clip
     target_name_after: str | None = None  # Live may rename the target track after the clip
     after_undo: SlotState | None = None  # read back after the last undo that was sent
+    refused_now: SlotState | None = None  # read back by an undo pre-check that refused
+    undo_reads: list[SlotState] = field(default_factory=list)  # after each undo, oldest first
     steps: list[Step] = field(default_factory=list)
     done: bool = False  # clip read back in the slot with the right file
     outcome_unknown: bool = False  # a write timed out / was interrupted / not read back
@@ -458,6 +460,7 @@ class ClipImporter:
                       reason="read-back before undo differs from the expected state",
                       now=now.as_json(), expected=expect_now.as_json(),
                       expected_target_name=last_seen)
+            outcome.refused_now = now
             outcome.steps.append(Step(label, "refused", "set changed since the import"))
             raise ImportAborted("the set is not as the import left it; undo NOT sent")
         self._send(outcome, label, "song.undo", {}, now, self.bridge.undo)
@@ -472,6 +475,7 @@ class ClipImporter:
         after, ok, polls = self._readback(outcome, label, "song.undo", {},
                                           lambda: self._poll(check_undo))
         outcome.after_undo = after
+        outcome.undo_reads.append(after)
         self._log(action=label, capability="song.undo", status="read_back",
                   after=after.as_json(), expected=expect_after.as_json(), ok=ok, polls=polls)
         if not ok:

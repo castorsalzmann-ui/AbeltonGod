@@ -74,8 +74,8 @@ def test_bug_50_renamed_target_track_is_not_a_failed_import(tmp_path) -> None:
     try:
         receive = _free_port()
         fake.response_port = receive
-        # test set: yes; target: new track; run: yes; plays: yes; undo: no
-        answers = iter(["y", "n", "y", "y", "n"])
+        # test set: yes; target: new track; run: yes; undo: no; plays: yes (order since 0.3.0)
+        answers = iter(["y", "n", "y", "n", "y"])
         out = io.StringIO()
         code = live_import.main(
             [p, "--send-port", str(fake.port), "--receive-port", str(receive),
