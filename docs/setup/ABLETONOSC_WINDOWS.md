@@ -162,17 +162,21 @@ pip install -e ".[dev]"
 python scripts/install_abletonosc_extension.py --check
 ```
 
-Erwartet (Pfad mit deinem Benutzernamen):
+Erwartet (Pfad mit deinem Benutzernamen; seit Script 0.2.0 zwei Dateien, die zweite für den Arrangement-Check in Abschnitt 8):
 
 ```text
-AbeltonGod install_abletonosc_extension 0.1.0
+AbeltonGod install_abletonosc_extension 0.2.0
 AbletonOSC-Ordner: C:\Users\<du>\Documents\Ableton\User Library\Remote Scripts\AbletonOSC
 Datei: C:\Users\<du>\Documents\Ableton\User Library\Remote Scripts\AbletonOSC\abletonosc\clip_slot.py
 Zustand: original (sha256 989f9f6a6631fd04598fff0b278b9d844e03b3e211ae9b23d293e985b22d4aed)
+Datei: C:\Users\<du>\Documents\Ableton\User Library\Remote Scripts\AbletonOSC\abletonosc\track.py
+Zustand: original (sha256 512a92ff0a08c7ba8276c3b5f06fbff3f55863b18a51bef3ee0837eceb55ed4a)
 Nur geprüft (--check), nichts geändert.
 ```
 
-- Steht `Zustand: unknown`, hast du eine andere AbletonOSC-Version als die geprüfte (Commit `0ca68214`). Das Script ändert dann nichts. Bitte die Ausgabe in Issue #50 einfügen.
+Hast du die Erweiterung schon mit Script 0.1.0 installiert (Issue #50), steht bei `clip_slot.py` `Zustand: patched (sha256 7ff30f46…)`; das Script ergänzt dann nur `track.py`.
+
+- Steht `Zustand: unknown`, hast du eine andere AbletonOSC-Version als die geprüfte (Commit `0ca68214`). Das Script ändert dann **keine** der beiden Dateien. Bitte die Ausgabe in Issue #140 einfügen.
 - Liegt AbletonOSC woanders: `--abletonosc-dir "D:\...\Remote Scripts\AbletonOSC"` anhängen.
 
 3. Installieren:
@@ -181,9 +185,9 @@ Nur geprüft (--check), nichts geändert.
 python scripts/install_abletonosc_extension.py
 ```
 
-Es zeigt die geplante Änderung und fragt `Live ist geschlossen. Jetzt installieren? [y/N]` — nur `y` installiert. Erwartet am Ende: `Installiert. Sicherung: ...\clip_slot.py.abeltongod-orig` und `Jetzt Live neu starten.`
+Es zeigt die geplante Änderung und fragt `Live ist geschlossen. Jetzt installieren? [y/N]` — nur `y` installiert. Erwartet am Ende: `Installiert: clip_slot.py, track.py. Sicherungen: ...\clip_slot.py.abeltongod-orig, ...\track.py.abeltongod-orig` (oder nur `track.py`, wenn `clip_slot.py` schon installiert war) und `Jetzt Live neu starten.`
 
-Gibt es schon eine Sicherung `clip_slot.py.abeltongod-orig`, die nicht Byte für Byte der jetzigen Datei entspricht (z. B. von einem abgebrochenen Lauf oder mit anderen Zeilenenden), meldet das Script `FEHLER: Die vorhandene Sicherung …` und ändert nichts. Dann die Sicherung wegschieben und die Ausgabe in Issue #50 einfügen.
+Gibt es schon eine Sicherung `<Datei>.abeltongod-orig`, die nicht Byte für Byte der jetzigen Datei entspricht (z. B. von einem abgebrochenen Lauf oder mit anderen Zeilenenden), meldet das Script `FEHLER: Die vorhandene Sicherung …` und ändert an keiner Datei etwas. Dann die Sicherung wegschieben und die Ausgabe in Issue #140 einfügen. Bricht das Schreiben zwischen den beiden Dateien ab (z. B. Platte voll, *Strg + C*), ist jede Datei entweder unverändert oder vollständig geändert; `--check` zeigt den Stand, ein neuer Lauf ergänzt den Rest.
 
 4. **Live starten.** In der Statusleiste sollte wieder „AbletonOSC: Listening for OSC on port 11000“ erscheinen.
 
@@ -269,3 +273,49 @@ Ob Live den Dateipfad genau so zurückmeldet, wie er gesendet wurde (Groß/Klein
 **Aktions-Log:** Jede Änderung steht vor und nach dem Senden in `logs\bridge-actions.jsonl` im Projektordner (eine JSON-Zeile pro Eintrag, nicht im Git). Der Pfad steht im Ergebnis-Block unter `action_log`.
 
 **Ohne Erweiterung** geht der Import von Hand: `docs/setup/SAMPLE_IMPORT_FALLBACK.md`.
+
+## 8. Arrangement-Check (Issue #140)
+
+Noch **nicht auf deinem Rechner geprüft**. Der Check prüft, ob AbeltonGod im **Arrangement** arbeiten kann: neue MIDI-Spur, ein MIDI-Clip an einem bestimmten Takt, Noten darin, ein Locator mit Namen, alles zurückgelesen, dann auf Wunsch alles per Undo zurück. AbletonOSC kann weder einen Clip im Arrangement anlegen noch Noten in Arrangement-Clips schreiben; das ergänzt die Erweiterung in `abletonosc\track.py` (Abschnitt 7.1, Script 0.2.0).
+
+**Vorbereitung:** Erweiterung 0.2.0 installiert (Abschnitt 7.1, Live dabei geschlossen). Dann Live starten, ein neues Test-Set anlegen (Taktart 4/4), speichern, schließen und neu öffnen (Abschnitt 5, Vorbereitung 1–4). Die Wiedergabe muss gestoppt sein. Bei Takt 5 darf noch kein Locator liegen.
+
+```powershell
+python scripts/arrangement_check.py
+```
+
+(Andere Stelle: `--bar 9`; andere Länge: `--bars 2`; anderer Locator-Name: `--name Intro`.)
+
+Das Script
+
+1. liest Live-Version, Taktart (nur 4/4), Spuren, Locator, Abspielposition und ob Live spielt,
+2. prüft die Erweiterung: drei Befehle **ohne** Argumente; AbletonOSC bricht dabei ab, bevor es das Set anfasst. Im `abletonosc.log` stehen danach drei erwartete Zeilen `Error handling OSC message: list index out of range`,
+3. lehnt ab, wenn bei Takt 5 schon ein Locator liegt (einen Locator setzen ist in Live ein Umschalter; das Script würde ihn löschen),
+4. fragt `Ist das geöffnete Set ein eigenes TEST-Set …? [y/N]`, zeigt den Plan und fragt `Diese Änderungen jetzt ausführen? [y/N]`,
+5. setzt die Abspielposition auf Takt 5 (wird danach **nicht** zurückgesetzt), legt eine MIDI-Spur am Ende an, darin im Arrangement einen leeren MIDI-Clip ab Takt 5 (4 Takte), schreibt 16 Noten (C1, eine pro Schlag), setzt bei Takt 5 einen Locator und nennt ihn `AbeltonGod Test`. Nach jedem Schritt liest es zurück und hält bei jeder Abweichung an,
+6. fragt **sofort** `Alles jetzt per Undo zurücknehmen, OHNE Nachsehen? [y/N]`. Bis dahin in Live **nichts** anklicken, scrollen oder starten.
+   - `y`: ein Undo nach dem anderen, jedes zurückgelesen. Unter `undo_chain` steht, welchen Zustand jedes Undo erreicht hat (daraus sehen wir, wie viele Undo-Schritte Live aus den fünf Änderungen macht). Zeigt ein Undo keine sichtbare Änderung oder einen fremden Zustand, hält das Script an und sagt, was von Hand zu entfernen ist.
+   - Enter (nein): alles bleibt. Dann fragt es, ob du im Arrangement die neue Spur mit Clip und Noten ab Takt 5 und darüber den Locator siehst. Danach steht da, wie du alles von Hand entfernst (Spurkopf anklicken, *Entf*; Locator anklicken, *Entf*).
+
+**Erwartete Ausgabe (gekürzt, frisches Set mit `1-MIDI`, `2-MIDI`, `3-Audio`, `4-Audio`, Undo `y`):**
+
+```text
+AbeltonGod arrangement_check 0.1.0
+
+Verbindung zu AbletonOSC (127.0.0.1:11000) steht.
+
+Live-Version (laut API): 12.4  Taktart: 4/4  Position: Beat 0
+Spuren (4): 0: 1-MIDI, 1: 2-MIDI, 2: 3-Audio, 3: 4-Audio
+Locator: keine
+AbeltonGod-Erweiterung (Arrangement): vorhanden.
+...
+OK: Spur, Arrangement-Clip, Noten und Locator sind da (zurückgelesen).
+...
+  undo_1: 'after set_cue_name' -> 'after add_cue'
+  ...
+Das Set ist wieder wie vor dem Check (geprüft: alle Spurnamen, Anzahl der Spuren, alle Locator; nicht geprüft: Clips anderer Spuren, Geräte, Automation). Die Abspielposition steht auf Beat 16.
+```
+
+Im Ergebnis-Block sollten dann stehen: `extension: PRESENT`, je `PASS` bei `song.current_song_time.set`, `song.create_midi_track`, `track.create_midi_clip`, `arrangement_clip.notes.add`, `song.cue_point.add_or_delete`, `song.cue_point.set_name`, `arrangement_clips_read: [(16.0, 16.0)]`, `notes_read: 16 notes; …`, und `song.undo: PASS (… undo(s) for 5 write(s); read back)`. Wie viele Undos es sind und was unter `undo_chain` steht, ist offen; jedes Ergebnis ist gültig. Den ganzen Block (mit den drei Backticks) in **Issue #140** einfügen.
+
+**Fehlerfälle:** `FEHLER: Die AbeltonGod-Erweiterung 0.2.0 fehlt …` (Exit-Code 5) heißt: Abschnitt 7.1 ausführen. Spielt Live, steht die Taktart nicht auf 4/4 oder liegt bei Takt 5 ein Locator, ändert das Script nichts (Exit-Code 1). Bei Zeitüberschreitung oder *Strg + C* während eines Schritts: `UNBEKANNT`, kein Undo, im Set nachsehen und von Hand entfernen.

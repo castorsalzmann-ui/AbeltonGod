@@ -61,6 +61,29 @@ MARKER_ADDRESS = "/live/song/get/tempo"
 
 # Capability id -> OSC address(es). Cited from the AbletonOSC README tables and source.
 ADDRESSES: dict[str, tuple[str, ...]] = {
+    # -- Arrangement capability check (#140): registry status `unknown` until the user's run.
+    # File:line at AbletonOSC commit 0ca68214 (re-read 2026-10-29 from raw.githubusercontent).
+    # song.py:25 (method list), :47-48 (``partial(self._call_method, self.song, method)``);
+    # README "Song API": ``/live/song/create_midi_track index`` (-1 = end). No reply.
+    "song.create_midi_track": ("/live/song/create_midi_track",),
+    # track.py:41 (``properties_r``), :66-68 (``_get_property``) -> ``track_id, value``.
+    "track.has_midi_input.get": ("/live/track/get/has_midi_input",),
+    # track.py:123-127, :136-137: ``track_id, *start_times`` / ``track_id, *lengths``.
+    "track.arrangement_clips.get": ("/live/track/get/arrangement_clips/start_time",
+                                    "/live/track/get/arrangement_clips/length"),
+    # song.py:84 (``properties_r``), :89-90 -> ``is_playing``.
+    "song.is_playing.get": ("/live/song/get/is_playing",),
+    # song.py:57 (``properties_rw``), :89-90 get, :93-94 set (``setattr``, no reply). Beats.
+    "song.current_song_time.get": ("/live/song/get/current_song_time",),
+    "song.current_song_time.set": ("/live/song/set/current_song_time",),
+    # song.py:241-245: flat ``name, time, name, time, ...``.
+    "song.cue_points.get": ("/live/song/get/cue_points",),
+    # song.py:258: ``Song.set_or_delete_cue()``, a TOGGLE at the current song time (an existing
+    # locator there is deleted). Callers must read the cue points first. No reply.
+    "song.cue_point.add_or_delete": ("/live/song/cue_point/add_or_delete",),
+    # song.py:259-264: ``song.cue_points[index].name = name``. No reply.
+    "song.cue_point.set_name": ("/live/song/cue_point/set/name",),
+    # -- end of #140 entries
     "app.version": ("/live/application/get/version",),
     "song.tempo.get": ("/live/song/get/tempo",),
     "song.signature.get": (
@@ -112,6 +135,27 @@ EXTENSION_ADDRESSES: dict[str, tuple[tuple[str, ...], str]] = {
         ("/live/clip_slot/create_audio_clip",),
         "LOM ClipSlot.create_audio_clip(path)",
     ),
+    # #140, extension 0.2.0 (patch of abletonosc/track.py): "create_midi_clip" in the
+    # ``methods`` list (track.py:32-35), registered at :62-64 with
+    # ``create_track_callback(self._call_method, method)``; :18-25 resolve
+    # ``song.tracks[int(params[0])]`` and pass ``params[1:]``, so handler.py:27-29 calls
+    # ``track.create_midi_clip(start_time, length)``. No reply. LOM Track.create_midi_clip:
+    # errors on non-MIDI or frozen tracks and outside [0, 1576800].
+    "track.create_midi_clip": (
+        ("/live/track/create_midi_clip",),
+        "LOM Track.create_midi_clip(start_time, length)",
+    ),
+    # #140: own handlers in track.py (after :109), because every /live/clip/* handler resolves
+    # ``track.clip_slots[i].clip`` (clip.py:53-55): Session clips only. They use
+    # ``track.arrangement_clips[i]`` and the same calls as clip.py:139 and :145-155.
+    "arrangement_clip.notes.add": (
+        ("/live/track/arrangement_clip/add/notes",),
+        "AbeltonGod extension: Clip.add_new_notes on track.arrangement_clips[i]",
+    ),
+    "arrangement_clip.notes.get": (
+        ("/live/track/arrangement_clip/get/notes",),
+        "AbeltonGod extension: Clip.get_notes_extended on track.arrangement_clips[i]",
+    ),
 }
 
 # Addresses the bridge sends that have no registry entry of their own YET, with the capability
@@ -119,6 +163,13 @@ EXTENSION_ADDRESSES: dict[str, tuple[tuple[str, ...], str]] = {
 # in a contract-change PR (then it moves into ADDRESSES; ``test_capabilities.py`` fails until
 # it does). Empty since #143 (the four clip-import reads of #50 moved into ADDRESSES).
 PENDING_REGISTRY: dict[str, tuple[tuple[str, ...], str]] = {}
+
+# The three addresses the track.py extension adds (probe: all must answer).
+ARRANGEMENT_EXTENSION = ("track.create_midi_clip", "arrangement_clip.notes.add",
+                         "arrangement_clip.notes.get")
+
+# LOM Track.create_midi_clip / create_audio_clip: "start_time ... in [0, 1576800]" (beats).
+ARRANGEMENT_MAX_BEATS = 1576800.0
 
 # Text AbletonOSC puts in ``/live/error`` for an address without a handler: ``osc_server.py``
 # line 125 logs "AbletonOSC: Unknown OSC address: <addr>" at ERROR, and ``manager.py`` lines
@@ -661,6 +712,206 @@ class AbletonBridge:
             f"{address} without arguments was processed without an error; the installed "
             "handler does not look like the AbeltonGod extension"
         )
+
+    # -- arrangement capability check (#140) -------------------------------------------------
+    # All of these are registry status `unknown` until the user's run: each call needs the
+    # caller's explicit allow_untested override, or it is refused before any network I/O.
+
+    def _gated(self, cap_id: str) -> str:
+        """Gate check, then the (first) address of ``cap_id``."""
+        self.gate.check(cap_id)
+        if cap_id in EXTENSION_ADDRESSES:
+            return EXTENSION_ADDRESSES[cap_id][0][0]
+        return ADDRESSES[cap_id][0]
+
+    def create_midi_track(self, index: int = -1, *, timeout_s: float | None = None) -> None:
+        """LOM ``Song.create_midi_track(index)``; -1 appends at the end. No reply."""
+        _require_int(index, "index", minimum=-1)
+        address = self._gated("song.create_midi_track")
+        self._transport.send_confirmed(address, (index,), timeout_s=timeout_s)
+
+    def get_track_has_midi_input(self, track_index: int, *,
+                                 timeout_s: float | None = None) -> bool:
+        _require_int(track_index, "track_index", minimum=0)
+        address = self._gated("track.has_midi_input.get")
+        reply = self._query(address, (track_index,), expect_prefix=(track_index,),
+                            timeout_s=timeout_s)
+        return self._bool_reply(reply, "has_midi_input")
+
+    def get_arrangement_clips(self, track_index: int, *, timeout_s: float | None = None
+                              ) -> tuple[tuple[float, float], ...]:
+        """((start_time, length), ...) of the track's Arrangement clips, in Live's order."""
+        _require_int(track_index, "track_index", minimum=0)
+        self.gate.check("track.arrangement_clips.get")
+        starts_addr, lengths_addr = ADDRESSES["track.arrangement_clips.get"]
+        starts = self._query(starts_addr, (track_index,), expect_prefix=(track_index,),
+                             timeout_s=timeout_s)
+        lengths = self._query(lengths_addr, (track_index,), expect_prefix=(track_index,),
+                              timeout_s=timeout_s)
+        if len(starts) != len(lengths) or not all(_is_number(v) for v in (*starts, *lengths)):
+            raise BridgeProtocolError(f"arrangement clip lists must be numbers of equal length, "
+                                      f"got start_time={starts!r} length={lengths!r}")
+        return tuple((float(s), float(n)) for s, n in zip(starts, lengths, strict=True))
+
+    def get_arrangement_clip_notes(self, track_index: int, clip_index: int, *,
+                                   timeout_s: float | None = None
+                                   ) -> tuple[tuple[int, float, float, float, bool], ...]:
+        """Notes of Arrangement clip ``clip_index`` as (pitch, start, duration, velocity, mute).
+
+        Through the AbeltonGod extension; it reads ``get_notes_extended(0, 127, -8192, 16384)``,
+        the same range as AbletonOSC's ``/live/clip/get/notes`` (clip.py:136). If
+        ``pitch_span`` is a count, pitch 127 is outside that range (research note Q1).
+        """
+        _require_int(track_index, "track_index", minimum=0)
+        _require_int(clip_index, "clip_index", minimum=0)
+        address = self._gated("arrangement_clip.notes.get")
+        try:
+            flat = self._query(address, (track_index, clip_index),
+                               expect_prefix=(track_index, clip_index), timeout_s=timeout_s)
+        except AbletonOSCError as exc:
+            raise _as_extension_missing(exc, address) from exc
+        if len(flat) % 5:
+            raise BridgeProtocolError(f"notes reply must be groups of 5, got {flat!r}")
+        notes = []
+        for i in range(0, len(flat), 5):
+            pitch, start, duration, velocity, mute = flat[i:i + 5]
+            if (type(pitch) is not int or not all(_is_number(v) for v in
+                                                  (start, duration, velocity))
+                    or not (type(mute) is bool or (type(mute) is int and mute in (0, 1)))):
+                raise BridgeProtocolError(f"malformed note {flat[i:i + 5]!r}")
+            notes.append((pitch, float(start), float(duration), float(velocity), bool(mute)))
+        return tuple(notes)
+
+    def get_is_playing(self) -> bool:
+        reply = self._query(self._gated("song.is_playing.get"))
+        return self._bool_reply(reply, "is_playing")
+
+    def get_song_time(self, *, timeout_s: float | None = None) -> float:
+        """``Song.current_song_time`` in beats."""
+        reply = self._query(self._gated("song.current_song_time.get"),
+                            timeout_s=timeout_s)
+        if len(reply) != 1 or not _is_number(reply[0]):
+            raise BridgeProtocolError(f"current_song_time reply must be one number, got {reply!r}")
+        return float(reply[0])
+
+    def get_cue_points(self, *, timeout_s: float | None = None) -> tuple[tuple[str, float], ...]:
+        """((name, time), ...) in Live's order (whether that is time order: not verified)."""
+        flat = self._query(self._gated("song.cue_points.get"), timeout_s=timeout_s)
+        if len(flat) % 2:
+            raise BridgeProtocolError(f"cue_points reply must be name/time pairs, got {flat!r}")
+        pairs = []
+        for i in range(0, len(flat), 2):
+            name, time_ = flat[i], flat[i + 1]
+            if not isinstance(name, str) or not _is_number(time_):
+                raise BridgeProtocolError(f"malformed cue point {flat[i:i + 2]!r}")
+            pairs.append((name, float(time_)))
+        return tuple(pairs)
+
+    def set_song_time(self, beats: float, *, timeout_s: float | None = None) -> None:
+        beats = _require_beats(beats, "beats")
+        address = self._gated("song.current_song_time.set")
+        self._transport.send_confirmed(address, (beats,), timeout_s=timeout_s)
+
+    def toggle_cue_at_song_time(self, *, timeout_s: float | None = None) -> None:
+        """LOM ``Song.set_or_delete_cue()``: adds a locator at the current song time, or
+        DELETES the one that is there. Callers must check the cue points first."""
+        address = self._gated("song.cue_point.add_or_delete")
+        self._transport.send_confirmed(address, (), timeout_s=timeout_s)
+
+    def set_cue_name(self, cue_index: int, name: str, *, timeout_s: float | None = None) -> None:
+        _require_int(cue_index, "cue_index", minimum=0)
+        if not isinstance(name, str) or not name or "\x00" in name:
+            raise ValueError(f"name must be a non-empty string (got {name!r})")
+        address = self._gated("song.cue_point.set_name")
+        self._transport.send_confirmed(address, (cue_index, name), timeout_s=timeout_s)
+
+    def create_arrangement_midi_clip(self, track_index: int, start_beats: float,
+                                     length_beats: float, *,
+                                     timeout_s: float | None = None) -> None:
+        """LOM ``Track.create_midi_clip(start_time, length)`` through the AbeltonGod extension.
+
+        Raises :class:`ExtensionMissingError` if AbletonOSC has no handler for the address.
+        """
+        _require_int(track_index, "track_index", minimum=0)
+        start = _require_beats(start_beats, "start_beats")
+        length = _require_beats(length_beats, "length_beats")
+        if length <= 0 or start + length > ARRANGEMENT_MAX_BEATS:
+            raise ValueError(f"clip {start}+{length} beats must have length > 0 and end by "
+                             f"{ARRANGEMENT_MAX_BEATS:g}")
+        address = self._gated("track.create_midi_clip")
+        try:
+            self._transport.send_confirmed(address, (track_index, start, length),
+                                           timeout_s=timeout_s)
+        except AbletonOSCError as exc:
+            raise _as_extension_missing(exc, address) from exc
+
+    def add_arrangement_clip_notes(self, track_index: int, clip_index: int,
+                                   notes: Sequence[tuple[int, float, float, int, bool]], *,
+                                   timeout_s: float | None = None) -> None:
+        """Add notes (pitch, start, duration, velocity, mute) to an Arrangement clip, through
+        the AbeltonGod extension (one ``Clip.add_new_notes`` call, as clip.py:145-155)."""
+        _require_int(track_index, "track_index", minimum=0)
+        _require_int(clip_index, "clip_index", minimum=0)
+        if not 1 <= len(notes) <= MAX_NOTES_PER_MESSAGE:
+            raise ValueError(f"1..{MAX_NOTES_PER_MESSAGE} notes per message (got {len(notes)})")
+        flat: list[OscArg] = []
+        for note in notes:
+            if len(note) != 5:
+                raise ValueError(f"a note is (pitch, start, duration, velocity, mute): {note!r}")
+            pitch, start, duration, velocity, mute = note
+            _require_int(pitch, "pitch", minimum=0)
+            _require_int(velocity, "velocity", minimum=1)
+            if pitch > 126 or velocity > 127:  # 127: outside the read-back range (Q1)
+                raise ValueError(f"pitch must be 0..126 and velocity 1..127 (got {note!r})")
+            start = _require_beats(start, "note start")
+            duration = _require_beats(duration, "note duration")
+            if duration <= 0 or not isinstance(mute, bool):
+                raise ValueError(f"duration must be > 0 and mute a bool (got {note!r})")
+            flat += [pitch, start, duration, velocity, int(mute)]
+        address = self._gated("arrangement_clip.notes.add")
+        try:
+            self._transport.send_confirmed(address, (track_index, clip_index, *flat),
+                                           timeout_s=timeout_s)
+        except AbletonOSCError as exc:
+            raise _as_extension_missing(exc, address) from exc
+
+    def probe_arrangement_extension(self) -> list[str]:
+        """Addresses of the track.py extension that AbletonOSC does NOT know; [] = installed.
+
+        Each address is sent with **no arguments**: with the extension, the callback fails at
+        ``params[0]`` (track.py:15) before it touches the song, so nothing changes in Live; the
+        error comes back as ``/live/error`` (osc_server.py:186-187) and is written to
+        ``abletonosc.log``. Without it the reply is ``Unknown OSC address`` (osc_server.py:125).
+        """
+        missing = []
+        for cap_id in ARRANGEMENT_EXTENSION:
+            address = self._gated(cap_id)
+            try:
+                self._transport.send_confirmed(address, ())
+            except AbletonOSCError as exc:
+                if isinstance(_as_extension_missing(exc, address), ExtensionMissingError):
+                    missing.append(address)
+                continue
+            raise BridgeProtocolError(
+                f"{address} without arguments was processed without an error; the installed "
+                "handler does not look like the AbeltonGod extension")
+        return missing
+
+
+# One UDP datagram must hold the whole note list (5 values per note).
+MAX_NOTES_PER_MESSAGE = 64
+
+
+def _is_number(value: object) -> bool:
+    return (not isinstance(value, bool) and isinstance(value, int | float)
+            and math.isfinite(value))
+
+
+def _require_beats(value: object, name: str) -> float:
+    if not _is_number(value) or not 0 <= value <= ARRANGEMENT_MAX_BEATS:
+        raise ValueError(f"{name} must be a number of beats in 0..{ARRANGEMENT_MAX_BEATS:g} "
+                         f"(got {value!r})")
+    return float(value)
 
 
 def _as_extension_missing(exc: AbletonOSCError, address: str) -> AbletonOSCError:

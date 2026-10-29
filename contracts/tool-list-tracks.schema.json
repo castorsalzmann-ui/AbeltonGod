@@ -1,0 +1,9 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/castorsalzmann-ui/AbeltonGod/contracts/tool-list-tracks.schema.json",
+  "title": "list_tracks input",
+  "description": "Reads the tracks of the open Live set: index, name and whether each is an audio track, plus the number of scenes. Takes no arguments. Read only; changes nothing in Live. Call it before import_sample to choose a target track by its index.",
+  "type": "object",
+  "properties": {},
+  "additionalProperties": false
+}
