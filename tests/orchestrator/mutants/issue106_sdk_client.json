@@ -367,8 +367,8 @@
     {
       "id": "A3_TOKEN_SOURCE_IGNORED",
       "file": "src/orchestrator/sdk_client.py",
-      "old": "            if token not in SUBSCRIPTION_TOKEN_SOURCES:\n",
-      "new": "            if False:\n",
+      "old": "            elif token not in SUBSCRIPTION_TOKEN_SOURCES:\n",
+      "new": "            elif False:\n",
       "tests": ["tests/orchestrator/test_sdk_client.py"]
     },
     {
