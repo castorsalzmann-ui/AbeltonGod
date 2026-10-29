@@ -68,7 +68,13 @@ from bridge.osc_client import (
     BridgeUnavailableError,
     ReceivePortInUseError,
 )
-from library import library_folder, place_kick, sidecar_path
+from library import (
+    ProjectReason,
+    check_project_dir,
+    library_folder,
+    place_kick,
+    sidecar_path,
+)
 
 
 def _load_live_import() -> types.ModuleType:
@@ -189,32 +195,33 @@ def project_problem(raw: str) -> str | None:
 
     Required: an existing absolute folder with a ``.als`` file directly in it (Live keeps the
     set at the top of its project folder), not Live's ``Backup`` folder, not inside the
-    AbeltonGod checkout (an empty ``--project`` would otherwise mean the current folder)."""
-    if not raw.strip():
+    AbeltonGod checkout (an empty ``--project`` would otherwise mean the current folder).
+    The rules are :func:`library.check_project_dir` (#149); this function only words them."""
+    problem = check_project_dir(raw, refused_roots=REFUSED_ROOTS)
+    if problem is None:
+        return None
+    reason, detail = problem.reason, problem.detail
+    if reason is ProjectReason.EMPTY:
         return "--project ist leer. Bitte den vollen Pfad des Projektordners angeben."
-    if not os.path.isabs(raw):
+    if reason is ProjectReason.NOT_ABSOLUTE:
         return (f"--project muss ein voller Pfad sein (z. B. \"C:\\...\\Test Project\"), "
                 f"nicht {raw!r}.")
-    folder = Path(raw)
-    if not folder.is_dir():
+    if reason is ProjectReason.MISSING:
         return f"Den Ordner gibt es nicht: {raw}"
-    real = folder.resolve()
-    for root in REFUSED_ROOTS:
-        if real.is_relative_to(root):
-            return (f"{raw} liegt im AbeltonGod-Ordner ({root}). Das ist kein Live-Projekt; "
-                    "bitte den Projektordner deines Test-Sets angeben.")
-    if folder.name.lower() == "backup":
+    if reason is ProjectReason.IN_CHECKOUT:
+        return (f"{raw} liegt im AbeltonGod-Ordner ({detail}). Das ist kein Live-Projekt; "
+                "bitte den Projektordner deines Test-Sets angeben.")
+    if reason is ProjectReason.BACKUP_FOLDER:
         return (f"{raw} ist Lives Backup-Ordner. Bitte den Ordner darüber nehmen (dort liegt "
                 "die .als-Datei des Sets).")
-    try:
-        has_set = any(p.suffix.lower() == ".als" and p.is_file() for p in folder.iterdir())
-    except OSError as exc:
-        return f"{raw} lässt sich nicht lesen: {exc}"
-    if not has_set:
+    if reason is ProjectReason.UNREADABLE:
+        return f"{raw} lässt sich nicht lesen: {detail}"
+    if reason is ProjectReason.NO_ALS_FILE:
         return (f"In {raw} liegt keine .als-Datei, also ist es nicht der Projektordner eines "
                 "gespeicherten Live-Sets. Set zuerst in Live speichern (Datei -> Live-Set "
                 "speichern unter ...), dann den Ordner nehmen, in dem die .als-Datei liegt.")
-    return None
+    # A reason added to the library later: refuse, never accept silently.
+    return f"{raw} wurde abgelehnt ({reason}: {detail})."
 
 
 # -- step 3: the live_import 0.3.0 flow --------------------------------------------------------
