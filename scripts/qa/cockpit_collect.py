@@ -7,9 +7,10 @@ Usage:
     python scripts/qa/cockpit_collect.py <repo_dir> <out_dir> [<previous_gate.json>]
 
     <repo_dir>            checkout to read (docs/, contracts/, config/, git log)
-    <out_dir>             gets phases.json, issues.json, reviews.json, prs.json, decisions.json,
-                          decision_refs.json, ci_runs.json, commits.json, capabilities.json,
-                          guard.json, guard_budget.json, guard_usage.json, gate.json
+    <out_dir>             gets phases.json, pipeline.json, issues.json, reviews.json, prs.json,
+                          decisions.json, decision_refs.json, ci_runs.json, commits.json,
+                          capabilities.json, guard.json, guard_budget.json, guard_usage.json,
+                          gate.json
     <previous_gate.json>  optional earlier gate.json; its history is kept, the row for the
                           current SHA is replaced
 
@@ -67,11 +68,11 @@ def write(out: Path, name: str, rows) -> None:
 # ---------- phases ----------
 PHASE_NAMES = {
     "00": "Setup", "01": "Kick-Engine", "02": "Ableton-Bridge", "03": "Sample-Import",
-    "04a": "Resource Guard", "04b": "Claude-Orchestrator",
+    "04a": "Resource Guard", "04b": "Claude-Orchestrator", "05": "Kick-Charakter",
 }
 TRACK = {
     "00": "Setup", "01": "Kick", "02": "Bridge", "03": "Import", "04a": "Guard",
-    "04b": "Orchestrator",
+    "04b": "Orchestrator", "05": "Kick",
 }
 
 
@@ -82,13 +83,19 @@ def phase_key(s: str | None) -> str | None:
     return s if s.startswith("04") and len(s) == 3 else s[:2]
 
 
+def phase_title(txt: str) -> str:
+    """Readable name from a spec's title line `# PHASE 06 — Name (detail)` -> `Name`."""
+    m = re.search(r"^# PHASE \S+\s+[—–-]\s+(.+?)\s*$", txt, re.M)
+    return re.sub(r"\s*\(.*\)$", "", m.group(1)).strip() if m else ""
+
+
 def expand_phase_refs(text: str) -> list[str]:
     refs: list[str] = []
-    for a, b in re.findall(r"\b(0[0-4])\s*[–-]\s*(0[0-4][ab]?)\b", text):
+    for a, b in re.findall(r"\b(0\d)\s*[–-]\s*(0\d[ab]?)\b", text):
         for n in range(int(a), int(b[:2]) + 1):
             refs.append("04a" if n == 4 else f"{n:02d}")
-    text = re.sub(r"\b0[0-4]\s*[–-]\s*0[0-4][ab]?\b", " ", text)
-    refs += [m.lower() for m in re.findall(r"\b(0[0-4][abAB]?)\b", text)]
+    text = re.sub(r"\b0\d\s*[–-]\s*0\d[ab]?\b", " ", text)
+    refs += [m.lower() for m in re.findall(r"\b(0\d[abAB]?)\b", text)]
     return sorted(set(refs), key=lambda x: (x[:2], x))
 
 
@@ -114,10 +121,50 @@ def collect_phases(repo: Path) -> list[dict]:
         first = re.split(r"(?<=\.)\s", pre.group(1).strip(), maxsplit=1)[0] if pre else ""
         deps = [d for d in expand_phase_refs(first) if d != pid]
         rows.append({
-            "phase": pid, "name": PHASE_NAMES.get(pid, pid), "goal": goal, "file_status": status,
+            "phase": pid, "name": PHASE_NAMES.get(pid) or phase_title(txt) or pid,
+            "goal": goal, "file_status": status,
             "criteria_total": len(boxes), "criteria_met": sum(b.lower() == "x" for b in boxes),
             "depends_on": ", ".join(deps), "tested_in": tested, "order": len(rows),
         })
+    return rows
+
+
+# ---------- pipeline (parallel tracks) ----------
+PIPELINE_COLUMNS = {
+    "track": "track", "phase": "phase", "role(s)": "roles", "roles": "roles", "role": "roles",
+    "goal": "goal", "status": "status", "next": "next",
+}
+
+
+def _cells(line: str) -> list[str]:
+    inner = line.strip()[1:-1] if line.strip().endswith("|") else line.strip()[1:]
+    return [c.strip().replace("\\|", "|") for c in re.split(r"(?<!\\)\|", inner)]
+
+
+def collect_pipeline(repo: Path) -> list[dict]:
+    """Rows of the first table under `## Pipeline` in docs/ROADMAP.md ([] if there is none)."""
+    f = repo / "docs" / "ROADMAP.md"
+    txt = f.read_text(encoding="utf-8") if f.exists() else ""
+    sec = re.search(r"^## Pipeline\b.*?\n(.*?)(?=^## |\Z)", txt, re.S | re.M)
+    lines = (sec.group(1) if sec else "").splitlines()
+    start = next((k for k, ln in enumerate(lines) if ln.lstrip().startswith("|")), None)
+    if start is None:
+        return []
+    table = []
+    for ln in lines[start:]:
+        if not ln.lstrip().startswith("|"):
+            break
+        table.append(_cells(ln))
+    header = [PIPELINE_COLUMNS.get(h.lower(), "") for h in table[0]]
+    rows = []
+    for cells in table[1:]:
+        if all(re.fullmatch(r":?-+:?", c) for c in cells):
+            continue  # separator line
+        row = {k: "" for k in ("track", "phase", "roles", "goal", "status", "next")}
+        for key, val in zip(header, cells, strict=False):
+            if key:
+                row[key] = val
+        rows.append(row)
     return rows
 
 
@@ -349,6 +396,7 @@ GUARD_LIMIT_NAMES = {
 COMMIT_KINDS = {
     "phase-00": "Phase 00", "phase-01": "Phase 01", "phase-02": "Phase 02",
     "phase-03": "Phase 03", "phase-04a": "Phase 04a", "phase-04b": "Phase 04b",
+    **{f"phase-0{n}": f"Phase 0{n}" for n in range(5, 10)},
     "state": "State", "docs": "Docs",
 }
 
@@ -372,6 +420,10 @@ def main() -> None:
         else:
             p["status"] = "Geplant"
     write(out, "phases", phases)
+    write(out, "pipeline", collect_pipeline(repo) or [{  # a dataset needs at least one row
+        "track": "", "phase": "", "roles": "", "goal": "",
+        "status": "Keine Pipeline-Tabelle in docs/ROADMAP.md gefunden.", "next": "",
+    }])
     write(out, "issues", issues)
     reviews, prs = collect_reviews(issues, bodies)
     write(out, "reviews", reviews)
