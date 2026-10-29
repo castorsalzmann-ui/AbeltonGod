@@ -19,6 +19,11 @@ METADATA_SCHEMA_FILE = CONTRACTS_DIR / "sample-metadata.schema.json"
 # Fields used as Python ints (array sizes, RNG seed, WAV header).
 INTEGER_FIELDS = ("seed", "variants", "sample_rate", "bit_depth")
 
+# kick-params versions this engine renders. The contract also specifies 0.3 (#104), whose
+# fields this engine does not implement yet; a 0.3 request is refused instead of rendering
+# with its new fields silently ignored.
+RENDERED_SCHEMA_VERSIONS = ("0.2",)
+
 
 class KickParamsError(ValueError):
     """Raised when kick parameters do not match the contract. The message lists every problem."""
@@ -76,6 +81,13 @@ def resolve_kick_params(params: dict[str, Any]) -> dict[str, Any]:
             continue
         where = ".".join(str(p) for p in err.path) or "(root)"
         lines.append(f"- {where}: {err.message}")
+    version = params.get("schema_version")
+    contract_versions = schema["properties"]["schema_version"]["enum"]
+    if version in contract_versions and version not in RENDERED_SCHEMA_VERSIONS:
+        lines.append(
+            f"- schema_version: kick-params {version} is specified in the contract but not "
+            f"implemented by this engine (renders {', '.join(RENDERED_SCHEMA_VERSIONS)}; #104)"
+        )
     if lines:
         raise KickParamsError("Invalid kick parameters:\n" + "\n".join(lines))
 

@@ -2,28 +2,71 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/castorsalzmann-ui/AbeltonGod/contracts/kick-params.schema.json",
   "title": "Kick synthesis parameters",
-  "description": "Draft v0.2 - finalised in Phase 01. Input to the deterministic kick engine. Out-of-range values are rejected, never clamped. Time t in the field descriptions is measured from the first sample of the file. v0.2 (issue #7): envelope semantics written down; pitch_decay_ms default 40 -> 15.",
+  "description": "Draft v0.3 (proposal, issue #104). Input to the deterministic kick engine. Out-of-range values are rejected, never clamped. Time t in the field descriptions is measured from the start of the kick (the first sample of the file unless offset_ms is set). v0.2 (issue #7): envelope semantics written down; pitch_decay_ms default 40 -> 15. v0.3 (issue #104, Phase 05): seven optional fields (tail_note, length_beats, click_decay_ms, click_q, polarity, offset_ms, clip_db), allowed only with schema_version 0.3; a 0.3 document without them renders exactly like the same document at 0.2. Resolved form (v0.3; what the engine returns, stores as sidecar parameters and re-renders from): every default is filled, except that tail_note is replaced by the derived pitch_end_hz, length_beats by the derived length_ms, and an amp_decay_ms derived under length_beats is stored as amp_decay_ms. So a resolved form never contains tail_note or length_beats, satisfies this schema, and re-renders the same samples without a new derivation. The inputs stay recoverable: tail_note = 69 + 12 * log2(pitch_end_hz / 440) (a whole number up to float rounding), length_beats = length_ms * bpm / 60000 (bpm is kept).",
+  "$comment": "The v0.3 fields are declared in the schema_version 0.3 branch of allOf, not in properties: audio_engine.params fills every properties default into the resolved parameters, so under properties they would change every 0.2 sidecar before the engine renders them. unevaluatedProperties (instead of additionalProperties) lets that branch allow them. The engine refuses schema_version 0.3 until it implements these fields; the implementation PR moves them into properties.",
   "type": "object",
-  "additionalProperties": false,
+  "unevaluatedProperties": false,
   "required": ["schema_version", "seed"],
   "properties": {
-    "schema_version": { "const": "0.2" },
+    "schema_version": { "enum": ["0.2", "0.3"], "description": "0.2: only the fields under properties. 0.3: may also carry the v0.3 fields (allOf, schema_version 0.3 branch)." },
     "seed": { "type": "integer", "minimum": 0, "maximum": 4294967295 },
     "variants": { "type": "integer", "minimum": 1, "maximum": 8, "default": 1 },
-    "bpm": { "type": "number", "minimum": 60, "maximum": 200, "description": "Context only; used for naming/metadata and length hints." },
+    "bpm": { "type": "number", "minimum": 60, "maximum": 200, "description": "Context for naming/metadata and length hints. Required by length_beats (v0.3), which converts beats to milliseconds with it." },
     "sample_rate": { "enum": [44100, 48000], "default": 48000 },
     "bit_depth": { "enum": [16, 24], "default": 24 },
-    "length_ms": { "type": "number", "minimum": 80, "maximum": 2000, "default": 450 },
-    "pitch_start_hz": { "type": "number", "minimum": 60, "maximum": 600, "default": 220, "description": "Body frequency at t = 0. Must not be lower than pitch_end_hz." },
-    "pitch_end_hz": { "type": "number", "minimum": 30, "maximum": 120, "default": 48, "description": "Asymptote of the pitch fall, not a guaranteed tail pitch: the body only gets close to it if the pitch settles before the kick fades or ends (see pitch_decay_ms)." },
+    "length_ms": { "type": "number", "minimum": 80, "maximum": 2000, "default": 450, "description": "File length. Must not be given together with length_beats (v0.3); with length_beats the default 450 is not used and the resolved form holds the derived value." },
+    "pitch_start_hz": { "type": "number", "minimum": 60, "maximum": 600, "default": 220, "description": "Body frequency at t = 0. Must not be lower than pitch_end_hz (or the frequency of tail_note, v0.3)." },
+    "pitch_end_hz": { "type": "number", "minimum": 30, "maximum": 120, "default": 48, "description": "Asymptote of the pitch fall, not a guaranteed tail pitch: the body only gets close to it if the pitch settles before the kick fades or ends (see pitch_decay_ms). Must not be given together with tail_note (v0.3); with tail_note the default 48 is not used and the resolved form holds the derived value." },
     "pitch_decay_ms": { "type": "number", "minimum": 2, "maximum": 300, "default": 15, "description": "Time constant tau of the exponential pitch fall: f(t) = pitch_end_hz + (pitch_start_hz - pitch_end_hz) * exp(-t / tau). After 1 tau 63 % of the fall is done, after 2.3 tau 90 %. It is not the time until the pitch arrives. Guideline for presets and Claude, not enforced by this schema: pitch_decay_ms <= audio_engine.params.max_settled_pitch_decay_ms(params), i.e. the pitch is within 5 % of pitch_end_hz by the time the level has fallen 20 dB (or at length_ms, if the file ends earlier). The guideline is about this curve; a measured tail pitch (sidecar fundamental_hz) averages over an earlier window and can still be higher. Larger values give a deliberately 'pitchy' kick whose audible tail stays above pitch_end_hz; use them only when that is asked for." },
     "amp_attack_ms": { "type": "number", "minimum": 0, "maximum": 20, "default": 0.5, "description": "Linear rise from 0 to full level, starting at t = 0." },
-    "amp_decay_ms": { "type": "number", "minimum": 20, "maximum": 2000, "default": 320, "description": "Time for the level to fall by 60 dB, measured from the end of the attack. Exponential decay: -20 dB after amp_decay_ms / 3, -40 dB after 2/3 of it. If length_ms is shorter, the kick is cut off before it has decayed (the engine adds a 5 ms fade-out)." },
+    "amp_decay_ms": { "type": "number", "minimum": 20, "maximum": 2000, "default": 320, "description": "Time for the level to fall by 60 dB, measured from the end of the attack. Exponential decay: -20 dB after amp_decay_ms / 3, -40 dB after 2/3 of it. If length_ms is shorter, the kick is cut off before it has decayed (the engine adds a 5 ms fade-out). With length_beats (v0.3) and no amp_decay_ms, the default 320 is not used: the value is derived (see length_beats), and an explicit value must pass that rule." },
     "click_level": { "type": "number", "minimum": 0, "maximum": 1, "default": 0.35 },
     "click_tone_hz": { "type": "number", "minimum": 500, "maximum": 12000, "default": 3500 },
     "drive": { "type": "number", "minimum": 0, "maximum": 1, "default": 0.2 },
     "tone": { "type": "number", "minimum": -1, "maximum": 1, "default": 0, "description": "-1 dark ... +1 bright (post-shaping tilt)." },
     "peak_ceiling_dbfs": { "type": "number", "minimum": -12, "maximum": -0.1, "default": -0.3 },
     "preset": { "type": "string", "maxLength": 64, "description": "Name of the preset these values came from, if any." }
-  }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "schema_version": { "const": "0.3" } } },
+      "then": {
+        "properties": {
+          "tail_note": {
+            "type": "integer", "minimum": 23, "maximum": 46,
+            "description": "v0.3. Tail note as a MIDI note number, 12-tone equal temperament, note 69 = 440 Hz: the body's pitch_end_hz becomes 440 * 2 ** ((tail_note - 69) / 12). 23 ... 46 are exactly the notes inside the pitch_end_hz range 30 ... 120 Hz (23 = 30.87 Hz, 46 = 116.54 Hz). A number, not a name, because octave naming differs: Ableton calls note 60 'C3', scientific pitch calls it 'C4'. Excludes pitch_end_hz. Absent (default): pitch_end_hz is used as before. Like pitch_end_hz it is the asymptote of the pitch fall; the pitch-settle guideline applies with this frequency."
+          },
+          "length_beats": {
+            "type": "number", "minimum": 0.25, "maximum": 4,
+            "description": "v0.3. File length in beats (quarter notes) at bpm: length_ms = length_beats * 60000 / bpm. Requires bpm, excludes length_ms. The result must lie inside the length_ms range (80 ... 2000 ms); the engine rejects combinations outside it (0.25 beats above 187.5 BPM, 4 beats below 120 BPM). Continuous, so 1/16, 1/8, 1/4 notes are 0.25, 0.5, 1. The kick must have decayed by 60 dB before the end of the beat length, not merely be cut there (user acceptance criterion, Phase 05). Exact rule. (1) Signal: the samples written to the WAV (after quantisation, as fractions of full scale), whole file including any offset_ms lead-in. (2) Envelope: rectangular RMS over N = sample_rate // 200 samples (240 at 48 kHz, 220 at 44.1 kHz), hop 1 sample: r[i] = RMS of samples i ... i + N - 1, for every i from 0 to n - N. (3) Reference: R = max r; i_max = the first i with r[i] = R. (4) T60 = (i60 + N) / sample_rate, the END of the first window i60 > i_max with 20 * log10(r[i60] / R) <= -60; no such window = does not fit. (5) Fits: T60 <= (n - n_fade) / sample_rate, n_fade = the samples of the engine's 5 ms end fade-out, so the end fade-out never counts toward the decay. (6) Rule (user decision on PR #114): with an explicit amp_decay_ms that does not fit, the request is rejected, never shortened; the error names the value (6a) would derive. (6a) Without amp_decay_ms the engine derives it on the grid 20.0, 20.1, ..., 2000.0 ms (k = 0 ... 19800, value round(20 + k / 10, 1)) by bisection: 2000.0 fits -> 2000.0; 20.0 does not fit -> rejected ('no amp_decay_ms of 20 ms or more decays 60 dB within length_beats at this bpm'); otherwise lo = 0, hi = 19800, while hi - lo > 1: mid = (lo + hi) // 2, lo = mid if mid fits else hi = mid; result k = lo. This is the longest fitting grid value if 'fits' is monotonic in amp_decay_ms (expected, to be verified in #120) and a fitting, deterministic value in any case. The check is on the output because drive delays the -60 dB point: T60 / (amp_attack_ms + amp_decay_ms) measured 0.94 ... 0.97 at drive 0, 1.05 ... 1.07 at 0.2, 1.13 ... 1.16 at 0.45, 1.22 ... 1.26 at 1.0 (this method, decays 200 ... 560 ms). Absent (default): length_ms is used as before."
+          },
+          "click_decay_ms": {
+            "type": "number", "minimum": 0.5, "maximum": 12, "default": 3,
+            "description": "v0.3. Time constant of the click's exponential decay (its noise burst falls by 1/e per click_decay_ms). The click window is max(15, 5 * click_decay_ms) ms and ends in its 2 ms raised-cosine fade. The click is peak-normalised before click_level, so a longer decay puts more click energy into the first 10 ms at the same click peak. Default 3 ms = the fixed value of engine 0.1.0 (window 15 ms)."
+          },
+          "click_q": {
+            "type": "number", "minimum": 0.5, "maximum": 8, "default": 0.9,
+            "description": "v0.3. Q of the click's band-pass around click_tone_hz (RBJ band-pass). Low = wide, noisy click; high = narrow, more tonal tick (Q 0.5 is about 2.5 octaves between the -3 dB points, Q 8 about 0.18 octaves). Default 0.9 = the fixed value of engine 0.1.0."
+          },
+          "polarity": {
+            "enum": [1, -1], "default": 1,
+            "description": "v0.3. Sign of the whole output, applied after the peak ceiling: -1 gives the exact sample-wise negation of the +1 file. For matching two kicks that play together (layer cancellation, issue #57 H4). Default 1 = today's output."
+          },
+          "offset_ms": {
+            "type": "number", "minimum": 0, "maximum": 12, "default": 0,
+            "description": "v0.3. Silence before the kick starts: t = 0 of every envelope is at offset_ms. The file length stays length_ms (or length_beats), so the kick is cut offset_ms earlier. For aligning two kicks that play together. 12 ms is more than half a period of a 45 Hz tail (11.1 ms), so any tail alignment from in phase to opposite phase is reachable for tails of 42 Hz and up. Default 0 = today's output."
+          },
+          "clip_db": {
+            "type": "number", "minimum": 0, "maximum": 12, "default": 0,
+            "description": "v0.3. Hard-clip stage after tone and DC blocking, before the fade-out and the peak ceiling: the kick is scaled to peak 1, raised by clip_db, clipped at +-1 (oversampled like drive), then brought to peak_ceiling_dbfs. So clip_db is how far the peaks are pushed over the clip point; it flattens the loudest part (mostly the attack) and leaves the quieter tail clean, unlike drive, which shapes the whole kick. 0 = stage off (skipped, so today's output). Range: listening test 1 pair P3 (#103) clipped a two-kick sum whose peaks were 3.6 ... 5.3 dB over full scale (#57 H2); 12 dB leaves room above that."
+          }
+        },
+        "dependentRequired": { "length_beats": ["bpm"] },
+        "dependentSchemas": {
+          "tail_note": { "not": { "required": ["pitch_end_hz"] } },
+          "length_beats": { "not": { "required": ["length_ms"] } }
+        }
+      }
+    }
+  ]
 }
