@@ -646,6 +646,9 @@ def test_sidecar_write_error_cleans_up_and_does_not_loop(tmp_path, monkeypatch) 
             self._f.close()
             return False
 
+        def close(self):  # a file object has close(); the clean-up calls it (#94)
+            self._f.close()
+
         def write(self, _data):
             raise OSError(28, "No space left on device (simulated)")
 
@@ -675,6 +678,9 @@ def test_wav_write_error_cleans_up(tmp_path, monkeypatch, interrupt) -> None:
         def __exit__(self, *exc):
             self._f.close()
             return False
+
+        def close(self):  # a file object has close(); the clean-up calls it (#94)
+            self._f.close()
 
         def write(self, _data):
             raise interrupt("simulated")

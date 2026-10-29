@@ -11,6 +11,7 @@ import json
 import os
 import re
 import struct
+from contextlib import suppress
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -85,8 +86,21 @@ def write_kick(
 
     If either file exists, a counter suffix (``_002``, ``_003`` …) is added. Existing files are
     never touched; if a name is taken between the check and the write, the next counter is
-    tried. If the sidecar cannot be written, the WAV written by this call is removed again, so
-    no orphan is left. Returns ``(wav_path, json_path)``.
+    tried. Returns ``(wav_path, json_path)``.
+
+    If the call fails for any reason after it created a file (disk full, permission, Ctrl+C,
+    also during the ``return``), the files it created are closed and removed again and the
+    original error is raised unchanged: no 0-byte file, no WAV without sidecar. Known
+    exceptions (#94), all a few bytecodes wide or outside this call:
+
+    - an interrupt between an ``open`` returning and its result being stored leaves that
+      0-byte file (Python runs no line in between; the call cannot know it created it);
+    - a second Ctrl+C during the clean-up stops the clean-up;
+    - a file the clean-up cannot remove (e.g. held open by a virus scanner on Windows) stays;
+      the original error is still raised. (When the sidecar name was taken and our WAV
+      cannot be removed, that removal error is what is raised.);
+    - removal is by path: if someone else deleted our fresh file and created a new one under
+      the same name before the clean-up, that file is removed.
 
     ``created_at`` must be a time-zone aware ``datetime`` (default: now in UTC); it is written
     as RFC 3339 with its offset, to the second. A naive datetime is rejected, because its zone
@@ -121,34 +135,38 @@ def write_kick(
         meta = {"file": wav_path.name, **base_meta}
         Draft202012Validator(load_schema(METADATA_SCHEMA_FILE)).validate(meta)
         meta_text = json.dumps(meta, indent=2, ensure_ascii=False, allow_nan=False) + "\n"
+        # Ownership (#94): a file belongs to this call once its file object is stored, which
+        # the "x" open statement does itself, inside the one try below. Every later statement,
+        # up to and including the return and the name-clash handling, is covered by its
+        # clean-up. ``None`` = not created by this call: that path is never removed.
+        # No nested ``try`` statement here: on CPython 3.13 an exception raised (by a trace
+        # function) at a nested ``try:`` line skipped the outer handler in the #94 sweep.
+        wav_file = json_file = None
         try:
-            wav_file = open(wav_path, "xb")  # "x": never overwrite
-        except FileExistsError:
-            continue  # taken since the check: try the next counter
-        # From here on this call owns wav_path; on any failure it is removed again.
-        try:
+            with suppress(FileExistsError):
+                wav_file = open(wav_path, "xb")  # "x": never overwrite
+            if wav_file is None:
+                continue  # taken since the check: try the next counter
             with wav_file:
                 wav_file.write(wav_bytes)
-        except BaseException:
-            wav_path.unlink(missing_ok=True)
-            raise
-        try:
-            json_file = open(json_path, "x", encoding="utf-8")
-        except FileExistsError:
-            wav_path.unlink(missing_ok=True)
-            continue  # sidecar name taken since the check: try the next counter
-        except BaseException:
-            wav_path.unlink(missing_ok=True)
-            raise
-        # This call also owns json_path now. A write error is not a name clash: clean up, raise.
-        try:
+            with suppress(FileExistsError):
+                json_file = open(json_path, "x", encoding="utf-8")
+            if json_file is None:
+                # Sidecar name taken since the check: remove our WAV, try the next counter.
+                # Still inside the try, so an error or Ctrl+C here (also a failed removal)
+                # reaches the clean-up below.
+                _discard(wav_file, wav_path, swallow=False)
+                wav_file = None
+                continue
             with json_file:
                 json_file.write(meta_text)
+            return wav_path, json_path
         except BaseException:
-            json_path.unlink(missing_ok=True)
-            wav_path.unlink(missing_ok=True)
+            # Disk full, permission, Ctrl+C ...: remove our files, sidecar first, and raise
+            # the original error unchanged (clean-up errors are swallowed).
+            _discard(json_file, json_path, swallow=True)
+            _discard(wav_file, wav_path, swallow=True)
             raise
-        return wav_path, json_path
     raise FileExistsError(
         f"No free file name for '{stem}' in {out} after {_MAX_NAME_ATTEMPTS} tries"
     )
@@ -220,6 +238,28 @@ def _created_at_text(created_at: datetime | None) -> str:
     if offset.total_seconds() % 60:
         raise ValueError(f"created_at time zone offset {offset} is not whole minutes (RFC 3339)")
     return created_at.isoformat(timespec="seconds")
+
+
+def _discard(file: Any, path: Path, *, swallow: bool) -> None:
+    """Close and remove a file this call created (``file`` is its file object; ``None`` means
+    the call did not create ``path``, which is then left alone). Closing first matters on
+    Windows, where an open file cannot be deleted; ``close`` is a no-op on a closed file.
+    With ``swallow``, every ``OSError`` is ignored so that the error being propagated reaches
+    the caller unchanged ("already gone" is always ignored)."""
+    if file is None:
+        return
+    try:
+        file.close()
+    except OSError:
+        if not swallow:
+            raise
+    try:
+        os.unlink(path)
+    except FileNotFoundError:
+        pass
+    except OSError:
+        if not swallow:
+            raise
 
 
 def _taken(path: Path) -> bool:
