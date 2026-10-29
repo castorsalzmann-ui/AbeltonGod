@@ -306,7 +306,7 @@ COUNTED = [GOLDEN, DETERMINISM] + [f"{t}[{c}]" for t in (SIGNAL, ANALYSIS) for c
 
 
 def test_render_counter_shows_direct_engine_calls(tmp_path) -> None:
-    """Runs all 5 golden hashes, all 20 determinism cases and three cases of two cached tests
+    """Runs all 6 golden hashes, all 20 determinism cases and three cases of two cached tests
     in one fresh process with the render counter. Golden: 1 real render each, determinism: 2
     real renders each, no cache hit in either (they sit next to cached tests that share their
     inputs: defaults and random-0/1 are among the 20 determinism sets). The cached tests share
@@ -330,7 +330,7 @@ def test_render_counter_shows_direct_engine_calls(tmp_path) -> None:
         return [r for node, r in tests.items() if node.startswith(prefix + "[")]
 
     golden = rows(GOLDEN)
-    assert len(golden) == 5
+    assert len(golden) == 6
     assert all(r["renders"] == 1 and r["cache_hits"] == 0 for r in golden)
     determinism = rows(DETERMINISM)
     assert len(determinism) == 20

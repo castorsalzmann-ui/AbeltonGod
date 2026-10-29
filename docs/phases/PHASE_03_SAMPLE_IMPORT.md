@@ -1,6 +1,6 @@
 # PHASE 03 — Sample import into the Live project
 
-**Status:** PLANNED · **Agents:** `bridge-engineer` (+ `audio-engineer` for the library) · **Tested in:** user's machine
+**Status:** IN PROGRESS · **Agents:** `bridge-engineer` (+ `audio-engineer` for the library) · **Tested in:** user's machine
 
 ## Objective
 
@@ -23,7 +23,7 @@ Arrangement view placement, warping/tempo matching beyond Live defaults, Claude.
 
 ## Acceptance criteria
 
-- [ ] CI: library naming/layout tests, no-overwrite test.
-- [ ] User-verified: a generated kick appears as a clip on an audio track and plays.
+- [x] CI: library naming/layout tests, no-overwrite test. (PRs #82, #91, #93, #95)
+- [x] User-verified: a generated kick appears as a clip on an audio track and plays. (Live runs 2–4 on 2026-10-29, #50; run 4 incl. undo PASS)
 - [ ] Capability `clip_slot.create_audio_clip` set to `tested` or `unsupported` with evidence.
-- [ ] Fallback documented and tried once by the user.
+- [x] Fallback documented and tried once by the user. (`docs/setup/SAMPLE_IMPORT_FALLBACK.md`; user 2026-10-29, #50)
