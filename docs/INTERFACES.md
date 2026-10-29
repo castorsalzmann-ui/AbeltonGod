@@ -70,7 +70,7 @@ Consequence: no `minimum`, `minLength` or `pattern`. `track_index: -1` and `samp
 
 ### `list_tracks`
 
-No arguments (`properties: {}`, `additionalProperties: false`). Read only, approval `routine`. Reads `song.track_names.get` (`tested`), `track.has_audio_input.get` and `song.num_scenes.get`. The two last are not registry entries of their own yet (#143).
+No arguments (`properties: {}`, `additionalProperties: false`). Read only, approval `routine`. Reads `song.track_names.get` (`tested`), `track.has_audio_input.get` (`tested`) and `song.num_scenes.get` (`tested`). The last two are registry entries of their own since #153 (closed #143). Limit from #153: `has_audio_input == false` has never been observed on the user's machine.
 
 ### `import_sample`
 
@@ -105,9 +105,9 @@ Rejected alternatives:
 3. **The slot exists and is empty.** When given, `slot_index` satisfies `0 <= slot_index <` number of scenes, and that slot is empty. When it is absent, the first empty slot is used; if there is none, the call is refused. An occupied slot is never overwritten.
 4. **Approval level `confirm`.** The plan shows the track name and slot as read from Live, and `ClipImporter.run` compares the state again (`expected_before`).
 
-**Not in v1:** a new audio track as the target. `song.create_audio_track` is `supported`, not `tested` (D-004). It becomes an additive contract change once its undo run passes. Undo is not part of this tool either.
+**Not in v1:** a new audio track as the target. `song.create_audio_track` is `tested` since #153, but stays out of v1 (v1 limit, #81). Adding it is a later additive contract change; new-track undo was shown in one run only (one undo reverted track and clip together). Undo is not part of this tool either.
 
-**Capabilities used:** `clip_slot.create_audio_clip` (`tested`), `song.track_names.get` (`tested`), and four reads that still borrow the `create_audio_clip` gate: `track.has_audio_input.get`, `clip_slot.has_clip.get`, `clip.file_path.get`, `song.num_scenes.get`. They need their own registry entries (#143) before either tool is wired.
+**Capabilities used:** `clip_slot.create_audio_clip` (`tested`), `song.track_names.get` (`tested`), and four reads that are registry entries of their own with status `tested` since #153 (closed #143): `track.has_audio_input.get`, `clip_slot.has_clip.get`, `clip.file_path.get`, `song.num_scenes.get`. None of them borrows the `create_audio_clip` gate any more. Limit from #153: `has_audio_input == false` has never been observed on the user's machine.
 
 **Preconditions for wiring:**
 - From the PR #122 round-2 review, recorded on #81:
@@ -116,4 +116,4 @@ Rejected alternatives:
 - From the PR #144 review:
   - the tool builder's output passes the strict checker with no root allowance (see "Strict subset");
   - the shared project-folder check exists in `src/library/` (#149);
-  - the four reads have their own registry entries (#143).
+  - the four reads have their own registry entries (#143) — **met** by #153: all four are `tested`.
