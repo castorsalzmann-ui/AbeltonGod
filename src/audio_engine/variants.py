@@ -185,17 +185,19 @@ def _draw_decay_by_rule(
 
     The -60 dB rule is applied again to the finished variant (its own seed, drive, tone …):
     ``limit`` = what rule (6a) derives for it. The draw then uses the spread box with its
-    upper end lowered to ``limit``. If the drawn value does not fit after all (only possible
-    where 'fits' is not monotonic in amp_decay_ms), ``limit`` itself is used: it fits by
-    construction of the bisection.
+    upper end lowered to ``limit``. If the drawn value does not fit after all (possible
+    because 'fits' is not monotonic in amp_decay_ms; counter-examples exist, see
+    :mod:`audio_engine.length`), ``limit`` itself is used: it fits by construction of the
+    bisection.
     """
     field = "amp_decay_ms"
     _, hi = _box(props, field, resolved[field])
     limit = derive_amp_decay(out)
     if limit is None:
         raise VariantError(
-            f"Variant {index} of seed {seed}: no amp_decay_ms of 20 ms or more decays 60 dB "
-            "within length_beats for this variant."
+            f"Variant {index} of seed {seed}: the contract's bisection (rule 6a) found no "
+            "amp_decay_ms of 20 ms or more that decays 60 dB within length_beats for this "
+            "variant (20.0 ms does not fit)."
         )
     hi = min(hi, _grid_down(limit))
     if hi < lo:

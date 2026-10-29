@@ -52,6 +52,9 @@ NOTE_HZ: dict[int, float] = {
 
 # The length_ms range a length_beats request must land in (schema: length_ms minimum/maximum).
 _LENGTH_FIELD = "length_ms"
+# length_beats * 60000 / bpm within this many ms of 80 or 2000 counts as that limit (float
+# rounding at an exact boundary; 1e-9 ms is far below one sample, 2e-5 ms at 48 kHz).
+LENGTH_LIMIT_EPS_MS = 1e-9
 
 
 class KickParamsError(ValueError):
@@ -129,12 +132,25 @@ def resolve_kick_params(params: dict[str, Any]) -> dict[str, Any]:
         lo = schema["properties"][_LENGTH_FIELD]["minimum"]
         hi = schema["properties"][_LENGTH_FIELD]["maximum"]
         ms = resolved[_LENGTH_FIELD]
+        # A boundary in exact arithmetic can land 1 ULP outside in floats (2.14 beats at
+        # 64.2 BPM = 2000.0000000000002 ms; PR #130 review). Within LENGTH_LIMIT_EPS_MS of
+        # a limit the derived length is the limit itself, so the resolved form stays inside
+        # the schema range and the boundary the error names is really accepted.
+        if lo - LENGTH_LIMIT_EPS_MS <= ms < lo:
+            ms = resolved[_LENGTH_FIELD] = float(lo)
+        elif hi < ms <= hi + LENGTH_LIMIT_EPS_MS:
+            ms = resolved[_LENGTH_FIELD] = float(hi)
         if not lo <= ms <= hi:
             bpm = resolved["bpm"]
+            beat_props = v03_properties(schema)["length_beats"]
+            b_lo = max(beat_props["minimum"], lo * bpm / 60000)
+            b_hi = min(beat_props["maximum"], hi * bpm / 60000)
+            # Shown on a 4-decimal grid inside the allowed range (lower end up, upper down).
+            b_lo, b_hi = math.ceil(b_lo * 1e4) / 1e4, math.floor(b_hi * 1e4) / 1e4
             problems.append(
-                f"- length_beats: {beats} beats at {bpm} BPM give {ms:.4g} ms, outside the file "
+                f"- length_beats: {beats} beats at {bpm} BPM give {ms:.6g} ms, outside the file "
                 f"length range {lo} ... {hi} ms; at {bpm} BPM length_beats must lie in "
-                f"{lo * bpm / 60000:.4g} ... {hi * bpm / 60000:.4g}"
+                f"{b_lo:g} ... {b_hi:g}"
             )
     if resolved["pitch_end_hz"] > resolved["pitch_start_hz"]:
         if note is not None:

@@ -88,6 +88,22 @@ def test_length_beats_variants_follow_the_rule(i, explicit) -> None:
         assert d != derive_amp_decay(v), d
 
 
+def test_drawn_decay_that_does_not_fit_falls_back_to_the_limit(monkeypatch) -> None:
+    """variants._draw_decay_by_rule fallback (PR #130 review, problem 2): where 'fits' is not
+    monotonic a drawn value below the limit can fail. Forced here by a check that rejects
+    every drawn value; the variant must then carry its own derived limit, which fits."""
+    import audio_engine.variants as V
+
+    req = {**V03, "seed": 21, "bpm": 140, "length_beats": 1, "drive": 0.45}
+    honest = [make_variant(req, i)["amp_decay_ms"] for i in range(1, 5)]
+    monkeypatch.setattr(V, "fits", lambda p: False)
+    for i, drawn in zip(range(1, 5), honest, strict=True):
+        v = make_variant(req, i)
+        limit = derive_amp_decay(v)
+        assert v["amp_decay_ms"] == limit != drawn
+        assert ref_fits_wav(render_wav(v))
+
+
 @pytest.mark.parametrize("i", range(4))
 def test_length_beats_variants_follow_the_pitch_settle_guideline(i) -> None:
     """Base close to its guideline limit, so the variants' limit decides.

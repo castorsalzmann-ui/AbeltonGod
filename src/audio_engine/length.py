@@ -18,6 +18,17 @@ The contract text (``length_beats`` description) is implemented step by step:
 6a. Without ``amp_decay_ms``: bisection on the grid ``round(20 + k / 10, 1)``, ``k = 0 … 19800``,
     exactly as written in the contract.
 
+Monotonicity (#120 item 2, PR #130 review): 'fits' is **not** monotonic in ``amp_decay_ms``.
+On a random sample over the whole range (30 requests, PR #130) it changed exactly once, but
+the review found counter-examples in a corner (files of about 80 … 95 ms, attack 10 … 20 ms,
+``offset_ms`` 6 … 12, drive >= 0.5, ``clip_db`` 6 … 12, ``click_decay_ms`` 12): 7 of 20 such
+requests had several fitting runs. Cause not established (switching off any one of clip,
+offset, the long attack or the click removes it in the pinned case). Consequences of the
+contract's bisection, which this module implements unchanged until #131 decides the rule:
+the derived value always fits, but it is not always the longest fitting one, and (6a) can
+reject although a larger explicit value fits (pinned in ``tests/audio_engine/
+test_length_rule.py::test_non_monotone_case_is_pinned``).
+
 Exact arithmetic: ``r[i] = sqrt(S[i] / N) / full_scale`` with the integer window sum of
 squares ``S[i]``, so ``20 * log10(r[i] / R) <= -60`` is ``S[i] / S_max <= 10 ** -6``, i.e.
 ``S[i] <= S_max // 10 ** 6`` for integers. ``r[i] = R`` is ``S[i] = S_max``, and step 5 is
@@ -106,9 +117,13 @@ def apply_length_rule(resolved: dict[str, Any], beats: float, decay_given: bool)
         f"length_beats {beats} at {resolved['bpm']} BPM ({resolved['length_ms']:.6g} ms, "
         "the 5 ms end fade-out not counted)"
     )
+    # Truthful wording (PR #130 review): 'fits' is not monotonic in amp_decay_ms, so (6a)
+    # rejecting means only that 20.0 ms (and 2000.0 ms) do not fit, not that nothing fits.
     no_fit = (
-        "no amp_decay_ms of 20 ms or more decays 60 dB within length_beats at this bpm "
-        f"({where}); shorten the decay by other means or use more beats"
+        "the contract's bisection (rule 6a) found no amp_decay_ms of 20 ms or more that "
+        f"decays 60 dB within length_beats at this bpm ({where}): 20.0 ms does not fit. "
+        "Fitting is not monotonic in amp_decay_ms, so a larger explicit amp_decay_ms may "
+        "still fit (#131); otherwise use more beats or a shorter attack, offset or click"
     )
     if decay_given:
         if fits(resolved):
@@ -118,7 +133,8 @@ def apply_length_rule(resolved: dict[str, Any], beats: float, decay_given: bool)
             return f"amp_decay_ms {resolved['amp_decay_ms']}: {no_fit}"
         return (
             f"amp_decay_ms {resolved['amp_decay_ms']} does not decay 60 dB within {where}; "
-            f"the rule derives {derived} for these values (omit amp_decay_ms to use it). "
+            f"the rule (6a) derives {derived} for these values (omit amp_decay_ms to use "
+            "it; it fits, but is not always the longest value that does, #131). "
             "An explicit value is rejected, never shortened."
         )
     derived = derive_amp_decay(resolved)

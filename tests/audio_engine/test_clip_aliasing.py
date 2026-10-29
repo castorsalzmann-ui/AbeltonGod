@@ -22,6 +22,8 @@ Measured on the shipped stage (8x, the drive filter), written down before the bo
 So the shipped bound is -60 dB (curated and random cases), not the -70 dB of the drive test,
 and -90 dBFS (research note M9 proposal) is not met for the extreme corner. The 16 random
 cases below (seeds 12000 ... 12015) measured -78.6 dB at worst when this file was written.
+Fold-back alone (8x vs 64x, same design, -70 dB like drive): curated -75.7 dB, random cases
+-85.0 dB at worst (PR #130 review round 1 measured -74.4 dB on its own 12 hard cases).
 """
 
 from __future__ import annotations
@@ -128,19 +130,25 @@ def test_random_case_is_bounded(monkeypatch, params) -> None:
     assert _error_db(monkeypatch, params) <= LIMIT_DB
 
 
-def test_foldback_above_the_oversampled_rate_is_small(monkeypatch) -> None:
-    """The shipped 8x against the same design at 64x: only what folds back above 8x."""
+def _clip64(x: np.ndarray, clip_db: float) -> np.ndarray:
+    """The same oversampler design at 64x: differs from the shipped 8x only by fold-back."""
     from audio_engine.dsp import kaiser_lowpass, oversampled
 
+    if clip_db <= 0:
+        return x
     h64 = kaiser_lowpass(64, K.DRIVE_FILTER_TRANSITION, K.DRIVE_FILTER_BETA)
+    y = x * (10.0 ** (clip_db / 20.0) / float(np.max(np.abs(x))))
+    out = y + oversampled(y, 64, lambda u: np.clip(u, -1.0, 1.0) - u, h64)
+    out[0] = 0.0
+    return out
 
-    def clip64(x, clip_db):
-        y = x * (10.0 ** (clip_db / 20.0) / float(np.max(np.abs(x))))
-        out = y + oversampled(y, 64, lambda u: np.clip(u, -1.0, 1.0) - u, h64)
-        out[0] = 0.0
-        return out
 
-    assert _error_db(monkeypatch, WORST, ref_fn=clip64) <= FOLDBACK_LIMIT_DB
+@pytest.mark.parametrize("params", [WORST, *RANDOM_CASES],
+                         ids=lambda p: "worst" if p is WORST else f"seed{p['seed']}")
+def test_foldback_above_the_oversampled_rate_is_small(monkeypatch, params) -> None:
+    """The shipped 8x against the same design at 64x: only what folds back above 8x.
+    Same -70 dB as the drive test (PR #130 review: also on the random cases)."""
+    assert _error_db(monkeypatch, params, ref_fn=_clip64) <= FOLDBACK_LIMIT_DB
 
 
 def test_metric_detects_base_rate_clip(monkeypatch) -> None:

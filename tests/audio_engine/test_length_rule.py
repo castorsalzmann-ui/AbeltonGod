@@ -18,11 +18,12 @@ import wave
 
 import numpy as np
 import pytest
+from jsonschema import Draft202012Validator
 
 from audio_engine import kick as K
 from audio_engine import length as L
 from audio_engine.io import encode_wav, render_kick_wav, rerender_from_sidecar, write_kick
-from audio_engine.params import KickParamsError, resolve_kick_params
+from audio_engine.params import KICK_SCHEMA_FILE, KickParamsError, load_schema, resolve_kick_params
 
 V03 = {"schema_version": "0.3", "seed": 1}
 
@@ -111,15 +112,87 @@ def test_length_beats_becomes_length_ms(beats, bpm, ms) -> None:
 
 
 @pytest.mark.parametrize(
-    ("beats", "bpm"), [(0.25, 200), (0.25, 187.6), (4, 119.9), (4, 60), (3, 80)]
+    ("beats", "bpm", "shown"),
+    [
+        # Allowed beats = [max(0.25, 80*bpm/60000), min(4, 2000*bpm/60000)], shown on a
+        # 4-decimal grid inside it (computed by hand): the schema's 0.25 ... 4 always applies.
+        (0.25, 200, "0.2667 ... 4"),  # 0.26667 ... 6.667 -> upper end is the schema's 4
+        (0.25, 187.6, "0.2502 ... 4"),  # 0.250133 rounded up
+        (4, 119.9, "0.25 ... 3.9966"),  # 3.99667 rounded down
+        (4, 60, "0.25 ... 2"),
+        (3, 80, "0.25 ... 2.6666"),
+    ],
 )
-def test_length_outside_80_to_2000_ms_is_rejected(beats, bpm) -> None:
+def test_length_outside_80_to_2000_ms_is_rejected(beats, bpm, shown) -> None:
     with pytest.raises(KickParamsError) as exc:
         resolve_kick_params({**V03, "length_beats": beats, "bpm": bpm})
     text = str(exc.value)
     assert "length_beats" in text and "80 ... 2000 ms" in text
-    lo, hi = 80 * bpm / 60000, 2000 * bpm / 60000
-    assert f"{lo:.4g} ... {hi:.4g}" in text  # the allowed beat range at this tempo
+    assert f"length_beats must lie in {shown}" in text
+
+
+@pytest.fixture
+def no_rule(monkeypatch):
+    """Range tests only: skip the -60 dB rule (it needs renders and is tested elsewhere)."""
+    monkeypatch.setattr(L, "apply_length_rule", lambda resolved, beats, given: None)
+
+
+def test_exact_boundaries_are_accepted_despite_float_rounding(no_rule) -> None:
+    """PR #130 review, problem 3: 2.14 beats at 64.2 BPM is exactly 2000 ms but computes as
+    2000.0000000000002. Every beats value on a 0.01 grid whose exact length is 80 or 2000 ms
+    (bpm = beats * 750 or beats * 30) is accepted. A value that rounds outside becomes exactly
+    the limit; one that rounds inside keeps the formula's value."""
+    outside = 0
+    for hundredths in range(25, 401):
+        beats = hundredths / 100
+        for bpm, limit in ((beats * 30, 2000.0), (beats * 750, 80.0)):
+            if not 60 <= bpm <= 200:
+                continue
+            raw = beats * 60000 / bpm
+            p = resolve_kick_params({**V03, "length_beats": beats, "bpm": bpm})
+            assert 80 <= p["length_ms"] <= 2000 and abs(p["length_ms"] - limit) < 1e-9
+            if not 80 <= raw <= 2000:
+                outside += 1
+                assert p["length_ms"] == limit, (beats, bpm)
+            else:
+                assert p["length_ms"] == raw
+    assert outside > 10  # the float problem really occurs on this grid
+    # The lower limit: 0.250422 beats at 187.8165 BPM is exactly 80 ms, computes as
+    # 79.99999999999999 (found by search; the 0.01 grid above has no such case at 80 ms).
+    assert 0.250422 * 60000 / 187.8165 < 80
+    assert resolve_kick_params({**V03, "length_beats": 0.250422, "bpm": 187.8165})[
+        "length_ms"] == 80.0
+    # Beyond the epsilon it stays an error: 2000.000001 ms and 80 - 1e-6 ms are refused.
+    for beats, bpm in ((4, 119.99999994), (0.25, 187.5 * 80 / (80 - 1e-6))):
+        assert abs(beats * 60000 / bpm - (2000 if beats == 4 else 80)) > 1e-7
+        with pytest.raises(KickParamsError, match="80 ... 2000 ms"):
+            resolve_kick_params({**V03, "length_beats": beats, "bpm": bpm})
+    p = resolve_kick_params({**V03, "length_beats": 2.14, "bpm": 64.2})
+    assert p["length_ms"] == 2000.0
+    Draft202012Validator(load_schema(KICK_SCHEMA_FILE)).validate(p)
+
+
+@pytest.mark.parametrize("i", range(200))
+def test_shown_beat_range_is_accepted_and_just_outside_is_not(no_rule, i) -> None:
+    """Seeded over the bpm range: both ends of the range an error shows (formula of the
+    parametrized test above) are accepted; 0.001 beats outside the true range is rejected.
+    Where the request is outside, the shown range is read back from the message itself."""
+    rng = random.Random(160130 + i)
+    bpm = rng.choice([60, 200, rng.uniform(60, 200), round(rng.uniform(60, 200), 1)])
+    b_lo = math.ceil(max(0.25, 80 * bpm / 60000) * 1e4) / 1e4
+    b_hi = math.floor(min(4.0, 2000 * bpm / 60000) * 1e4) / 1e4
+    if bpm < 119.9:  # 4 beats are longer than 2000 ms here: compare with the message
+        with pytest.raises(KickParamsError) as exc:
+            resolve_kick_params({**V03, "length_beats": 4, "bpm": bpm})
+        assert f"must lie in {b_lo:g} ... {b_hi:g}" in str(exc.value)
+    for beats in (b_lo, b_hi):
+        p = resolve_kick_params({**V03, "length_beats": beats, "bpm": bpm})
+        assert 80 <= p["length_ms"] <= 2000
+    true_lo, true_hi = 80 * bpm / 60000, 2000 * bpm / 60000
+    for beats in (true_lo - 0.001, true_hi + 0.001):
+        if 0.25 <= beats <= 4:
+            with pytest.raises(KickParamsError, match="80 ... 2000 ms"):
+                resolve_kick_params({**V03, "length_beats": beats, "bpm": bpm})
 
 
 def test_length_range_check_comes_before_any_render(monkeypatch) -> None:
@@ -317,7 +390,7 @@ def test_derived_decay_fits_and_the_next_grid_value_does_not(req) -> None:
         p = resolve_kick_params(req)
     except KickParamsError as exc:
         # Only the (6a) rejection is acceptable here; confirm it with the reference.
-        assert "no amp_decay_ms of 20 ms or more" in str(exc)
+        assert "found no amp_decay_ms of 20 ms or more" in str(exc)
         assert not ref_fits_wav(render_wav(as_ms_request(req, 20.0)))
         return
     d = p["amp_decay_ms"]
@@ -373,9 +446,13 @@ def test_no_fitting_decay_is_rejected_with_the_contract_wording() -> None:
     assert not ref_fits_wav(render_wav(as_ms_request(NO_FIT, 20.0)))
     with pytest.raises(KickParamsError) as exc:
         resolve_kick_params(NO_FIT)
-    assert "no amp_decay_ms of 20 ms or more decays 60 dB within length_beats at this bpm" in (
-        str(exc.value)
-    )
+    text = str(exc.value)
+    assert (
+        "the contract's bisection (rule 6a) found no amp_decay_ms of 20 ms or more that "
+        "decays 60 dB within length_beats at this bpm"
+    ) in text
+    # Truthful (PR #130 review): it claims only that 20.0 ms does not fit.
+    assert "20.0 ms does not fit" in text and "a larger explicit amp_decay_ms may" in text
 
 
 def test_explicit_decay_when_nothing_fits_uses_the_6a_wording() -> None:
@@ -383,8 +460,38 @@ def test_explicit_decay_when_nothing_fits_uses_the_6a_wording() -> None:
     with pytest.raises(KickParamsError) as exc:
         resolve_kick_params({**NO_FIT, "amp_decay_ms": 300})
     text = str(exc.value)
-    assert "amp_decay_ms 300: no amp_decay_ms of 20 ms or more decays 60 dB" in text
+    assert "amp_decay_ms 300: the contract's bisection (rule 6a) found no amp_decay_ms" in text
     assert "derives" not in text
+
+
+# PR #130 review, case 8 (reviewer seed 4242): 'fits' is not monotonic here. 20.0 … 23.0 ms
+# do not fit, 23.1 ms does (and up to about 57.5 ms). The contract's bisection probes 2000.0
+# and 20.0, both do not fit, so (6a) rejects although explicit values fit. Today's
+# documented behaviour, pinned until #131 decides the rule; cause not established.
+NON_MONOTONE = {
+    "schema_version": "0.3", "seed": 8, "bpm": 143.57900286590456,
+    "length_beats": 0.2716507875933293, "amp_attack_ms": 17.932543080219805,
+    "offset_ms": 7.51494471890089, "drive": 0.9082857833356175, "clip_db": 8.91860023009783,
+    "pitch_end_hz": 30, "pitch_start_hz": 68.68954745687981, "pitch_decay_ms": 300,
+    "click_level": 1, "click_decay_ms": 12, "tone": -0.15456163358807595,
+}
+
+
+def test_non_monotone_case_is_pinned() -> None:
+    req = NON_MONOTONE
+    # The independent reference sees the non-monotone pattern on the WAV.
+    pattern = {d: ref_fits_wav(render_wav(as_ms_request(req, d)))
+               for d in (20.0, 23.0, 23.1, 25.0, 40.0, 57.0, 60.0, 2000.0)}
+    assert pattern == {20.0: False, 23.0: False, 23.1: True, 25.0: True, 40.0: True,
+                       57.0: True, 60.0: False, 2000.0: False}
+    with pytest.raises(KickParamsError) as exc:
+        resolve_kick_params(req)
+    assert "20.0 ms does not fit" in str(exc.value)
+    assert "a larger explicit amp_decay_ms may" in str(exc.value)
+    assert resolve_kick_params({**req, "amp_decay_ms": 25.0})["amp_decay_ms"] == 25.0
+    # The engine's own check agrees with the reference at every probed value.
+    for d, expected in pattern.items():
+        assert L.fits(as_ms_request(req, d)) == expected, d
 
 
 def test_long_enough_length_gives_the_grid_maximum() -> None:

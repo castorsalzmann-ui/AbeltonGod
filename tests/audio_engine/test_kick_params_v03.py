@@ -174,6 +174,20 @@ def test_tail_note_errors_are_readable() -> None:
             exc.value)
 
 
+def test_pitch_end_equal_to_pitch_start_is_allowed() -> None:
+    """Boundary of 'must not be higher' (PR #130 review, nit 4): equal is accepted, for a
+    note and for a plain pitch_end_hz; 1 ULP higher is refused."""
+    p = resolve_kick_params({**V03, "tail_note": 45, "pitch_start_hz": 110.0})
+    assert p["pitch_end_hz"] == p["pitch_start_hz"] == 110.0
+    p = resolve_kick_params({**V02, "pitch_end_hz": 100.0, "pitch_start_hz": 100.0})
+    assert p["pitch_end_hz"] == p["pitch_start_hz"]
+    with pytest.raises(KickParamsError, match="must not be higher"):
+        resolve_kick_params({**V03, "tail_note": 45, "pitch_start_hz": math.nextafter(110, 0)})
+    with pytest.raises(KickParamsError, match="must not be higher"):
+        resolve_kick_params({**V02, "pitch_end_hz": math.nextafter(100, 200),
+                             "pitch_start_hz": 100.0})
+
+
 def test_tail_note_of_needs_an_exact_note_frequency() -> None:
     assert tail_note_of({"pitch_end_hz": 55.0}) == 33
     assert tail_note_of({"pitch_end_hz": 55}) == 33  # same number
