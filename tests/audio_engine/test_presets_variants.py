@@ -59,6 +59,9 @@ COMMON = {"schema_version": "0.2", "sample_rate": 48000, "bit_depth": 24,
 EXPECTED_PRESETS = {
     "centre": (1001, 480, 200, 52, 40, 0.5, 560, 0.35, 3500, 0.0, 0.0),
     "dark-dry": (1002, 450, 160, 47, 9, 0.5, 500, 0.12, 2500, 0.0, -0.4),
+    # #116: centre + drive 0.45, the user's pick in listening tests 1 and 2 (#103). Same seed
+    # as centre on purpose: it must render the exact file the user chose.
+    "dense": (1001, 480, 200, 52, 40, 0.5, 560, 0.35, 3500, 0.45, 0.0),
     "punchy": (1003, 400, 260, 56, 6, 0.3, 420, 0.6, 4500, 0.15, 0.3),
     "rumble-ready": (1004, 750, 180, 49, 10, 1.0, 800, 0.2, 3000, 0.0, -0.2),
     "driven": (1005, 420, 300, 58, 6, 0.2, 380, 1.0, 5000, 0.45, 0.6),
@@ -149,6 +152,16 @@ def test_centre_has_the_pitch_decay_the_user_chose() -> None:
     assert load_schema(KICK_SCHEMA_FILE)["properties"]["pitch_decay_ms"]["default"] == 15
     assert abs(max_settled_pitch_decay_ms(p) - 46.3089) < 1e-4
     assert pitch_settles(p)
+
+
+def test_dense_is_centre_with_drive() -> None:
+    """#116: dense differs from centre only in its name and drive, so it renders the bytes of
+    ``--preset centre --set drive=0.45`` (the file the user chose, #103). The SHA-256 of that
+    file is pinned in test_engine_version.py (golden case preset-dense)."""
+    dense, centre = preset("dense"), preset("centre")
+    assert {k for k in dense if dense[k] != centre[k]} == {"preset", "drive"}
+    assert dense["drive"] == 0.45
+    assert render_kick_wav(dense)[0] == render_kick_wav({**centre, "drive": 0.45})[0]
 
 
 @pytest.mark.parametrize("name", NAMES)

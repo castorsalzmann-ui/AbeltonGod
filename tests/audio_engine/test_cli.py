@@ -24,7 +24,7 @@ from audio_engine.io import rerender_from_sidecar, write_kick
 from audio_engine.params import METADATA_SCHEMA_FILE, load_schema
 from audio_engine.presets import load_preset
 
-NAMES = ["centre", "dark-dry", "driven", "punchy", "rumble-ready"]
+NAMES = ["centre", "dark-dry", "dense", "driven", "punchy", "rumble-ready"]
 
 
 def run(argv: list[str]) -> tuple[int, str, str]:
@@ -142,7 +142,7 @@ def test_python_dash_m_entry_point(tmp_path) -> None:
 # --- errors before writing: exit 2, nothing written, folder not created ----------------------
 
 BAD = [
-    (["--preset", "hard-trance"], "Valid presets: centre, dark-dry, driven, punchy"),
+    (["--preset", "hard-trance"], "Valid presets: centre, dark-dry, dense, driven, punchy"),
     (["--preset", "punchy", "--variants", "9"], "variants"),
     (["--preset", "punchy", "--variants", "0"], "variants"),
     (["--preset", "punchy", "--seed", "-1"], "seed"),

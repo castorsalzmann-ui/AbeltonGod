@@ -25,6 +25,8 @@ DESCRIPTIONS = {
     "centre": "Near the medians of the measured reference range (mid tail pitch, clean body, "
     "moderate click), with a slower pitch drop than most references (chosen by ear).",
     "dark-dry": "Low tail, little click, darker tilt, no drive.",
+    "dense": "The centre values with deliberate drive added; same seed as centre, so it "
+    "differs from centre only in drive (chosen by ear in listening tests).",
     "punchy": "Higher tail, one of the two fastest pitch drops, more click, light drive.",
     "rumble-ready": "Long, clean, low tail as a source for a rumble chain built in Live.",
     "driven": "Maximum click, bright tilt, deliberate drive, high tail.",

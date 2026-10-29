@@ -3,9 +3,10 @@
 The golden SHA-256s below pin the exact WAV bytes of five renders: 48 kHz / 24-bit odd, even
 and driven, plus two 44.1 kHz odd-length renders that reach 16-bit, tone > 0 and < 0, a loud
 bright click and an attack (review round 1 of PR #40: a tone-only byte change passed the first
-three). If one of them fails, rendered bytes changed: bump ``ENGINE_VERSION`` in
-``audio_engine/__init__.py`` **and** update ``ENGINE_VERSION_OF_GOLDEN`` and the hashes here,
-in the same PR (PR template checkbox). Never update a hash without the bump.
+three). A sixth pins the full-length preset ``dense`` (#116). If one of them fails, rendered
+bytes changed: bump ``ENGINE_VERSION`` in ``audio_engine/__init__.py`` **and** update
+``ENGINE_VERSION_OF_GOLDEN`` and the hashes here, in the same PR (PR template checkbox).
+Never update a hash without the bump.
 
 Hashes recorded on Linux (CPython 3.13, NumPy 2.5) for ``ENGINE_VERSION`` 0.1.0, i.e. after
 the continuous drive of #16; ubuntu and windows CI (Python 3.12) reproduce them, so a
@@ -26,6 +27,7 @@ import pytest
 import audio_engine
 import audio_engine.io as io_mod
 from audio_engine.io import EngineVersionMismatch, render_kick_wav, rerender_from_sidecar
+from audio_engine.presets import load_preset
 
 # The version the hashes below were recorded with. A byte change without a version bump
 # fails the hash test; a bump without new hashes fails test_golden_hashes_match_the_version.
@@ -67,6 +69,16 @@ GOLDEN = {
          "length_ms": 100.03, "tone": -0.7, "amp_attack_ms": 4.0, "drive": 0.3},
         44100, 24, 4411, 13278,
         "819fada37f22e3016fbe1d03d0f9a1f697495c7e80a8e7af5bcb799b5e64415e",
+    ),
+    # #116: the shipped preset file dense (centre + drive 0.45), loaded as the CLI loads it, so
+    # the hash pins the preset file and the engine together: the user chose exactly this file.
+    # The hash is the SHA-256 of the #103 listening-test 1 P6_B source WAV (engine 0.1.0),
+    # not one computed by this code. 480 ms at 48 kHz -> 23040 samples. Added under 0.1.0
+    # without a bump: no existing render changed bytes (D-013).
+    "preset-dense": (
+        load_preset("dense"),
+        48000, 24, 23040, 69164,
+        "b461098c510824b72a16b673370c5873f321820d70d717245f0be97fac52a4e9",
     ),
 }
 
