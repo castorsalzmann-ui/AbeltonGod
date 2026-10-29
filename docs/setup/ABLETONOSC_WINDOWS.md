@@ -276,7 +276,7 @@ Ob Live den Dateipfad genau so zurückmeldet, wie er gesendet wurde (Groß/Klein
 
 ## 8. Arrangement-Check (Issue #140)
 
-Noch **nicht auf deinem Rechner geprüft**. Der Check prüft, ob AbeltonGod im **Arrangement** arbeiten kann: neue MIDI-Spur, ein MIDI-Clip an einem bestimmten Takt, Noten darin, ein Locator mit Namen, alles zurückgelesen, dann auf Wunsch alles per Undo zurück. AbletonOSC kann weder einen Clip im Arrangement anlegen noch Noten in Arrangement-Clips schreiben; das ergänzt die Erweiterung in `abletonosc\track.py` (Abschnitt 7.1, Script 0.2.0).
+Noch **nicht vollständig auf deinem Rechner geprüft** (Lauf 1 mit Script 0.1.0 hielt nach der neuen MIDI-Spur an, siehe unten „Späte Bestätigung“; jetzt Script 0.2.0). Der Check prüft, ob AbeltonGod im **Arrangement** arbeiten kann: neue MIDI-Spur, ein MIDI-Clip an einem bestimmten Takt, Noten darin, ein Locator mit Namen, alles zurückgelesen, dann auf Wunsch alles per Undo zurück. AbletonOSC kann weder einen Clip im Arrangement anlegen noch Noten in Arrangement-Clips schreiben; das ergänzt die Erweiterung in `abletonosc\track.py` (Abschnitt 7.1, Script 0.2.0).
 
 **Vorbereitung:** Erweiterung 0.2.0 installiert (Abschnitt 7.1, Live dabei geschlossen). Dann Live starten, ein neues Test-Set anlegen (Taktart 4/4), speichern, schließen und neu öffnen (Abschnitt 5, Vorbereitung 1–4). Die Wiedergabe muss gestoppt sein. Bei Takt 5 darf noch kein Locator liegen.
 
@@ -300,7 +300,7 @@ Das Script
 **Erwartete Ausgabe (gekürzt, frisches Set mit `1-MIDI`, `2-MIDI`, `3-Audio`, `4-Audio`, Undo `y`):**
 
 ```text
-AbeltonGod arrangement_check 0.1.0
+AbeltonGod arrangement_check 0.2.0
 
 Verbindung zu AbletonOSC (127.0.0.1:11000) steht.
 
@@ -318,4 +318,6 @@ Das Set ist wieder wie vor dem Check (geprüft: alle Spurnamen, Anzahl der Spure
 
 Im Ergebnis-Block sollten dann stehen: `extension: PRESENT`, je `PASS` bei `song.current_song_time.set`, `song.create_midi_track`, `track.create_midi_clip`, `arrangement_clip.notes.add`, `song.cue_point.add_or_delete`, `song.cue_point.set_name`, `arrangement_clips_read: [(16.0, 16.0)]`, `notes_read: 16 notes; …`, und `song.undo: PASS (… undo(s) for 5 write(s); read back)`. Wie viele Undos es sind und was unter `undo_chain` steht, ist offen; jedes Ergebnis ist gültig. Den ganzen Block (mit den drei Backticks) in **Issue #140** einfügen.
 
-**Fehlerfälle:** `FEHLER: Die AbeltonGod-Erweiterung 0.2.0 fehlt …` (Exit-Code 5) heißt: Abschnitt 7.1 ausführen. Spielt Live, steht die Taktart nicht auf 4/4 oder liegt bei Takt 5 ein Locator, ändert das Script nichts (Exit-Code 1). Bei Zeitüberschreitung oder *Strg + C* während eines Schritts: `UNBEKANNT`, kein Undo, im Set nachsehen und von Hand entfernen.
+**Späte Bestätigung (ab Script 0.2.0):** Kommt die Bestätigung eines Schritts nicht innerhalb der Zeit (1 Sekunde), liest das Script das Set mit mehr Zeit zurück. Zeigt es genau die geplante Änderung, geht es weiter. Dann steht unter `steps` z. B. `create_midi_track: confirmed (late: no confirmation within 1 s; read-back matched (1 read(s)); end echo after 2.10 s)` und beim Schritt `PASS (late: read-back after timeout)`. Das ist ein gültiges Ergebnis. Die Zahl nach `end echo after` zeigt, wie lange Live gebraucht hat; steht dort `end echo not seen`, kam die Bestätigung gar nicht an. Beides bitte mit dem Block einfügen. Für Undo gilt das nicht: läuft ein Undo in die Zeitüberschreitung, hält das Script an.
+
+**Fehlerfälle:** `FEHLER: Die AbeltonGod-Erweiterung 0.2.0 fehlt …` (Exit-Code 5) heißt: Abschnitt 7.1 ausführen. Spielt Live, steht die Taktart nicht auf 4/4 oder liegt bei Takt 5 ein Locator, ändert das Script nichts (Exit-Code 1). Zeigt das Zurücklesen nach einer Zeitüberschreitung nicht genau die geplante Änderung, oder bei *Strg + C* während eines Schritts: `UNBEKANNT`, kein Undo, im Set nachsehen und von Hand entfernen.
