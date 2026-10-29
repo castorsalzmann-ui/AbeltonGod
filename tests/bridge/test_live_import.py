@@ -114,14 +114,16 @@ def log_entries(tmp_path):
 
 def test_full_run_existing_track_with_undo(fake, tmp_path):
     p = wav(tmp_path / "Kick 1.wav")
-    code, out, prompts = run(fake, tmp_path, ["y", "0", "y", "y", "y"], path=p)
+    # test set, target 0, run, undo now (no listening question follows)
+    code, out, prompts = run(fake, tmp_path, ["y", "0", "y", "y"], path=p)
     assert code == 0, out
     assert writes(fake) == [(CREATE_CLIP, (0, 1, p)), (UNDO, ())]
     assert fake.tracks[0]["slots"] == ["C:\\old.wav", None, None, None]
     b = block(out)
     assert b["clip_slot.create_audio_clip"] == "PASS"
     assert b["clip_file_path_read"] == repr(p)
-    assert b["user_hears_kick"] == "yes"
+    assert b["user_hears_kick"] == "not asked (undo chosen before listening)"
+    assert not any("Spielt der Kick" in q for q in prompts)
     assert b["song.undo"].startswith("PASS (clip removed")
     assert b["extension"] == "PRESENT"
     assert b["target"] == "track 0 '1-Audio', slot 1"
@@ -134,22 +136,52 @@ def test_full_run_existing_track_with_undo(fake, tmp_path):
 
 
 def test_full_run_new_track_without_undo(fake, tmp_path):
-    code, out, _ = run(fake, tmp_path, ["y", "n", "y", "y", ""])
+    # test set, new track, run, no undo, plays: yes
+    code, out, _ = run(fake, tmp_path, ["y", "n", "y", "", "y"])
     assert code == 0, out
     assert [a for a, _ in writes(fake)] == [CREATE_TRACK, CREATE_CLIP]
     assert len(fake.tracks) == 3 and fake.tracks[2]["slots"][0] is not None
     b = block(out)
     assert b["song.undo"] == "SKIPPED (user answered no)"
+    assert b["user_hears_kick"] == "yes"
     assert "song.create_audio_track" in b["capability_overrides_used"]
+    assert ("  - Clip: in Spur 2 '3-Audio' die Zelle 0 anklicken, Entf drücken.\n"
+            "  - die neue Spur: Kopf von Spur 2 '3-Audio' anklicken, Entf drücken.") in out
 
 
 def test_new_track_two_undos(fake, tmp_path):
-    code, out, _ = run(fake, tmp_path, ["y", "n", "y", "n", "y"])
+    code, out, _ = run(fake, tmp_path, ["y", "n", "y", "y"])
     assert code == 0, out
     assert [a for a, _ in writes(fake)] == [CREATE_TRACK, CREATE_CLIP, UNDO, UNDO]
     assert [t["name"] for t in fake.tracks] == ["1-Audio", "2-MIDI"]
     assert block(out)["song.undo"].startswith("PASS (clip removed, track removed")
-    assert block(out)["user_hears_kick"] == "no"
+    assert block(out)["user_hears_kick"] == "not asked (undo chosen before listening)"
+
+
+def test_undo_question_comes_before_the_listening_question(fake, tmp_path):
+    """#50 runs 2 and 3: the script must not ask the user to play the clip in Live and then
+    offer undo. Undo prompt first; the listening prompt only after 'no undo'."""
+    code, out, prompts = run(fake, tmp_path, ["y", "0", "y", "n", "y"])
+    assert code == 0, out
+    undo_at = next(i for i, q in enumerate(prompts) if "per Undo zurücknehmen" in q)
+    hear_at = next(i for i, q in enumerate(prompts) if "Spielt der Kick" in q)
+    assert undo_at < hear_at == len(prompts) - 1
+    assert UNDO not in [a for a, _ in writes(fake)]
+    assert out.index(live_import.UNDO_CHOICE) < out.index("Kein Undo. Der Clip bleibt im Set.")
+    b = block(out)
+    assert b["song.undo"] == "SKIPPED (user answered no)"
+    assert b["user_hears_kick"] == "yes"
+    assert "  - Clip: in Spur 0 '1-Audio' die Zelle 1 anklicken, Entf drücken." in out
+    assert "die neue Spur" not in out
+
+
+def test_undo_hint_names_the_live_12_menus():
+    """Live 12 manual (checked 2026-10-29): View -> Undo History, German Ansicht ->
+    Widerrufen-Historie, Ctrl+Alt+Z; a click on an entry undoes back to it."""
+    hint = live_import.UNDO_HINT
+    for part in ("Strg+Alt+Z", "Ansicht -> Widerrufen-Historie", "View -> Undo History",
+                 "keinen Eintrag anklicken"):
+        assert part in hint, part
 
 
 @pytest.mark.parametrize("answers", [[], [""], ["n"], ["y", ""], ["y", "0", ""],
@@ -298,7 +330,7 @@ def test_ctrl_c_at_plan_prompt(fake, tmp_path):
 
 
 def test_ctrl_c_at_undo_prompt_keeps_clip(fake, tmp_path):
-    code, out, _ = run(fake, tmp_path, ["y", "0", "y", "y", KeyboardInterrupt])
+    code, out, _ = run(fake, tmp_path, ["y", "0", "y", KeyboardInterrupt])
     assert code == 130
     assert "Der Import war schon fertig" in out
     assert UNDO not in [a for a, _ in writes(fake)]
@@ -323,7 +355,12 @@ def test_undo_refused_when_user_changed_set(fake, tmp_path):
                             input_fn=lambda p: next(gen), out=out)
     assert code == 1
     assert UNDO not in [a for a, _ in writes(fake)]
-    assert "undo NOT sent" in block(out.getvalue())["song.undo"]
+    text = out.getvalue()
+    assert "undo NOT sent" in block(text)["song.undo"]
+    # #50 run 3: a refused undo tells the user why and how to remove the import by hand.
+    assert "darum wurde KEIN Undo gesendet." in text
+    assert "  - Clip: in Spur 0 '1-Audio' die Zelle 1 anklicken, Entf drücken." in text
+    assert "Ansicht -> Widerrufen-Historie" in text
 
 
 def test_undo_reverting_other_action_is_fail(fake, tmp_path):
@@ -334,6 +371,10 @@ def test_undo_reverting_other_action_is_fail(fake, tmp_path):
     assert code == 1
     assert block(out)["song.undo"].startswith("FAIL")
     assert sum(1 for a, _ in writes(fake) if a == UNDO) == 1  # never a second undo
+    # #50 run 2: undo sent, clip still there. No cause claimed; manual removal offered.
+    assert "Was das Undo zurückgenommen hat, ist unbekannt" in out
+    assert "  - Clip: in Spur 0 '1-Audio' die Zelle 1 anklicken, Entf drücken." in out
+    assert "darum wurde KEIN Undo gesendet" not in out
 
 
 @pytest.mark.parametrize("reverts_rename", [True, False])
@@ -420,6 +461,6 @@ def test_readback_that_never_matches_is_reported_as_unknown(fake, tmp_path):
 
 def test_non_ascii_path_round_trip(fake, tmp_path):
     p = wav(tmp_path / "Kick Ä 東京.wav")
-    code, out, _ = run(fake, tmp_path, ["y", "0", "y", "y", ""], path=p)
+    code, out, _ = run(fake, tmp_path, ["y", "0", "y", "", ""], path=p)
     assert code == 0, out
     assert fake.tracks[0]["slots"][1] == p

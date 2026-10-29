@@ -17,9 +17,13 @@ Steps:
 5. Prints the planned changes and asks again (default No).
 6. Imports (``bridge.clip_import.ClipImporter``): action-log entry before and after every
    write, read-back of slots and the clip's file path.
-7. Asks whether the kick plays (the user's answer is recorded as such).
-8. Asks whether to undo (default No). Undo is sent only after a read-back shows the set as
-   the import left it; each undo is read back. Never after a timeout or Ctrl+C.
+7. Asks right away whether to undo (default No), *before* any listening: playing the clip
+   in Live between import and undo conflicts with "touch nothing in Live" (#50 runs 2 and 3).
+   Yes: undo now, without listening. Undo is sent only after a read-back shows the set as
+   the import left it; each undo is read back. Never after a timeout or Ctrl+C. A refused or
+   unconfirmed undo prints how to remove the import by hand.
+8. No: the clip stays; asks whether the kick plays (the user's answer is recorded as such)
+   and prints how to remove the import by hand later.
 9. Prints a result block to paste into issue #50.
 
 Capability gate: ``clip_slot.create_audio_clip`` (``unknown``), ``song.create_audio_track``
@@ -58,6 +62,7 @@ from bridge.clip_import import (
     SlotState,
     first_empty_slot,
     read_state,
+    target_name,
     validate_wav_path,
 )
 from bridge.osc_client import (
@@ -72,7 +77,8 @@ from bridge.osc_client import (
 )
 
 # 0.2.0: read-back polls up to 2 s and tolerates Live renaming the target track (#50 run 1)
-SCRIPT_VERSION = "0.2.0"
+# 0.3.0: undo question before the listening step; manual-removal text (#50 runs 2 and 3)
+SCRIPT_VERSION = "0.3.0"
 
 ALLOWED = ("app.version", "song.track_names.get", "song.undo", "song.create_audio_track",
            "clip_slot.create_audio_clip")
@@ -124,8 +130,38 @@ MSG_EXTENSION_MISSING = (
     "Ohne Erweiterung geht der Import von Hand: docs/setup/SAMPLE_IMPORT_FALLBACK.md"
 )
 
-UNDO_HINT = ("In Live zeigt der Undo-Verlauf (Strg+Alt+Z; im Handbuch: View -> Undo History), "
-             "welche Schritte es gibt.")
+# Live 12 manual: English "View -> Undo History", German "Ansicht -> Widerrufen-Historie",
+# shortcut Ctrl+Alt+Z (Win); clicking an entry undoes back to it (checked 2026-10-29:
+# ableton.com/en/live-manual/12/managing-files-and-sets/, /de/live-manual/12/live-concepts/
+# section 3.20).
+UNDO_HINT = ("In Live zeigt die Widerrufen-Historie, welche Schritte es gibt: Strg+Alt+Z oder "
+             "Menü Ansicht -> Widerrufen-Historie (englische Oberfläche: View -> Undo History). "
+             "Dort nur nachsehen, keinen Eintrag anklicken: ein Klick setzt das Set auf diesen "
+             "Stand zurück.")
+
+UNDO_CHOICE = (
+    "\nJetzt entscheiden: Undo ODER Anhören (beides nacheinander ist nicht sicher).\n"
+    "  y     = Import sofort per Undo zurücknehmen, ohne Anhören. Bis dahin in Live nichts\n"
+    "          anklicken oder starten: eine Aktion in Live kann ein eigener Undo-Schritt sein.\n"
+    "          Dann nimmt Undo diese Aktion zurück statt des Imports, oder das Script sendet\n"
+    "          kein Undo. (Ob schon das Starten eines Clips so ein Schritt ist, ist nicht\n"
+    "          geprüft; #50, Läufe 2 und 3.)\n"
+    "  Enter = kein Undo. Der Clip bleibt im Set, du startest ihn in Live und hörst ihn an.\n"
+    "          Entfernen danach von Hand (das Script sagt wie)."
+)
+
+
+def manual_removal_text(outcome: ImportOutcome) -> str:
+    """How to remove the import in Live by hand (German). Names come from the read-back."""
+    after = outcome.after
+    name = target_name(after, outcome.track_index) if after is not None else None
+    where = f"Spur {outcome.track_index}" + (f" '{name}'" if name else "")
+    lines = ["Von Hand entfernen, nur was noch da ist (erst in Live nachsehen):",
+             f"  - Clip: in {where} die Zelle {outcome.slot_index} anklicken, Entf drücken."]
+    if outcome.created_track:
+        lines.append(f"  - die neue Spur: Kopf von {where} anklicken, Entf drücken.")
+    lines.append("  Strg+Z nur, wenn du in der Widerrufen-Historie siehst, was es zurücknimmt.")
+    return "\n".join(lines)
 
 
 # -- report ----------------------------------------------------------------------------------
@@ -239,10 +275,11 @@ def plan_text(path: str, names: list[str], track: int | None, slot: int) -> str:
         "Danach liest das Script die Zellen der Spur und den Dateipfad des Clips zurück.",
         "Jede Änderung wird vorher und nachher in das Aktions-Log geschrieben.",
         "",
-        "Am Ende fragt das Script, ob es die Änderungen per Undo in Live zurücknehmen soll",
-        "(Standard: nein). Undo wird nur gesendet, wenn das Set noch genau so aussieht, wie der",
+        "Direkt nach dem Import fragt das Script, ob es die Änderungen sofort per Undo in Live",
+        "zurücknehmen soll (Standard: nein). Ja = Undo ohne Anhören. Nein = der Clip bleibt und",
+        "du hörst ihn an. Undo wird nur gesendet, wenn das Set noch genau so aussieht, wie der",
         "Import es hinterlassen hat. Damit Undo nichts Fremdes zurücknimmt: Test-Set frisch",
-        "öffnen und während des Scripts nichts in Live ändern.",
+        "öffnen und während des Scripts nichts in Live ändern oder starten.",
     ]
     return "\n".join(lines)
 
@@ -347,18 +384,23 @@ def run(bridge: AbletonBridge, report: Report, path: str, slot_arg: int | None,
               f"'{outcome.target_name_after}' (normal, wenn die Spur noch ihren Standardnamen "
               "hatte).", file=out)
 
+    # Undo first, listening second: playing the clip between import and undo conflicts with
+    # "touch nothing in Live" (#50 runs 2 and 3; whether a launch is an undo step: not known).
+    print(UNDO_CHOICE, file=out)
+    if ask_yes("Import jetzt per Undo zurücknehmen, OHNE Anhören? [y/N]: ", input_fn):
+        report.user_hears_kick = "not asked (undo chosen before listening)"
+        return run_undo(importer, outcome, report, out)
+    report.undo_result = "SKIPPED (user answered no)"
+    print("Kein Undo. Der Clip bleibt im Set." + (" Die neue Spur auch." if
+                                                   outcome.created_track else ""), file=out)
+
     answer = ask("\nBitte in Live die Zelle starten und anhören. Spielt der Kick? [y/n]: ",
                  input_fn)
     report.user_hears_kick = {"y": "yes", "j": "yes", "ja": "yes", "yes": "yes",
                               "n": "no", "nein": "no", "no": "no"}.get(
         (answer or "").lower(), "no answer")
-
-    if not ask_yes("Import per Undo in Live zurücknehmen? [y/N]: ", input_fn):
-        print("Kein Undo. Der Clip bleibt im Set." + (" Die neue Spur auch." if
-                                                       outcome.created_track else ""), file=out)
-        report.undo_result = "SKIPPED (user answered no)"
-        return EXIT_OK
-    return run_undo(importer, outcome, report, out)
+    print("\nZum Aufräumen später:\n" + manual_removal_text(outcome), file=out)
+    return EXIT_OK
 
 
 def after_failed_import(outcome: ImportOutcome | None, report: Report, exc: Exception,
@@ -413,8 +455,10 @@ def run_undo(importer: ClipImporter, outcome: ImportOutcome, report: Report,
                       "wie vor dem Import (soweit das Script sieht).", file=out)
                 return EXIT_OK
             report.undo_result = f"FAIL (after undo_clip: {state_now})"
-            print("FEHLER: Nach dem Undo sieht das Set nicht so aus wie vor dem Clip. Das Script "
-                  "sendet KEIN weiteres Undo. " + UNDO_HINT, file=out)
+            print("FEHLER: Nach dem Undo sieht das Set nicht so aus wie vor dem Clip. Was das "
+                  "Undo zurückgenommen hat, ist unbekannt (vielleicht einen anderen Schritt, "
+                  "vielleicht nichts). Das Script sendet KEIN weiteres Undo.\n"
+                  + manual_removal_text(outcome) + "\n" + UNDO_HINT, file=out)
             return EXIT_CHECK_FAILED
         results.append("clip removed")
         print("Undo 1: Clip ist wieder weg (zurückgelesen).", file=out)
@@ -426,7 +470,8 @@ def run_undo(importer: ClipImporter, outcome: ImportOutcome, report: Report,
             if not ok:
                 report.undo_result = "FAIL (after undo_track: " + outcome.steps[-1].detail + ")"
                 print("FEHLER: Nach dem zweiten Undo sieht das Set nicht so aus wie vor dem "
-                      "Import. Das Script sendet nichts mehr. " + UNDO_HINT, file=out)
+                      "Import. Das Script sendet nichts mehr.\n" + manual_removal_text(outcome)
+                      + "\n" + UNDO_HINT, file=out)
                 return EXIT_CHECK_FAILED
             results.append("track removed")
             print("Undo 2: neue Spur ist wieder weg (zurückgelesen).", file=out)
@@ -435,11 +480,16 @@ def run_undo(importer: ClipImporter, outcome: ImportOutcome, report: Report,
                              f"undos sent: {outcome.undos_sent})"
         report.interrupted = True
         print("\nABGEBROCHEN mit Strg+C während des Undo. Ergebnis unbekannt; das Script sendet "
-              "nichts mehr. " + UNDO_HINT, file=out)
+              "nichts mehr.\n" + manual_removal_text(outcome) + "\n" + UNDO_HINT, file=out)
         return EXIT_INTERRUPTED
     except (ImportAborted, ActionLogError, BridgeError) as exc:
         report.undo_result = f"FAIL ({type(exc).__name__}: {exc})"
-        print(f"FEHLER beim Undo: {exc}\nDas Script sendet nichts mehr. " + UNDO_HINT, file=out)
+        refused = bool(outcome.steps) and outcome.steps[-1].outcome == "refused"
+        print(f"FEHLER beim Undo: {exc}\nDas Script sendet nichts mehr."
+              + (" Das Set sah vor dem Undo nicht so aus, wie der Import es hinterlassen hat "
+                 "(z. B. nach einer Aktion in Live); darum wurde KEIN Undo gesendet."
+                 if refused else "")
+              + "\n" + manual_removal_text(outcome) + "\n" + UNDO_HINT, file=out)
         return EXIT_CHECK_FAILED
     # The undo read-back tolerates Live's rename of the target track; "as before" needs every
     # name and the track count to be back (#97 review: a kept rename was reported as PASS).

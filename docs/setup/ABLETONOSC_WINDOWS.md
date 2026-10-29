@@ -55,7 +55,7 @@ Der Check liest ein paar Werte aus Live. Danach — nur wenn du zweimal mit `y` 
 
 **Vorbereitung:**
 1. In Live ein **neues Test-Set** anlegen (*Datei → Neues Live-Set*), zwei oder drei Spuren genügen, und es z. B. als `AbeltonGod-Test` speichern. Nicht mit einem echten Projekt ausführen.
-2. Das Set **schließen und neu öffnen** (über das Datei-Menü, z. B. die Liste der zuletzt verwendeten Sets; die genaue deutsche Menübezeichnung ist hier nicht geprüft). Laut Live-12-Handbuch (Abschnitt „Undo History“ / Undo-Verlauf) leert Live beim Öffnen eines Sets den Undo-Verlauf. In diesem Projekt ist das noch nicht in Live geprüft — schau nach dem Öffnen kurz in den Undo-Verlauf (*Strg + Alt + Z*; im englischen Handbuch *View → Undo History*), ob die Liste leer ist.
+2. Das Set **schließen und neu öffnen** (über das Datei-Menü, z. B. die Liste der zuletzt verwendeten Sets; die genaue deutsche Menübezeichnung ist hier nicht geprüft). Laut Live-12-Handbuch (Abschnitt „Undo History“ / Undo-Verlauf) leert Live beim Öffnen eines Sets den Undo-Verlauf. In diesem Projekt ist das noch nicht in Live geprüft — schau nach dem Öffnen kurz in den Undo-Verlauf (*Strg + Alt + Z*; Menü *Ansicht → Widerrufen-Historie*, englische Oberfläche *View → Undo History*), ob die Liste leer ist. Dort nur schauen, keinen Eintrag anklicken: laut Handbuch setzt ein Klick das Set auf diesen Stand zurück.
 3. **Transport gestoppt, keine Tempo-Automation, Link/Sync aus:** Wiedergabe stoppen, im Test-Set keine Tempo-Automation, und in Live *Link* sowie externen Sync (MIDI-Clock) ausschalten. Sonst kann sich das Tempo während des Checks von selbst ändern, und der Vergleich nach dem Undo meldet `FAIL`, obwohl Undo funktioniert hat.
 4. Danach **nichts mehr am Set ändern**, bis das Script fertig ist.
 
@@ -123,7 +123,7 @@ In Live siehst du den Mute-Knopf der Spur kurz an- und ausgehen. Die Live-Versio
 
 Den Exit-Code zeigt PowerShell direkt danach mit `$LASTEXITCODE`. Schreib bitte ins Issue, ob die Meldungen für dich verständlich waren.
 
-**Wenn etwas schiefgeht:** Bei einem Fehler, einer `ABWEICHUNG` oder wenn du mit *Strg + C* abbrichst, sendet das Script keine weiteren Änderungen und kein (weiteres) Undo. Es nennt den ursprünglichen Zustand der Spur, liest den jetzigen einmal zurück und sagt dir, ob du den Mute-Knopf von Hand zurückstellen musst. Der Ergebnis-Block wird trotzdem ausgegeben (Exit-Code 130 bei *Strg + C* — auch an einer der drei Fragen; dann wurde noch nichts geändert). Noch nicht geprüft ist, ob *Strg + C* an einer Frage unter Python 3.14 auf Windows wirklich zu Exit-Code 130 führt: Manche ältere Python-Versionen werten *Strg + C* in einer Eingabe als Eingabe-Ende, dann endet das Script wie bei „nein“ mit Exit-Code 0. Sicher ist beides, denn an den Fragen wurde noch nichts gesendet. Optional prüfen: an der ersten Frage *Strg + C* drücken, danach `echo $LASTEXITCODE` eingeben (erwartet `130`) und das Ergebnis in Issue #5 notieren. Unterscheiden sich nach dem Undo **nur** Tempo und/oder Taktart, meldet das Script `FEHLER` (im Ergebnis-Block `song.undo: FAIL`) ohne Schuldzuweisung: Entweder hat sich das Tempo von selbst geändert (Tempo-Automation, Link, externe MIDI-Clock), oder Undo hat eine frühere Tempo-Änderung zurückgenommen. Dann die Vorbereitung (Punkt 3) prüfen, das Set neu öffnen und den Check wiederholen. Meldet es nach dem Undo Unterschiede bei Spuren oder Namen, zeigt der Undo-Verlauf (*Strg + Alt + Z*; im englischen Handbuch *View → Undo History*) in Live, welcher Schritt zurückgenommen wurde; dort lässt er sich wiederherstellen. *Strg + Z* in Live nur verwenden, wenn du sicher bist, was es zurücknimmt.
+**Wenn etwas schiefgeht:** Bei einem Fehler, einer `ABWEICHUNG` oder wenn du mit *Strg + C* abbrichst, sendet das Script keine weiteren Änderungen und kein (weiteres) Undo. Es nennt den ursprünglichen Zustand der Spur, liest den jetzigen einmal zurück und sagt dir, ob du den Mute-Knopf von Hand zurückstellen musst. Der Ergebnis-Block wird trotzdem ausgegeben (Exit-Code 130 bei *Strg + C* — auch an einer der drei Fragen; dann wurde noch nichts geändert). Noch nicht geprüft ist, ob *Strg + C* an einer Frage unter Python 3.14 auf Windows wirklich zu Exit-Code 130 führt: Manche ältere Python-Versionen werten *Strg + C* in einer Eingabe als Eingabe-Ende, dann endet das Script wie bei „nein“ mit Exit-Code 0. Sicher ist beides, denn an den Fragen wurde noch nichts gesendet. Optional prüfen: an der ersten Frage *Strg + C* drücken, danach `echo $LASTEXITCODE` eingeben (erwartet `130`) und das Ergebnis in Issue #5 notieren. Unterscheiden sich nach dem Undo **nur** Tempo und/oder Taktart, meldet das Script `FEHLER` (im Ergebnis-Block `song.undo: FAIL`) ohne Schuldzuweisung: Entweder hat sich das Tempo von selbst geändert (Tempo-Automation, Link, externe MIDI-Clock), oder Undo hat eine frühere Tempo-Änderung zurückgenommen. Dann die Vorbereitung (Punkt 3) prüfen, das Set neu öffnen und den Check wiederholen. Meldet es nach dem Undo Unterschiede bei Spuren oder Namen, zeigt der Undo-Verlauf (*Strg + Alt + Z*; Menü *Ansicht → Widerrufen-Historie*, englisch *View → Undo History*) in Live, welcher Schritt zurückgenommen wurde; dort lässt er sich wiederherstellen. *Strg + Z* in Live nur verwenden, wenn du sicher bist, was es zurücknimmt.
 
 ## 6. Wo die Logs liegen
 
@@ -219,13 +219,16 @@ Select-String -Path "$env:USERPROFILE\Documents\Ableton\User Library\Remote Scri
 5. fragt das Ziel: Nummer einer Audiospur oder `n` für eine neue Audiospur am Ende. MIDI-Spuren lehnt es ab. Es nimmt die erste freie Zelle (oder `--slot <Nummer>`) und überschreibt nie einen Clip.
 6. zeigt die geplanten Änderungen und fragt `Diese Änderungen jetzt ausführen? [y/N]`
 7. importiert, liest die Zellen und den Dateipfad des Clips zurück,
-8. fragt `Spielt der Kick? [y/n]` — dafür in Live die Zelle starten und hinhören,
-9. fragt `Import per Undo in Live zurücknehmen? [y/N]`. Für den Test bitte **`y`**: Undo wird nur gesendet, wenn das Set noch genau so aussieht wie nach dem Import, und danach zurückgelesen.
+8. fragt **sofort** `Import jetzt per Undo zurücknehmen, OHNE Anhören? [y/N]`. Undo oder Anhören, nicht beides: eine Aktion in Live zwischen Import und Undo (ob schon das Starten eines Clips zählt, ist nicht geprüft) kann dazu führen, dass Undo etwas anderes zurücknimmt oder das Script kein Undo sendet (#50, Läufe 2 und 3).
+   - `y`: Undo sofort. Bis dahin in Live **nichts** anklicken oder starten. Undo wird nur gesendet, wenn das Set noch genau so aussieht wie nach dem Import, und danach zurückgelesen. Im Ergebnis-Block steht dann `user_hears_kick: not asked (undo chosen before listening)`.
+   - Enter (nein): der Clip bleibt. Dann fragt es `Spielt der Kick? [y/n]` — dafür in Live die Zelle starten und hinhören. Danach steht da, wie du Clip (und ggf. neue Spur) von Hand entfernst: Zelle bzw. Spurkopf anklicken, *Entf*.
 
-**Erwartete Ausgabe (gekürzt, Ziel Spur 0, leeres Set):**
+   Geht ein Undo schief (verweigert oder ohne sichtbare Wirkung), sendet das Script nichts mehr und nennt dieselben Schritte zum Entfernen von Hand.
+
+**Erwartete Ausgabe (gekürzt, Ziel Spur 0, leeres Set, Undo `y`):**
 
 ```text
-AbeltonGod live_import 0.2.0
+AbeltonGod live_import 0.3.0
 
 Verbindung zu AbletonOSC (127.0.0.1:11000) steht.
 
@@ -242,7 +245,7 @@ Undo 1: Clip ist wieder weg (zurückgelesen).
 Das Set ist wieder wie vor dem Import (geprüft: alle Spurnamen, Anzahl der Spuren und Zellen der Zielspur; nicht geprüft: Clips anderer Spuren, Geräte, Automation).
 ```
 
-Im Ergebnis-Block sollten dann stehen: `extension: PRESENT`, `clip_slot.create_audio_clip: PASS`, `clip_file_path_read: '<dein Pfad>'`, `user_hears_kick: yes`, `song.undo: PASS (clip removed; read back)`. Den ganzen Block (mit den drei Backticks) in **Issue #50** einfügen.
+Im Ergebnis-Block sollten dann stehen: `extension: PRESENT`, `clip_slot.create_audio_clip: PASS`, `clip_file_path_read: '<dein Pfad>'`, `user_hears_kick: not asked (undo chosen before listening)`, `song.undo: PASS (clip removed; read back)`. (Mit Enter statt `y`: `user_hears_kick: yes` und `song.undo: SKIPPED (user answered no)`.) Den ganzen Block (mit den drei Backticks) in **Issue #50** einfügen.
 
 Live benennt eine Spur mit Standardnamen nach dem Clip um (im ersten Lauf: `3-Audio` -> `3-centre_s1001_v0`). Den Namen der Zielspur vergleicht das Script beim Zurücklesen deshalb nicht; es meldet die Umbenennung mit `Live hat die Spur umbenannt: …`, im Ergebnis-Block steht der neue Name unter `target_track_name_after_import`. Zur Vorsicht liest das Script bis zu 2 Sekunden lang alle 0,1 s zurück (ein verspäteter Clip wurde bisher nicht beobachtet). Zeigt das Zurücklesen danach immer noch nicht den Clip, meldet das Script `FEHLER: AbletonOSC hat den letzten Schritt bestätigt, aber das Zurücklesen zeigt nicht das erwartete Ergebnis`, sendet kein Undo, und du entfernst Clip/Spur von Hand.
 

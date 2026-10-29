@@ -360,8 +360,9 @@ UNDO_PASS_TEXT = (
 )
 
 UNDO_HISTORY_HINT = (
-    "In Live zeigt der Undo-Verlauf (Strg+Alt+Z; im Handbuch: View -> Undo History), welcher "
-    "Schritt zurückgenommen wurde; dort lässt er sich wiederherstellen."
+    "In Live zeigt der Undo-Verlauf (Strg+Alt+Z; Menü Ansicht -> Widerrufen-Historie, englisch "
+    "View -> Undo History), welcher Schritt zurückgenommen wurde; dort lässt er sich "
+    "wiederherstellen."
 )
 
 
