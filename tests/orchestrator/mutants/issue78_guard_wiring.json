@@ -214,14 +214,14 @@
     {
       "id": "U1_SENT_REQUEST_COSTS_NOTHING",
       "file": "src/orchestrator/loop.py",
-      "old": "if not exc.request_sent else None",
-      "new": "if True else None",
+      "old": "            if usage is None and not exc.request_sent:\n",
+      "new": "            if usage is None:\n",
       "tests": ["tests/orchestrator"]
     },
     {
       "id": "U2_LIMIT_USAGE_DROPPED",
       "file": "src/orchestrator/loop.py",
-      "old": "            req.after_model_call(permit, exc.usage)\n",
+      "old": "            req.after_model_call(permit, usage)  # may already stop on the overshoot\n",
       "new": "            req.after_model_call(permit, ModelUsage(output_tokens=0, cost_usd=0.0))\n",
       "tests": ["tests/orchestrator"]
     },

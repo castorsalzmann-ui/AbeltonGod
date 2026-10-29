@@ -37,7 +37,7 @@ from orchestrator.loop import (
     SdkLimitError,
     checked_sdk_limits,
 )
-from orchestrator.model_client import ModelResponse, ToolResultMessage
+from orchestrator.model_client import ModelLimitReached, ModelResponse, ToolResultMessage
 from orchestrator.tools import Toolbox
 
 
@@ -473,9 +473,20 @@ def test_backend_limit_result_counts_its_usage(make_guard, events):
     )
     guard = make_guard()
     out = orch(guard, model).handle("x")
-    assert out.success is False and out.error == "model_limit"
-    assert "error_max_turns" in out.message_de
+    # #106: the SDK enforced the guard's own model-call limit -> reported as a guard stop
+    assert out.success is False and out.error is None
+    assert out.stop_reason is Limit.MODEL_CALLS
+    assert "Modellaufrufe" in out.message_de and out.open
     assert guard.session_spent_usd == pytest.approx(0.2)
+
+
+def test_unknown_backend_limit_stays_a_failed_request(make_guard, events):
+    def script(_i, _request):
+        raise ModelLimitReached("error_something_new", "x", usage=ModelUsage(cost_usd=0.01))
+
+    out = orch(make_guard(), ScriptedModel(script)).handle("x")
+    assert out.success is False and out.error == "model_limit" and out.stop_reason is None
+    assert "error_something_new" in out.message_de
 
 
 def test_backend_budget_overshoot_becomes_a_guard_stop(make_guard, events):

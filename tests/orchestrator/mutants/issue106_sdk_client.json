@@ -1,0 +1,296 @@
+{
+  "description": "#106 fault injection on the Agent SDK client wiring (guard bypasses, closed tool surface, auth, limits, stop mapping, cost). Run: python scripts/qa/mutate.py tests/orchestrator/mutants/issue106_sdk_client.json",
+  "mutants": [
+    {
+      "id": "S1_HOOK_ALLOWS_EVERYTHING",
+      "file": "src/orchestrator/sdk_client.py",
+      "old": "        V4); every failure is a deny.\"\"\"\n        try:\n",
+      "new": "        V4); every failure is a deny.\"\"\"\n        return _allow((input_data or {}).get(\"tool_input\") or {})\n        try:\n",
+      "tests": ["tests/orchestrator/test_sdk_client.py"],
+      "note": "guard bypass: the hook approves without the loop; built-ins run in the CLI"
+    },
+    {
+      "id": "S2_HOOK_ALLOWS_ERROR_RESULTS",
+      "file": "src/orchestrator/sdk_client.py",
+      "old": "        if result.is_error:\n",
+      "new": "        if False:\n",
+      "tests": ["tests/orchestrator/test_sdk_client.py"],
+      "note": "a call the toolbox rejected still runs in the CLI"
+    },
+    {
+      "id": "S3_HOOK_SKIPS_PREFIX_CHECK",
+      "file": "src/orchestrator/sdk_client.py",
+      "old": "            or not hook.raw_name.startswith(TOOL_PREFIX)\n            or hook.raw_name not in sess.allowed_names\n",
+      "new": "",
+      "tests": ["tests/orchestrator/test_sdk_client.py"],
+      "note": "allow for a name that is not this server's tool"
+    },
+    {
+      "id": "S4_BUILTIN_NAME_REACHES_TOOLBOX",
+      "file": "src/orchestrator/sdk_client.py",
+      "old": "    return f\"{BUILTIN_PREFIX}{name}\"\n",
+      "new": "    return name\n",
+      "tests": ["tests/orchestrator/test_sdk_client.py"],
+      "note": "a built-in call runs a local tool of the same name"
+    },
+    {
+      "id": "S5_SUBAGENT_NOT_MARKED",
+      "file": "src/orchestrator/sdk_client.py",
+      "old": "    if agent_id:\n",
+      "new": "    if False:\n",
+      "tests": ["tests/orchestrator/test_sdk_client.py"],
+      "note": "a sub-agent tool call is treated like a main-thread call"
+    },
+    {
+      "id": "S6_HOOK_MATCHER_NARROWED",
+      "file": "src/orchestrator/sdk_client.py",
+      "old": "HookMatcher(matcher=None,",
+      "new": "HookMatcher(matcher=\"mcp__abeltongod__.*\",",
+      "tests": ["tests/orchestrator/test_sdk_client.py"],
+      "note": "hook no longer catch-all: built-ins pass unseen"
+    },
+    {
+      "id": "S7_NO_PRETOOLUSE_HOOK",
+      "file": "src/orchestrator/sdk_client.py",
+      "old": "hooks={\"PreToolUse\": [",
+      "new": "hooks={\"PostToolUse\": [",
+      "tests": ["tests/orchestrator/test_sdk_client.py"],
+      "note": "hook registered on the wrong event"
+    },
+    {
+      "id": "S8_RELAY_SUCCEEDS_WITHOUT_APPROVAL",
+      "file": "src/orchestrator/sdk_client.py",
+      "old": "                    \"is_error\": True,\n",
+      "new": "                    \"is_error\": False,\n",
+      "tests": ["tests/orchestrator/test_sdk_client.py"],
+      "note": "relay answers success for a call the guard never approved"
+    },
+    {
+      "id": "S9_RELAY_VIOLATION_IGNORED",
+      "file": "src/orchestrator/sdk_client.py",
+      "old": "                    sess.violation = f\"tool {name} was called without the guard's approval\"\n",
+      "new": "                    pass\n",
+      "tests": ["tests/orchestrator/test_sdk_client.py"],
+      "note": "an unapproved relay call no longer fails the request"
+    },
+    {
+      "id": "S10_UNGATED_MODEL_CALL_ALLOWED",
+      "file": "src/orchestrator/sdk_client.py",
+      "old": "                if len(new_ids) > 1:\n",
+      "new": "                if len(new_ids) > 2:\n",
+      "tests": ["tests/orchestrator/test_sdk_client.py"],
+      "note": "a second model call inside one permit passes"
+    },
+    {
+      "id": "S11_API_KEY_SOURCE_NOT_CHECKED",
+      "file": "src/orchestrator/sdk_client.py",
+      "old": "            check_api_key_source(self.settings.mode, data.get(\"apiKeySource\"))\n",
+      "new": "            pass\n",
+      "tests": ["tests/orchestrator/test_sdk_client.py"],
+      "note": "D-014 startup check removed"
+    },
+    {
+      "id": "S12_INIT_TOOLS_NOT_CHECKED",
+      "file": "src/orchestrator/sdk_client.py",
+      "old": "        if extra:\n",
+      "new": "        if False:\n",
+      "tests": ["tests/orchestrator/test_sdk_client.py"],
+      "note": "open tool surface accepted"
+    },
+    {
+      "id": "S13_ANSWER_BEFORE_INIT_ACCEPTED",
+      "file": "src/orchestrator/sdk_client.py",
+      "old": "            if not sess.init_checked:\n",
+      "new": "            if False:\n",
+      "tests": ["tests/orchestrator/test_sdk_client.py"]
+    },
+    {
+      "id": "S14_ACCOUNT_KEY_IGNORED",
+      "file": "src/orchestrator/sdk_client.py",
+      "old": "            if source:\n",
+      "new": "            if False:\n",
+      "tests": ["tests/orchestrator/test_sdk_client.py"],
+      "note": "early (pre-prompt) auth check removed"
+    },
+    {
+      "id": "S15_MAX_TURNS_ZERO",
+      "file": "src/orchestrator/sdk_client.py",
+      "old": "            max_turns=limits[\"max_turns\"],\n",
+      "new": "            max_turns=0,\n",
+      "tests": ["tests/orchestrator/test_sdk_client.py"],
+      "note": "0 = no limit in the SDK"
+    },
+    {
+      "id": "S16_LIMITS_NOT_CHECKED",
+      "file": "src/orchestrator/sdk_client.py",
+      "old": "            limits = checked_sdk_limits(request.sdk_limits)\n",
+      "new": "            limits = {\"max_turns\": 0, \"max_budget_usd\": 0.0, **request.sdk_limits}\n",
+      "tests": ["tests/orchestrator/test_sdk_client.py"]
+    },
+    {
+      "id": "S17_NO_BUDGET",
+      "file": "src/orchestrator/sdk_client.py",
+      "old": "            max_budget_usd=float(limits[\"max_budget_usd\"]),\n",
+      "new": "            max_budget_usd=None,\n",
+      "tests": ["tests/orchestrator/test_sdk_client.py"]
+    },
+    {
+      "id": "S18_BUILTINS_ON",
+      "file": "src/orchestrator/sdk_client.py",
+      "old": "            tools=[],\n",
+      "new": "            tools=None,\n",
+      "tests": ["tests/orchestrator/test_sdk_client.py"]
+    },
+    {
+      "id": "S19_PERMISSIONS_BYPASSED",
+      "file": "src/orchestrator/sdk_client.py",
+      "old": "            permission_mode=\"dontAsk\",\n",
+      "new": "            permission_mode=\"bypassPermissions\",\n",
+      "tests": ["tests/orchestrator/test_sdk_client.py"]
+    },
+    {
+      "id": "S20_USER_SETTINGS_LOADED",
+      "file": "src/orchestrator/sdk_client.py",
+      "old": "            setting_sources=[],\n",
+      "new": "            setting_sources=None,\n",
+      "tests": ["tests/orchestrator/test_sdk_client.py"]
+    },
+    {
+      "id": "S21_NOT_STRICT_MCP",
+      "file": "src/orchestrator/sdk_client.py",
+      "old": "            strict_mcp_config=True,\n",
+      "new": "            strict_mcp_config=False,\n",
+      "tests": ["tests/orchestrator/test_sdk_client.py"]
+    },
+    {
+      "id": "S22_TOOL_SEARCH_ON",
+      "file": "src/orchestrator/sdk_client.py",
+      "old": "            \"ENABLE_TOOL_SEARCH\": \"false\",\n",
+      "new": "            \"ENABLE_TOOL_SEARCH\": \"true\",\n",
+      "tests": ["tests/orchestrator/test_sdk_client.py"]
+    },
+    {
+      "id": "S23_LIMIT_RESULT_NOT_A_LIMIT",
+      "file": "src/orchestrator/sdk_client.py",
+      "old": "        if message.subtype in LIMIT_SUBTYPES:\n",
+      "new": "        if False:\n",
+      "tests": ["tests/orchestrator/test_sdk_client.py"]
+    },
+    {
+      "id": "S24_COST_DOUBLE_COUNTS_NOTHING",
+      "file": "src/orchestrator/sdk_client.py",
+      "old": "        already = sess.counted_cost if sess.cost_known else 0.0\n",
+      "new": "        already = sess.counted_cost * 2 if sess.cost_known else 0.0\n",
+      "tests": ["tests/orchestrator/test_sdk_client.py"],
+      "note": "guard would count less than the SDK total"
+    },
+    {
+      "id": "S25_TURN_RESERVATION_NOT_TRACKED",
+      "file": "src/orchestrator/sdk_client.py",
+      "old": "            sess.counted_cost += float(request.reserved_cost_usd)\n",
+      "new": "            sess.counted_cost += 0.0\n",
+      "tests": ["tests/orchestrator/test_sdk_client.py"]
+    },
+    {
+      "id": "S26_CHANGED_ARGS_ALLOWED",
+      "file": "src/orchestrator/sdk_client.py",
+      "old": "        if _canon(hook.arguments) != _canon(call.arguments):\n",
+      "new": "        if False:\n",
+      "tests": ["tests/orchestrator/test_sdk_client.py"]
+    },
+    {
+      "id": "S27_RATE_LIMIT_REJECT_IGNORED",
+      "file": "src/orchestrator/sdk_client.py",
+      "old": "== \"rejected\":\n",
+      "new": "== \"never\":\n",
+      "tests": ["tests/orchestrator/test_sdk_client.py"]
+    },
+    {
+      "id": "S28_ASSISTANT_ERROR_IGNORED",
+      "file": "src/orchestrator/sdk_client.py",
+      "old": "            if message.error:\n",
+      "new": "            if False:\n",
+      "tests": ["tests/orchestrator/test_sdk_client.py"]
+    },
+    {
+      "id": "S29_SUBAGENT_MODEL_CALL_ACCEPTED",
+      "file": "src/orchestrator/sdk_client.py",
+      "old": "            if message.parent_tool_use_id is not None:\n",
+      "new": "            if False:\n",
+      "tests": ["tests/orchestrator/test_sdk_client.py"]
+    },
+    {
+      "id": "S30_HOOK_DOES_NOT_WAIT_FOR_THE_LOOP",
+      "file": "src/orchestrator/sdk_client.py",
+      "old": "            result = await hook.future\n",
+      "new": "            result = sess.results.get(tid)\n",
+      "tests": ["tests/orchestrator/test_sdk_client.py"]
+    },
+    {
+      "id": "S31_CLOSE_ANSWERS_WAITING_HOOKS",
+      "file": "src/orchestrator/sdk_client.py",
+      "old": "        sess.closed = True\n        client = sess.client\n",
+      "new": "        sess.closed = True\n        for _h in sess.hooks.values():\n            _h.future.done() or _h.future.set_result(None)\n        await asyncio.sleep(0)\n        client = sess.client\n",
+      "tests": ["tests/orchestrator/test_sdk_client.py"],
+      "note": "the bug found while writing #106: a deny on close lets the CLI make one more model call"
+    },
+    {
+      "id": "S32_MISSING_CLI_COUNTED_AS_SENT",
+      "file": "src/orchestrator/sdk_client.py",
+      "old": "                f\"Claude Code CLI not found ({exc})\", request_sent=False\n",
+      "new": "                f\"Claude Code CLI not found ({exc})\", request_sent=True\n",
+      "tests": ["tests/orchestrator/test_sdk_client.py"]
+    },
+    {
+      "id": "S33_ARGUMENT_KEY_NOT_NORMALISED",
+      "file": "src/orchestrator/sdk_client.py",
+      "old": "    return json.dumps(_json_numbers(value), sort_keys=True",
+      "new": "    return json.dumps(value, sort_keys=True",
+      "tests": ["tests/orchestrator/test_sdk_client.py"],
+      "note": "1.0 from the loop vs 1 from a JavaScript CLI no longer match"
+    },
+    {
+      "id": "S34_PROMPT_WRITE_ERROR_NOT_MAPPED",
+      "file": "src/orchestrator/sdk_client.py",
+      "old": "        except Exception as exc:  # the prompt may be partly written: count it as sent\n",
+      "new": "        except ZeroDivisionError as exc:  # the prompt may be partly written: count it as sent\n",
+      "tests": ["tests/orchestrator/test_sdk_client.py"]
+    },
+    {
+      "id": "L1_SDK_LIMIT_NOT_A_GUARD_STOP",
+      "file": "src/orchestrator/loop.py",
+      "old": "            limit = _BACKEND_LIMITS.get(exc.subtype)\n",
+      "new": "            limit = None\n",
+      "tests": ["tests/orchestrator"]
+    },
+    {
+      "id": "L2_RESERVATION_NOT_PASSED",
+      "file": "src/orchestrator/loop.py",
+      "old": "                reserved_cost_usd=permit.reserved_cost_usd,\n",
+      "new": "                reserved_cost_usd=None,\n",
+      "tests": ["tests/orchestrator"]
+    },
+    {
+      "id": "L3_SESSION_NOT_ENDED",
+      "file": "src/orchestrator/loop.py",
+      "old": "                    end()\n",
+      "new": "                    pass\n",
+      "tests": ["tests/orchestrator"],
+      "note": "a GuardStop leaves the SDK session open"
+    },
+    {
+      "id": "L4_MODEL_ESTIMATE_IGNORED",
+      "file": "src/orchestrator/loop.py",
+      "old": "            estimate_cost_usd = getattr(model, \"estimate_cost_usd\", None)\n",
+      "new": "            estimate_cost_usd = None\n",
+      "tests": ["tests/orchestrator"]
+    },
+    {
+      "id": "L5_UNAVAILABLE_USAGE_DROPPED",
+      "file": "src/orchestrator/loop.py",
+      "old": "            usage = exc.usage\n            if usage is None",
+      "new": "            usage = None\n            if usage is None",
+      "tests": ["tests/orchestrator"]
+    }
+  ]
+}

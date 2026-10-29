@@ -232,9 +232,31 @@ def test_api_key_source_check():
             check_api_key_source(mode, source)
 
 
-def test_real_client_is_not_built_and_fails_cleanly():
-    client = make_model_client()
-    assert isinstance(client, ModelClient) and isinstance(client, UnavailableModel)
+def test_real_client_is_the_sdk_client_and_starts_nothing(monkeypatch):
+    from claude_agent_sdk._internal.transport.subprocess_cli import SubprocessCLITransport
+
+    from orchestrator.sdk_client import SdkModelClient
+
+    def no_cli(self):  # building the client must not spawn Claude Code
+        raise AssertionError("the CLI was started")
+
+    monkeypatch.setattr(SubprocessCLITransport, "connect", no_cli)
+    for name in ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", AUTH_VARIABLE):
+        monkeypatch.delenv(name, raising=False)
+    client = make_model_client(load_auth(environ={}, env_file=None))
+    try:
+        assert isinstance(client, ModelClient) and isinstance(client, SdkModelClient)
+        assert client.settings.mode is AuthMode.SUBSCRIPTION
+    finally:
+        client.close()
+
+
+def test_missing_sdk_becomes_an_unreachable_model(monkeypatch):
+    import sys
+
+    monkeypatch.setitem(sys.modules, "orchestrator.sdk_client", None)  # import fails
+    client = make_model_client(load_auth(environ={}, env_file=None))
+    assert isinstance(client, UnavailableModel) and "not installed" in client.reason
     with pytest.raises(ModelUnavailable) as err:
         client.complete(None)
     assert err.value.request_sent is False
