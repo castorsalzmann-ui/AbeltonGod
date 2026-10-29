@@ -280,3 +280,11 @@ The researchers for 04b clusters 1 (Agent SDK behaviour) and 2 (tool-schema gene
 **Boundary.** Researchers still follow D-019 (just in time, one phase ahead, questions bound to an issue). Questionnaires ask about goals, priorities and limits, never about implementation.
 
 **Consequences.** Answers in the document are the user's own decisions and are quoted in the issues they produce; an empty answer means "no preference", not "no".
+
+## D-023 · 2026-10-29 · accepted — Pre-work on all parking-lot features now (user decision 11:00; relaxes the trigger of D-019 point 3)
+
+**Decision.** Agents start now on every parking-lot feature that the questionnaire (D-022) turned into tasks, as far as no open user decision blocks them: researchers for all feature clusters (not only the next phase), plus one implementer task per role. D-019's other researcher rules stay: precise questions bound to an issue, fixed note format with "To verify by experiment", no overlapping clusters (here at most 5 researchers in parallel, one cluster each), review like code.
+
+**Reason.** The user wants all phases prepared in parallel; the questionnaire answers make the questions concrete.
+
+**Consequences.** Tasks that depend on one of the ~30 open questions in the questionnaire ("Braucht eine Entscheidung") wait for the user's answer. WIP = 1 per role and the 15/10 agent limit (D-019) still apply. Research notes can go stale before their feature is built; each note states versions and is re-checked at `/close-phase`.
