@@ -113,8 +113,11 @@ def plan(args: argparse.Namespace) -> tuple[str, list[dict[str, Any]], list[str]
         base["seed"] = args.seed
     base.update(overrides)
     base["variants"] = args.variants  # validated by the contract (1 … 8)
-    base = resolve_kick_params(base)
-    variants = make_variants(base, base["variants"])
+    request = base
+    base = resolve_kick_params(request)
+    # The request, not its resolved form: variants of a tail_note / length_beats request keep
+    # the note and the -60 dB rule (#120), which the resolved form no longer shows.
+    variants = make_variants(request, base["variants"])
     suffix = "_custom" if overrides else ""
     stem = f"{args.preset}_s{base['seed']}"
     stems = [f"{stem}_v{i}{suffix}" for i in range(len(variants))]

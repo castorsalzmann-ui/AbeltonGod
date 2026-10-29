@@ -63,18 +63,7 @@ def test_v02_resolution_gains_no_v03_field() -> None:
     assert set(resolve_kick_params({"schema_version": "0.2", "seed": 1})) == RESOLVED_V02_KEYS
 
 
-@pytest.mark.parametrize(
-    "extra",
-    [{}, {"click_q": 0.9}, {"polarity": 1}, {"tail_note": 33}],
-    ids=["no v0.3 field", "click_q default", "polarity default", "tail_note"],
-)
-def test_engine_refuses_v03_until_implemented(extra: dict) -> None:
-    with pytest.raises(KickParamsError) as exc:
-        resolve_kick_params({"schema_version": "0.3", "seed": 1, **extra})
-    assert "kick-params 0.3 is specified in the contract but not implemented" in str(exc.value)
-
-
-def test_v03_field_at_v02_is_an_unknown_field() -> None:
+def test_v03_field_at_v02_is_refused() -> None:
     with pytest.raises(KickParamsError) as exc:
         resolve_kick_params({"schema_version": "0.2", "seed": 1, "click_q": 2.0})
     assert "click_q" in str(exc.value)
