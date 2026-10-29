@@ -1,0 +1,30 @@
+{
+  "description": "#137: the kick-params generator must read schema_version as enum or const. Each mutant must turn tests/qa/test_bug_137_schema_version.py red. --noconftest: tests/conftest.py imports the generator and would turn a load failure into INTERNALERROR (exit 3) instead of failed tests.",
+  "mutants": [
+    {"id": "REVERT_TO_CONST", "file": "tests/support/kick_params.py",
+     "old": "SCHEMA_VERSION: str = checked_schema_version(SCHEMA)\n",
+     "new": "SCHEMA_VERSION: str = FIELDS[\"schema_version\"][\"const\"]\n",
+     "tests": ["tests/qa/test_bug_137_schema_version.py"], "pytest_args": ["--noconftest"],
+     "expected": "killed", "note": "the bug of #137 (PR #117 line 46)"},
+    {"id": "CONST_ONLY", "file": "tests/support/kick_params.py",
+     "old": "    allowed = [spec[\"const\"]] if \"const\" in spec else list(spec.get(\"enum\", []))\n",
+     "new": "    allowed = [spec[\"const\"]]\n",
+     "tests": ["tests/qa/test_bug_137_schema_version.py"], "pytest_args": ["--noconftest"],
+     "expected": "killed", "note": "check accepts only the const shape"},
+    {"id": "ENUM_FIRST_IS_VERSION", "file": "tests/support/kick_params.py",
+     "old": "SCHEMA_VERSION: str = checked_schema_version(SCHEMA)\n",
+     "new": "SCHEMA_VERSION: str = FIELDS[\"schema_version\"].get(\"const\") or FIELDS[\"schema_version\"][\"enum\"][-1]\n",
+     "tests": ["tests/qa/test_bug_137_schema_version.py"], "pytest_args": ["--noconftest"],
+     "expected": "killed", "note": "draws silently switch to the newest version (0.3)"},
+    {"id": "ALL_DRAWS_SCHEMA_VERSION", "file": "tests/support/kick_params.py",
+     "old": "    return tuple(n for n, s in FIELDS.items() if n != \"schema_version\" and \"const\" not in s)\n",
+     "new": "    return tuple(n for n, s in FIELDS.items() if \"const\" not in s)\n",
+     "tests": ["tests/qa/test_bug_137_schema_version.py"], "pytest_args": ["--noconftest"],
+     "expected": "killed", "note": "ALL starts drawing schema_version from the enum (0.3 half the time)"},
+    {"id": "NO_ALLOF_CHECK", "file": "tests/support/kick_params.py",
+     "old": "            raise ValueError(f\"schema_version {version!r} has an allOf branch: not drawn here\")\n",
+     "new": "            pass\n",
+     "tests": ["tests/qa/test_bug_137_schema_version.py"], "pytest_args": ["--noconftest"],
+     "expected": "killed", "note": "a 0.2 allOf branch goes unnoticed"}
+  ]
+}

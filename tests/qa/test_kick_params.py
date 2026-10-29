@@ -73,7 +73,8 @@ PROFILE_DRAWS = {name: _draws(p, 910_000) for name, p in kp.PROFILES.items() if 
 
 
 def _schema_fields() -> list[str]:
-    return [n for n, s in SCHEMA["properties"].items() if "const" not in s]
+    # schema_version is not a drawn field (const up to v0.2, enum since v0.3; #137).
+    return [n for n, s in SCHEMA["properties"].items() if n != "schema_version"]
 
 
 def _check_field(field: str, values: list, lo=None, hi=None) -> None:
