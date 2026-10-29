@@ -140,5 +140,123 @@ Den Live-Ordner öffnest du am schnellsten mit `Win + R` → `%APPDATA%\Ableton`
 - **Ports:** Live empfängt auf 11000, AbeltonGod empfängt die Antworten auf 11001 (nur `127.0.0.1`). Andere Ports nur ändern, wenn du sie auch im Script änderst (`AbletonOSC\abletonosc\constants.py`); in AbeltonGod stehen sie dann in `.env` (`ABLETON_OSC_SEND_PORT`, `ABLETON_OSC_RECEIVE_PORT`).
 - **Nur ein Empfänger:** AbletonOSC schickt jede Antwort fest an Port 11001. Es kann also immer nur ein Programm gleichzeitig mit AbletonOSC reden.
 - **Live-Version:** AbletonOSC meldet nur Haupt- und Nebenversion (z. B. 12.3). Die genaue Version (Hilfe → Über Live) bitte in Issue #5 notieren — der spätere Sample-Import braucht mindestens 12.0.5.
-- **Updates:** Wenn du AbletonOSC später aktualisierst, ersetzt du einfach den Ordner. Für Phase 03 kann eine kleine Erweiterung nötig werden (siehe `docs/research/2026-10-28_abletonosc-protocol-and-create-audio-clip.md`); sie müsste nach einem Update neu eingespielt werden.
+- **Updates:** Wenn du AbletonOSC später aktualisierst, ersetzt du einfach den Ordner. Die AbeltonGod-Erweiterung (Abschnitt 7) ist danach weg und muss neu installiert werden; das Install-Script erkennt eine neue AbletonOSC-Version und ändert sie dann nicht.
 - **Sicherheit:** Nur mit einem Test-Set arbeiten, nicht mit echten Projekten, solange die Bridge nicht auf deinem Rechner geprüft ist.
+
+## 7. Kick als Clip importieren (Phase 03, Issue #50)
+
+Noch **nicht auf deinem Rechner geprüft**. AbletonOSC selbst kennt keinen Befehl, um eine WAV-Datei als Clip anzulegen. AbeltonGod fügt deshalb in deiner AbletonOSC-Kopie **ein Wort** hinzu: `"create_audio_clip"` in die Liste `methods` der Datei `abletonosc\clip_slot.py`. Danach versteht AbletonOSC den Befehl `/live/clip_slot/create_audio_clip` und ruft Lives `ClipSlot.create_audio_clip(Pfad)` auf. Nichts von AbletonOSC wird ins AbeltonGod-Repo kopiert.
+
+### 7.1 Erweiterung installieren
+
+1. **Live beenden.**
+2. In PowerShell, im Projektordner:
+
+```powershell
+git switch main
+git pull
+.\.venv\Scripts\Activate.ps1
+pip install -e ".[dev]"
+python scripts/install_abletonosc_extension.py --check
+```
+
+Erwartet (Pfad mit deinem Benutzernamen):
+
+```text
+AbeltonGod install_abletonosc_extension 0.1.0
+AbletonOSC-Ordner: C:\Users\<du>\Documents\Ableton\User Library\Remote Scripts\AbletonOSC
+Datei: C:\Users\<du>\Documents\Ableton\User Library\Remote Scripts\AbletonOSC\abletonosc\clip_slot.py
+Zustand: original (sha256 989f9f6a6631fd04598fff0b278b9d844e03b3e211ae9b23d293e985b22d4aed)
+Nur geprüft (--check), nichts geändert.
+```
+
+- Steht `Zustand: unknown`, hast du eine andere AbletonOSC-Version als die geprüfte (Commit `0ca68214`). Das Script ändert dann nichts. Bitte die Ausgabe in Issue #50 einfügen.
+- Liegt AbletonOSC woanders: `--abletonosc-dir "D:\...\Remote Scripts\AbletonOSC"` anhängen.
+
+3. Installieren:
+
+```powershell
+python scripts/install_abletonosc_extension.py
+```
+
+Es zeigt die geplante Änderung und fragt `Live ist geschlossen. Jetzt installieren? [y/N]` — nur `y` installiert. Erwartet am Ende: `Installiert. Sicherung: ...\clip_slot.py.abeltongod-orig` und `Jetzt Live neu starten.`
+
+Gibt es schon eine Sicherung `clip_slot.py.abeltongod-orig`, die nicht Byte für Byte der jetzigen Datei entspricht (z. B. von einem abgebrochenen Lauf oder mit anderen Zeilenenden), meldet das Script `FEHLER: Die vorhandene Sicherung …` und ändert nichts. Dann die Sicherung wegschieben und die Ausgabe in Issue #50 einfügen.
+
+4. **Live starten.** In der Statusleiste sollte wieder „AbletonOSC: Listening for OSC on port 11000“ erscheinen.
+
+**Rückgängig machen:** Live beenden, `python scripts/install_abletonosc_extension.py --uninstall`, mit `y` bestätigen, Live starten. Die Sicherung bleibt liegen.
+
+### 7.2 Import testen
+
+**Vorbereitung:** neues Test-Set mit mindestens einer **Audiospur**, speichern, schließen und neu öffnen (siehe Abschnitt 5, Vorbereitung 1–4). Eine WAV-Datei bereitlegen, z. B. einen Kick aus Phase 01:
+
+```powershell
+python -m audio_engine.kick --preset centre --out "$env:USERPROFILE\Music\AbeltonGod-Test"
+dir "$env:USERPROFILE\Music\AbeltonGod-Test\*.wav"
+```
+
+(wie im Hörtest `LISTENING_TEST_01.md`; jede andere WAV mit absolutem Pfad geht auch). Den vollen Pfad der WAV aus der `dir`-Liste nehmen. Dann:
+
+```powershell
+python scripts/live_import.py "C:\voller\Pfad\zur\kick.wav"
+```
+
+Das Script
+
+1. prüft die Datei (absoluter Pfad, `.wav`, gültiger WAV-Kopf),
+2. liest Live-Version, Spuren (mit „Audio“ / „keine Audiospur“) und Anzahl der Szenen,
+3. prüft, ob die Erweiterung da ist. Dazu sendet es den Import-Befehl **ohne** Argumente; AbletonOSC bricht dabei ab, bevor es das Set anfasst. Im `abletonosc.log` steht danach pro Lauf eine Zeile `[ERROR] AbletonOSC: Error handling OSC message: list index out of range` (darunter eine `[WARNING]`-Zeile mit dem Python-Traceback, der `clip_slot.py` nennt) — die ist erwartet. Weil AbletonOSC jede Nachricht protokolliert, steht diese Zeile meist **nicht** unter den letzten Zeilen. Zum Finden in PowerShell:
+
+```powershell
+Select-String -Path "$env:USERPROFILE\Documents\Ableton\User Library\Remote Scripts\AbletonOSC\logs\abletonosc.log" -Pattern "create_audio_clip|Error handling OSC message" | Select-Object -Last 20
+```
+
+(Liegt deine User Library woanders, den Pfad anpassen.) Die Ausgabe zeigt die Zeilen mit dem Import-Befehl und die Fehlerzeilen samt Zeilennummer.
+4. fragt: `Ist das geöffnete Set ein eigenes TEST-Set (kein echtes Projekt)? [y/N]`
+5. fragt das Ziel: Nummer einer Audiospur oder `n` für eine neue Audiospur am Ende. MIDI-Spuren lehnt es ab. Es nimmt die erste freie Zelle (oder `--slot <Nummer>`) und überschreibt nie einen Clip.
+6. zeigt die geplanten Änderungen und fragt `Diese Änderungen jetzt ausführen? [y/N]`
+7. importiert, liest die Zellen und den Dateipfad des Clips zurück,
+8. fragt `Spielt der Kick? [y/n]` — dafür in Live die Zelle starten und hinhören,
+9. fragt `Import per Undo in Live zurücknehmen? [y/N]`. Für den Test bitte **`y`**: Undo wird nur gesendet, wenn das Set noch genau so aussieht wie nach dem Import, und danach zurückgelesen.
+
+**Erwartete Ausgabe (gekürzt, Ziel Spur 0, leeres Set):**
+
+```text
+AbeltonGod live_import 0.1.0
+
+Verbindung zu AbletonOSC (127.0.0.1:11000) steht.
+
+Live-Version (laut API): 12.4  Szenen: 8
+Spuren (2):
+  0: 1-Audio  [Audio]
+  1: 2-MIDI  [keine Audiospur]
+AbeltonGod-Erweiterung: vorhanden.
+...
+OK: Clip liegt in Spur 0, Zelle 0. Live meldet als Datei:
+  C:\voller\Pfad\zur\kick.wav
+...
+Undo 1: Clip ist wieder weg (zurückgelesen).
+Das Set ist wieder wie vor dem Import (geprüft: Spurnamen und Zellen der Zielspur; nicht geprüft: andere Spuren, Geräte, Automation).
+```
+
+Im Ergebnis-Block sollten dann stehen: `extension: PRESENT`, `clip_slot.create_audio_clip: PASS`, `clip_file_path_read: '<dein Pfad>'`, `user_hears_kick: yes`, `song.undo: PASS (clip removed; read back)`. Den ganzen Block (mit den drei Backticks) in **Issue #50** einfügen.
+
+Ob Live den Dateipfad genau so zurückmeldet, wie er gesendet wurde (Groß/Klein, `\` statt `/`), ist nicht geprüft. Das Script vergleicht ohne Rücksicht auf Groß/Klein und Schrägstrich-Richtung. Steht `FAIL` mit einem anderen Pfad, bitte den Block trotzdem einfügen.
+
+**Zweiter Durchlauf (neue Spur):** dasselbe noch einmal, beim Ziel `n` eingeben. Erwartet: `song.undo: PASS (clip removed, track removed; read back)`. Fasst Live Spur und Clip in einem Undo-Schritt zusammen, meldet das Script `PASS (one undo reverted track and clip together)`; das ist auch ein gültiges Ergebnis, bitte einfügen.
+
+**Fehlerfälle** (je ein Durchlauf, Ergebnis-Block einfügen):
+
+| Test | So geht's | Erwartet |
+| --- | --- | --- |
+| Live geschlossen | Live beenden, Script starten | `FEHLER: AbletonOSC antwortet nicht …`, Exit-Code 2 |
+| Erweiterung fehlt | Live beenden, `python scripts/install_abletonosc_extension.py --uninstall`, mit `y` bestätigen, Live starten, Test-Set öffnen, Script starten | `FEHLER: Die AbeltonGod-Erweiterung fehlt …`, `extension: MISSING`, Exit-Code 5; danach wieder installieren |
+| MIDI-Spur | beim Ziel die Nummer der MIDI-Spur eingeben, danach bei der wiederholten Frage Enter | `Spur 1 '2-MIDI' ist keine Audiospur.`, die Ziel-Frage kommt erneut (höchstens dreimal); nach Enter `Kein Ziel gewählt. Keine Änderung.`, nichts gesendet, Exit-Code 0 |
+| belegte Zelle | `--slot 0`, wenn Zelle 0 der Audiospur schon einen Clip hat | `Zelle 0 von Spur 0 ist schon belegt …`, Exit-Code 1 |
+
+**Wenn etwas schiefgeht:** Bei Zeitüberschreitung oder *Strg + C* während eines Schritts sagt das Script `Ergebnis ist UNBEKANNT`, liest einmal zurück, sendet nichts mehr und **kein** Undo. Dann im Set nachsehen und einen eventuell angelegten Clip oder eine Spur von Hand löschen.
+
+**Aktions-Log:** Jede Änderung steht vor und nach dem Senden in `logs\bridge-actions.jsonl` im Projektordner (eine JSON-Zeile pro Eintrag, nicht im Git). Der Pfad steht im Ergebnis-Block unter `action_log`.
+
+**Ohne Erweiterung** geht der Import von Hand: `docs/setup/SAMPLE_IMPORT_FALLBACK.md`.

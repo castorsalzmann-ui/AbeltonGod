@@ -62,6 +62,11 @@ class FakeAbletonOSC:
             {"name": "2-Bass", "mute": False},
         ]
         self.undo_stack: list = []
+        # Clip import (#50). Tracks without "audio" are MIDI tracks; "slots" holds a file path
+        # or None per scene. ``extension_installed`` = the AbeltonGod patch is in AbletonOSC.
+        self.num_scenes = 4
+        self.extension_installed = True
+        self.clip_undoable = True  # False: Live does not record create_audio_clip as undo step
 
         self._held: list[tuple[bytes, tuple[str, int]]] | None = None
         self.released = threading.Event()  # set by release(); lets tests check ordering
@@ -83,7 +88,55 @@ class FakeAbletonOSC:
             "/live/track/get/mute": self._get_mute,
             "/live/track/set/mute": self._set_mute,
             "/live/song/undo": self._undo,
+            "/live/song/get/num_scenes": lambda p: (self.num_scenes,),
+            "/live/song/create_audio_track": self._create_audio_track,
+            "/live/track/get/has_audio_input": lambda p: (int(p[0]),
+                                                          bool(self.tracks[int(p[0])].get(
+                                                              "audio", False))),
+            "/live/clip_slot/get/has_clip": lambda p: (int(p[0]), int(p[1]),
+                                                       self._slots(int(p[0]))[int(p[1])]
+                                                       is not None),
+            "/live/clip/get/file_path": self._get_file_path,
+            **({"/live/clip_slot/create_audio_clip": self._create_audio_clip}
+               if self.extension_installed else {}),
         }
+
+    # -- clip import model -------------------------------------------------------------------
+
+    def _slots(self, idx: int) -> list:
+        track = self.tracks[idx]  # IndexError for a bad track index, as in AbletonOSC
+        slots = track.setdefault("slots", [None] * self.num_scenes)
+        return slots
+
+    def _create_audio_track(self, p: tuple) -> None:
+        index = int(p[0])
+        track = {"name": f"{len(self.tracks) + 1}-Audio", "mute": False, "audio": True,
+                 "slots": [None] * self.num_scenes}
+        pos = len(self.tracks) if index == -1 else index
+        self.tracks.insert(pos, track)
+        self.undo_stack.append(("track", pos))
+
+    def _create_audio_clip(self, p: tuple) -> None:
+        # AbletonOSC clip_slot.py line 12: int(params[0]), int(params[1]); IndexError when
+        # called without arguments (the probe).
+        track_index, slot_index = int(p[0]), int(p[1])
+        slots = self._slots(track_index)
+        track = self.tracks[track_index]
+        path = p[2]
+        if not track.get("audio", False) or track.get("frozen", False):
+            raise RuntimeError("Clip slot does not belong to an audio track or track is frozen")
+        if slots[slot_index] is not None:
+            raise RuntimeError("Clip slot is not empty")  # LOM behaviour here: not verified
+        slots[slot_index] = path
+        if self.clip_undoable:
+            self.undo_stack.append(("clip", track_index, slot_index))
+
+    def _get_file_path(self, p: tuple) -> tuple:
+        idx, slot = int(p[0]), int(p[1])
+        path = self._slots(idx)[slot]
+        if path is None:  # AbletonOSC: getattr(None, "file_path") -> AttributeError
+            raise AttributeError("'NoneType' object has no attribute 'file_path'")
+        return (idx, slot, path)
 
     def _get_mute(self, p: tuple) -> tuple:
         idx = int(p[0])
@@ -95,8 +148,15 @@ class FakeAbletonOSC:
         self.tracks[idx]["mute"] = bool(p[1])
 
     def _undo(self, p: tuple) -> None:
-        if self.undo_stack:
-            idx, before = self.undo_stack.pop()
+        if not self.undo_stack:
+            return
+        entry = self.undo_stack.pop()
+        if entry[0] == "track":
+            del self.tracks[entry[1]]
+        elif entry[0] == "clip":
+            self.tracks[entry[1]]["slots"][entry[2]] = None
+        else:
+            idx, before = entry
             self.tracks[idx]["mute"] = before
 
     # -- sending -----------------------------------------------------------------------------

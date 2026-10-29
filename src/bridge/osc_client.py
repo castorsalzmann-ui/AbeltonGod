@@ -73,13 +73,59 @@ ADDRESSES: dict[str, tuple[str, ...]] = {
     # ``abletonosc/track.py`` ``properties_rw`` contains "mute". Own registry entry since #42.
     "track.mute.get": ("/live/track/get/mute",),
     "song.undo": ("/live/song/undo",),
+    # README "Song API": ``/live/song/create_audio_track index`` (-1 = end); source
+    # ``abletonosc/song.py`` line 24 (method list, generic ``_call_method``, no reply).
+    "song.create_audio_track": ("/live/song/create_audio_track",),
+}
+
+# Capabilities that AbletonOSC does not expose itself and that the AbeltonGod extension adds
+# (``scripts/install_abletonosc_extension.py``, #50): {cap_id: (addresses, registry target)}.
+# The registry still records the LOM call as target; a later contract-change PR may switch it
+# to the OSC address (then the entry moves into ADDRESSES).
+#
+# ``/live/clip_slot/create_audio_clip track_index, clip_index, path``: the extension adds
+# "create_audio_clip" to the ``methods`` list of ``abletonosc/clip_slot.py`` (lines 27-32 at
+# commit 0ca68214). Lines 46-48 register ``/live/clip_slot/<method>`` with
+# ``create_clip_slot_callback(self._call_method, method)``; lines 12-14 resolve
+# ``song.tracks[track_index].clip_slots[clip_index]``; line 19 passes ``params[2:]``, so
+# ``handler.py`` ``_call_method`` (lines 27-29) calls ``clip_slot.create_audio_clip(path)``
+# and sends no reply. LOM: "Given an absolute path to a valid audio file in a supported
+# format, creates an audio clip that references the file in the clip slot. Throws an error if
+# the clip slot doesn't belong to an audio track or if the track is frozen."
+# (docs.cycling74.com/apiref/lom/clipslot/, checked 2026-10-28).
+EXTENSION_ADDRESSES: dict[str, tuple[tuple[str, ...], str]] = {
+    "clip_slot.create_audio_clip": (
+        ("/live/clip_slot/create_audio_clip",),
+        "LOM ClipSlot.create_audio_clip(path)",
+    ),
 }
 
 # Addresses the bridge sends that have no registry entry of their own YET, with the capability
 # whose gate they borrow: {cap_id: (addresses, borrowed_cap_id)}. Each must get its own entry
 # in a contract-change PR (then it moves into ADDRESSES; ``test_capabilities.py`` fails until
-# it does). Empty since #42 moved ``track.mute.get`` into ADDRESSES.
-PENDING_REGISTRY: dict[str, tuple[tuple[str, ...], str]] = {}
+# it does). The four reads below are the pre-checks and read-backs of the clip import (#50);
+# they borrow the import's gate, so they are as locked as the import itself.
+PENDING_REGISTRY: dict[str, tuple[tuple[str, ...], str]] = {
+    # README "Track API": ``/live/track/get/has_audio_input track_id`` -> ``track_id,
+    # has_audio_input``; source ``abletonosc/track.py`` line 39 (``properties_r``).
+    "track.has_audio_input.get": (("/live/track/get/has_audio_input",),
+                                  "clip_slot.create_audio_clip"),
+    # README "Clip Slot API": ``/live/clip_slot/get/has_clip track_index, clip_index`` ->
+    # ``track_index, clip_index, has_clip``; source ``abletonosc/clip_slot.py`` line 34.
+    "clip_slot.has_clip.get": (("/live/clip_slot/get/has_clip",),
+                               "clip_slot.create_audio_clip"),
+    # README "Clip API": ``/live/clip/get/file_path track_id, clip_id`` -> ``track_id,
+    # clip_id, file_path``; source ``abletonosc/clip.py`` line 74 (``properties_r``).
+    "clip.file_path.get": (("/live/clip/get/file_path",), "clip_slot.create_audio_clip"),
+    # README "Song API": ``/live/song/get/num_scenes`` -> ``num_scenes``; source
+    # ``abletonosc/song.py`` line 228.
+    "song.num_scenes.get": (("/live/song/get/num_scenes",), "clip_slot.create_audio_clip"),
+}
+
+# Text AbletonOSC puts in ``/live/error`` for an address without a handler: ``osc_server.py``
+# line 125 logs "AbletonOSC: Unknown OSC address: <addr>" at ERROR, and ``manager.py`` lines
+# 55-58 relay the text after the first ": ".
+UNKNOWN_ADDRESS_ERROR = "Unknown OSC address"
 
 OscArg = int | float | str
 Message = tuple[str, tuple]
@@ -118,6 +164,10 @@ class BridgeProtocolError(BridgeError):
 
 class ReceivePortInUseError(BridgeError):
     """The reply port is already bound by another program."""
+
+
+class ExtensionMissingError(AbletonOSCError):
+    """AbletonOSC has no handler for an extension address (the AbeltonGod patch is missing)."""
 
 
 def _hint(host: str, send_port: int) -> str:
@@ -368,9 +418,11 @@ class AbletonBridge:
     def _set_last_reply(self, reply: tuple | None) -> None:
         self._local.reply = reply
 
-    def _query(self, address: str, params: tuple = (), expect_prefix: tuple = ()) -> tuple:
+    def _query(self, address: str, params: tuple = (), expect_prefix: tuple = (),
+               timeout_s: float | None = None) -> tuple:
         self._set_last_reply(None)
-        reply = self._transport.query(address, params, expect_prefix=expect_prefix)
+        reply = self._transport.query(address, params, expect_prefix=expect_prefix,
+                                      timeout_s=timeout_s)
         self._set_last_reply(reply)
         return reply
 
@@ -468,10 +520,10 @@ class AbletonBridge:
             values.append(reply[0])
         return values[0], values[1]
 
-    def get_track_names(self) -> list[str]:
+    def get_track_names(self, *, timeout_s: float | None = None) -> list[str]:
         """All track names in one reply. Very large sets may exceed one UDP datagram."""
         self.gate.check("song.track_names.get")
-        reply = self._query(ADDRESSES["song.track_names.get"][0])
+        reply = self._query(ADDRESSES["song.track_names.get"][0], timeout_s=timeout_s)
         if not all(isinstance(n, str) for n in reply):
             raise BridgeProtocolError(f"track names must be strings, got {reply!r}")
         return list(reply)
@@ -505,3 +557,122 @@ class AbletonBridge:
     def undo(self) -> None:
         self.gate.check("song.undo")
         self._transport.send_confirmed(ADDRESSES["song.undo"][0])
+
+    # -- clip import (#50) -------------------------------------------------------------------
+    # The reads below have no registry entry yet (PENDING_REGISTRY); they borrow the gate of
+    # clip_slot.create_audio_clip, so nothing of the import path runs while that is locked.
+
+    def _check_pending(self, cap_id: str) -> None:
+        self.gate.check(PENDING_REGISTRY[cap_id][1])
+
+    @staticmethod
+    def _bool_reply(reply: tuple, what: str) -> bool:
+        if len(reply) != 1 or not (type(reply[0]) is bool or (type(reply[0]) is int
+                                                              and reply[0] in (0, 1))):
+            raise BridgeProtocolError(f"{what} reply must be one bool or 0/1, got {reply!r}")
+        return bool(reply[0])
+
+    def get_num_scenes(self) -> int:
+        """Number of scenes = number of clip slots per track."""
+        self._check_pending("song.num_scenes.get")
+        reply = self._query(PENDING_REGISTRY["song.num_scenes.get"][0][0])
+        if len(reply) != 1 or type(reply[0]) is not int or reply[0] < 0:
+            raise BridgeProtocolError(f"num_scenes reply must be one int >= 0, got {reply!r}")
+        return reply[0]
+
+    def get_track_has_audio_input(self, track_index: int) -> bool:
+        """LOM ``Track.has_audio_input``: "1 for audio tracks"."""
+        _require_int(track_index, "track_index", minimum=0)
+        self._check_pending("track.has_audio_input.get")
+        reply = self._query(PENDING_REGISTRY["track.has_audio_input.get"][0][0], (track_index,),
+                            expect_prefix=(track_index,))
+        return self._bool_reply(reply, "has_audio_input")
+
+    def get_clip_slot_has_clip(self, track_index: int, slot_index: int, *,
+                               timeout_s: float | None = None) -> bool:
+        _require_int(track_index, "track_index", minimum=0)
+        _require_int(slot_index, "slot_index", minimum=0)
+        self._check_pending("clip_slot.has_clip.get")
+        reply = self._query(PENDING_REGISTRY["clip_slot.has_clip.get"][0][0],
+                            (track_index, slot_index), expect_prefix=(track_index, slot_index),
+                            timeout_s=timeout_s)
+        return self._bool_reply(reply, "has_clip")
+
+    def get_clip_file_path(self, track_index: int, slot_index: int) -> str:
+        """LOM ``Clip.file_path`` of the clip in this slot ("only available for audio clips").
+
+        An empty slot makes AbletonOSC's handler fail (``clip.py`` line 55 resolves
+        ``clip_slots[i].clip``, which is empty) and comes back as :class:`AbletonOSCError`.
+        """
+        _require_int(track_index, "track_index", minimum=0)
+        _require_int(slot_index, "slot_index", minimum=0)
+        self._check_pending("clip.file_path.get")
+        reply = self._query(PENDING_REGISTRY["clip.file_path.get"][0][0],
+                            (track_index, slot_index), expect_prefix=(track_index, slot_index))
+        if len(reply) != 1 or not isinstance(reply[0], str):
+            raise BridgeProtocolError(f"file_path reply must be one string, got {reply!r}")
+        return reply[0]
+
+    def create_audio_track(self, index: int = -1, *, timeout_s: float | None = None) -> None:
+        """LOM ``Song.create_audio_track(index)``; -1 appends at the end. No reply.
+
+        Confirmation only means AbletonOSC processed it without an error; read the track
+        names back to see the new track.
+        """
+        _require_int(index, "index", minimum=-1)
+        self.gate.check("song.create_audio_track")
+        self._transport.send_confirmed(ADDRESSES["song.create_audio_track"][0], (index,),
+                                       timeout_s=timeout_s)
+
+    def create_audio_clip(self, track_index: int, slot_index: int, path: str, *,
+                          timeout_s: float | None = None) -> None:
+        """LOM ``ClipSlot.create_audio_clip(path)`` through the AbeltonGod extension.
+
+        ``path`` must be an absolute path string (checked here; existence and format are the
+        caller's job, see ``bridge.clip_import.validate_wav_path``). Raises
+        :class:`ExtensionMissingError` if AbletonOSC has no handler for the address, and
+        :class:`AbletonOSCError` if Live refused (e.g. MIDI or frozen track).
+        """
+        _require_int(track_index, "track_index", minimum=0)
+        _require_int(slot_index, "slot_index", minimum=0)
+        if not isinstance(path, str) or not path or "\x00" in path or not os.path.isabs(path):
+            raise ValueError(f"path must be an absolute path string (got {path!r})")
+        self.gate.check("clip_slot.create_audio_clip")
+        address = EXTENSION_ADDRESSES["clip_slot.create_audio_clip"][0][0]
+        try:
+            self._transport.send_confirmed(address, (track_index, slot_index, path),
+                                           timeout_s=timeout_s)
+        except AbletonOSCError as exc:
+            raise _as_extension_missing(exc, address) from exc
+
+    def probe_audio_clip_extension(self) -> bool:
+        """True if AbletonOSC has a handler for the import address, False if not.
+
+        Sends the address with **no arguments**. With the extension installed, AbletonOSC's
+        callback fails at ``int(params[0])`` (``clip_slot.py`` line 12) before it touches the
+        song, so nothing changes in Live. AbletonOSC passes ``message.params``, a list
+        (``osc_server.py`` line 90), so the text is ``list index out of range``; it comes back
+        as ``/live/error "Error handling OSC message: list index out of range"``
+        (``osc_server.py`` line 187) and is also written to ``abletonosc.log``. Without the
+        extension the reply is ``Unknown OSC address`` (``osc_server.py`` line 125).
+        """
+        self.gate.check("clip_slot.create_audio_clip")
+        address = EXTENSION_ADDRESSES["clip_slot.create_audio_clip"][0][0]
+        try:
+            self._transport.send_confirmed(address, ())
+        except AbletonOSCError as exc:
+            return not isinstance(_as_extension_missing(exc, address), ExtensionMissingError)
+        raise BridgeProtocolError(
+            f"{address} without arguments was processed without an error; the installed "
+            "handler does not look like the AbeltonGod extension"
+        )
+
+
+def _as_extension_missing(exc: AbletonOSCError, address: str) -> AbletonOSCError:
+    """Turn AbletonOSC's 'Unknown OSC address: <address>' into :class:`ExtensionMissingError`."""
+    if f"{UNKNOWN_ADDRESS_ERROR}: {address}" in str(exc):
+        return ExtensionMissingError(
+            f"AbletonOSC has no handler for {address}: the AbeltonGod extension is not "
+            "installed (scripts/install_abletonosc_extension.py), or Live was not restarted"
+        )
+    return exc
