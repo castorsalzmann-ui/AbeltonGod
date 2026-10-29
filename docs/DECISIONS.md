@@ -288,3 +288,11 @@ The researchers for 04b clusters 1 (Agent SDK behaviour) and 2 (tool-schema gene
 **Reason.** The user wants all phases prepared in parallel; the questionnaire answers make the questions concrete.
 
 **Consequences.** Tasks that depend on one of the ~30 open questions in the questionnaire ("Braucht eine Entscheidung") wait for the user's answer. WIP = 1 per role and the 15/10 agent limit (D-019) still apply. Research notes can go stale before their feature is built; each note states versions and is re-checked at `/close-phase`.
+
+## D-024 · 2026-10-29 · accepted — UI owner and settings-first planner (user decisions 15:55–16:12)
+
+**Decision.** (1) The desktop window and the arrangement planner window are built by the `orchestrator-engineer`; no new UI role (questionnaire tab 3, "Wer baut was"). (2) The arrangement planner is an energy line with nodes on a DJ-phrase bar grid (8/16/32 bars), edited like automation in Live, with section types placed above the bars that reshape the nodes; the arrangement is built from it. (3) Every arrangement-style choice (kick return in the build-up, intro/outro length and content, breakdown shape, second-drop strength, change grid and short drop-outs) is a user setting; the default is the common convention (industry standard), sourced where a source exists.
+
+**Reason.** The user wants to plan tracks visually in a separate window and keep full control over style choices without hard-coded taste.
+
+**Consequences.** The plan format (contract-change) carries sections, bar grid, energy nodes (two nodes on one bar allowed) and a settings block with defaults; defaults come from `docs/research/2026-10-29_arrangement-planner-sections-energy.md` (#139) and are marked as convention where no source measured them. Building in Live waits for the arrangement capability check (#140) and D-004.

@@ -61,6 +61,7 @@ Things you notice that are wrong or risky but outside scope are **side findings*
 - **Re-check what your fix touched.** A fix is new code: test its failure paths too (disk full, interrupts, edge values).
 - **Count and quote real output.** Test counts, error sizes and seeds come from a command you ran, not from memory.
 - **Independent review before merge.** Every PR gets a `reviewer` run started by the lead (implementers cannot start agents, D-017). For foundation code (engine, analysis, file writing, anything that writes to Ableton) the review is full-depth; small doc or text changes get a short one.
+- **Green on its own base is not green after main moved (#137).** PR #117 passed CI on a base without the v0.3 contract (#114) and broke main once both were merged; GitHub still showed the PR as `clean`. Before every merge go-ahead the lead runs `ruff check . && pytest` on the merged state (current `origin/main` plus every PR in the batch) and gives the go-ahead only on that result.
 
 ## Bugs
 

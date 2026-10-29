@@ -16,15 +16,15 @@ Phases 01, 02 and 04a are independent and may run in parallel (different agents,
 
 ## Pipeline (parallel tracks, D-020 / D-023)
 
-Since 2026-10-29 several tracks run side by side, one task per role at a time (D-019). Status as of 2026-10-29 midday; the cockpit shows the live state.
+Since 2026-10-29 several tracks run side by side, one task per role at a time (D-019). Status as of 2026-10-29 16:15; the cockpit shows the live state.
 
 | Track | Phase | Role(s) | Goal | Status |
 | --- | --- | --- | --- | --- |
-| A | 03 finish | bridge-engineer | A kick lands in Live by command; Phase 03 DONE | Import + undo verified in Live (runs 2–4, #50); capabilities contract-change and listen-before-undo flow in work; then wire `place_kick` into the import, try fallback B |
-| B | 04b step 2 | orchestrator-engineer | Claude generates kicks and imports them | Agent SDK client PR #122 in review; first real Claude call on the user's PC after merge (#83); tool schemas #81 wait for track A |
-| C | 05 kick character | audio-engineer, sound-designer | Kicks with own character | Listening tests 1+2 done (#103); preset `dense` PR #123 and kick-params v0.3 PR #114 ready for the user; engine work #120 next; fresh-seed findings #115 |
-| D | ongoing | qa-tester | Faster checks without less depth | Shared kick-params generator PR #117 ready; #119 next |
-| R | parking-lot pre-work | researcher | Feasibility notes before any parking-lot feature (D-023) | Notes merged: mix/loudness (#101), kicks in tracks (#100), Live MIDI/arrangement/devices (#98); desktop window PR #113 and AI audio PR #112 to merge |
+| A | arrangement planner (D-024) | bridge-engineer, sound-designer, later orchestrator-engineer | Plan a track as an energy line on a DJ-phrase grid; AbeltonGod builds the arrangement | Phase 03 DONE (2026-10-29); sections/energy proposal PR #141; arrangement capability check #140 in work; then plan-format contract and planner window |
+| B | 04b step 2 | orchestrator-engineer | Claude generates kicks and imports them | Agent SDK client merged (PR #122); first real Claude call on the user's PC (#83); tool schemas #81 in work |
+| C | 05 kick character | audio-engineer, sound-designer | Kicks with own character | Preset `dense`, v0.3 contract and engine merged (PRs #123, #114, #130); contract follow-ups #131; fresh-seed findings #115 |
+| D | ongoing | qa-tester | Faster checks without less depth | Shared generator (PR #117) and hotfix #137 (PR #138) merged; #119 next |
+| R | parking-lot pre-work | researcher | Feasibility notes before any parking-lot feature (D-023) | All five notes merged (#98–#102) |
 
 Waiting for user decisions (questionnaire "Braucht eine Entscheidung", D-022): further sample categories, MIDI/arrangement, mix check, desktop UI, AI audio (D-005 stays until reopened), sound profile details (#110).
 
