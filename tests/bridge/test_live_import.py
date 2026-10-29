@@ -334,6 +334,83 @@ def test_ctrl_c_at_undo_prompt_keeps_clip(fake, tmp_path):
     assert code == 130
     assert "Der Import war schon fertig" in out
     assert UNDO not in [a for a, _ in writes(fake)]
+    # PR #126 review, problem 1: UNDO_CHOICE promises the removal steps here too.
+    assert "  - Clip: in Spur 0 '1-Audio' die Zelle 1 anklicken, Entf drücken." in out
+    assert "die neue Spur" not in out
+
+
+def test_ctrl_c_at_listening_prompt_after_no_undo_prints_removal(fake, tmp_path):
+    """New track, 'no undo', then Ctrl+C at "Spielt der Kick?": track and clip stay, the
+    script says how to remove both (PR #126 review, problem 1)."""
+    code, out, prompts = run(fake, tmp_path, ["y", "n", "y", "", KeyboardInterrupt])
+    assert code == 130, out
+    assert "Spielt der Kick" in prompts[-1]
+    assert UNDO not in [a for a, _ in writes(fake)]
+    assert "der Clip bleibt im Set, die neue Spur auch." in out
+    assert ("  - Clip: in Spur 2 '3-Audio' die Zelle 0 anklicken, Entf drücken.\n"
+            "  - die neue Spur: Kopf von Spur 2 '3-Audio' anklicken, Entf drücken.") in out
+
+
+def test_ctrl_c_during_undo_prints_removal(fake, tmp_path, monkeypatch):
+    """Ctrl+C while the undo is being sent: outcome unknown, nothing more is sent, removal
+    steps from the newest read-back (PR #126 review, R1)."""
+    def interrupted_undo(self):
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(live_import.AbletonBridge, "undo", interrupted_undo)
+    code, out, _ = run(fake, tmp_path, ["y", "0", "y", "y"])
+    assert code == 130, out
+    assert "ABGEBROCHEN mit Strg+C während des Undo" in out
+    assert block(out)["song.undo"].startswith("FAIL (interrupted")
+    assert "  - Clip: in Spur 0 '1-Audio' die Zelle 1 anklicken, Entf drücken." in out
+    assert UNDO not in [a for a, _ in writes(fake)]
+
+
+def test_second_undo_differs_prints_removal_for_the_track(fake, tmp_path):
+    """New track; Live does not record the track creation as an undo step (fake), so undo 1
+    removes the clip and undo 2 changes nothing. FAIL, no third undo, removal steps say the
+    clip is gone and the track must go by hand (PR #126 review, R2)."""
+    orig = fake._create_audio_track
+
+    def track_not_undoable(p):
+        orig(p)
+        fake.undo_stack.pop()
+
+    fake._create_audio_track = track_not_undoable
+    code, out, _ = run(fake, tmp_path, ["y", "n", "y", "y"])
+    assert code == 1, out
+    assert block(out)["song.undo"].startswith("FAIL (after undo_track")
+    assert sum(1 for a, _ in writes(fake) if a == UNDO) == 2
+    assert "FEHLER: Nach dem zweiten Undo" in out
+    assert ("  - Clip: laut letztem Zurücklesen nicht mehr in Spur 2, Zelle 0.\n"
+            "  - die neue Spur: Kopf von Spur 2 '3-Audio' anklicken, Entf drücken.") in out
+
+
+def test_refused_undo_on_an_already_reverted_set_says_clip_is_gone(fake, tmp_path):
+    """#50 run 3: before the undo the set was already back to the pre-import state. The
+    refusal names the newest read-back, not the import's (PR #126 review, nit 3)."""
+    answers = iter(["y", "0", "y"])
+
+    def reverting_input(prompt):
+        a = next(answers, None)
+        if a is not None:
+            return a
+        fake.tracks[0]["slots"][1] = None  # reverted in Live before the undo answer
+        return "y"
+
+    receive = free_udp_port()
+    fake.response_port = receive
+    out = io.StringIO()
+    code = live_import.main([wav(tmp_path / "k.wav"), "--send-port", str(fake.port),
+                             "--receive-port", str(receive), "--timeout", "0.3",
+                             "--log", str(tmp_path / "actions.jsonl")],
+                            input_fn=reverting_input, out=out)
+    text = out.getvalue()
+    assert code == 1, text
+    assert UNDO not in [a for a, _ in writes(fake)]
+    assert "darum wurde KEIN Undo gesendet." in text
+    assert "  - Clip: laut letztem Zurücklesen nicht mehr in Spur 0, Zelle 1." in text
+    assert "die Zelle 1 anklicken" not in text
 
 
 def test_undo_refused_when_user_changed_set(fake, tmp_path):

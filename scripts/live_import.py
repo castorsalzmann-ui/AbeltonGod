@@ -152,14 +152,29 @@ UNDO_CHOICE = (
 
 
 def manual_removal_text(outcome: ImportOutcome) -> str:
-    """How to remove the import in Live by hand (German). Names come from the read-back."""
-    after = outcome.after
-    name = target_name(after, outcome.track_index) if after is not None else None
-    where = f"Spur {outcome.track_index}" + (f" '{name}'" if name else "")
-    lines = ["Von Hand entfernen, nur was noch da ist (erst in Live nachsehen):",
-             f"  - Clip: in {where} die Zelle {outcome.slot_index} anklicken, Entf drücken."]
+    """How to remove the import in Live by hand (German), from the newest read-back the
+    script has: a refused undo pre-check, else the last undo, else the import (PR #126 review).
+    It may be stale if something happened in Live since, hence "erst in Live nachsehen"."""
+    idx, slot = outcome.track_index, outcome.slot_index
+    states = [s for s in (outcome.refused_now, *reversed(outcome.undo_reads), outcome.after)
+              if s is not None]
+    state = states[0] if states else None  # newest
+    name = target_name(state, idx) if state is not None else None
+    where = f"Spur {idx}" + (f" '{name}'" if name else "")
+    track_gone = state is not None and idx >= len(state.track_names)
+    # The undo_track read-back has no slots (expect_after has none): use the newest state
+    # that read the target's slots.
+    slots = next((s.has_clip for s in states if slot < len(s.has_clip)), None)
+    clip_gone = track_gone or (slots is not None and not slots[slot])
+    lines = ["Von Hand entfernen, nur was noch da ist (erst in Live nachsehen):"]
+    if clip_gone:
+        lines.append(f"  - Clip: laut letztem Zurücklesen nicht mehr in Spur {idx}, Zelle {slot}.")
+    else:
+        lines.append(f"  - Clip: in {where} die Zelle {slot} anklicken, Entf drücken.")
     if outcome.created_track:
-        lines.append(f"  - die neue Spur: Kopf von {where} anklicken, Entf drücken.")
+        lines.append(f"  - die neue Spur: laut letztem Zurücklesen nicht mehr da (Spur {idx})."
+                     if track_gone else
+                     f"  - die neue Spur: Kopf von {where} anklicken, Entf drücken.")
     lines.append("  Strg+Z nur, wenn du in der Widerrufen-Historie siehst, was es zurücknimmt.")
     return "\n".join(lines)
 
@@ -589,8 +604,12 @@ def main(argv: list[str] | None = None, input_fn: Callable[[str], str] = input,
             except KeyboardInterrupt:
                 report.interrupted = True
                 report.error = "interrupted by user (Ctrl+C) outside a write"
-                if report.import_result == "PASS":
-                    tail = "Der Import war schon fertig; der Clip bleibt im Set."
+                done = report.importer.last_outcome if report.importer is not None else None
+                if report.import_result == "PASS" and done is not None:
+                    # Ctrl+C at the undo or the listening prompt: UNDO_CHOICE promises this.
+                    tail = ("Der Import war schon fertig; der Clip bleibt im Set"
+                            + (", die neue Spur auch" if done.created_track else "")
+                            + ".\n" + manual_removal_text(done))
                 elif report.plan_confirmed:
                     tail = ("Ob schon etwas gesendet wurde, ist unbekannt. Bitte in Live "
                             "nachsehen. " + UNDO_HINT)
