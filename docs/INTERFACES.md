@@ -8,6 +8,7 @@ Machine-readable contracts live in `contracts/`. This file explains them. Changi
 | `contracts/sample-metadata.schema.json` | Audio engine → library, orchestrator | draft v0.1 — finalised in Phase 01 |
 | `contracts/capabilities.json` (+ `capabilities.schema.json`) | Bridge → orchestrator | v1 — statuses updated in Phase 02 (#42: entry `track.mute.get` added, no format change) and Phase 03 (#50: `clip_slot.create_audio_clip` → `tested`, no format change; #143: `song.create_audio_track` → `tested`, own `tested` entries `track.has_audio_input.get`, `clip_slot.has_clip.get`, `clip.file_path.get`, `song.num_scenes.get` (no borrowed gate any more), no format change; one undo may revert track + clip together) |
 | `contracts/guard-policy.schema.json` → `config/guard-policy.json` | User config → resource guard | v1 — default values are untuned starting points |
+| `contracts/tool-list-tracks.schema.json`, `contracts/tool-import-sample.schema.json` | Claude (tool arguments) → orchestrator | v1 (#81) — input schemas only; not wired yet |
 
 ## Kick parameters
 
@@ -50,3 +51,69 @@ One profile per request type (`kick_generation`, `mentor_answer`, …). The orch
 ## Capabilities
 
 Each entry: `id`, OSC address or LOM path, `status`, `evidence` (required when `tested`), `notes`. Only `tested` entries may be wrapped as Claude tools.
+
+## Tool inputs (`list_tracks`, `import_sample`)
+
+D-002: every model-callable tool has an input schema in `contracts/`. Phase 04b has three tools: `generate_kick` (`kick-params.schema.json`), `list_tracks` (`tool-list-tracks.schema.json`) and `import_sample` (`tool-import-sample.schema.json`). These files are the input contract only; the results the tools return are defined in the wiring issue.
+
+**Strict subset.** Below the root, both tool schemas use only keywords that are in the documented strict tool-schema subset *and* in the bundled CLI's strict-compatibility set (`docs/research/2026-10-28_tool-schema-generation.md`, Q1): `type` (one name), `description`, `properties`, `required`, `additionalProperties: false` on every object, `items`, `enum`, `const`, `anyOf`. Every field has a `description` (the model reads it), with no change history in it.
+
+The contract files also carry `$schema`, `$id` and `title` at the root. They are **not** part of that intersection: `$id` is in neither list (Q1: it alone makes the CLI fall back to non-strict), and `$schema` and `title` are only in the CLI set. So the contract file as it is is *not* strict-compatible. Only the schema the tool builder produces from it is.
+
+**Wiring precondition:** the tool builder drops `$schema`, `$id` and `title`, and a wiring test checks that its output passes the strict checker with no root allowance (`strict_subset_problems(..., allow_root_metadata=False)`). `tests/test_contracts.py` already shows that the contract minus these three keys passes that check.
+
+The checker is hand-written. It is shown to fail on 28 constructed violations (21 in a field, 7 at the root) and on `kick-params.schema.json`.
+
+**Optional-parameter budget (strict limit: 24 across all strict tools of a request).** `generate_kick` has 23 optional fields: 16 in kick-params 0.2 plus the 7 v0.3 fields in `allOf[0].then`. With 0 here and 1 in `import_sample`, the total is 23 + 0 + 1 = **24, exactly the limit, with no headroom**. Any further optional field in one of the three tools needs a choice first: make it required, or leave an optional kick field out of a strict `generate_kick` variant. Whether `generate_kick` is sent strict at all is open in #131. The test counts the kick fields from the file, including the conditional branch, and pins the sum at 24.
+
+Consequence: no `minimum`, `minLength` or `pattern`. `track_index: -1` and `sample_id: ""` are schema-valid. The handler rejects them (local validation, D-002), and that would happen anyway, because the valid range of a track index depends on the open set. Whole-number floats (`2.0`) pass as integers under 2020-12; the handler converts them to `int`.
+
+### `list_tracks`
+
+No arguments (`properties: {}`, `additionalProperties: false`). Read only, approval `routine`. Reads `song.track_names.get` (`tested`), `track.has_audio_input.get` (`tested`) and `song.num_scenes.get` (`tested`). The last two are registry entries of their own since #153 (closed #143). Limit from #153: `has_audio_input == false` has never been observed on the user's machine.
+
+### `import_sample`
+
+| Field | Type | Required | Meaning |
+| --- | --- | --- | --- |
+| `sample_id` | string | yes | An id that `generate_kick` returned for a kick **in this session**. Opaque; not a file name or a path. |
+| `track_index` | integer | yes | 0-based index of an **existing audio track**, as `list_tracks` returned it. |
+| `slot_index` | integer | no | 0-based clip slot (scene). Absent → the first empty slot of that track. |
+
+**Decision (#81): the model never names a file.** `import_sample` takes a `sample_id`, never a path. The orchestrator keeps a session table `sample_id → (absolute WAV path, WAV sha256)`. It fills that table only from what its own `generate_kick` handler wrote with `library.place_kick` into the project's kick folder. The sha256 is the `sha256` field of the sidecar written with the WAV (sample-metadata).
+
+The project folder comes from the session configuration, set by the user, never from a tool argument. It gets the same rules as `scripts/kick_to_live.py` `project_problem`: an existing absolute folder with a `.als` file in it, not `Backup`, not inside the checkout. That function lives in `scripts/` and returns German CLI text, so `src/orchestrator/` must not import it. The shared check belongs in `src/library/` as a function with a structured result, used by both the script and the orchestrator (#149; it is needed before wiring). Right before the import, the handler checks the resolved path again with `bridge.clip_import.validate_wav_path(path, library_root=library.library_folder(project))`.
+
+So a file outside the library cannot be imported through the model, even when it is a valid WAV. A kick from an earlier session cannot be imported either. That limit is deliberate, until a library-listing tool hands out ids for existing entries (a later contract change).
+
+Rejected alternatives:
+- **A path argument plus the `library_root` check.** The check is right, but the model would still choose a file system string, and every handler would have to repeat the check.
+- **A file name inside the kick folder.** The strict subset has no `pattern`, so the schema cannot restrict it. It also invites the model to guess names.
+- **Render and place inside `import_sample` (kick-params as input).** That mixes a routine file write with a confirm-level Live write in one call. The user picks one of several rendered kicks after listening, and that kick is the one to import, not a new render.
+
+**What the handler checks before anything is sent** (all refusals leave Live unchanged; these semantics are part of this contract):
+1. **The id resolves to the file the user heard:**
+   - `sample_id` is in the session table.
+   - Its file still passes `validate_wav_path` inside the library folder.
+   - Its sha256, computed right before the import, equals the hash stored at generate time. A mismatch is refused: the file was edited, replaced, or deleted and its name reused.
+   - When `generate_kick` places a new kick at a path that an older id of this session points to (possible after the user deleted that file, because `place_kick` reuses free names), the older id is removed from the table, so it is refused as unknown. With the hash check this is a second, independent guard.
+2. **The track is an existing audio track:**
+   - `track_index` is an `int` (a whole-number float is converted first) with `0 <= track_index < len(track_names)`, written out explicitly. A negative index is refused, never used as a Python index from the end.
+   - The track is an audio track (`track.has_audio_input.get`).
+   - The handler never passes `track_index=None` to `ClipImporter.run`, because `None` means "create a new track".
+   - It builds the bridge without `allow_untested`.
+3. **The slot exists and is empty.** When given, `slot_index` satisfies `0 <= slot_index <` number of scenes, and that slot is empty. When it is absent, the first empty slot is used; if there is none, the call is refused. An occupied slot is never overwritten.
+4. **Approval level `confirm`.** The plan shows the track name and slot as read from Live, and `ClipImporter.run` compares the state again (`expected_before`).
+
+**Not in v1:** a new audio track as the target. `song.create_audio_track` is `tested` since #153, but stays out of v1 (v1 limit, #81). Adding it is a later additive contract change; new-track undo was shown in one run only (one undo reverted track and clip together). Undo is not part of this tool either.
+
+**Capabilities used:** `clip_slot.create_audio_clip` (`tested`), `song.track_names.get` (`tested`), and four reads that are registry entries of their own with status `tested` since #153 (closed #143): `track.has_audio_input.get`, `clip_slot.has_clip.get`, `clip.file_path.get`, `song.num_scenes.get`. None of them borrows the `create_audio_clip` gate any more. Limit from #153: `has_audio_input == false` has never been observed on the user's machine.
+
+**Preconditions for wiring:**
+- From the PR #122 round-2 review, recorded on #81:
+  - #83 V10 has been run.
+  - The request deadline is checked again after the user confirms.
+- From the PR #144 review:
+  - the tool builder's output passes the strict checker with no root allowance (see "Strict subset");
+  - the shared project-folder check exists in `src/library/` (#149);
+  - the four reads have their own registry entries (#143) — **met** by #153: all four are `tested`.
