@@ -235,7 +235,7 @@ def test_kick_params_v03_random_values_over_the_whole_range() -> None:
 
 # Resolved form (review of PR #114, problem 1). Written by hand from the contract text: every
 # default filled, tail_note -> pitch_end_hz, length_beats -> length_ms, derived amp_decay_ms
-# stored as amp_decay_ms. The engine refuses 0.3 today, so the rule is applied here.
+# stored as amp_decay_ms. Applied here by hand, independent of the engine (PR #130 renders 0.3).
 V02_DEFAULTS = {
     "variants": 1, "sample_rate": 48000, "bit_depth": 24, "length_ms": 450,
     "pitch_start_hz": 220, "pitch_end_hz": 48, "pitch_decay_ms": 15, "amp_attack_ms": 0.5,
@@ -459,12 +459,14 @@ def test_sample_metadata_invalid_instances(doc) -> None:
 # --- tool input schemas list_tracks / import_sample (#81) ------------------------------------
 
 # D-002: every model-callable tool has an input schema in contracts/. Phase 04b names three.
+# generate_kick: the strict variant of kick-params 0.3 (#131); its drift against
+# kick-params.schema.json is checked in tests/test_contracts_generate_kick.py.
 TOOL_SCHEMAS = {
-    "generate_kick": "kick-params.schema.json",
+    "generate_kick": "tool-generate-kick.schema.json",
     "list_tracks": "tool-list-tracks.schema.json",
     "import_sample": "tool-import-sample.schema.json",
 }
-STRICT_TOOLS = ("list_tracks", "import_sample")
+STRICT_TOOLS = ("generate_kick", "list_tracks", "import_sample")
 
 # Written by hand from docs/research/2026-10-28_tool-schema-generation.md, Q1: the keywords that
 # are both in the documented strict subset (structured outputs / strict tool use) and in the
@@ -596,8 +598,10 @@ def test_optional_fields_counts_the_kick_params_v03_branch() -> None:
 def test_strict_tool_schemas_fit_the_optional_parameter_limit() -> None:
     """23 + 0 + 1 = 24: exactly at the limit, no headroom. Any further optional field in one
     of the three tools needs a choice first (make it required, or leave an optional kick field
-    out of a strict generate_kick variant, #131). Whether generate_kick is strict at all is
-    #131's question; the sum is checked as if it were."""
+    out of the strict generate_kick variant). Whether generate_kick is sent strict at all is
+    the wiring's choice (#148); the sum is checked as if it were."""
+    assert set(STRICT_TOOLS) == set(TOOL_SCHEMAS)  # every tool file is strict-checked
+    assert optional_fields(load(TOOL_SCHEMAS["generate_kick"])) == KICK_PARAMS_OPTIONAL
     assert optional_fields(load(TOOL_SCHEMAS["list_tracks"])) == 0
     assert optional_fields(load(TOOL_SCHEMAS["import_sample"])) == 1
     total = sum(optional_fields(load(name)) for name in TOOL_SCHEMAS.values())
@@ -665,8 +669,8 @@ def test_strict_check_requires_root_properties() -> None:
 
 
 def test_kick_params_is_not_inside_the_strict_subset() -> None:
-    """Positive control on a real contract: kick-params uses ranges and if/then (#131 tracks a
-    strict variant), so the checker must object to it."""
+    """Positive control on a real contract: kick-params uses ranges and if/then (its strict
+    variant is tool-generate-kick.schema.json), so the checker must object to it."""
     problems = strict_subset_problems(load("kick-params.schema.json"))
     assert any("'minimum'" in p for p in problems), problems
     assert any("'allOf'" in p for p in problems), problems
