@@ -235,7 +235,7 @@ def test_kick_params_v03_random_values_over_the_whole_range() -> None:
 
 # Resolved form (review of PR #114, problem 1). Written by hand from the contract text: every
 # default filled, tail_note -> pitch_end_hz, length_beats -> length_ms, derived amp_decay_ms
-# stored as amp_decay_ms. The engine refuses 0.3 today, so the rule is applied here.
+# stored as amp_decay_ms. Applied here by hand, independent of the engine (PR #130 renders 0.3).
 V02_DEFAULTS = {
     "variants": 1, "sample_rate": 48000, "bit_depth": 24, "length_ms": 450,
     "pitch_start_hz": 220, "pitch_end_hz": 48, "pitch_decay_ms": 15, "amp_attack_ms": 0.5,

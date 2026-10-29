@@ -1,0 +1,111 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/castorsalzmann-ui/AbeltonGod/contracts/tool-generate-kick.schema.json",
+  "title": "generate_kick tool input (strict variant of kick-params 0.3)",
+  "description": "Render one deterministic kick drum sample (or several variants) as a WAV file from synthesis parameters. Only schema_version and seed are required; every omitted field takes the default named in its description. The ranges in the descriptions are enforced by the engine: a value outside them is rejected with an error that lists every problem, never clamped. The same values and seed always give the identical file.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "seed"],
+  "properties": {
+    "schema_version": {
+      "type": "string", "const": "0.3",
+      "description": "Version of these parameters. Always \"0.3\"."
+    },
+    "seed": {
+      "type": "integer",
+      "description": "Random seed (click noise, variant seeds). The same values and seed give the identical file. Range 0 ... 4294967295, whole number."
+    },
+    "variants": {
+      "type": "integer",
+      "description": "How many kicks to render around these values, each with its own seed derived from seed. Range 1 ... 8. Default 1."
+    },
+    "bpm": {
+      "type": "number",
+      "description": "Tempo in beats per minute, for naming and metadata; required by length_beats, which converts beats to milliseconds with it. Range 60 ... 200. No default (absent = no tempo)."
+    },
+    "sample_rate": {
+      "type": "integer", "enum": [44100, 48000],
+      "description": "Sample rate of the WAV file in Hz. Default 48000."
+    },
+    "bit_depth": {
+      "type": "integer", "enum": [16, 24],
+      "description": "Bit depth of the WAV file. Default 24."
+    },
+    "length_ms": {
+      "type": "number",
+      "description": "File length in milliseconds. Range 80 ... 2000. Default 450. Do not combine with length_beats."
+    },
+    "pitch_start_hz": {
+      "type": "number",
+      "description": "Body frequency at the start of the kick in Hz. Range 60 ... 600. Default 220. Must not be lower than pitch_end_hz (or the frequency of tail_note)."
+    },
+    "pitch_end_hz": {
+      "type": "number",
+      "description": "Frequency the body pitch falls towards, in Hz. It is the end point of the fall, not a guaranteed tail pitch: the tail only gets close to it if the pitch settles before the kick fades. Range 30 ... 120. Default 48. Do not combine with tail_note."
+    },
+    "pitch_decay_ms": {
+      "type": "number",
+      "description": "Time constant of the exponential pitch fall in ms: after one time constant 63 % of the fall is done, after 2.3 of them 90 %. Range 2 ... 300. Default 15. Short values settle on the tail pitch quickly; long values give a deliberately pitchy kick whose tail stays above pitch_end_hz, so use them only when that is asked for."
+    },
+    "amp_attack_ms": {
+      "type": "number",
+      "description": "Linear rise from silence to full level at the start of the kick, in ms. Range 0 ... 20. Default 0.5."
+    },
+    "amp_decay_ms": {
+      "type": "number",
+      "description": "Time for the level to fall by 60 dB after the attack, in ms (-20 dB after a third of it). Range 20 ... 2000. Default 320. If the file is shorter, the kick is cut off with a 5 ms fade-out. With length_beats, leave it out: a value is then derived so that the kick is 60 dB down before the end; an explicit value that does not decay in time is rejected, never shortened."
+    },
+    "click_level": {
+      "type": "number",
+      "description": "Level of the noise click at the start of the kick; 0 = no click. Range 0 ... 1. Default 0.35."
+    },
+    "click_tone_hz": {
+      "type": "number",
+      "description": "Centre frequency of the click's band-pass in Hz. Range 500 ... 12000. Default 3500."
+    },
+    "drive": {
+      "type": "number",
+      "description": "Saturation of the whole kick: 0 = clean, 1 = heavy, continuous in between. Range 0 ... 1. Default 0.2."
+    },
+    "tone": {
+      "type": "number",
+      "description": "Brightness tilt after the saturation: -1 dark ... +1 bright. Range -1 ... 1. Default 0."
+    },
+    "peak_ceiling_dbfs": {
+      "type": "number",
+      "description": "Peak level of the file in dBFS. Range -12 ... -0.1. Default -0.3."
+    },
+    "preset": {
+      "type": "string",
+      "description": "Name of the preset these values came from, if any. At most 64 characters. No default (absent = no preset name)."
+    },
+    "tail_note": {
+      "type": "integer",
+      "description": "Tail pitch as a MIDI note number (69 = A at 440 Hz, equal temperament): sets pitch_end_hz = 440 * 2 ** ((tail_note - 69) / 12). Range 23 ... 46, whole number (the notes inside 30 ... 120 Hz). Ableton names note 60 C3, scientific pitch names it C4. Do not combine with pitch_end_hz. No default (absent = pitch_end_hz is used)."
+    },
+    "length_beats": {
+      "type": "number",
+      "description": "File length in beats (quarter notes) at bpm: length_ms = length_beats * 60000 / bpm, so 1/16, 1/8, 1/4 notes are 0.25, 0.5, 1. Range 0.25 ... 4. Requires bpm; do not combine with length_ms. The result must lie in 80 ... 2000 ms. The kick is made to be 60 dB down before the end (see amp_decay_ms). No default (absent = length_ms is used)."
+    },
+    "click_decay_ms": {
+      "type": "number",
+      "description": "Decay time constant of the click in ms; at the same click peak a longer decay puts more click energy into the start. Range 0.5 ... 12. Default 3."
+    },
+    "click_q": {
+      "type": "number",
+      "description": "Q of the click's band-pass around click_tone_hz: low = wide, noisy click; high = narrow, more tonal tick. Range 0.5 ... 8. Default 0.9."
+    },
+    "polarity": {
+      "type": "integer", "enum": [1, -1],
+      "description": "Sign of the whole output: -1 gives the exactly inverted file. For matching two kicks that play together. Default 1."
+    },
+    "offset_ms": {
+      "type": "number",
+      "description": "Silence before the kick starts, in ms, applied in whole samples. The file length stays the same, so the kick ends that much earlier. For aligning two kicks that play together. Range 0 ... 12. Default 0."
+    },
+    "clip_db": {
+      "type": "number",
+      "description": "Hard clip: how far the peaks are pushed over the clip point, in dB, before the level is brought back to peak_ceiling_dbfs. It flattens the loudest part (mostly the attack) and leaves the quieter tail clean, unlike drive. 0 = off. Range 0 ... 12. Default 0."
+    }
+  }
+}
