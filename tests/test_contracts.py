@@ -468,24 +468,32 @@ STRICT_TOOLS = ("list_tracks", "import_sample")
 
 # Written by hand from docs/research/2026-10-28_tool-schema-generation.md, Q1: the keywords that
 # are both in the documented strict subset (structured outputs / strict tool use) and in the
-# bundled CLI's strict-compatibility set. `default` is documented but not in the CLI set, so it
-# is left out; `minimum`, `maximum`, `minLength`, `maxLength`, `pattern`, `multipleOf`, `format`,
+# bundled CLI's strict-compatibility set. `default` is documented but not in the CLI set, and
+# `title` / `$schema` are in the CLI set but not in the documented list, so all three are left
+# out; `minimum`, `maximum`, `minLength`, `maxLength`, `pattern`, `multipleOf`, `format`,
 # `$ref`, `allOf`, `oneOf`, `not`, `if`, `const` on objects ... are not used.
 STRICT_KEYWORDS = frozenset({
-    "type", "description", "title", "properties", "required", "additionalProperties", "items",
+    "type", "description", "properties", "required", "additionalProperties", "items",
     "enum", "const", "anyOf",
 })
-# Root-only metadata the tool builder drops before registering (research note, Q2).
-ROOT_ONLY_KEYWORDS = frozenset({"$schema", "$id"})
+# Root-only metadata of the contract file. The tool builder must drop it before registering
+# (research note Q1/Q2: `$id` alone makes the CLI fall back to non-strict). Wiring precondition:
+# the builder's output passes strict_subset_problems(..., allow_root_metadata=False).
+ROOT_ONLY_KEYWORDS = frozenset({"$schema", "$id", "title"})
 JSON_TYPES = frozenset({"object", "array", "string", "integer", "number", "boolean", "null"})
 
 
-def strict_subset_problems(schema, where: str = "(root)", root: bool = True) -> list[str]:
-    """Every place where ``schema`` leaves the strict tool-schema subset (empty = inside)."""
+def strict_subset_problems(schema, where: str = "(root)", root: bool = True,
+                           allow_root_metadata: bool = True) -> list[str]:
+    """Every place where ``schema`` leaves the strict tool-schema subset (empty = inside).
+
+    ``allow_root_metadata`` accepts ``ROOT_ONLY_KEYWORDS`` at the root (the contract file);
+    the schema the model is sent must pass with ``False``."""
     if not isinstance(schema, dict):
         return [f"{where}: a schema must be an object, got {type(schema).__name__}"]
     problems = []
-    allowed = STRICT_KEYWORDS | (ROOT_ONLY_KEYWORDS if root else frozenset())
+    allowed = STRICT_KEYWORDS | (
+        ROOT_ONLY_KEYWORDS if root and allow_root_metadata else frozenset())
     problems += [f"{where}: keyword {k!r} not in the strict subset"
                  for k in sorted(set(schema) - allowed)]
     if root and schema.get("type") != "object":
@@ -524,12 +532,22 @@ def strict_subset_problems(schema, where: str = "(root)", root: bool = True) -> 
 
 
 def optional_fields(schema: dict) -> int:
-    """Optional parameters counted the way the strict limit counts them (all nesting levels)."""
+    """Optional parameters counted the way the strict limit counts them: all nesting levels,
+    and also those declared in an ``allOf`` member or its ``then`` / ``else`` branch (the
+    kick-params v0.3 fields sit in ``allOf[0].then``). An ``if`` only selects a branch and
+    declares no parameter, so it is not counted."""
     count = 0
     props = schema.get("properties", {})
     count += len(set(props) - set(schema.get("required", [])))
     for sub in props.values():
         count += optional_fields(sub) if isinstance(sub, dict) else 0
+    for member in schema.get("allOf", []):
+        if not isinstance(member, dict):
+            continue
+        count += optional_fields({k: v for k, v in member.items() if k != "if"})
+        for branch in ("then", "else"):
+            if isinstance(member.get(branch), dict):
+                count += optional_fields(member[branch])
     return count
 
 
@@ -551,12 +569,40 @@ def test_tool_schema_is_inside_the_strict_subset(tool: str) -> None:
     assert strict_subset_problems(load(TOOL_SCHEMAS[tool])) == []
 
 
-def test_strict_tool_schemas_leave_room_for_generate_kick_optionals() -> None:
-    """Strict limit: 24 optional parameters across all strict tools of a request (research
-    note, Q4). generate_kick alone has 16 optional fields in v0.2 (counted by hand there)."""
+@pytest.mark.parametrize("tool", STRICT_TOOLS)
+def test_tool_schema_without_root_metadata_needs_no_allowance(tool: str) -> None:
+    """What the tool builder must send: the contract minus $schema, $id and title. It passes
+    with no root-only allowance; the contract file as it is does not (so the builder step is
+    really needed and the wiring test must check its output, INTERFACES.md)."""
+    schema = load(TOOL_SCHEMAS[tool])
+    stripped = {k: v for k, v in schema.items() if k not in ROOT_ONLY_KEYWORDS}
+    assert strict_subset_problems(stripped, allow_root_metadata=False) == []
+    raw = strict_subset_problems(schema, allow_root_metadata=False)
+    assert sorted(raw) == sorted(f"(root): keyword {k!r} not in the strict subset"
+                                 for k in ("$schema", "$id", "title")), raw
+
+
+# Counted by hand from contracts/kick-params.schema.json: 18 properties - 2 required = 16 (v0.2)
+# plus the 7 v0.3 fields in allOf[0].then (V03_FIELDS) = 23.
+KICK_PARAMS_OPTIONAL = 16 + 7
+STRICT_OPTIONAL_LIMIT = 24  # optional parameters across all strict tools of one request (Q4)
+
+
+def test_optional_fields_counts_the_kick_params_v03_branch() -> None:
+    assert len(V03_FIELDS) == 7
+    assert optional_fields(load("kick-params.schema.json")) == KICK_PARAMS_OPTIONAL
+
+
+def test_strict_tool_schemas_fit_the_optional_parameter_limit() -> None:
+    """23 + 0 + 1 = 24: exactly at the limit, no headroom. Any further optional field in one
+    of the three tools needs a choice first (make it required, or leave an optional kick field
+    out of a strict generate_kick variant, #131). Whether generate_kick is strict at all is
+    #131's question; the sum is checked as if it were."""
     assert optional_fields(load(TOOL_SCHEMAS["list_tracks"])) == 0
     assert optional_fields(load(TOOL_SCHEMAS["import_sample"])) == 1
-    assert sum(optional_fields(load(TOOL_SCHEMAS[t])) for t in STRICT_TOOLS) <= 24 - 16
+    total = sum(optional_fields(load(name)) for name in TOOL_SCHEMAS.values())
+    assert total == 24
+    assert total <= STRICT_OPTIONAL_LIMIT
 
 
 STRICT_VIOLATIONS = {
@@ -581,6 +627,12 @@ STRICT_VIOLATIONS = {
     "array items with minimum": {
         "type": "array", "description": "d",
         "items": {"type": "integer", "description": "d", "minimum": 0}},
+    "const object": {"const": {"a": 1}, "description": "d"},
+    "anyOf member with minimum": {
+        "anyOf": [{"type": "integer", "description": "d", "minimum": 0}], "description": "d"},
+    "additionalProperties on an integer": {
+        "type": "integer", "description": "d", "additionalProperties": False},
+    "title below the root": {"type": "integer", "description": "d", "title": "t"},
 }
 
 

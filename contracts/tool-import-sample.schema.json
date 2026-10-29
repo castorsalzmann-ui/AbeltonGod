@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/castorsalzmann-ui/AbeltonGod/contracts/tool-import-sample.schema.json",
   "title": "import_sample input",
-  "description": "Imports one kick that generate_kick produced in this session into an empty clip slot of an existing audio track in the open Live set (Session view). The file is named only by its sample_id; there is no path argument. The user must confirm before anything is sent to Live. Refused without any change in Live: an unknown sample_id, a track index that does not exist or is not an audio track, a slot that does not exist or already holds a clip.",
+  "description": "Imports one kick that generate_kick produced in this session into an empty clip slot of an existing audio track in the open Live set (Session view). The file is named only by its sample_id; there is no path argument. The user must confirm before anything is sent to Live. Refused without any change in Live: an unknown sample_id, a kick file that changed since generate_kick wrote it, a track index that does not exist or is not an audio track, a slot that does not exist or already holds a clip.",
   "type": "object",
   "properties": {
     "sample_id": {
