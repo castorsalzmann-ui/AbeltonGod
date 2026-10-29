@@ -7,6 +7,7 @@ the comparison is byte for byte on the samples plus equality of the resolved par
 from __future__ import annotations
 
 import json
+import math
 import os
 import random
 import subprocess
@@ -17,8 +18,10 @@ import numpy as np
 import pytest
 from support import render_cache as rc
 
+import audio_engine.dsp as dsp_mod
 import audio_engine.io as io_mod
 import audio_engine.kick as kick_mod
+import audio_engine.params as params_mod
 
 ROOT = Path(__file__).resolve().parent.parent.parent
 
@@ -90,13 +93,70 @@ def test_hits_are_read_only_and_isolated() -> None:
         resolved_again["seed"] = -1
 
 
-def test_planted_stale_entry_is_refused() -> None:
-    """Fault injection inside the store: the entry for BASE holds the render of seed 8. A hit
-    must raise, never hand out the other render."""
-    rc.cached_render_kick({**BASE, "seed": 8})
-    rc._store[rc.cache_key(BASE)] = rc._store[rc.cache_key({**BASE, "seed": 8})]
+def test_hit_view_cannot_be_made_writeable() -> None:
+    """Each call returns a view of the stored read-only array: re-enabling writes fails on
+    the miss result and on hits, and two hits are different objects."""
+    first = rc.cached_render_kick(BASE)[0]
+    hit_a, hit_b = rc.cached_render_kick(BASE)[0], rc.cached_render_kick(BASE)[0]
+    assert rc.stats["hits"] == 2
+    assert hit_a is not hit_b
+    for arr in (first, hit_a, hit_b):
+        with pytest.raises(ValueError):
+            arr.setflags(write=True)
+
+
+# One base set with an explicit value for every kick-params field, and for each field a
+# second value that differs from it in that field only. Floats move by one ulp, so a key that
+# rounds or drops any single field maps the pair onto one entry. schema_version has a single
+# allowed value and cannot differ.
+FIELD_BASE = {
+    "schema_version": "0.2", "seed": 7, "variants": 1, "bpm": 128.0, "preset": "qa",
+    "sample_rate": 48000, "bit_depth": 24, "length_ms": 100.0, "pitch_start_hz": 220.0,
+    "pitch_end_hz": 48.0, "pitch_decay_ms": 15.0, "amp_attack_ms": 0.5, "amp_decay_ms": 320.0,
+    "click_level": 0.35, "click_tone_hz": 3500.0, "drive": 0.2, "tone": 0.1,
+    "peak_ceiling_dbfs": -0.3,
+}
+OTHER_VALUE = {
+    "seed": 8, "variants": 2, "preset": "qb", "sample_rate": 44100, "bit_depth": 16,
+    **{
+        k: math.nextafter(v, math.inf)
+        for k, v in FIELD_BASE.items()
+        if type(v) is float
+    },
+}
+# variants is batch-only (dropped before rendering), so its pair renders identically.
+STALE_FIELDS = sorted(set(OTHER_VALUE) - {"variants"})
+
+
+def test_field_table_covers_the_whole_schema() -> None:
+    from audio_engine.params import KICK_SCHEMA_FILE, load_schema
+
+    fields = set(load_schema(KICK_SCHEMA_FILE)["properties"])
+    assert set(FIELD_BASE) == fields
+    assert set(OTHER_VALUE) == fields - {"schema_version"}
+
+
+@pytest.mark.parametrize("field", sorted(OTHER_VALUE))
+def test_sets_differing_in_one_field_never_share_an_entry(field: str) -> None:
+    """Kills key faults that drop or round one field directly (the product tests rarely
+    contain such pairs, so there the self-check is the only protection)."""
+    a, b = FIELD_BASE, {**FIELD_BASE, field: OTHER_VALUE[field]}
+    assert rc.cache_key(a) != rc.cache_key(b)
+    rc.cached_render_kick(a)
+    assert _same(rc.cached_render_kick(b), kick_mod.render_kick(b))
+    assert rc.stats == {"hits": 0, "misses": 2, "bypassed": 0}
+
+
+@pytest.mark.parametrize("field", STALE_FIELDS)
+def test_planted_stale_entry_is_refused(field: str) -> None:
+    """Fault injection inside the store: the entry for FIELD_BASE holds the render of a set
+    that differs in this one field. A hit must raise, never hand out the other render, so a
+    self-check that compares only some fields fails for the others."""
+    other = {**FIELD_BASE, field: OTHER_VALUE[field]}
+    rc.cached_render_kick(other)
+    rc._store[rc.cache_key(FIELD_BASE)] = rc._store[rc.cache_key(other)]
     with pytest.raises(rc.StaleRenderError):
-        rc.cached_render_kick(BASE)
+        rc.cached_render_kick(FIELD_BASE)
     assert rc.stats["hits"] == 0
 
 
@@ -144,6 +204,39 @@ def test_patched_engine_bypasses_the_cache(monkeypatch) -> None:
     assert rc.engine_untouched()
     assert _same(rc.cached_render_kick(BASE), clean)
     assert rc.stats["hits"] == 1
+
+
+@pytest.mark.parametrize(
+    ("module", "name"),
+    [(dsp_mod, "one_pole_highpass"), (dsp_mod, "_SPECTRA"), (params_mod, "resolve_kick_params"),
+     (params_mod, "load_schema")],
+    ids=["dsp.one_pole_highpass", "dsp._SPECTRA", "params.resolve_kick_params",
+         "params.load_schema"],
+)
+def test_patch_in_dsp_or_params_bypasses_the_cache(monkeypatch, module, name) -> None:
+    """Rebinding any attribute of audio_engine.dsp or audio_engine.params (not only kick) must
+    stop the cache: a primed entry is not served and nothing new is stored."""
+    rc.cached_render_kick(BASE)
+    original = getattr(module, name)
+    monkeypatch.setattr(module, name, original.copy() if name == "_SPECTRA" else (
+        lambda *a, **k: original(*a, **k)))
+    assert not rc.engine_untouched()
+    rc.cached_render_kick(BASE)
+    rc.cached_render_kick({**BASE, "seed": 8})
+    assert rc.stats == {"hits": 0, "misses": 1, "bypassed": 2}
+    assert len(rc._store) == 1
+    monkeypatch.undo()
+    assert rc.engine_untouched()
+
+
+def test_in_place_change_is_not_detected_documented_limit() -> None:
+    """Pins the documented limit: only rebinding is seen. Mutating a module-level object in
+    place leaves the snapshot unchanged (so such tests must stay off the allow list)."""
+    dsp_mod._SPECTRA["qa-77-probe"] = None
+    try:
+        assert rc.engine_untouched()
+    finally:
+        del dsp_mod._SPECTRA["qa-77-probe"]
 
 
 def test_patch_added_during_a_render_is_not_stored(monkeypatch) -> None:

@@ -2,7 +2,8 @@
 
     python -m pytest -o pythonpath=src -n 0 -p support.render_counter tests/audio_engine
 
-Writes ``RENDER_COUNTER_OUT`` (default ``render_counter.json`` in the working directory):
+Writes ``RENDER_COUNTER_OUT`` (default ``render_counter.json``, ``render_counter.<gwN>.json``
+per xdist worker, in pytest's ``--basetemp`` folder ``.pytest_tmp`` or the system temp dir):
 per test node id the number of real engine renders, cache hits and whether the test used
 ``monkeypatch``, plus totals. It wraps ``audio_engine.kick.render_kick`` (and the name bound
 in ``audio_engine.io``) when the plugin is loaded, i.e. before any test module imports it, so
@@ -16,7 +17,9 @@ from __future__ import annotations
 
 import json
 import os
+import tempfile
 from collections import defaultdict
+from pathlib import Path
 
 import audio_engine.io as _io
 import audio_engine.kick as _kick
@@ -54,12 +57,21 @@ def pytest_runtest_teardown(item):
     _current["test"] = None
 
 
+def _default_dir(config) -> Path:
+    """pytest's --basetemp (``.pytest_tmp``, git-ignored) if set, else the system temp dir,
+    so a run never leaves a file in the working tree."""
+    base = getattr(config.option, "basetemp", None)
+    folder = Path(base) if base else Path(tempfile.gettempdir())
+    folder.mkdir(parents=True, exist_ok=True)
+    return folder
+
+
 def pytest_sessionfinish(session):
     if hasattr(session.config, "workerinput"):  # xdist worker: counts are per process
         name = f"render_counter.{session.config.workerinput['workerid']}.json"
     else:
         name = "render_counter.json"
-    out = os.environ.get("RENDER_COUNTER_OUT", name)
+    out = os.environ.get("RENDER_COUNTER_OUT") or _default_dir(session.config) / name
     rows = dict(sorted(per_test.items()))
     summary = {
         "renders": sum(r["renders"] for r in rows.values()),

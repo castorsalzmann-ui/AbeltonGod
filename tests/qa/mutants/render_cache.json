@@ -64,8 +64,8 @@
     {
       "id": "RESOLVED_SHARED",
       "file": "tests/support/render_cache.py",
-      "old": "        return hit[0], dict(hit[1])\n",
-      "new": "        return hit[0], hit[1]\n",
+      "old": "        return hit[0].view(), dict(hit[1])\n",
+      "new": "        return hit[0].view(), hit[1]\n",
       "tests": ["tests/qa/test_render_cache.py"],
       "expected": "killed",
       "note": "a test that edits the returned dict would change what the next test sees"
@@ -87,6 +87,84 @@
       "tests": ["tests/qa/test_render_cache.py"],
       "expected": "killed",
       "note": "determinism and golden tests would get cached renders; the render counter must see it"
+    },
+    {
+      "id": "WATCH_KICK_ONLY",
+      "file": "tests/support/render_cache.py",
+      "old": "_WATCHED_MODULES = (_kick, _dsp, _params)",
+      "new": "_WATCHED_MODULES = (_kick,)",
+      "tests": ["tests/qa/test_render_cache.py"],
+      "expected": "killed",
+      "note": "PR #92 review, minor 1 (reviewer's RV_WATCH_KICK_ONLY)"
+    },
+    {
+      "id": "CHECK_SEED_ONLY",
+      "file": "tests/support/render_cache.py",
+      "old": "    if expected != stored:\n",
+      "new": "    if expected.get('seed') != stored.get('seed'):\n",
+      "tests": ["tests/qa/test_render_cache.py"],
+      "expected": "killed",
+      "note": "PR #92 review, minor 2 (reviewer's RV_CHECK_SEED_ONLY_QA)"
+    },
+    {
+      "id": "KEY_DROP_SEED_QA",
+      "file": "tests/support/render_cache.py",
+      "old": "    return json.dumps(params, sort_keys=True, allow_nan=True)\n",
+      "new": "    return json.dumps({k: v for k, v in params.items() if k != 'seed'}, sort_keys=True)\n",
+      "tests": ["tests/qa/test_render_cache.py"],
+      "expected": "killed",
+      "note": "PR #92 review, minor 3; survives test_kick.py (no colliding pair there)"
+    },
+    {
+      "id": "KEY_DROP_DRIVE_QA",
+      "file": "tests/support/render_cache.py",
+      "old": "    return json.dumps(params, sort_keys=True, allow_nan=True)\n",
+      "new": "    return json.dumps({k: v for k, v in params.items() if k != 'drive'}, sort_keys=True)\n",
+      "tests": ["tests/qa/test_render_cache.py"],
+      "expected": "killed"
+    },
+    {
+      "id": "KEY_DROP_LENGTH_QA",
+      "file": "tests/support/render_cache.py",
+      "old": "    return json.dumps(params, sort_keys=True, allow_nan=True)\n",
+      "new": "    return json.dumps({k: v for k, v in params.items() if k != 'length_ms'}, sort_keys=True)\n",
+      "tests": ["tests/qa/test_render_cache.py"],
+      "expected": "killed"
+    },
+    {
+      "id": "KEY_DROP_PRESET_QA",
+      "file": "tests/support/render_cache.py",
+      "old": "    return json.dumps(params, sort_keys=True, allow_nan=True)\n",
+      "new": "    return json.dumps({k: v for k, v in params.items() if k != 'preset'}, sort_keys=True)\n",
+      "tests": ["tests/qa/test_render_cache.py"],
+      "expected": "killed",
+      "note": "metadata field: same audio, different resolved params"
+    },
+    {
+      "id": "KEY_ROUND_COARSE_QA",
+      "file": "tests/support/render_cache.py",
+      "old": "    return json.dumps(params, sort_keys=True, allow_nan=True)\n",
+      "new": "    return json.dumps({k: (round(v, -2) if type(v) is float else v) for k, v in params.items()}, sort_keys=True)\n",
+      "tests": ["tests/qa/test_render_cache.py"],
+      "expected": "killed"
+    },
+    {
+      "id": "KEY_ROUND_FINE_QA",
+      "file": "tests/support/render_cache.py",
+      "old": "    return json.dumps(params, sort_keys=True, allow_nan=True)\n",
+      "new": "    return json.dumps({k: (round(v, 12) if type(v) is float else v) for k, v in params.items()}, sort_keys=True)\n",
+      "tests": ["tests/qa/test_render_cache.py"],
+      "expected": "killed",
+      "note": "rounding to 12 decimals; the one-ulp pairs collide"
+    },
+    {
+      "id": "HIT_SAME_ARRAY",
+      "file": "tests/support/render_cache.py",
+      "old": "        return hit[0].view(), dict(hit[1])\n",
+      "new": "        return hit[0], dict(hit[1])\n",
+      "tests": ["tests/qa/test_render_cache.py"],
+      "expected": "killed",
+      "note": "PR #92 review, nit 4: the stored base array itself could be made writeable"
     }
   ]
 }

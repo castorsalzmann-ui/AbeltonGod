@@ -15,15 +15,19 @@ How it stays honest:
   if it is on the list. In addition, every call compares the engine modules
   (``audio_engine.kick``, ``.dsp``, ``.params``) with the state at import time: if any
   attribute was replaced (by monkeypatch or anything else), the call renders directly and
-  nothing is stored.
+  nothing is stored. **Limit:** only rebinding is detected (the identity of each module
+  attribute). An in-place change to a module-level object (e.g. writing into a module-level
+  array or dict such as ``dsp._SPECTRA`` or ``kick._DRIVE_FILTER``) is *not* detected; such
+  tests must not be on the list.
 - **Exact key.** The key is the canonical JSON of the parameter dict. Only plain
   ``str``/``int``/``float``/``bool``/``None`` values are accepted; anything else (numpy
   scalars, nested objects) renders directly. ``7`` and ``7.0`` are different keys.
 - **Self-checking.** Every hit compares the stored resolved params with
   ``resolve_kick_params(params)`` and raises ``StaleRenderError`` on a mismatch, so a wrong
   key can never hand a test another set's render.
-- **Read-only.** The cached array is marked non-writeable, and every hit returns a fresh copy
-  of the resolved-params dict, so no test can change what the next one sees.
+- **Read-only.** The cached array is marked non-writeable and every call returns a view of
+  it (a view of a read-only base cannot be made writeable again), plus a fresh copy of the
+  resolved-params dict, so no test can change what the next one sees.
 - **Switch off:** ``ABELTONGOD_RENDER_CACHE=0`` disables it for a whole run (cache-off
   comparison runs). Each process (each xdist worker, each mutation-runner run) has its own
   cache, so a mutant can never be hidden by a render from unmutated code.
@@ -149,7 +153,7 @@ def cached_render_kick(params: dict[str, Any]) -> tuple[np.ndarray, dict[str, An
         _check_hit(params, hit[1])
         _store.move_to_end(key)
         stats["hits"] += 1
-        return hit[0], dict(hit[1])
+        return hit[0].view(), dict(hit[1])
     audio, resolved = _engine(params)
     stats["misses"] += 1
     if not engine_untouched():  # patched while rendering: do not keep the result
@@ -161,4 +165,4 @@ def cached_render_kick(params: dict[str, Any]) -> tuple[np.ndarray, dict[str, An
     while _bytes > MAX_BYTES and len(_store) > 1:
         _, (old, _) = _store.popitem(last=False)
         _bytes -= old.nbytes
-    return frozen, dict(resolved)
+    return frozen.view(), dict(resolved)
