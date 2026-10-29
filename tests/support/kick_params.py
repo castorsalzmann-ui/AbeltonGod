@@ -9,7 +9,8 @@ plain JSON, not through the engine's own schema loader).
 - **Ranges from the contract.** Numbers are drawn uniformly over ``[minimum, maximum]``,
   integers over every allowed value, enums over their members, strings up to ``maxLength``.
   A schema range change therefore changes the draws without a code change here; a new
-  optional field is drawn by :data:`ALL` at once. The render profiles keep their fixed field
+  optional field under ``properties`` is drawn by :data:`ALL` at once (fields in ``allOf``
+  branches are not: see :data:`DRAWN_SCHEMA_VERSION`). The render profiles keep their fixed field
   lists (adding a field to them changes every default draw, so that is a decision for the
   owning role, made in an issue).
 - **Contract rule outside the schema:** ``pitch_end_hz <= pitch_start_hz``. When both are
@@ -43,7 +44,33 @@ import numpy as np
 SCHEMA_FILE = Path(__file__).resolve().parents[2] / "contracts" / "kick-params.schema.json"
 SCHEMA: dict[str, Any] = json.loads(SCHEMA_FILE.read_text(encoding="utf-8"))
 FIELDS: dict[str, dict[str, Any]] = SCHEMA["properties"]
-SCHEMA_VERSION: str = FIELDS["schema_version"]["const"]
+
+# The schema version every draw carries. Pinned, not read from the contract: since v0.3
+# (PR #114) ``schema_version`` is an enum (``["0.2", "0.3"]``) and the v0.3 fields live in an
+# ``allOf`` branch, not under ``properties``. The generator draws only ``properties`` fields
+# (also :data:`ALL`), which is exactly a v0.2 set, so the sets say "0.2" as before (#137).
+# Moving to "0.3" changes every default draw: a decision for the owning role, in an issue.
+DRAWN_SCHEMA_VERSION = "0.2"
+
+
+def checked_schema_version(schema: Mapping[str, Any], version: str = DRAWN_SCHEMA_VERSION) -> str:
+    """``version`` if the contract allows it for a ``properties``-only set, else ValueError.
+
+    Accepts ``schema_version`` as ``const`` (up to v0.2) or ``enum`` (v0.3 on). Refuses a
+    version that an ``allOf`` branch keys on: such a set would allow fields not drawn here.
+    """
+    spec = schema["properties"]["schema_version"]
+    allowed = [spec["const"]] if "const" in spec else list(spec.get("enum", []))
+    if version not in allowed:
+        raise ValueError(f"schema_version {version!r} not allowed by the contract: {allowed}")
+    for branch in schema.get("allOf", []):
+        cond = branch.get("if", {}).get("properties", {}).get("schema_version", {})
+        if cond.get("const") == version or version in cond.get("enum", []):
+            raise ValueError(f"schema_version {version!r} has an allOf branch: not drawn here")
+    return version
+
+
+SCHEMA_VERSION: str = checked_schema_version(SCHEMA)
 
 # Cross-field rule of the contract that JSON Schema cannot express: field <= other field.
 UPPER_BOUND_BY = {"pitch_end_hz": "pitch_start_hz"}
@@ -120,8 +147,13 @@ def number_range(name: str) -> tuple[float, float]:
 
 
 def drawable_fields() -> tuple[str, ...]:
-    """Every schema field except the constant ``schema_version``, in schema order."""
-    return tuple(n for n, s in FIELDS.items() if "const" not in s)
+    """Every ``properties`` field except ``schema_version``, in schema order.
+
+    Fields in ``allOf`` branches (the v0.3 fields ``tail_note``, ``length_beats``, ...) are not
+    drawn, by any profile including :data:`ALL`: they need ``schema_version`` "0.3", which the
+    engine refuses until it renders them (#137).
+    """
+    return tuple(n for n, s in FIELDS.items() if n != "schema_version" and "const" not in s)
 
 
 # The render fields of v0.2 in the draw order of the former copies (test_kick.random_params,

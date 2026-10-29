@@ -53,7 +53,7 @@
      "tests": ["tests/qa/test_kick_params.py"], "expected": "killed",
      "note": "preset never reaches maxLength"},
     {"id": "WRONG_SCHEMA_VERSION", "file": "tests/support/kick_params.py",
-     "old": "SCHEMA_VERSION: str = FIELDS[\"schema_version\"][\"const\"]\n",
+     "old": "SCHEMA_VERSION: str = checked_schema_version(SCHEMA)\n",
      "new": "SCHEMA_VERSION: str = \"0.1\"\n",
      "tests": ["tests/qa/test_kick_params.py"], "expected": "killed",
      "note": "sets carry another schema version than the contract"},
