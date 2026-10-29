@@ -8,12 +8,15 @@ readable through the REST API).
 from __future__ import annotations
 
 import collections
+import contextlib
 import importlib.util
 import json
 import os
+import platform
 import subprocess
 import sys
 import threading
+import time
 import traceback
 from pathlib import Path
 
@@ -41,7 +44,62 @@ def _describe(exc: BaseException) -> str:
     )
 
 
-def test_diag_threads(tmp_path):
+@contextlib.contextmanager
+def lock_without_stat(lock_path: Path):
+    """The hook's file_lock minus the stale check (no stat handle on the lock file)."""
+    deadline = time.monotonic() + ww.LOCK_WAIT_S
+    fd = None
+    while fd is None:
+        try:
+            fd = os.open(lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        except FileExistsError:
+            if time.monotonic() > deadline:
+                raise TimeoutError("lock busy") from None
+            time.sleep(0.02)
+    try:
+        yield
+    finally:
+        os.close(fd)
+        with contextlib.suppress(OSError):
+            lock_path.unlink()
+
+
+@contextlib.contextmanager
+def lock_retry_permission(lock_path: Path):
+    """Candidate fix: PermissionError on the exclusive create counts as 'busy'."""
+    deadline = time.monotonic() + ww.LOCK_WAIT_S
+    fd = None
+    while fd is None:
+        try:
+            fd = os.open(lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        except (FileExistsError, PermissionError):
+            if time.monotonic() > deadline:
+                raise TimeoutError("lock busy") from None
+            try:
+                stale = time.time() - lock_path.stat().st_mtime > 30
+            except OSError:
+                stale = False
+            if stale:
+                try:
+                    lock_path.unlink()
+                    continue
+                except OSError:
+                    pass
+            time.sleep(0.02)
+    try:
+        yield
+    finally:
+        os.close(fd)
+        with contextlib.suppress(OSError):
+            lock_path.unlink()
+
+
+@pytest.mark.parametrize("variant", ["orig", "nostat", "fix"])
+def test_diag_threads(tmp_path, monkeypatch, variant):
+    if variant == "nostat":
+        monkeypatch.setattr(ww, "file_lock", lock_without_stat)
+    elif variant == "fix":
+        monkeypatch.setattr(ww, "file_lock", lock_retry_permission)
     kinds: collections.Counter[str] = collections.Counter()
     bad_iters = 0
     lost = 0
@@ -79,7 +137,8 @@ def test_diag_threads(tmp_path):
             kinds[_describe(seen)] += 1
     summary = "; ".join(f"{n}x {k}" for k, n in kinds.most_common(4))
     pytest.fail(
-        f"DIAG160 threads {sys.platform} py{sys.version_info[:2]} iters={ITERATIONS} "
+        f"DIAG160 threads-{variant} {platform.platform()} py{sys.version_info[:2]} "
+        f"iters={ITERATIONS} "
         f"bad_iters={bad_iters} lost_counts={lost} exc_total={sum(kinds.values())} :: {summary}"
     )
 
