@@ -148,6 +148,9 @@ def test_clip_never_visible_is_unknown_and_blocks_undo(ibridge, fake, log, tmp_p
     out = imp.last_outcome
     assert out.outcome_unknown and not out.done
     assert entries(log)[-1]["ok"] is False and entries(log)[-1]["polls"] >= 3
+    # file_path is only asked once the slot has a clip: on an empty slot AbletonOSC's handler
+    # fails and logs an ERROR line per poll (clip.py L55 resolves clip_slots[i].clip = None).
+    assert [m for m in fake.payload() if m[0] == "/live/clip/get/file_path"] == []
     with pytest.raises(ImportAborted, match="unknown outcome"):
         imp.undo_step(out, expect_now=before, expect_after=before, label="undo_clip")
     assert undos(fake) == 0
