@@ -247,7 +247,9 @@ MALFORMED = [
     ("bug_8.json", _edit("before_fix.value", 0.0), "would not have caught the bug"),
     ("bug_8.json", _edit("before_fix", _DELETE), "'before_fix' is a required property"),
     ("bug_8.json", _edit("params.pitch_end_hz", 5), "params/pitch_end_hz"),
-    ("bug_8.json", _edit("params.wobble", 1), "params: Additional properties"),
+    # Path + key only: the keyword sentence differs between additionalProperties and
+    # unevaluatedProperties (kick-params v0.3, #111), the rejection must not.
+    ("bug_8.json", _edit("params.wobble", 1), ("params: ", "'wobble' was unexpected")),
     ("bug_8.json", _edit("params.drive", _DELETE), "missing: drive"),
     ("bug_8.json", _edit("issue", "https://example.com/8"), "issue:"),
     ("bug_9.json", lambda c: None, "file name says #9"),
@@ -268,7 +270,8 @@ def test_malformed_case_is_rejected_with_clear_message(tmp_path, name, edit, fra
     with pytest.raises(CaseError) as info:
         load_case(path)
     message = str(info.value)
-    assert message.startswith(f"{name}: ") and fragment in message, message
+    fragments = (fragment,) if isinstance(fragment, str) else fragment
+    assert message.startswith(f"{name}: ") and all(f in message for f in fragments), message
 
 
 @pytest.mark.parametrize("text", ["{not json", '{"x": NaN}'], ids=["broken", "nan"])
