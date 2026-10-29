@@ -270,3 +270,13 @@ The researchers for 04b clusters 1 (Agent SDK behaviour) and 2 (tool-schema gene
 **Reason.** The user wants the night used without merges waiting for them.
 
 **Consequences.** The lead lists every self-merge (PR, head SHA, review link) for the user in the morning. Phase 03 still needs the user's Live test before it is accepted; it is prepared overnight as one test with ready PowerShell commands.
+
+## D-022 · 2026-10-29 · accepted — Requirements questionnaires for all planned features (user decision 10:17; complements D-019)
+
+**Decision.** Preparatory work for every phase, including the parking lot, starts with the user's requirements, not with research: requirement interviewers (agents with no code or repo writes) write a German questionnaire per feature group into one shared document (one tab per group: sound generation, analysis and profile, production in Live, copilot and operation). The user answers there. The lead turns the answers into issues per feature (what / why / boundary / done when), labelled `parking-lot` until a phase is planned, and shows them to the user before anything is built.
+
+**Reason.** The user wants every later phase to start from clear goals and to take part in planning.
+
+**Boundary.** Researchers still follow D-019 (just in time, one phase ahead, questions bound to an issue). Questionnaires ask about goals, priorities and limits, never about implementation.
+
+**Consequences.** Answers in the document are the user's own decisions and are quoted in the issues they produce; an empty answer means "no preference", not "no".
