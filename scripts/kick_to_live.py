@@ -23,7 +23,7 @@ Steps:
 Why a separate script and not a mode of ``live_import.py``: ``live_import.py`` takes an
 existing WAV as its one positional argument and its result block is the #50 evidence format;
 a render mode would make both conditional. This script reuses its ``run`` and helpers and
-changes nothing in it (#126 is reviewed separately). The outer error handling of
+changes nothing in it. The outer error handling of
 ``live_import.main`` is repeated here (``import_kick``) because ``main`` does not return its
 report; keep the two in step until #136 merges them into one function.
 
