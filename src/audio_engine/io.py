@@ -50,6 +50,29 @@ def encode_wav(audio: np.ndarray, sr: int, bit_depth: int) -> bytes:
     return _riff_wav(frames, int(sr), bit_depth)
 
 
+def wav_samples(wav: bytes) -> np.ndarray:
+    """Integer sample values (int64) of a WAV written by :func:`encode_wav`.
+
+    Reads only this module's own layout (44-byte header, mono PCM 16 or 24 bit); anything
+    else raises ``ValueError``. Used by the -60 dB rule, which the contract defines on the
+    samples written to the WAV.
+    """
+    if len(wav) < 44 or wav[:4] != b"RIFF" or wav[8:16] != b"WAVEfmt " or wav[36:40] != b"data":
+        raise ValueError("not a WAV in the encode_wav layout")
+    tag, channels, _, _, width, bits = struct.unpack("<HHIIHH", wav[20:36])
+    if (tag, channels) != (1, 1) or bits not in (16, 24) or width != bits // 8:
+        raise ValueError(f"unsupported WAV format: tag {tag}, {channels} channel(s), {bits} bit")
+    (size,) = struct.unpack("<I", wav[40:44])
+    frames = wav[44 : 44 + size]
+    if len(frames) != size or size % width:
+        raise ValueError("WAV data chunk is truncated")
+    if bits == 16:
+        return np.frombuffer(frames, dtype="<i2").astype(np.int64)
+    raw = np.frombuffer(frames, dtype=np.uint8).reshape(-1, 3).astype(np.int64)
+    value = raw[:, 0] | (raw[:, 1] << 8) | (raw[:, 2] << 16)
+    return np.where(value >= 1 << 23, value - (1 << 24), value)
+
+
 def _riff_wav(frames: bytes, sr: int, bit_depth: int) -> bytes:
     """Mono PCM WAV (format tag 1) with a 44-byte header.
 

@@ -8,8 +8,11 @@ Signal chain (all mono, float64, sample-exact for given parameters and seed):
    the kick can fade out before it gets there.
 2. Amplitude envelope: linear attack over ``amp_attack_ms``, then exponential decay where
    ``amp_decay_ms`` is the time to fall by 60 dB.
-3. Click: band-pass filtered noise burst (seeded RNG) centred on ``click_tone_hz``, mixed at
-   ``click_level``; raised-cosine edges so it starts and ends at exactly zero.
+3. Click: noise burst (seeded RNG) with exponential decay of time constant
+   ``click_decay_ms`` (v0.3; default 3 ms) over a window of ``max(15, 5 * click_decay_ms)`` ms,
+   RBJ band-pass of Q ``click_q`` (v0.3; default 0.9) centred on ``click_tone_hz``,
+   peak-normalised and mixed at ``click_level``; raised-cosine edges (0.25 ms in, 2 ms out) so
+   it starts and ends at exactly zero.
 4. Drive: normalised tanh saturation ``tanh(g*x) / tanh(g)`` with ``g = 10 * drive**0.8``;
    ``drive`` 0 = clean, 1 = heavy, continuous in between: the curve tends to the identity as
    ``drive`` -> 0 (#16). Only the distortion residual (curve minus clean signal) is computed
@@ -20,10 +23,25 @@ Signal chain (all mono, float64, sample-exact for given parameters and seed):
    peak with ``amp_attack_ms`` 0), and every kick starts at exactly zero, as it did with the
    base-rate tanh.
 5. Tone: tilt around a one-pole low-pass at 1.5 kHz; ``tone`` -1 = darker, +1 = brighter.
-6. DC blocker (one-pole high-pass, 10 Hz), 5 ms cosine fade-out, then the remaining mean is
-   removed with a Hann-shaped correction so the first and last samples stay exactly zero.
-7. Normalise so that even after quantising to ``bit_depth`` the peak stays at or below
+6. DC blocker (one-pole high-pass, 10 Hz).
+7. Hard clip (v0.3 ``clip_db`` > 0; 0 skips the stage): scale to peak 1, raise by
+   ``clip_db``, clip at +-1. Like drive, only the residual ``clip(y) - y`` runs at
+   ``DRIVE_OVERSAMPLE`` times the sample rate through the same low-pass, and sample 0 is
+   set to exactly zero.
+8. 5 ms cosine fade-out, then the remaining mean is removed with a Hann-shaped correction so
+   the first and last samples stay exactly zero.
+9. Normalise so that even after quantising to ``bit_depth`` the peak stays at or below
    ``peak_ceiling_dbfs``.
+10. Offset (v0.3 ``offset_ms``): steps 1-9 render ``n - n_off`` samples, where ``n`` is the
+    file length in samples and ``n_off = round(offset_ms * sample_rate / 1000)`` (the offset
+    is applied in whole samples); then ``n_off`` zero samples are put in front. The offset
+    sits after the DC blocker, the mean correction and the normalisation, so the lead-in is
+    exact digital silence and every envelope starts (t = 0) at sample ``n_off``.
+11. Polarity (v0.3 ``polarity`` -1): the whole output is negated, after the ceiling. The WAV
+    quantiser rounds symmetrically, so the -1 file holds the exact negated sample values.
+
+Without v0.3 fields (or with their defaults) steps 7, 10 and 11 are skipped and the click uses
+the engine 0.1.0 constants, so every 0.2 render keeps its bytes.
 
 The same parameters always give the same samples. No wall clock, no global RNG.
 ``variants`` is a batch instruction for the caller (Phase 01b) and is not part of a single
@@ -52,6 +70,7 @@ CLICK_DECAY_MS = 3.0
 CLICK_FADE_IN_MS = 0.25
 CLICK_FADE_OUT_MS = 2.0
 CLICK_Q = 0.9
+CLICK_WINDOW_DECAYS = 5.0  # v0.3: click window = max(CLICK_LENGTH_MS, 5 * click_decay_ms)
 TONE_PIVOT_HZ = 1500.0
 DC_BLOCK_HZ = 10.0
 FADE_OUT_MS = 5.0
@@ -78,23 +97,58 @@ def render_kick(params: dict[str, Any]) -> tuple[np.ndarray, dict[str, Any]]:
     p = resolve_kick_params(params)
     for key in BATCH_ONLY_PARAMS:
         p.pop(key, None)
+    return render_resolved(p), p
+
+
+def render_resolved(p: dict[str, Any]) -> np.ndarray:
+    """Render already resolved parameters (no validation, no derivation).
+
+    For :func:`render_kick` and the -60 dB rule (:mod:`audio_engine.length`), which renders
+    candidates of a request that :func:`~audio_engine.params.resolve_kick_params` has
+    already checked. Absent v0.3 fields mean their defaults (a 0.2 resolved form has none).
+    """
     sr = int(p["sample_rate"])
-    n = int(round(p["length_ms"] * sr / 1000.0))
-    t = np.arange(n, dtype=np.float64) / sr
+    n = file_samples(p)
+    n_off = offset_samples(p)
+    m = n - n_off
+    t = np.arange(m, dtype=np.float64) / sr
 
     x = np.sin(body_phase(t, p)) * _amp_envelope(
         t, p["amp_attack_ms"] / 1000.0, p["amp_decay_ms"] / 1000.0
     )
     if p["click_level"] > 0:
-        x = x + p["click_level"] * _click(n, sr, p["click_tone_hz"], p["seed"])
+        x = x + p["click_level"] * _click(
+            m, sr, p["click_tone_hz"], p["seed"],
+            p.get("click_decay_ms", CLICK_DECAY_MS), p.get("click_q", CLICK_Q),
+        )
 
     x = _drive(x, p["drive"])
     x = _tone(x, sr, p["tone"])
     x = one_pole_highpass(x, sr, DC_BLOCK_HZ)
+    x = _hard_clip(x, p.get("clip_db", 0))
     x = _fade_out(x, sr, FADE_OUT_MS)
     x = _remove_mean(x)
     x = _normalise(x, p["peak_ceiling_dbfs"], p["bit_depth"])
-    return x, p
+    if n_off:
+        x = np.concatenate([np.zeros(n_off), x])
+    if p.get("polarity", 1) == -1:
+        x = -x
+    return x
+
+
+def file_samples(p: dict[str, Any]) -> int:
+    """Samples in the file: ``round(length_ms * sample_rate / 1000)``."""
+    return int(round(p["length_ms"] * int(p["sample_rate"]) / 1000.0))
+
+
+def offset_samples(p: dict[str, Any]) -> int:
+    """Lead-in samples of ``offset_ms`` (whole samples, ``round(offset_ms * sr / 1000)``)."""
+    return int(round(p.get("offset_ms", 0) * int(p["sample_rate"]) / 1000.0))
+
+
+def fade_out_samples(n: int, sr: int) -> int:
+    """Samples of the end fade-out (:data:`FADE_OUT_MS`) in a file of ``n`` samples."""
+    return min(n, int(round(FADE_OUT_MS * sr / 1000.0)))
 
 
 def body_phase(t: np.ndarray, p: dict[str, Any]) -> np.ndarray:
@@ -112,12 +166,20 @@ def _amp_envelope(t: np.ndarray, attack: float, decay_to_60db: float) -> np.ndar
     return env
 
 
-def _click(n: int, sr: int, centre_hz: float, seed: int) -> np.ndarray:
-    m = min(n, int(round(CLICK_LENGTH_MS * sr / 1000.0)))
+def click_window_ms(decay_ms: float) -> float:
+    """Click window: ``max(15, 5 * click_decay_ms)`` ms (contract, v0.3)."""
+    return max(CLICK_LENGTH_MS, CLICK_WINDOW_DECAYS * decay_ms)
+
+
+def _click(
+    n: int, sr: int, centre_hz: float, seed: int,
+    decay_ms: float = CLICK_DECAY_MS, q: float = CLICK_Q,
+) -> np.ndarray:
+    m = min(n, int(round(click_window_ms(decay_ms) * sr / 1000.0)))
     rng = np.random.default_rng(seed)
     tc = np.arange(m, dtype=np.float64) / sr
-    burst = rng.standard_normal(m) * np.exp(-tc / (CLICK_DECAY_MS / 1000.0))
-    filtered = biquad_bandpass(burst, sr, min(centre_hz, 0.45 * sr), CLICK_Q)
+    burst = rng.standard_normal(m) * np.exp(-tc / (decay_ms / 1000.0))
+    filtered = biquad_bandpass(burst, sr, min(centre_hz, 0.45 * sr), q)
     # Exact zero at both ends: no step at sample 0, no hard cut after 15 ms.
     fade_in = min(m, max(2, int(round(CLICK_FADE_IN_MS * sr / 1000.0))))
     fade_out = min(m - fade_in, int(round(CLICK_FADE_OUT_MS * sr / 1000.0)))
@@ -167,6 +229,31 @@ def _residual(x: np.ndarray, drive: float) -> np.ndarray:
     return x * num / den
 
 
+def _hard_clip(x: np.ndarray, clip_db: float) -> np.ndarray:
+    """v0.3 ``clip_db``: scale to peak 1, raise by ``clip_db``, clip at +-1 (oversampled).
+
+    0 (the default) returns ``x`` itself: the stage is skipped. Otherwise the scaled signal
+    ``y`` passes untouched and only the residual ``clip(y, -1, 1) - y`` runs through the
+    drive oversampler, so the corners clipping creates above the Nyquist frequency are
+    filtered instead of aliasing. The band-limited result may overshoot +-1 a little between
+    the clipped samples; the peak ceiling follows anyway. Sample 0 is set to exactly zero, as
+    after drive.
+    """
+    if clip_db <= 0:
+        return x
+    peak = float(np.max(np.abs(x))) if len(x) else 0.0
+    if peak == 0.0:
+        return x
+    y = x * (10.0 ** (clip_db / 20.0) / peak)
+    out = y + oversampled(y, DRIVE_OVERSAMPLE, _clip_residual, _DRIVE_FILTER)
+    out[0] = 0.0
+    return out
+
+
+def _clip_residual(u: np.ndarray) -> np.ndarray:
+    return np.clip(u, -1.0, 1.0) - u
+
+
 def _tone(x: np.ndarray, sr: int, tone: float) -> np.ndarray:
     if tone == 0:
         return x
@@ -177,7 +264,7 @@ def _tone(x: np.ndarray, sr: int, tone: float) -> np.ndarray:
 
 
 def _fade_out(x: np.ndarray, sr: int, ms: float) -> np.ndarray:
-    m = min(len(x), int(round(ms * sr / 1000.0)))
+    m = min(len(x), int(round(ms * sr / 1000.0)))  # = fade_out_samples for FADE_OUT_MS
     y = x.copy()
     if m > 0:
         y[-m:] *= raised_cosine(m, rising=False)

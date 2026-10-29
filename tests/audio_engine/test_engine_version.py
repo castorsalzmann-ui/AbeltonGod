@@ -3,7 +3,9 @@
 The golden SHA-256s below pin the exact WAV bytes of five renders: 48 kHz / 24-bit odd, even
 and driven, plus two 44.1 kHz odd-length renders that reach 16-bit, tone > 0 and < 0, a loud
 bright click and an attack (review round 1 of PR #40: a tone-only byte change passed the first
-three). If one of them fails, rendered bytes changed: bump ``ENGINE_VERSION`` in
+three). Two more (#120) pin the kick-params v0.3 path: every v0.3 sound field, and a
+``length_beats`` render whose ``amp_decay_ms`` comes from the -60 dB rule. If one of them
+fails, rendered bytes changed: bump ``ENGINE_VERSION`` in
 ``audio_engine/__init__.py`` **and** update ``ENGINE_VERSION_OF_GOLDEN`` and the hashes here,
 in the same PR (PR template checkbox). Never update a hash without the bump.
 
@@ -70,6 +72,27 @@ GOLDEN = {
     ),
 }
 
+# kick-params v0.3 (#120), recorded under 0.1.0 (v0.3 adds renders and changes none, see the
+# PR): same format as GOLDEN, kept apart because tests/qa/test_render_cache.py counts the
+# five GOLDEN cases. Every sound field except length_beats (note, click decay and Q, clip,
+# offset, polarity -1) …
+GOLDEN_V03 = {
+    "v03-every-field-48k-24bit": (
+        {"schema_version": "0.3", "seed": 35, "length_ms": 120.01, "tail_note": 33,
+         "click_decay_ms": 7.5, "click_q": 4.0, "polarity": -1, "offset_ms": 3.3,
+         "clip_db": 6.0, "drive": 0.3},
+        48000, 24, 5760, 17324,
+        "06369aeba3b4af6861c39f3d6815b97bb4bb4fa3f6edd0b02ec79b32f518b49d",
+    ),
+    # … and length_beats with a derived amp_decay_ms (146.4 ms), so the -60 dB rule is pinned.
+    "v03-length-beats-44k1-16bit": (
+        {"schema_version": "0.3", "seed": 35, "sample_rate": 44100, "bit_depth": 16,
+         "bpm": 174, "length_beats": 0.5, "drive": 0.45},
+        44100, 16, 7603, 15250,
+        "a549b75ed3c3a7665a6b10b7c089bb4526644021781d87973d0435f86d155811",
+    ),
+}
+
 
 def test_golden_hashes_match_the_version() -> None:
     assert audio_engine.ENGINE_VERSION == ENGINE_VERSION_OF_GOLDEN, (
@@ -96,6 +119,49 @@ def test_golden_cases_reach_every_rate_depth_and_tone_sign() -> None:
     assert {(r["tone"] > 0) - (r["tone"] < 0) for r in resolved} == {-1, 0, 1}
     assert any(r["drive"] == 0 for r in resolved) and any(r["drive"] > 0 for r in resolved)
     assert any(r["amp_attack_ms"] > 1 for r in resolved)
+
+
+def test_v03_golden_cases_reach_every_v03_field() -> None:
+    v03 = [render_kick_wav(g[0])[2] for g in GOLDEN_V03.values()]
+    assert all(r["schema_version"] == "0.3" for r in v03)
+    for field, default in (("click_decay_ms", 3), ("click_q", 0.9), ("polarity", 1),
+                           ("offset_ms", 0), ("clip_db", 0)):
+        assert any(r[field] != default for r in v03), field
+    assert any("length_beats" in g[0] for g in GOLDEN_V03.values())
+    assert any("tail_note" in g[0] for g in GOLDEN_V03.values())
+    assert {r["sample_rate"] for r in v03} == {44100, 48000}
+    assert {r["bit_depth"] for r in v03} == {16, 24}
+
+
+def test_v03_golden_derivation() -> None:
+    """The derived values of the length_beats case: length by hand, decay pinned."""
+    resolved = render_kick_wav(GOLDEN_V03["v03-length-beats-44k1-16bit"][0])[2]
+    assert resolved["length_ms"] == 0.5 * 60000 / 174
+    assert resolved["amp_decay_ms"] == 146.4
+
+
+@pytest.mark.parametrize("name", GOLDEN_V03)
+def test_v03_golden_render_size(name: str) -> None:
+    params, sr, bits, samples, size, _ = GOLDEN_V03[name]
+    wav, audio, resolved = render_kick_wav(params)
+    assert (resolved["sample_rate"], resolved["bit_depth"], len(audio)) == (sr, bits, samples)
+    width = bits // 8
+    assert len(wav) == size == 44 + width * samples + (width * samples) % 2
+
+
+@pytest.mark.parametrize("name", GOLDEN_V03)
+def test_v03_golden_sha256(name: str, request) -> None:
+    """Same rule as test_golden_sha256 (hard failure on Linux and Windows)."""
+    params, *_, expected = GOLDEN_V03[name]
+    actual = hashlib.sha256(render_kick_wav(params)[0]).hexdigest()
+    verdict = "match" if actual == expected else "MISMATCH"
+    request.node.user_properties.append(("golden", f"{sys.platform} {name} {verdict} {actual}"))
+    if sys.platform not in GOLDEN_PLATFORMS and actual != expected:
+        pytest.xfail(f"golden hash differs on {sys.platform}: {name} actual {actual}")
+    assert actual == expected, (
+        f"{name}: rendered bytes changed ({actual}). Bump ENGINE_VERSION and update the "
+        "golden hashes."
+    )
 
 
 @pytest.mark.parametrize("name", GOLDEN)

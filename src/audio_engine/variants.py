@@ -28,9 +28,20 @@ value is never clamped, so nothing piles up at an edge. Extra limits:
   the contract minimum does not settle, :class:`VariantError` is raised.
 
 Fields not in :data:`SPREAD` (``length_ms``, ``amp_attack_ms``, ``sample_rate``, ``bit_depth``,
-``peak_ceiling_dbfs``, ``bpm``, ``preset``, ``schema_version``) are copied unchanged. Every
-variant is validated by :func:`~audio_engine.params.resolve_kick_params` (rejected, never
-clamped).
+``peak_ceiling_dbfs``, ``bpm``, ``preset``, ``schema_version`` and the v0.3 fields
+``click_decay_ms``, ``click_q``, ``polarity``, ``offset_ms``, ``clip_db``) are copied
+unchanged. Every variant is validated by :func:`~audio_engine.params.resolve_kick_params`
+(rejected, never clamped) and is a resolved form.
+
+v0.3 requests (#120 item 3). The base must be the *request* (a resolved form no longer shows
+these inputs):
+
+- ``tail_note``: ``pitch_end_hz`` is not spread, so every variant keeps the note.
+- ``length_beats``: ``amp_decay_ms`` is drawn last, after the variant's seed and every other
+  field, with the upper end of its box lowered to what the -60 dB rule derives for that
+  variant (:func:`_draw_decay_by_rule`), so every variant decays 60 dB before its end.
+  ``pitch_decay_ms`` is drawn before it, so its pitch-settle limit is computed with the lower
+  end of the ``amp_decay_ms`` box, which holds for every value drawn later.
 """
 
 from __future__ import annotations
@@ -40,6 +51,7 @@ import math
 from typing import Any
 
 from .kick import BATCH_ONLY_PARAMS
+from .length import derive_amp_decay, fits
 from .params import (
     KICK_SCHEMA_FILE,
     KickParamsError,
@@ -112,19 +124,28 @@ def make_variant(base: dict[str, Any], index: int) -> dict[str, Any]:
     settles = pitch_settles(resolved)
     seed = resolved["seed"]
     out = dict(resolved)
-    for field, _, _ in SPREAD:
+    keep_note = isinstance(base, dict) and "tail_note" in base
+    by_beats = isinstance(base, dict) and "length_beats" in base
+    order = [f for f, _, _ in SPREAD if not (keep_note and f == "pitch_end_hz")]
+    decay_lo = None
+    if by_beats:
+        # amp_decay_ms last: its upper limit is the -60 dB rule for the finished variant.
+        order = [f for f in order if f != "amp_decay_ms"]
+        decay_lo, _ = _box(props, "amp_decay_ms", resolved["amp_decay_ms"])
+    for field in order:
         x = resolved[field]
         if field == "drive" and x == 0:
             continue  # a clean base stays clean
-        lo, hi = spread_box(field, x)
-        lo, hi = max(lo, props[field]["minimum"]), min(hi, props[field]["maximum"])
+        lo, hi = _box(props, field, x)
         if field == "drive":
             lo = max(lo, MIN_DRIVE_OF_DRIVEN_VARIANT)
         if field == "pitch_start_hz":
-            lo = max(lo, out["pitch_end_hz"])
-        lo, hi = _grid_up(lo), _grid_down(hi)  # rounding the draw can then never leave [lo, hi]
+            lo = max(lo, _grid_up(out["pitch_end_hz"]))
         if field == "pitch_decay_ms" and settles:
-            limit = _grid_down(max_settled_pitch_decay_ms(out))
+            # Under length_beats amp_decay_ms is drawn later, never below decay_lo: the limit
+            # for decay_lo holds for every value it can take.
+            check = out if decay_lo is None else {**out, "amp_decay_ms": decay_lo}
+            limit = _grid_down(max_settled_pitch_decay_ms(check))
             if limit < props[field]["minimum"]:
                 raise VariantError(
                     f"Variant {index} of seed {seed}: no pitch_decay_ms in the contract range "
@@ -137,10 +158,54 @@ def make_variant(base: dict[str, Any], index: int) -> dict[str, Any]:
             raise VariantError(
                 f"Variant {index} of seed {seed}: empty range for {field} ({lo} > {hi})."
             )
-        u = unit_offset(seed, index, field)
-        out[field] = round(lo + (u + 1.0) / 2.0 * (hi - lo), DECIMALS)
+        out[field] = _draw(seed, index, field, lo, hi)
     out["seed"] = derived_seed(seed, index)
+    if by_beats:
+        _draw_decay_by_rule(out, resolved, props, seed, index, decay_lo)
     return resolve_kick_params(out)
+
+
+def _box(props: dict[str, Any], field: str, value: float) -> tuple[float, float]:
+    """Spread box of ``field`` around ``value`` inside the contract range, on the grid."""
+    lo, hi = spread_box(field, value)
+    lo, hi = max(lo, props[field]["minimum"]), min(hi, props[field]["maximum"])
+    return _grid_up(lo), _grid_down(hi)  # rounding the draw can then never leave [lo, hi]
+
+
+def _draw(seed: int, index: int, field: str, lo: float, hi: float) -> float:
+    u = unit_offset(seed, index, field)
+    return round(lo + (u + 1.0) / 2.0 * (hi - lo), DECIMALS)
+
+
+def _draw_decay_by_rule(
+    out: dict[str, Any], resolved: dict[str, Any], props: dict[str, Any],
+    seed: int, index: int, lo: float,
+) -> None:
+    """``amp_decay_ms`` of a ``length_beats`` variant (#120 item 3), in place.
+
+    The -60 dB rule is applied again to the finished variant (its own seed, drive, tone …):
+    ``limit`` = what rule (6a) derives for it. The draw then uses the spread box with its
+    upper end lowered to ``limit``. If the drawn value does not fit after all (only possible
+    where 'fits' is not monotonic in amp_decay_ms), ``limit`` itself is used: it fits by
+    construction of the bisection.
+    """
+    field = "amp_decay_ms"
+    _, hi = _box(props, field, resolved[field])
+    limit = derive_amp_decay(out)
+    if limit is None:
+        raise VariantError(
+            f"Variant {index} of seed {seed}: no amp_decay_ms of 20 ms or more decays 60 dB "
+            "within length_beats for this variant."
+        )
+    hi = min(hi, _grid_down(limit))
+    if hi < lo:
+        raise VariantError(
+            f"Variant {index} of seed {seed}: the -60 dB rule allows at most {limit} ms "
+            f"amp_decay_ms, below the spread range ({lo} ms and up)."
+        )
+    out[field] = _draw(seed, index, field, lo, hi)
+    if not fits(out):
+        out[field] = limit
 
 
 def make_variants(base: dict[str, Any], count: int) -> list[dict[str, Any]]:
