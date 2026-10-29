@@ -147,7 +147,7 @@ def test_full_run_new_track_without_undo(fake, tmp_path):
     b = block(out)
     assert b["song.undo"] == "SKIPPED (user answered no)"
     assert b["user_hears_kick"] == "yes"
-    assert "song.create_audio_track" in b["capability_overrides_used"]
+    assert b["capability_overrides_used"] == "-"  # every import step `tested` since #143
     assert ("  - Clip: in Spur 2 '3-Audio' die Zelle 0 anklicken, Entf drücken.\n"
             "  - die neue Spur: Kopf von Spur 2 '3-Audio' anklicken, Entf drücken.") in out
 
@@ -214,12 +214,37 @@ def test_track_number_equal_to_track_count_is_invalid(fake, tmp_path):
 
 @pytest.fixture
 def pre50_registry(tmp_path, monkeypatch):
-    """The registry as before the #50 contract-change (create_audio_clip `unknown`), so the
-    override split is still tested now that the committed entry is `tested`."""
-    reg = registry_with_status(tmp_path, {"clip_slot.create_audio_clip": "unknown"})
+    """The write statuses as before the #50 and #143 contract-changes (create_audio_clip
+    `unknown`, create_audio_track `supported`), so the override split is still tested now that
+    the committed entries are `tested`."""
+    reg = registry_with_status(tmp_path, {"clip_slot.create_audio_clip": "unknown",
+                                          "song.create_audio_track": "supported"})
     monkeypatch.setattr(live_import.CapabilityRegistry, "from_file", classmethod(
         lambda cls, *args, **kwargs: reg))
     return reg
+
+
+IMPORT_READS = ("clip.file_path.get", "clip_slot.has_clip.get", "song.num_scenes.get",
+                "track.has_audio_input.get")
+
+
+@pytest.fixture
+def reads_set_back(tmp_path, monkeypatch):
+    """The four import reads set back to `supported` (as a bug report would, D-004)."""
+    reg = registry_with_status(tmp_path, dict.fromkeys(IMPORT_READS, "supported"))
+    monkeypatch.setattr(live_import.CapabilityRegistry, "from_file", classmethod(
+        lambda cls, *args, **kwargs: reg))
+    return reg
+
+
+def test_reads_set_back_still_run_through_the_override_and_are_reported(fake, tmp_path,
+                                                                        reads_set_back):
+    """#143: the reads have their own gate; the check script can still re-test them."""
+    code, out, _ = run(fake, tmp_path, ["y", "n", "y", "y", ""])
+    assert code == 0, out
+    b = block(out)
+    assert b["capability_overrides_used"] == "-"
+    assert b["capability_overrides_reads_only"] == ", ".join(IMPORT_READS)
 
 
 @pytest.mark.parametrize("answers", [["n"], ["y", ""], ["y", "0", "n"]])
@@ -249,12 +274,12 @@ def test_committed_registry_no_write_reports_no_override(fake, tmp_path, answers
     assert b["capability_overrides_reads_only"] == "-"
 
 
-def test_committed_registry_new_track_reports_only_the_track_override(fake, tmp_path):
-    """song.create_audio_track stays `supported` (#50: its undo is not verified in Live)."""
+def test_committed_registry_new_track_reports_no_override(fake, tmp_path):
+    """song.create_audio_track is `tested` since #143 (user's new-track undo run)."""
     code, out, _ = run(fake, tmp_path, ["y", "n", "y", "y", ""])
     assert code == 0, out
     b = block(out)
-    assert b["capability_overrides_used"] == "song.create_audio_track"
+    assert b["capability_overrides_used"] == "-"
     assert b["capability_overrides_reads_only"] == "-"
 
 
