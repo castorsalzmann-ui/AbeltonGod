@@ -422,6 +422,93 @@ def test_undeletable_stale_lock_ends_at_the_deadline(tmp_path, monkeypatch):
     assert outcome == ["timeout"]
 
 
+# --- #160: Windows "delete pending" lock file -----------------------------------------------
+# On windows-latest CI an exclusive create of the lock file raised PermissionError (errno 13)
+# in 24 of 18000 parallel calls (diagnostic run 40928909840), most likely because the lock
+# file just released by another call was still delete-pending (which handle kept it open is
+# not established). These tests inject that error on every platform.
+
+
+def _deny_lock_open(monkeypatch, should_deny):
+    """Make os.open raise Windows' delete-pending error for the lock file when asked."""
+    real_open = os.open
+
+    def fake_open(path, flags, *args, **kwargs):
+        if str(path).endswith(".lock") and flags & os.O_EXCL and should_deny():
+            raise PermissionError(13, "Permission denied", str(path))
+        return real_open(path, flags, *args, **kwargs)
+
+    monkeypatch.setattr(ww.os, "open", fake_open)
+
+
+def test_delete_pending_lock_counts_as_busy(tmp_path, monkeypatch):
+    monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(tmp_path))
+    denials = iter([True, True, True])
+    _deny_lock_open(monkeypatch, lambda: next(denials, False))
+    assert ww.handle(ev(session_id="d")) is None
+    sessions = tmp_path / "logs" / "dev-usage" / "sessions"
+    assert json.loads((sessions / "d.json").read_text(encoding="utf-8"))["tool_calls"] == 1
+    assert next(denials, "used up") == "used up"  # all three denials were hit and retried
+    assert not list(sessions.glob("*.lock"))
+
+
+def test_lock_that_stays_denied_ends_at_the_deadline(tmp_path, monkeypatch):
+    sessions = tmp_path / "sessions"
+    sessions.mkdir()
+    _deny_lock_open(monkeypatch, lambda: True)
+    monkeypatch.setattr(ww, "LOCK_WAIT_S", 0.2)
+    outcome = []
+
+    def attempt():
+        try:
+            with ww.file_lock(sessions / "s.lock"):
+                outcome.append("acquired")
+        except TimeoutError:
+            outcome.append("timeout")
+
+    worker = threading.Thread(target=attempt, daemon=True)
+    worker.start()
+    worker.join(timeout=3)
+    assert not worker.is_alive(), "lock loop did not end"
+    assert outcome == ["timeout"]
+
+
+@pytest.mark.parametrize("seed", [160, 161, 162])
+def test_parallel_hooks_survive_delete_pending_locks(tmp_path, monkeypatch, seed):
+    # The CI failure mode, made deterministic: about a third of the exclusive creates are
+    # denied as on Windows; no call may raise and no count may be lost.
+    monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(tmp_path))
+    rng = random.Random(seed)
+    rng_lock = threading.Lock()
+    denied = []
+
+    def should_deny():
+        with rng_lock:
+            deny = rng.random() < 0.35
+            denied.append(deny)
+            return deny
+
+    _deny_lock_open(monkeypatch, should_deny)
+    errors = []
+
+    def worker(i):
+        try:
+            for j in range(10):
+                ww.handle(ev(tool_input={"command": f"{i}-{j}"}, session_id="p"))
+        except Exception as exc:  # pragma: no cover - reported below
+            errors.append(exc)
+
+    threads = [threading.Thread(target=worker, args=(i,)) for i in range(6)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert errors == []
+    assert sum(denied) > 0  # the injection really fired
+    state_path = tmp_path / "logs" / "dev-usage" / "sessions" / "p.json"
+    assert json.loads(state_path.read_text(encoding="utf-8"))["tool_calls"] == 60
+
+
 def test_windows_encoding_input_and_output(tmp_path):
     # Review P2: with a cp1252 locale the hook could not read some UTF-8 input and wrote
     # umlauts as invalid UTF-8. Bytes in, bytes out, as Claude Code sends and reads them.
