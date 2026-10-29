@@ -12,6 +12,10 @@ jobs:
   test:
     name: test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
+    # Normal runs take 2-3 min. A hanging test (e.g. a poll loop that never
+    # ends, found in the PR #97 review) must fail the job instead of blocking
+    # it for GitHub's 6 h default.
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
