@@ -22,15 +22,15 @@ Confidence: **high** = official LOM/manual text or AbletonOSC source read direct
 | Create MIDI track | `Song.create_midi_track(index)`, where -1 appends | `/live/song/create_midi_track <index>`. Generic method (`abletonosc/song.py:25`, dispatched at `:47-48` via `handler.py:27-29`). No reply. |
 | Session MIDI clip | `ClipSlot.create_clip(length)`. Length must be > 0; the slot must be empty and on a MIDI track. | `/live/clip_slot/create_clip <track> <slot> <length>` (`clip_slot.py:30`, `:46-48`) |
 | Arrangement MIDI clip | `Track.create_midi_clip(start_time, length)`. Errors on non-MIDI or frozen tracks, on tracks being recorded into, and on times outside [0, 1576800]. | **Not exposed.** `grep` finds no `create_midi_clip`. |
-| Write notes | `Clip.add_new_notes({"notes":[…]})` (since 11.0). Required keys: `pitch`, `start_time`, `duration`. Optional: `velocity`, `mute`, `probability`, `velocity_deviation`, `release_velocity`. Returns note IDs. | `/live/clip/add/notes <t> <s> (pitch start dur vel mute)*`. Groups of 5, each built as `Live.Clip.MidiNoteSpecification`, then one `add_new_notes` call (`clip.py:212-222`, `:234`). No probability/deviation fields. Note IDs are not returned. |
-| Read notes | `get_notes_extended(from_pitch, pitch_span, from_time, time_span)` (11.0), `get_all_notes_extended` (11.1), `get_notes_by_id` | `/live/clip/get/notes <t> <s> [pitch_start pitch_span time_start time_span]` returns flat 5-tuples (`clip.py:199-210`, `:233`). Defaults: `0, 127, -8192, 16384`. |
-| Modify / delete notes | `apply_note_modifications`, `remove_notes_extended`, `remove_notes_by_id` | `/live/clip/remove/notes` (`clip.py:224-231`, `:235`), `/live/clip/remove_notes_by_id` (`clip.py:137`). No `apply_note_modifications`. |
-| Notes in Arrangement clips | Same `Clip` class. `Track.arrangement_clips` lists Arrangement clips (since 11.0). | **Not addressable.** Every `/live/clip/*` handler resolves `track.clip_slots[clip_index].clip` (`clip.py:120-122`), so only Session clips work. Arrangement clips are read-only: name/length/start_time lists (`track.py:120-137`). |
+| Write notes | `Clip.add_new_notes({"notes":[…]})` (since 11.0). Required keys: `pitch`, `start_time`, `duration`. Optional: `velocity`, `mute`, `probability`, `velocity_deviation`, `release_velocity`. Returns note IDs. | `/live/clip/add/notes <t> <s> (pitch start dur vel mute)*`. Groups of 5, each built as `Live.Clip.MidiNoteSpecification`, then one `add_new_notes` call (`clip.py:145-155`, `:167`). No probability/deviation fields. Note IDs are not returned. |
+| Read notes | `get_notes_extended(from_pitch, pitch_span, from_time, time_span)` (11.0), `get_all_notes_extended` (11.1), `get_notes_by_id` | `/live/clip/get/notes <t> <s> [pitch_start pitch_span time_start time_span]` returns flat 5-tuples (`clip.py:132-143`, `:166`). Defaults: `0, 127, -8192, 16384` (`clip.py:136`). |
+| Modify / delete notes | `apply_note_modifications`, `remove_notes_extended`, `remove_notes_by_id` | `/live/clip/remove/notes` (`clip.py:157-164`, `:168`), `/live/clip/remove_notes_by_id` (`clip.py:70`, in the `methods` list `:66-71`). No `apply_note_modifications`. |
+| Notes in Arrangement clips | Same `Clip` class. `Track.arrangement_clips` lists Arrangement clips (since 11.0). | **Not addressable.** Every `/live/clip/*` handler resolves `track.clip_slots[clip_index].clip` (`clip.py:53-55`), so only Session clips work. Arrangement clips are read-only: name/length/start_time lists (`track.py:120-137`). |
 
 **Sources.** [LOM Song](https://docs.cycling74.com/apiref/lom/song/), [LOM ClipSlot](https://docs.cycling74.com/apiref/lom/clipslot/), [LOM Track](https://docs.cycling74.com/apiref/lom/track/), [LOM Clip](https://docs.cycling74.com/apiref/lom/clip/) (all retrieved 2026-10-29); AbletonOSC files and lines as cited.
 **Confidence.** High for the LOM and AbletonOSC facts.
 
-_Interpretation:_ `add_new_notes` is called in Python with a tuple of `MidiNoteSpecification` (AbletonOSC `clip.py:216-222`; Ableton's own `novation/print_to_clip.py:118` and `ableton/v3/control_surface/components/note_editor.py:367` do the same), not with the Max dict form. An extension must use the Python form.
+_Interpretation:_ `add_new_notes` is called in Python with a tuple of `MidiNoteSpecification` (AbletonOSC `clip.py:147-155`; Ableton's own `novation/print_to_clip.py:118` and `ableton/v3/control_surface/components/note_editor.py:367` do the same), not with the Max dict form. An extension must use the Python form.
 
 _Interpretation (pitfall):_ the default read range `pitch_start=0, pitch_span=127` covers pitches 0–126, if `pitch_span` is a count, as the name suggests. Pitch 127 would then be missed. → To verify.
 
@@ -73,7 +73,7 @@ _Interpretation (pitfall):_ `set_or_delete_cue` is a toggle. Called on an existi
    - `/live/device/set/parameters/value` sets all parameters in index order (`device.py:70-72`, `:80`).
    - Values are the parameter's internal `value` in [min, max], not the display value ([LOM DeviceParameter](https://docs.cycling74.com/apiref/lom/deviceparameter/)).
 2. **Automation envelopes (breakpoints over time):**
-   - **Session clip envelopes, yes, through the Python API, not through AbletonOSC.**
+   - **Session clip envelopes: probably yes (medium), through the Python API, not through AbletonOSC.**
      - Ableton's own Push script calls `clip.automation_envelope(param)`. If that returns nothing, it calls `clip.create_automation_envelope(param)` and then `envelope.insert_step(start, duration, value)`. It reads back with `envelope.value_at_time(t)` (decompiled `pushbase/automation_component.py:92-99`, `:114-121`, `:164`).
      - These four calls are **not** on the Cycling '74 LOM Clip page. That page has only `has_envelopes`, `clear_envelope(device_parameter)` and `clear_all_envelopes` ([LOM Clip](https://docs.cycling74.com/apiref/lom/clip/)). The `AutomationEnvelope` class is not in the LOM index, and its URL returned an error.
    - **Arrangement track automation lanes: no call found.**
@@ -105,7 +105,7 @@ _Interpretation (pitfall):_ setting a parameter that already has automation prob
   - parameter name/value/min/max/is_quantized lists, single parameter get/set and value_string (`device.py:52-142`)
   - `/live/track/delete_device` (`track.py:33`)
 - **Loading: not in AbletonOSC** (`grep` finds no `browser`, `load_item` or `insert_device`). Two Live routes exist:
-  1. **`Track.insert_device(device_name, target_index=end)`, since Live 12.3.** `device_name` is the name shown in Live's UI. Only native Live devices work; Max for Live devices and plug-ins do not. It throws if the device cannot be inserted ([LOM Track](https://docs.cycling74.com/apiref/lom/track/); release notes 12.3 list it under "Max 9.0.9 API additions"). `Chain.insert_device` and `RackDevice.insert_chain` were added at the same time.
+  1. **`Track.insert_device(device_name, target_index=end)`, since Live 12.3.** `device_name` is the name shown in Live's UI. Only native Live devices work; Max for Live devices and plug-ins do not. It throws if the device cannot be inserted ([LOM Track](https://docs.cycling74.com/apiref/lom/track/); release notes 12.3 list it under "Max 9.0.9 API additions"; this release-note entry was read through a summarising fetch and is **not independently spot-checked** — the reviewer's proxy returned 403 for ableton.com). `Chain.insert_device` and `RackDevice.insert_chain` were added at the same time.
   2. **Browser, Python only.**
      - `Live.Application.get_application().browser`, then `browser.load_item(item)`. Ableton's Push script uses `self.application.browser` and `browser.load_item(...)` (decompiled `Push/push.py:359`, `Push/browser_model.py:69`).
      - ableton-mcp finds an item by URI under `browser.instruments/sounds/drums/audio_effects/midi_effects`. It sets `song.view.selected_track = track` and then calls `load_item` (`MCP_Server/bundled_ableton_remote_script/AbletonMCP_init.py:1231-1242`, `:1293-1326`).
@@ -135,10 +135,10 @@ _Interpretation:_ copying the `.als` file at `Song.file_path` on disk gives the 
 
 **Answer — undo.**
 - `Song.undo()`/`redo()` revert "the last operation" (LOM). AbletonOSC exposes `/live/song/undo`, `/live/song/redo` (`song.py:37,45`), `get/can_undo`, and `get/can_redo` (`song.py:82-83`).
-- **Project evidence (Live 12.4.5):** one AbletonOSC mute write was reverted by one `/live/song/undo`. Multi-step undo is not verified (`contracts/capabilities.json`, `song.undo` notes; #5).
+- **Project evidence (Live 12.4.5):** one AbletonOSC mute write was reverted by one `/live/song/undo`. Multi-step undo is not verified. Limitation accepted by the user (PR #42): script 0.1.0 did not re-read the whole set after the undo (bug #39), so an undo that reverted an unrelated action could not be excluded (`contracts/capabilities.json`, `song.undo` notes; #5). E2 therefore has no stronger baseline than this.
 - Undo grouping exists in the Python API, but AbletonOSC does not expose it. Ableton's own scripts wrap several changes as one step with `song.begin_undo_step()` / `song.end_undo_step()` (decompiled `ableton/v3/control_surface/components/transport.py:65,144`; `ableton/v3/control_surface/elements/touch.py:29-31`). These are not on the Cycling '74 LOM Song page.
 - The Undo History (View menu) lists every action since the set was opened. It is **not saved with the set**. Opening or creating a set is the first entry and cannot be undone. The manual states no step limit ([manual 5.4.2](https://www.ableton.com/en/live-manual/12/managing-files-and-sets/)).
-- Undo granularity changes between releases. In 12.4.15, duplicating MIDI notes and continued Transformations create one undo step per operation ([release notes](https://www.ableton.com/en/release-notes/live-12/)).
+- Undo granularity changes between releases. In 12.4.15, duplicating MIDI notes and continued Transformations create one undo step per operation ([release notes](https://www.ableton.com/en/release-notes/live-12/); read through a summarising fetch, **not independently spot-checked** — the reviewer's proxy returned 403 for ableton.com).
 
 **Confidence.**
 - "No save call in the LOM", Save a Copy, the Backup folder, Undo History: high.
@@ -160,7 +160,7 @@ An "undo my last action" tool should therefore either group the writes with `beg
 | --- | --- | --- |
 | Create MIDI track | **exists** (`song.py:25`) | — |
 | Session MIDI clip (`ClipSlot.create_clip`) | **exists** (`clip_slot.py:30`) | — |
-| Write/read/remove notes, Session clips | **exists** (`clip.py:199-235`). No probability/velocity_deviation, no note IDs on add. | — (custom handler only if those fields are needed) |
+| Write/read/remove notes, Session clips | **exists** (`clip.py:132-168`). No probability/velocity_deviation, no note IDs on add. | — (custom handler only if those fields are needed) |
 | Notes on Arrangement clips | missing | custom handler: resolve `track.arrangement_clips[i]` instead of `clip_slots[i].clip` |
 | Arrangement MIDI clip (`Track.create_midi_clip`) | missing | add to `track.py` `methods` list (`:32-35`). Generic `_call_method` passes `start_time, length`. |
 | Arrangement audio clip (`Track.create_audio_clip`) | missing | same one-word `methods`-list patch in `track.py` |
@@ -195,7 +195,7 @@ _Interpretation:_ "methods-list patch" works only when every argument is a plain
 
 Each item becomes an issue for the owning role (bridge-engineer unless noted).
 
-1. **E1** `/live/song/create_midi_track -1` + `/live/clip_slot/create_clip t 0 4.0` + `/live/clip/add/notes t 0 36 0.0 0.25 100 0` (4 notes): read back with `/live/clip/get/notes`. Expect the same 5-tuples. Also add a note with pitch 127 and check whether the default read returns it (Q1 pitfall).
+1. **E1** `/live/song/create_midi_track -1` + `/live/clip_slot/create_clip t 0 4.0` + `/live/clip/add/notes t 0 36 0.0 0.25 100 0` (4 notes): read back with `/live/clip/get/notes`. Expect the same 5-tuples. Also add a note with pitch 127 and check whether the default read returns it (Q1 pitfall). In the same run, read with an explicit `0 128 -8192 16384` range to compare.
 2. **E2** Undo cost: after E1, count how many `/live/song/undo` calls restore the set (snapshot compare, as in `bridge_check.py`). Do this separately for track create, clip create and one `add/notes` with 16 notes.
 3. **E3** Locators: set `current_song_time` to 16.0, `cue_point/add_or_delete`, then `set/name 0 "Intro"`, then `get/cue_points`. Expect `("Intro", 16.0)`. A second `add_or_delete` at 16.0 should delete it. Check how `cue_points` is ordered after adding locators out of time order.
 4. **E4** `/live/song/get/song_length` on an empty set, and after an Arrangement clip ends at bar 9. Compare with the clip end time.
