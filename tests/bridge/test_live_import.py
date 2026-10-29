@@ -170,6 +170,30 @@ def test_midi_track_is_refused_at_the_prompt(fake, tmp_path):
     assert writes(fake) == []
 
 
+def test_track_number_equal_to_track_count_is_invalid(fake, tmp_path):
+    code, out, prompts = run(fake, tmp_path, ["y", "2", ""])  # 2 tracks: valid are 0 and 1
+    assert code == 0, out
+    assert "Ungültige Eingabe '2'" in out and "Kein Ziel gewählt" in out
+    assert writes(fake) == []
+
+
+@pytest.mark.parametrize("answers", [["n"], ["y", ""], ["y", "0", "n"]])
+def test_no_write_sent_means_no_write_override_reported(fake, tmp_path, answers):
+    """Probe and pre-check reads use the import gate, but that is not an import (review #87)."""
+    code, out, _ = run(fake, tmp_path, answers)
+    b = block(out)
+    assert b["capability_overrides_used"] == "-"
+    assert b["capability_overrides_reads_only"] == "clip_slot.create_audio_clip"
+
+
+def test_new_track_import_reports_both_write_overrides(fake, tmp_path):
+    code, out, _ = run(fake, tmp_path, ["y", "n", "y", "y", ""])
+    assert code == 0, out
+    b = block(out)
+    assert b["capability_overrides_used"] == "clip_slot.create_audio_clip, song.create_audio_track"
+    assert b["capability_overrides_reads_only"] == "-"
+
+
 @pytest.mark.parametrize("answer", ["", "n", "no", "x"])
 def test_test_set_prompt_alone_stops(fake, tmp_path, answer):
     """Only an explicit yes at the test-set prompt goes on; later prompts are not reached."""

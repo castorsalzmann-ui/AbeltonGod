@@ -420,6 +420,70 @@ def test_timed_out_write_is_read_back_and_blocks_undo(ibridge, audio_set, log, t
     assert UNDO not in writes(audio_set)
 
 
+def test_readback_after_timeout_waits_longer_than_one_timeout(ibridge, audio_set, log,
+                                                             tmp_path):
+    """Replies are held until 2.5 timeouts after the write: the write times out after one
+    timeout, and only a read-back with more than one timeout of patience (3x) sees the
+    late-applied clip. With a 1x read-back it would fail instead (review of PR #87)."""
+    before = expected_state(audio_set, 0)
+    imp = ClipImporter(ibridge, log, timeout_s=TEST_TIMEOUT_S)
+    orig = ibridge.create_audio_clip
+
+    def held(*a, **k):
+        audio_set.hold()
+        audio_set.release_after(TEST_TIMEOUT_S * 2.5)
+        return orig(*a, **k)
+
+    ibridge.create_audio_clip = held
+    with pytest.raises(ImportAborted, match="timed out"):
+        imp.run(path=wav_file(tmp_path / "k.wav"), track_index=0, slot_index=0,
+                num_slots=4, expected_before=before)
+    assert log_lines(log)[-1]["readback"] == {"track_names": ["1-Audio", "2-MIDI", "3-Audio"],
+                                             "has_clip": [1, 0, 0, 0]}
+
+
+def test_second_ctrl_c_during_recovery_readback_is_contained(ibridge, audio_set, log,
+                                                            tmp_path):
+    imp = ClipImporter(ibridge, log, timeout_s=TEST_TIMEOUT_S)
+    before = expected_state(audio_set, 0)
+
+    def interrupted(*a, **k):
+        raise KeyboardInterrupt
+
+    def interrupted_write(*a, **k):
+        ibridge.get_track_names = interrupted  # Ctrl+C again during the recovery read-back
+        raise KeyboardInterrupt
+
+    ibridge.create_audio_clip = interrupted_write
+    try:
+        imp.run(path=wav_file(tmp_path / "k.wav"), track_index=0, slot_index=0,
+                num_slots=4, expected_before=before)
+    except ImportInterrupted:
+        pass
+    except KeyboardInterrupt:  # caught here so pytest reports a failure, not an abort
+        pytest.fail("the second Ctrl+C escaped the recovery read-back")
+    else:
+        pytest.fail("no ImportInterrupted")
+    entry = log_lines(log)[-1]
+    assert entry["status"] == "interrupted"
+    assert entry["readback"] == "read-back failed: KeyboardInterrupt"
+
+
+def test_new_track_with_a_clip_stops_before_clip(ibridge, audio_set, log, tmp_path):
+    orig = audio_set._create_audio_track
+
+    def track_with_clip(p):
+        orig(p)
+        audio_set.tracks[-1]["slots"][2] = "C:\\template.wav"  # e.g. a default-set template
+
+    audio_set._create_audio_track = track_with_clip
+    imp = ClipImporter(ibridge, log, timeout_s=TEST_TIMEOUT_S)
+    with pytest.raises(ImportAborted, match="not an empty audio track"):
+        imp.run(path=wav_file(tmp_path / "k.wav"), track_index=None, slot_index=0,
+                num_slots=4, expected_before=SlotState(("1-Audio", "2-MIDI", "3-Audio"), ()))
+    assert CREATE_CLIP not in writes(audio_set)
+
+
 def test_timed_out_write_with_failed_readback(ibridge, audio_set, log, tmp_path):
     before = expected_state(audio_set, 0)
     imp = ClipImporter(ibridge, log, timeout_s=TEST_TIMEOUT_S)

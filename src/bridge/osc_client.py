@@ -650,8 +650,10 @@ class AbletonBridge:
 
         Sends the address with **no arguments**. With the extension installed, AbletonOSC's
         callback fails at ``int(params[0])`` (``clip_slot.py`` line 12) before it touches the
-        song, so nothing changes in Live; the failure comes back as ``/live/error "Error
-        handling OSC message: ..."`` and is also written to ``abletonosc.log``. Without the
+        song, so nothing changes in Live. AbletonOSC passes ``message.params``, a list
+        (``osc_server.py`` line 90), so the text is ``list index out of range``; it comes back
+        as ``/live/error "Error handling OSC message: list index out of range"``
+        (``osc_server.py`` line 187) and is also written to ``abletonosc.log``. Without the
         extension the reply is ``Unknown OSC address`` (``osc_server.py`` line 125).
         """
         self.gate.check("clip_slot.create_audio_clip")

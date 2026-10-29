@@ -11,8 +11,10 @@ Safety:
 - The file is only patched if its content (line endings normalised) is exactly the known
   original of commit ``0ca68214`` (SHA-256 below). Any other version is refused, nothing is
   written, and the user is asked to report the hash.
-- Before patching, the original is saved next to it as ``clip_slot.py.abeltongod-orig``. An
-  existing backup is never overwritten (D-006).
+- Before patching, the original is saved next to it as ``clip_slot.py.abeltongod-orig``
+  (temp file + fsync + rename, so it is never half-written). An existing backup is never
+  overwritten (D-006) and is reused only if it hashes as the pinned original; otherwise the
+  install is refused. The patch is written only after the backup reads back as the original.
 - The new file is written to a temporary file in the same folder and moved over the original
   in one step (``os.replace``); it must compile as Python first.
 - ``--uninstall`` puts the backup back (only if the current file is exactly our patched
@@ -54,6 +56,7 @@ RELATIVE_TARGET = Path("abletonosc") / "clip_slot.py"
 EXIT_OK = 0
 EXIT_REFUSED = 1  # unknown version, missing folder, user said no
 EXIT_ERROR = 2  # write failed
+EXIT_INTERRUPTED = 130
 
 YES = {"y", "yes", "j", "ja"}
 
@@ -166,26 +169,45 @@ def run(abletonosc_dir: Path, *, uninstall: bool, check_only: bool,
         if state == STATE_PATCHED:
             print("Die Erweiterung ist schon installiert. Nichts zu tun.", file=out)
             return EXIT_OK
-        print("\nGeplante Änderung:\n"
+        # An existing backup is only reused if it is exactly the pinned original; anything
+        # else (e.g. a backup cut short by a full disk) stops the install (review of PR #87).
+        existing = read_or_none(backup)
+        if existing is not None and classify(existing, known_original) != STATE_ORIGINAL:
+            print(f"FEHLER: Die vorhandene Sicherung {backup.name} ist NICHT das Original "
+                  f"(sha256 {sha256(normalise(existing))}). Das Script ändert nichts und "
+                  "überschreibt die Sicherung nicht.\nBitte die Datei prüfen (z. B. wegschieben) "
+                  "und diese Ausgabe in Issue #50 einfügen.", file=out)
+            return EXIT_REFUSED
+        new = patched_text(normalise(data))
+        try:
+            compile(new, str(target), "exec")
+        except SyntaxError as exc:
+            print(f"FEHLER: Die geänderte Datei wäre kein gültiges Python ({exc}). "
+                  "Nichts geändert.", file=out)
+            return EXIT_ERROR
+        print("\nGeplante Änderung (Live muss dafür GESCHLOSSEN sein):\n"
               f"  1. Original sichern als {backup.name}"
-              + (" (Sicherung existiert schon und bleibt unverändert)" if backup.exists()
-                 else "") + "\n"
+              + (" (gültige Sicherung existiert schon und bleibt unverändert)"
+                 if existing is not None else "") + "\n"
               f"  2. In {RELATIVE_TARGET} das Wort \"create_audio_clip\" in die Liste 'methods' "
               "eintragen (eine Zeile)\n"
               "Danach Live neu starten.", file=out)
-        if not ask_yes("Jetzt installieren? [y/N]: ", input_fn):
+        if not ask_yes("Live ist geschlossen. Jetzt installieren? [y/N]: ", input_fn):
             print("Nichts geändert.", file=out)
             return EXIT_REFUSED
-        new = patched_text(normalise(data))
-        compile(new, str(target), "exec")
         try:
-            if not backup.exists():
-                with backup.open("xb") as fh:  # "x": never overwrite (D-006)
-                    fh.write(data)
+            if existing is None:
+                if backup.exists():  # appeared since the check: never overwrite (D-006)
+                    raise FileExistsError(f"{backup.name} appeared during the install")
+                atomic_write(backup, data)  # temp file + fsync + rename: never half-written
+            # Patch only on top of a backup that reads back as the original.
+            check = read_or_none(backup)
+            if check is None or classify(check, known_original) != STATE_ORIGINAL:
+                raise OSError(f"backup {backup.name} does not read back as the original")
             atomic_write(target, new)
         except OSError as exc:
-            print(f"FEHLER beim Schreiben: {exc}\nDie Originaldatei ist unverändert oder "
-                  f"liegt als {backup.name} daneben.", file=out)
+            print(f"FEHLER beim Schreiben: {exc}\nDie Originaldatei ist unverändert. "
+                  "Nichts installiert.", file=out)
             return EXIT_ERROR
         print(f"Installiert. Sicherung: {backup}\nJetzt Live neu starten.", file=out)
         return EXIT_OK
@@ -199,9 +221,9 @@ def run(abletonosc_dir: Path, *, uninstall: bool, check_only: bool,
         print(f"FEHLER: Keine gültige Sicherung {backup.name}. Nichts geändert. AbletonOSC "
               "kann stattdessen neu heruntergeladen werden (Anleitung Abschnitt 1-2).", file=out)
         return EXIT_REFUSED
-    print(f"\nGeplante Änderung: {RELATIVE_TARGET} durch die Sicherung {backup.name} "
-          "ersetzen. Danach Live neu starten.", file=out)
-    if not ask_yes("Jetzt deinstallieren? [y/N]: ", input_fn):
+    print(f"\nGeplante Änderung (Live muss dafür GESCHLOSSEN sein): {RELATIVE_TARGET} durch "
+          f"die Sicherung {backup.name} ersetzen. Danach Live neu starten.", file=out)
+    if not ask_yes("Live ist geschlossen. Jetzt deinstallieren? [y/N]: ", input_fn):
         print("Nichts geändert.", file=out)
         return EXIT_REFUSED
     try:
@@ -225,8 +247,13 @@ def main(argv: list[str] | None = None, input_fn: Callable[[str], str] = input,
     g.add_argument("--uninstall", action="store_true", help="Original wiederherstellen")
     args = p.parse_args(argv)
     folder = args.abletonosc_dir or default_abletonosc_dir()
-    return run(folder, uninstall=args.uninstall, check_only=args.check, input_fn=input_fn,
-               out=out)
+    try:
+        return run(folder, uninstall=args.uninstall, check_only=args.check,
+                   input_fn=input_fn, out=out)
+    except KeyboardInterrupt:
+        # Only reachable at the prompt or before it; the writes themselves are atomic.
+        print("\nABGEBROCHEN mit Strg+C.", file=out)
+        return EXIT_INTERRUPTED
 
 
 if __name__ == "__main__":

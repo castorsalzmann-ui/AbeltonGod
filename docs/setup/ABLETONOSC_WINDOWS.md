@@ -204,7 +204,13 @@ Das Script
 
 1. prüft die Datei (absoluter Pfad, `.wav`, gültiger WAV-Kopf),
 2. liest Live-Version, Spuren (mit „Audio“ / „keine Audiospur“) und Anzahl der Szenen,
-3. prüft, ob die Erweiterung da ist. Dazu sendet es den Import-Befehl **ohne** Argumente; AbletonOSC bricht dabei ab, bevor es das Set anfasst. Im `abletonosc.log` steht danach eine Zeile `[ERROR] ... Error handling OSC message: tuple index out of range` — die ist erwartet.
+3. prüft, ob die Erweiterung da ist. Dazu sendet es den Import-Befehl **ohne** Argumente; AbletonOSC bricht dabei ab, bevor es das Set anfasst. Im `abletonosc.log` steht danach pro Lauf eine Zeile `[ERROR] AbletonOSC: Error handling OSC message: list index out of range` (darunter eine `[WARNING]`-Zeile mit dem Python-Traceback, der `clip_slot.py` nennt) — die ist erwartet. Weil AbletonOSC jede Nachricht protokolliert, steht diese Zeile meist **nicht** unter den letzten Zeilen. Zum Finden in PowerShell:
+
+```powershell
+Select-String -Path "$env:USERPROFILE\Documents\Ableton\User Library\Remote Scripts\AbletonOSC\logs\abletonosc.log" -Pattern "create_audio_clip|Error handling OSC message" | Select-Object -Last 20
+```
+
+(Liegt deine User Library woanders, den Pfad anpassen.) Die Ausgabe zeigt die Zeilen mit dem Import-Befehl und die Fehlerzeilen samt Zeilennummer.
 4. fragt: `Ist das geöffnete Set ein eigenes TEST-Set (kein echtes Projekt)? [y/N]`
 5. fragt das Ziel: Nummer einer Audiospur oder `n` für eine neue Audiospur am Ende. MIDI-Spuren lehnt es ab. Es nimmt die erste freie Zelle (oder `--slot <Nummer>`) und überschreibt nie einen Clip.
 6. zeigt die geplanten Änderungen und fragt `Diese Änderungen jetzt ausführen? [y/N]`
@@ -244,7 +250,7 @@ Ob Live den Dateipfad genau so zurückmeldet, wie er gesendet wurde (Groß/Klein
 | --- | --- | --- |
 | Live geschlossen | Live beenden, Script starten | `FEHLER: AbletonOSC antwortet nicht …`, Exit-Code 2 |
 | Erweiterung fehlt | `--uninstall`, Live neu starten, Script starten | `FEHLER: Die AbeltonGod-Erweiterung fehlt …`, `extension: MISSING`, Exit-Code 5; danach wieder installieren |
-| MIDI-Spur | beim Ziel die Nummer der MIDI-Spur eingeben | `Spur 1 '2-MIDI' ist keine Audiospur.`, nichts gesendet |
+| MIDI-Spur | beim Ziel die Nummer der MIDI-Spur eingeben, danach bei der wiederholten Frage Enter | `Spur 1 '2-MIDI' ist keine Audiospur.`, die Ziel-Frage kommt erneut (höchstens dreimal); nach Enter `Kein Ziel gewählt. Keine Änderung.`, nichts gesendet, Exit-Code 0 |
 | belegte Zelle | `--slot 0`, wenn Zelle 0 der Audiospur schon einen Clip hat | `Zelle 0 von Spur 0 ist schon belegt …`, Exit-Code 1 |
 
 **Wenn etwas schiefgeht:** Bei Zeitüberschreitung oder *Strg + C* während eines Schritts sagt das Script `Ergebnis ist UNBEKANNT`, liest einmal zurück, sendet nichts mehr und **kein** Undo. Dann im Set nachsehen und einen eventuell angelegten Clip oder eine Spur von Hand löschen.

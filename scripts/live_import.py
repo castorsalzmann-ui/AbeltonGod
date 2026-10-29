@@ -24,7 +24,9 @@ Steps:
 
 Capability gate: ``clip_slot.create_audio_clip`` (``unknown``), ``song.create_audio_track``
 (``supported``) and the pending reads go through the gate's explicit check-script override;
-``capability_overrides_used`` in the result block lists them. Statuses change only in a
+``capability_overrides_used`` in the result block lists those whose write was really sent;
+``capability_overrides_reads_only`` lists overrides used only for the extension probe and the
+pre-check reads. Statuses change only in a
 separate contract-change PR with the pasted output as evidence.
 
 Never sends destructive commands. User-facing text is German; code and comments are English.
@@ -143,7 +145,9 @@ class Report:
     user_hears_kick: str = "not asked"
     undo_result: str = "SKIPPED"
     action_log: str = "-"
-    overrides_used: list[str] = field(default_factory=list)
+    overrides_used: list[str] = field(default_factory=list)  # writes actually sent
+    overrides_reads_only: list[str] = field(default_factory=list)  # probe / pre-check reads
+    importer: ClipImporter | None = None
     error: str | None = None
     interrupted: bool = False
     finished_at: str = ""
@@ -159,6 +163,8 @@ def render_result_block(r: Report) -> str:
         f"finished_at: {r.finished_at}",
         f"live_version_api: {r.live_version} (API reports major.minor only)",
         f"capability_overrides_used: {', '.join(sorted(set(r.overrides_used))) or '-'}",
+        "capability_overrides_reads_only: "
+        f"{', '.join(sorted(set(r.overrides_reads_only))) or '-'}",
         f"wav: {r.path}",
         f"tracks: {r.tracks!r}",
         f"num_scenes: {r.num_scenes if r.num_scenes is not None else '-'}",
@@ -318,6 +324,7 @@ def run(bridge: AbletonBridge, report: Report, path: str, slot_arg: int | None,
     report.plan_confirmed = True
 
     importer = ClipImporter(bridge, log, timeout_s=timeout_s)
+    report.importer = importer  # for the override split in main()
     try:
         outcome = importer.run(path=path, track_index=track, slot_index=slot,
                                num_slots=num_scenes, expected_before=expected)
@@ -426,6 +433,21 @@ def run_undo(importer: ClipImporter, outcome: ImportOutcome, report: Report,
     return EXIT_OK
 
 
+# Step label prefix -> capability of the write (labels from bridge.clip_import / run_undo).
+STEP_CAPABILITY = {"create_audio_track": "song.create_audio_track",
+                   "create_audio_clip": "clip_slot.create_audio_clip", "undo": "song.undo"}
+
+
+def split_overrides(report: Report, used: list[str]) -> None:
+    """``capability_overrides_used`` names only capabilities whose write was really sent;
+    overrides used only for the probe and pre-check reads go to ``..._reads_only``."""
+    outcome = report.importer.last_outcome if report.importer is not None else None
+    sent = {cap for s in (outcome.steps if outcome else []) if s.outcome != "refused"
+            for prefix, cap in STEP_CAPABILITY.items() if s.label.startswith(prefix)}
+    report.overrides_used = sorted(c for c in set(used) if c in sent)
+    report.overrides_reads_only = sorted(c for c in set(used) if c not in sent)
+
+
 def env_port(name: str, default: int) -> int:
     raw = os.environ.get(name, "").strip()
     return int(raw) if raw else default
@@ -503,7 +525,7 @@ def main(argv: list[str] | None = None, input_fn: Callable[[str], str] = input,
                 print(f"FEHLER: unerwartete Antwort von AbletonOSC: {exc}", file=out)
                 report.error = f"{type(exc).__name__}: {exc}"
                 code = EXIT_CHECK_FAILED
-            report.overrides_used = list(bridge.gate.overrides_used)
+            split_overrides(report, bridge.gate.overrides_used)
     except ImportPathError as exc:
         print(f"FEHLER mit der Datei: {exc}\nEs wurde nichts in Live geändert.", file=out)
         report.error = f"ImportPathError: {exc}"

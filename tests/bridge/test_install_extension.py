@@ -126,12 +126,164 @@ def test_missing_folder_and_file(tmp_path, osc):
     assert code == inst.EXIT_REFUSED and "fehlt" in out
 
 
-def test_existing_backup_is_never_overwritten(osc):
-    backup = target(osc).with_name("clip_slot.py.abeltongod-orig")
-    backup.write_bytes(b"older backup")
-    code, _ = run(osc)
-    assert code == 0
-    assert backup.read_bytes() == b"older backup"
+def backup_of(osc):
+    return target(osc).with_name("clip_slot.py.abeltongod-orig")
+
+
+def test_foreign_backup_is_neither_overwritten_nor_trusted(osc):
+    """A backup that is not the pinned original stops the install (review of PR #87)."""
+    backup_of(osc).write_bytes(b"older backup")
+    code, out = run(osc)
+    assert code == inst.EXIT_REFUSED and "NICHT das Original" in out
+    assert backup_of(osc).read_bytes() == b"older backup"
+    assert target(osc).read_bytes() == ORIGINAL
+
+
+def test_valid_existing_backup_is_reused_unchanged(osc):
+    crlf = ORIGINAL.replace(b"\n", b"\r\n")  # an equally valid original, other line endings
+    backup_of(osc).write_bytes(crlf)
+    code, out = run(osc)
+    assert code == 0, out
+    assert backup_of(osc).read_bytes() == crlf
+    assert "create_audio_clip" in methods_of(target(osc).read_bytes())
+
+
+def test_disk_full_while_writing_backup_then_rerun(osc, monkeypatch):
+    """Regression (review of PR #87, major): run 1 fails while writing the backup (disk full).
+    Before the fix the backup was left truncated, run 2 skipped it unchecked and patched, and
+    --uninstall then refused. Now run 1 leaves no backup and no patch, run 2 installs with a
+    full backup, and --uninstall restores the original byte for byte."""
+    real_fdopen = inst.os.fdopen
+
+    class Truncating:
+        def __init__(self, fh):
+            self.fh = fh
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            self.fh.close()
+
+        def write(self, data):
+            self.fh.write(data[:20])
+            self.fh.flush()
+            raise OSError(28, "No space left on device")
+
+    real_mkstemp = inst.tempfile.mkstemp
+    backup_fds: set[int] = set()
+
+    def mkstemp(*a, prefix="", **k):
+        fd, path = real_mkstemp(*a, prefix=prefix, **k)
+        if prefix.startswith("clip_slot.py.abeltongod-orig"):
+            backup_fds.add(fd)
+        return fd, path
+
+    def fdopen(fd, mode="r", *a, **k):
+        fh = real_fdopen(fd, mode, *a, **k)
+        return Truncating(fh) if fd in backup_fds else fh
+
+    monkeypatch.setattr(inst.tempfile, "mkstemp", mkstemp)
+    monkeypatch.setattr(inst.os, "fdopen", fdopen)
+    code, out = run(osc)
+    assert code == inst.EXIT_ERROR and "No space left" in out
+    assert target(osc).read_bytes() == ORIGINAL
+    assert not backup_of(osc).exists()
+    assert [p for p in os.listdir(target(osc).parent) if p.endswith(".tmp")] == []
+
+    assert backup_fds, "the fault hook never saw the backup temp file"
+    monkeypatch.setattr(inst.os, "fdopen", real_fdopen)
+    code, out = run(osc)
+    assert code == 0, out
+    assert backup_of(osc).read_bytes() == ORIGINAL
+    code, out = run(osc, uninstall=True)
+    assert code == 0, out
+    assert target(osc).read_bytes() == ORIGINAL
+
+
+def test_truncated_backup_from_an_older_run_blocks_install(osc):
+    backup_of(osc).write_bytes(ORIGINAL[:30])  # left behind by script 0.1.0 on a full disk
+    code, out = run(osc)
+    assert code == inst.EXIT_REFUSED
+    assert target(osc).read_bytes() == ORIGINAL and backup_of(osc).read_bytes() == ORIGINAL[:30]
+
+
+def test_backup_that_does_not_read_back_blocks_patch(osc, monkeypatch):
+    real = inst.atomic_write
+
+    def corrupt_backup(path, data):
+        real(path, data[:-5] if path.name.endswith(".abeltongod-orig") else data)
+
+    monkeypatch.setattr(inst, "atomic_write", corrupt_backup)
+    code, out = run(osc)
+    assert code == inst.EXIT_ERROR and "does not read back" in out
+    assert target(osc).read_bytes() == ORIGINAL
+
+
+def test_atomic_write_fsyncs_before_rename(tmp_path, monkeypatch):
+    events = []
+    real_fsync, real_replace = inst.os.fsync, inst.os.replace
+    monkeypatch.setattr(inst.os, "fsync", lambda fd: (events.append("fsync"), real_fsync(fd)))
+    monkeypatch.setattr(inst.os, "replace",
+                        lambda a, b: (events.append("replace"), real_replace(a, b)))
+    inst.atomic_write(tmp_path / "f", b"x")
+    assert events == ["fsync", "replace"]
+    assert (tmp_path / "f").read_bytes() == b"x"
+
+
+def test_patched_check_rejects_a_foreign_file_with_our_line(osc):
+    """A file that contains our patch line but is not the pinned original + patch: unknown."""
+    run(osc)
+    foreign = target(osc).read_bytes().replace(b'"fire",', b'"fire", "x",')
+    target(osc).write_bytes(foreign)
+    code, out = run(osc, check=True)
+    assert code == inst.EXIT_REFUSED and "Zustand: unknown" in out
+    code, out = run(osc, uninstall=True)
+    assert code == inst.EXIT_REFUSED and target(osc).read_bytes() == foreign
+
+
+@pytest.mark.parametrize("answer", ["", "n"])
+def test_uninstall_default_no(osc, answer):
+    run(osc)
+    patched = target(osc).read_bytes()
+    code, out = run(osc, answers=[answer], uninstall=True)
+    assert code == inst.EXIT_REFUSED and target(osc).read_bytes() == patched
+
+
+def test_patched_text_that_would_not_compile_is_refused(tmp_path):
+    root = tmp_path / "AbletonOSC"
+    (root / "abletonosc").mkdir(parents=True)
+    (root / "__init__.py").write_text("")
+    broken = b"def broken(:\n" + ORIGINAL  # hash-known stand-in that is not valid Python
+    (root / "abletonosc" / "clip_slot.py").write_bytes(broken)
+    code, out = run(root, known=hashlib.sha256(broken).hexdigest())
+    assert code == inst.EXIT_ERROR and "kein gültiges Python" in out
+    assert (root / "abletonosc" / "clip_slot.py").read_bytes() == broken
+    assert not (root / "abletonosc" / "clip_slot.py.abeltongod-orig").exists()
+
+
+def test_prompt_mentions_closing_live(osc):
+    prompts = []
+    out = io.StringIO()
+    inst.run(osc, uninstall=False, check_only=False,
+             input_fn=lambda p: (prompts.append(p), "n")[1], out=out, known_original=SHA)
+    assert "GESCHLOSSEN" in out.getvalue() and "Live ist geschlossen" in prompts[0]
+
+
+def test_ctrl_c_at_prompt_exits_130_and_changes_nothing(osc, monkeypatch):
+    monkeypatch.setattr(inst, "KNOWN_ORIGINAL_SHA256", SHA)
+    monkeypatch.setattr(inst.run, "__kwdefaults__", {"known_original": SHA})
+
+    def interrupt(prompt):
+        raise KeyboardInterrupt
+
+    out = io.StringIO()
+    try:
+        code = inst.main(["--abletonosc-dir", str(osc)], input_fn=interrupt, out=out)
+    except KeyboardInterrupt:  # caught here so pytest reports a failure, not an abort
+        pytest.fail("Ctrl+C escaped main() with a traceback")
+    assert code == inst.EXIT_INTERRUPTED
+    assert target(osc).read_bytes() == ORIGINAL and not backup_of(osc).exists()
 
 
 def test_uninstall_without_valid_backup_refuses(osc):
