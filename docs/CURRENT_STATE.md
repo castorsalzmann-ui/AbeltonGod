@@ -1,12 +1,13 @@
 # Current State
 
-_Last updated: 2026-10-29 morning · Written only by the lead session on `main` after a merge._
+_Last updated: 2026-10-29 midday · Written only by the lead session on `main` after a merge. Parallel tracks: `docs/ROADMAP.md` → Pipeline._
 
 ## Phase
 
 - **Phase 00 — Setup:** DONE (#1 closed 2026-10-28).
-- **Phase 03 — Sample import:** library merged (#64 via PR #82; follow-ups PRs #91, #93, #95). Live import PR #87 approve-ready after two review rounds, last minor being fixed; then the user's Live test decides `clip_slot.create_audio_clip`.
-- **Phase 04b — Claude orchestrator:** pulled forward (D-020). Step 1 merged (#78 via PR #89: loop, guard wiring, approval levels, auth switch, terminal chat; fake model only). Research notes merged (PRs #79, #80); experiments open in #83. Step 2 (tool definitions, #81) waits for the Phase 03 Live result.
+- **Phase 03 — Sample import:** IN PROGRESS. Library merged (PRs #82, #91, #93, #95). Live import merged (PR #87) and read-back fix merged (PR #97: Live renames a default-named target track; PASS only when names are restored; undo only of this import's own steps). **User Live runs on 2026-10-29 (#50):** run 1 failed on read-back (rename, fixed by #97); runs 2–4 import PASS on an existing track with file path read back and the kick audible; run 4 undo PASS with names restored; run 2 undo sent without visible change after the user had launched the clip (cause not established); run 3 refused correctly (set already reverted). Next: capabilities `contract-change` PR, listen-before-undo flow, wire `place_kick` into the import, fallback B once.
+- **Phase 04b — Claude orchestrator:** IN PROGRESS, pulled forward (D-020). Step 1 merged (PR #89). Step 2a Agent SDK client PR #122 in review (no real Claude call yet). Tool schemas #81 wait for Phase 03.
+- **Phase 05 — Kick character:** IN PROGRESS (spec `docs/phases/PHASE_05_KICK_CHARACTER.md`). Listening tests 1 and 2 done (#103): the user chose `centre` + drive 0.45 in every comparison ("enough bite", name `dense`). Preset PR #123 and kick-params v0.3 contract PR #114 (fields decided by the user) are approve-ready; engine implementation #120. Fresh-seed test failures #115 (cause not established).
 - **Phase 01 — Kick engine:** core merged (#2 via PR #8); drive anti-aliased (#13 via PR #20); contract semantics (#7 via PR #28). WAV/sidecar nits (#12 via PRs #26, #33); tone/drive/envelope tests (#11 via PR #34). Drive continuous from 0 (#16 via PR #38); ENGINE_VERSION rule (#35 via PR #40, D-013). Analysis limits #27, #32 documented (PR #49); crest-factor mechanisms #30, #31 documented (PR #51). Presets, variants, CLI (#3 via PRs #54, #56); user listening test done; `centre` pitch decay 40 ms (#59 via PR #60). **DONE 2026-10-28.**
 - **Phase 02 — Ableton bridge:** DONE (#5 via PR #42, 2026-10-28). Seven capabilities `tested` on Live 12.4.5. Open follow-up: PR #48 (setup-guide fixes, #43).
 - **Phase 04a — Agent Resource Guard:** DONE (#6 via PR #15).
@@ -62,10 +63,15 @@ _Last updated: 2026-10-29 morning · Written only by the lead session on `main` 
 - The guard cannot interrupt a running model call; it stops at the next guard step.
 - SDK stop behaviour for `max_turns` / `max_budget_usd` is not verified yet (Phase 04b).
 
+**Added 2026-10-29:**
+- Live import with read-back and safe undo (`scripts/live_import.py` 0.2.0, `src/bridge/clip_import.py`): PRs [#87](https://github.com/castorsalzmann-ui/AbeltonGod/pull/87), [#97](https://github.com/castorsalzmann-ui/AbeltonGod/pull/97) (2 review rounds, 32/32 mutants); user Live runs 2–4 on Live 12.4.5 ([#50](https://github.com/castorsalzmann-ui/AbeltonGod/issues/50#issuecomment-6495458918)). Capability statuses not yet changed (contract-change PR pending).
+- Research notes (D-023 pre-work): mix and loudness targets (PR #107), kicks in tracks and loops (PR #108), Live MIDI/arrangement/devices (PR #109); short reviews approve-ready; claims carry confidence, experiments listed.
+
 ## What does not exist yet
 
-- Sample import into Live (Phase 03)
-- Claude orchestrator / chat (Phase 04b)
+- `place_kick` wired into the Live import (Phase 03)
+- A real Claude call (Phase 04b, after PR #122)
+- kick-params v0.3 in the engine (Phase 05, #120)
 
 ## Environment facts (from the user, 2026-10-28)
 
@@ -88,10 +94,12 @@ _Last updated: 2026-10-29 morning · Written only by the lead session on `main` 
 Lead: one cloud lead session (D-015); the PC session only runs commands and Live tests. Team: flat, specialised roles, no helper agents (D-017); limit 15 / normal 10, WIP = 1 per role, just-in-time researchers (D-019, supersedes D-018). Agent definitions for all seven roles and the file-ownership table in `CLAUDE.md` merged (PR #62). Open: `docs/TEAM.md` (gates G0–G5, role cards, label state machine) waits for the user's team draft; `researcher.md` still describes D-018 and must follow D-019. The lead also keeps the project cockpit current after every merge (collector into the repo: PR #72, in review).
 
 - **Overnight (D-021, until 2026-10-29 09:00):** the lead merged PRs #79, #80, #84, #82, #91, #93, #92, #95, #89. The 5-hour usage window ran out at 00:07 and stopped all agents until 07:45 → lesson: at night run fewer agents at once.
-- **Phase 03:** Live import PR #87 → merge → **user Live test** (install extension, import into the test set, undo, fallback) → `contract-change` PR for `clip_slot.create_audio_clip` / `song.create_audio_track` and the four pending reads → Phase 03 DONE. Then wire `place_kick` into the import.
-- **Phase 04b:** step 2 (#81 schemas, tool definitions) after the Live result; SDK experiments #83 (need real calls on the user's machine).
-- **Kick track:** `sound-designer` hypotheses and listening plans on #57/#58 (open questions to the user there). Side finding #85 (sidecar read check) needs a lead/user decision. Nits #96.
-- **QA:** fake-server teardown + reentrant `hold()` #71 (after #87); #86 conftest name trap.
+- **Merge queue for the user (one go-ahead at a time):** #114 (contract, user only), #123, #113, #112, #117, #121 (CI job timeout).
+- **Phase 03:** capabilities `contract-change` PR (user merges) → listen-before-undo flow → wire `place_kick` into the import → fallback B once → Phase 03 DONE.
+- **Phase 04b:** PR #122 review → user's first real Claude call (#83) → tool schemas #81.
+- **Phase 05:** #120 engine v0.3 after #114; #115 fresh-seed failures; #110 listening/choice log; reference kicks when the user sends them.
+- **QA:** #119 (fresh seeds everywhere), #71, #86. Side finding #85 (sidecar read check) needs a decision; #118 (cloud-provider auth variables). Nits #96.
+- **Questionnaire (D-022):** about 30 "Braucht eine Entscheidung" points block the remaining feature tasks.
 - **Process:** every agent uses its own scratchpad subfolder (a shared `review.json` posted the wrong text once, 2026-10-28). `docs/TEAM.md` waits for the user's team draft; `researcher.md` still describes D-018 and must follow D-019.
 - **Parking lot from the listening test:** #57 kick layering (fuse two kicks), #58 own reference samples to steer synthesis ("main character").
 - **User:**

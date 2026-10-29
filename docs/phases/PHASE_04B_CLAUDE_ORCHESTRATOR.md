@@ -1,6 +1,6 @@
 # PHASE 04b — Claude orchestrator (kick workflow end-to-end)
 
-**Status:** PLANNED · **Agent:** main session (+ `reviewer`) · **Tested in:** CI (schemas, fake bridge, recorded responses) + user's machine
+**Status:** IN PROGRESS · **Agent:** main session (+ `reviewer`) · **Tested in:** CI (schemas, fake bridge, recorded responses) + user's machine
 
 ## Objective
 
@@ -25,8 +25,8 @@ Arrangement, mixing, other instruments, desktop UI polish.
 
 ## Acceptance criteria
 
-- [ ] CI: invalid tool arguments from the model are rejected; tests use recorded/fake model responses, no live API calls.
+- [x] CI: invalid tool arguments from the model are rejected; tests use recorded/fake model responses, no live API calls. (step 1, PR #89)
 - [ ] User-verified: one complete request → three kicks → one imported into Live.
 - [ ] Engine and bridge still work when Claude is unreachable (clear error, no crash).
-- [ ] CI: a fake model that loops on one tool is stopped by the guard, and the user sees what finished and what did not.
+- [x] CI: a fake model that loops on one tool is stopped by the guard, and the user sees what finished and what did not. (step 1, PR #89)
 - [ ] No code path calls Claude or a model-callable tool without passing the guard (reviewer checks).
