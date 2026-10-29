@@ -14,10 +14,20 @@ Rules this module enforces (D-006, research note on the bridge):
   the planned entry cannot be written, nothing is sent.
 - A write counts as done only after a read-back: the slot has a clip, no other slot of the
   track changed, the track list is unchanged, and the clip's ``file_path`` is the file.
-- A write whose outcome is unknown (timeout, Ctrl+C, failed read-back) is read back once and
-  logged, and no undo is ever sent after it.
-- Undo is sent only after a read-back shows the set exactly as the import left it, and its
-  effect is read back too. At most one undo per confirmed write.
+- Live renames a default-named audio track after the clip it gets (#50 user run 1, from the
+  user's action log: ``3-Audio`` -> ``3-centre_s1001_v0``). The read-back after the clip
+  therefore does not pin the target track's name; every other track name, the track count,
+  every slot of the target track and the file path are compared.
+- As a precaution, the read-back after a confirmed write is repeated (every
+  ``READBACK_POLL_INTERVAL_S``) until it matches or ``READBACK_WINDOW_S`` is over. A clip that
+  shows up only a moment later is possible but has not been observed (in run 1 it was visible
+  at the first read). The window is bounded and fail-safe: no match means unknown, no undo.
+- A write whose outcome is unknown (timeout, Ctrl+C, failed read-back, or a read-back that
+  never matched within the window) is logged, and no undo is ever sent after it.
+- Undo is sent only after a read-back shows the set exactly as this import last read it back
+  (the target track's name included), and its effect is read back too: track count, all other
+  names, the target's slots, and a target name that is one of the two this import saw (before
+  or after Live's rename). At most one undo per confirmed write.
 
 Blind spots: clips on other tracks, devices, automation, return/master tracks. Nothing here
 deletes anything.
@@ -28,19 +38,33 @@ from __future__ import annotations
 import datetime as dt
 import json
 import os
+import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 from bridge.capabilities import CONTRACTS_DIR
-from bridge.osc_client import AbletonBridge, BridgeError, BridgeTimeoutError
+from bridge.osc_client import (
+    AbletonBridge,
+    AbletonOSCError,
+    BridgeError,
+    BridgeProtocolError,
+    BridgeTimeoutError,
+)
 
 REPO_ROOT = CONTRACTS_DIR.parent
 DEFAULT_ACTION_LOG = REPO_ROOT / "logs" / "bridge-actions.jsonl"  # logs/ is git-ignored
 
 # A timed-out write may still be queued behind a blocked GUI thread: read back with more time.
 READBACK_AFTER_TIMEOUT_FACTOR = 3.0
+
+# Precaution, not the #50 run-1 fix (that was the target-name comparison): after a confirmed
+# write, the read-back is repeated until it matches or this window is over. A late clip has
+# not been observed. Bounded and fail-safe: a read-back that never matches is an unknown
+# outcome, never a success.
+READBACK_WINDOW_S = 2.0
+READBACK_POLL_INTERVAL_S = 0.1
 
 
 class ImportPathError(ValueError):
@@ -149,6 +173,18 @@ def read_state(bridge: AbletonBridge, track_index: int | None, num_slots: int,
     return SlotState(names, slots)
 
 
+def same_except_track_name(a: SlotState, b: SlotState, track_index: int) -> bool:
+    """Equal slots and track count, and equal names for every track except ``track_index``.
+
+    Live renames a default-named audio track after the clip it gets (#50 user run 1), so the
+    target track's name is the one thing a read-back may not pin.
+    """
+    if a.has_clip != b.has_clip or len(a.track_names) != len(b.track_names):
+        return False
+    return all(x == y for i, (x, y) in enumerate(zip(a.track_names, b.track_names, strict=True))
+               if i != track_index)
+
+
 def first_empty_slot(state: SlotState) -> int | None:
     return next((i for i, has in enumerate(state.has_clip) if not has), None)
 
@@ -173,6 +209,9 @@ class ImportOutcome:
     after_track: SlotState | None = None  # after the new track, before the clip
     after: SlotState | None = None  # after the clip, as read back
     file_path_read: str | None = None
+    target_name_before: str | None = None  # target track's name right before the clip
+    target_name_after: str | None = None  # Live may rename the target track after the clip
+    after_undo: SlotState | None = None  # read back after the last undo that was sent
     steps: list[Step] = field(default_factory=list)
     done: bool = False  # clip read back in the slot with the right file
     outcome_unknown: bool = False  # a write timed out / was interrupted / not read back
@@ -181,6 +220,15 @@ class ImportOutcome:
     def confirmed_writes(self) -> int:
         return sum(1 for s in self.steps
                    if s.outcome == "confirmed" and not s.label.startswith("undo"))
+
+    def import_names(self) -> frozenset[str | None]:
+        """The target track names this import itself read: before and after the clip."""
+        return frozenset({self.target_name_before, self.target_name_after})
+
+
+def target_name(state: SlotState, track_index: int) -> str | None:
+    """The target track's name in ``state``; None if the track does not exist there."""
+    return state.track_names[track_index] if track_index < len(state.track_names) else None
 
 
 class ClipImporter:
@@ -191,17 +239,40 @@ class ClipImporter:
     """
 
     def __init__(self, bridge: AbletonBridge, log: ActionLog, *, timeout_s: float,
-                 source: str = "scripts/live_import.py") -> None:
+                 source: str = "scripts/live_import.py",
+                 readback_window_s: float = READBACK_WINDOW_S,
+                 poll_interval_s: float = READBACK_POLL_INTERVAL_S,
+                 clock: Callable[[], float] = time.monotonic,
+                 sleep: Callable[[float], None] = time.sleep) -> None:
         self.bridge = bridge
         self.log = log
         self.timeout_s = timeout_s
         self.source = source
+        self.readback_window_s = readback_window_s
+        self.poll_interval_s = poll_interval_s
+        self._clock = clock
+        self._sleep = sleep
         self.last_outcome: ImportOutcome | None = None
 
     # -- helpers ---------------------------------------------------------------------------
 
     def _log(self, **entry: Any) -> None:
         self.log.append({"source": self.source, **entry})
+
+    def _poll(self, check: Callable[[], tuple[Any, bool]]) -> tuple[Any, bool, int]:
+        """Call ``check`` until it reports a match or the read-back window is over.
+
+        Returns (last value, matched, number of reads). It always reads at least once and
+        never reports a match that ``check`` did not report: "not visible yet" is not success.
+        """
+        deadline = self._clock() + self.readback_window_s
+        polls = 0
+        while True:
+            value, ok = check()
+            polls += 1
+            if ok or self._clock() >= deadline:
+                return value, ok, polls
+            self._sleep(self.poll_interval_s)
 
     def _unknown(self, outcome: ImportOutcome, label: str, capability: str, params: dict,
                  status: str, note: str) -> str:
@@ -296,41 +367,63 @@ class ClipImporter:
                       and self.bridge.get_track_has_audio_input(target))
                 return state, ok
 
-            after_track, ok = self._readback(outcome, "create_audio_track",
-                                             "song.create_audio_track", params, check_track)
+            after_track, ok, polls = self._readback(
+                outcome, "create_audio_track", "song.create_audio_track", params,
+                lambda: self._poll(check_track))
             outcome.after_track = after_track
             self._log(action="create_audio_track", capability="song.create_audio_track",
-                      params=params, status="read_back", after=after_track.as_json(), ok=ok)
+                      params=params, status="read_back", after=after_track.as_json(), ok=ok,
+                      polls=polls)
             if not ok:
+                # Confirmed but never seen as intended: what Live did is unknown (no undo).
+                outcome.outcome_unknown = True
                 raise ImportAborted("the new track is not an empty audio track at the end of "
-                                    "the track list; clip not sent")
+                                    f"the track list after {polls} read(s); clip not sent")
             clip_before = after_track
 
         params = {"track_index": target, "slot_index": slot_index, "path": path}
         self._send(outcome, "create_audio_clip", "clip_slot.create_audio_clip", params,
                    clip_before, lambda: self.bridge.create_audio_clip(target, slot_index, path))
-
-        def check_clip() -> tuple[SlotState, str | None]:
-            state = read_state(self.bridge, target, num_slots)
-            fp = None
-            if state.track_names == clip_before.track_names and state.has_clip[slot_index]:
-                fp = self.bridge.get_clip_file_path(target, slot_index)
-            return state, fp
-
-        after, file_path = self._readback(outcome, "create_audio_clip",
-                                          "clip_slot.create_audio_clip", params, check_clip)
-        outcome.after, outcome.file_path_read = after, file_path
         expected = list(clip_before.has_clip)
         expected[slot_index] = True
-        outcome.done = (after.track_names == clip_before.track_names
-                        and list(after.has_clip) == expected
-                        and file_path is not None and same_file_path(file_path, path))
+        errors: list[str] = []
+
+        def check_clip() -> tuple[tuple[SlotState, str | None], bool]:
+            state = read_state(self.bridge, target, num_slots)
+            fp = None
+            # Live renames a default-named target track after the clip (#50 run 1, action
+            # log: "3-Audio" -> "3-centre_s1001_v0"), so its name is not compared here.
+            if (same_except_track_name(state, SlotState(clip_before.track_names,
+                                                        state.has_clip), target)
+                    and state.has_clip[slot_index]):
+                try:
+                    fp = self.bridge.get_clip_file_path(target, slot_index)
+                except (AbletonOSCError, BridgeProtocolError) as exc:  # not readable yet
+                    errors.append(f"{type(exc).__name__}: {exc}")
+            ok = (same_except_track_name(state, SlotState(clip_before.track_names,
+                                                          tuple(expected)), target)
+                  and fp is not None and same_file_path(fp, path))
+            return (state, fp), ok
+
+        (after, file_path), done, polls = self._readback(
+            outcome, "create_audio_clip", "clip_slot.create_audio_clip", params,
+            lambda: self._poll(check_clip))
+        outcome.after, outcome.file_path_read, outcome.done = after, file_path, done
+        name_before = clip_before.track_names[target]
+        name_after = target_name(after, target)
+        outcome.target_name_before, outcome.target_name_after = name_before, name_after
         self._log(action="create_audio_clip", capability="clip_slot.create_audio_clip",
                   params=params, status="read_back", after=after.as_json(),
-                  file_path=file_path, ok=outcome.done)
-        if not outcome.done:
-            raise ImportAborted("read-back after the import does not show exactly the new "
-                                f"clip with this file (file_path={file_path!r})")
+                  file_path=file_path, ok=done, polls=polls,
+                  target_track_name={"before": name_before, "after": name_after},
+                  file_path_errors=errors[-3:])
+        if not done:
+            # The write was confirmed but its effect was never seen: unknown, so no undo.
+            outcome.outcome_unknown = True
+            raise ImportAborted(
+                f"read-back after {polls} read(s) in {self.readback_window_s:g} s does not show "
+                f"exactly the new clip with this file (file_path={file_path!r}, "
+                f"read={json.dumps(after.as_json(), ensure_ascii=False)})")
         return outcome
 
     # -- undo ------------------------------------------------------------------------------
@@ -339,28 +432,48 @@ class ClipImporter:
                   expect_after: SlotState, label: str) -> bool:
         """One Live undo, only if the set reads back exactly as ``expect_now``.
 
-        Returns True if the state after the undo equals ``expect_after``. Raises
-        :class:`ImportAborted` if undo is not allowed, if the read-back before the undo
-        differs (nothing sent), or on a bridge error.
+        Pre-check: everything as ``expect_now``, and the target track's name exactly as this
+        import last read it back (after the clip for the first undo, after the previous undo
+        otherwise). A name nobody here saw means a foreign action is the newest undo step.
+
+        Returns True if the state after the undo equals ``expect_after`` apart from the
+        target track's name, and that name is one of the two this import saw (before or after
+        Live's rename; whether Live's undo reverts the rename is not known). The state read
+        is kept in ``outcome.after_undo``, so the caller can tell whether the name came back.
+        Raises :class:`ImportAborted` if undo is not allowed, if the read-back before the
+        undo differs (nothing sent), or on a bridge error.
         """
         if outcome.outcome_unknown:
             raise ImportAborted("a write has an unknown outcome; undo is never sent then")
         if outcome.undos_sent >= outcome.confirmed_writes():
             raise ImportAborted("every confirmed write has been undone already")
-        now = read_state(self.bridge, outcome.track_index, len(expect_now.has_clip))
-        if now != expect_now:
+        idx = outcome.track_index
+        now = read_state(self.bridge, idx, len(expect_now.has_clip))
+        last_seen = (outcome.target_name_after if outcome.after_undo is None
+                     else target_name(outcome.after_undo, idx))
+        name_now = target_name(now, idx)
+        # last_seen is always one of outcome.import_names(): check_undo below enforces it.
+        if not (same_except_track_name(now, expect_now, idx) and name_now == last_seen):
             self._log(action=label, capability="song.undo", status="refused",
                       reason="read-back before undo differs from the expected state",
-                      now=now.as_json(), expected=expect_now.as_json())
+                      now=now.as_json(), expected=expect_now.as_json(),
+                      expected_target_name=last_seen)
             outcome.steps.append(Step(label, "refused", "set changed since the import"))
             raise ImportAborted("the set is not as the import left it; undo NOT sent")
         self._send(outcome, label, "song.undo", {}, now, self.bridge.undo)
         outcome.undos_sent += 1
-        after = self._readback(outcome, label, "song.undo", {}, lambda: read_state(
-            self.bridge, outcome.track_index, len(expect_after.has_clip)))
-        ok = after == expect_after
+
+        def check_undo() -> tuple[SlotState, bool]:
+            state = read_state(self.bridge, idx, len(expect_after.has_clip))
+            name = target_name(state, idx)
+            return state, (same_except_track_name(state, expect_after, idx)
+                           and (name is None or name in outcome.import_names()))
+
+        after, ok, polls = self._readback(outcome, label, "song.undo", {},
+                                          lambda: self._poll(check_undo))
+        outcome.after_undo = after
         self._log(action=label, capability="song.undo", status="read_back",
-                  after=after.as_json(), expected=expect_after.as_json(), ok=ok)
+                  after=after.as_json(), expected=expect_after.as_json(), ok=ok, polls=polls)
         if not ok:
             outcome.steps[-1].detail = f"read-back differs: {after.as_json()}"
         return ok

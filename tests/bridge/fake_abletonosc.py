@@ -67,6 +67,12 @@ class FakeAbletonOSC:
         self.num_scenes = 4
         self.extension_installed = True
         self.clip_undoable = True  # False: Live does not record create_audio_clip as undo step
+        # Read-back timing (#50 user run 1). All simulated; Live's real timing is not known.
+        self.clip_delay_s = 0.0  # the clip appears in the slot this long after the call
+        self.rename_on_clip: str | None = None  # Live renames the target track to this
+        self.file_path_delay_s = 0.0  # file_path reads as None (OSC nil) this long after
+        self.undo_reverts_rename = True  # undo of the clip also restores the old track name
+        self._clip_made_at: dict[tuple[int, int], float] = {}
 
         self._held: list[tuple[bytes, tuple[str, int]]] | None = None
         self.released = threading.Event()  # set by release(); lets tests check ordering
@@ -127,15 +133,34 @@ class FakeAbletonOSC:
             raise RuntimeError("Clip slot does not belong to an audio track or track is frozen")
         if slots[slot_index] is not None:
             raise RuntimeError("Clip slot is not empty")  # LOM behaviour here: not verified
-        slots[slot_index] = path
-        if self.clip_undoable:
-            self.undo_stack.append(("clip", track_index, slot_index))
+
+        def apply() -> None:
+            slots[slot_index] = path
+            self._clip_made_at[(track_index, slot_index)] = time.monotonic()
+            old_name = track["name"]
+            if self.rename_on_clip is not None:
+                track["name"] = self.rename_on_clip
+            if self.clip_undoable:
+                self.undo_stack.append(("clip", track_index, slot_index, old_name))
+
+        if self.clip_delay_s > 0:
+            def later() -> None:
+                with self._lock:
+                    apply()
+            timer = threading.Timer(self.clip_delay_s, later)
+            timer.daemon = True
+            timer.start()
+        else:
+            apply()
 
     def _get_file_path(self, p: tuple) -> tuple:
         idx, slot = int(p[0]), int(p[1])
         path = self._slots(idx)[slot]
         if path is None:  # AbletonOSC: getattr(None, "file_path") -> AttributeError
             raise AttributeError("'NoneType' object has no attribute 'file_path'")
+        made = self._clip_made_at.get((idx, slot))
+        if made is not None and time.monotonic() - made < self.file_path_delay_s:
+            return (idx, slot, None)  # _get_property: RuntimeError -> None -> OSC nil
         return (idx, slot, path)
 
     def _get_mute(self, p: tuple) -> tuple:
@@ -155,6 +180,8 @@ class FakeAbletonOSC:
             del self.tracks[entry[1]]
         elif entry[0] == "clip":
             self.tracks[entry[1]]["slots"][entry[2]] = None
+            if self.undo_reverts_rename:
+                self.tracks[entry[1]]["name"] = entry[3]
         else:
             idx, before = entry
             self.tracks[idx]["mute"] = before

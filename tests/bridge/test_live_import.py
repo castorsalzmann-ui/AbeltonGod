@@ -336,6 +336,88 @@ def test_undo_reverting_other_action_is_fail(fake, tmp_path):
     assert sum(1 for a, _ in writes(fake) if a == UNDO) == 1  # never a second undo
 
 
+@pytest.mark.parametrize("reverts_rename", [True, False])
+def test_user_run_1_two_midi_tracks_new_track_renamed(fake, tmp_path, reverts_rename):
+    """#50 user run 1 (Live 12.4.5): set with two MIDI tracks, target 'n'. The user's action
+    log shows the clip at the first read and the new track renamed '3-Audio' ->
+    '3-centre_s1001_v0'; no delay. Script 0.1.0 reported FAIL (file_path=None) although the
+    clip was there. Now: PASS, rename reported, two undos, set as before."""
+    fake.num_scenes = 8
+    fake.tracks = [{"name": "1-MIDI", "mute": False, "slots": [None] * 8},
+                   {"name": "2-MIDI", "mute": False, "slots": [None] * 8}]
+    fake.rename_on_clip = "3-centre_s1001_v0"
+    fake.clip_delay_s = 0.0
+    fake.undo_reverts_rename = reverts_rename
+    p = wav(tmp_path / "centre_s1001_v0.wav")
+    code, out, _ = run(fake, tmp_path, ["y", "n", "y", "y", "y"], path=p)
+    assert code == 0, out
+    b = block(out)
+    assert b["clip_slot.create_audio_clip"] == "PASS"
+    assert b["clip_file_path_read"] == repr(p)
+    assert b["target_track_name_after_import"] == "'3-centre_s1001_v0'"
+    assert "Live hat die Spur umbenannt: '3-Audio' -> '3-centre_s1001_v0'" in out
+    assert b["song.undo"] == "PASS (clip removed, track removed; read back)"
+    assert "Das Set ist wieder wie vor dem Import" in out
+    assert [t["name"] for t in fake.tracks] == ["1-MIDI", "2-MIDI"]
+    clip_rb = [e for e in log_entries(tmp_path)
+               if e["action"] == "create_audio_clip" and e["status"] == "read_back"]
+    assert [e["polls"] for e in clip_rb] == [1]  # matched at the first read, as in run 1
+
+
+@pytest.mark.parametrize("reverts_rename", [True, False])
+def test_existing_track_renamed_by_live_undo_result(fake, tmp_path, reverts_rename):
+    """Review of #97, Problem 1: an existing default-named audio track renamed by Live after
+    the clip. If undo keeps the new name, the set is not as before: PARTIAL, exit 1, never
+    "Das Set ist wieder wie vor dem Import"."""
+    fake.tracks[0]["slots"] = [None] * 4
+    fake.rename_on_clip = "1-Kick 1"
+    fake.undo_reverts_rename = reverts_rename
+    code, out, _ = run(fake, tmp_path, ["y", "0", "y", "y", "y"])
+    b = block(out)
+    assert b["clip_slot.create_audio_clip"] == "PASS"
+    assert "Live hat die Spur umbenannt: '1-Audio' -> '1-Kick 1'" in out
+    assert fake.tracks[0]["slots"] == [None] * 4
+    assert sum(1 for a, _ in writes(fake) if a == UNDO) == 1
+    if reverts_rename:
+        assert code == 0, out
+        assert b["song.undo"] == "PASS (clip removed; read back)"
+        assert "Das Set ist wieder wie vor dem Import" in out
+    else:
+        assert code == 1, out
+        assert b["song.undo"] == ("PARTIAL (clip removed; read back; track names not "
+                                  "restored: '1-Audio' -> '1-Kick 1')")
+        assert "Das Set ist wieder wie vor dem Import" not in out
+        assert "ACHTUNG: Undo hat den Import zurückgenommen" in out
+        assert "'1-Audio' -> '1-Kick 1'. Das Set ist NICHT ganz wie vorher." in out
+        assert [t["name"] for t in fake.tracks] == ["1-Kick 1", "2-MIDI"]
+
+
+def test_undo_that_also_renames_another_track_is_fail(fake, tmp_path):
+    """Review of #97, R6, at script level: the undo removes the clip but also renames another
+    track. FAIL, no second undo, no "set restored" line."""
+    orig = fake._undo
+
+    def undo_and_rename(p):
+        orig(p)
+        fake.tracks[1]["name"] = "2-MIDI (renamed)"
+
+    fake._undo = undo_and_rename
+    code, out, _ = run(fake, tmp_path, ["y", "0", "y", "y", "y"])
+    assert code == 1, out
+    assert block(out)["song.undo"].startswith("FAIL (after undo_clip")
+    assert "Das Set ist wieder wie vor dem Import" not in out
+    assert sum(1 for a, _ in writes(fake) if a == UNDO) == 1
+
+
+def test_readback_that_never_matches_is_reported_as_unknown(fake, tmp_path):
+    fake.clip_delay_s = 30.0  # the clip never shows within the 2 s window
+    code, out, prompts = run(fake, tmp_path, ["y", "0", "y", "y", "y"])
+    assert code == 1
+    assert "zeigt nicht das erwartete Ergebnis" in out and "KEIN Undo" in out
+    assert not any("Undo" in p for p in prompts)
+    assert UNDO not in [a for a, _ in writes(fake)]
+
+
 def test_non_ascii_path_round_trip(fake, tmp_path):
     p = wav(tmp_path / "Kick Ä 東京.wav")
     code, out, _ = run(fake, tmp_path, ["y", "0", "y", "y", ""], path=p)
