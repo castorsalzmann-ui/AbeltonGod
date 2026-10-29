@@ -33,9 +33,10 @@ How the SDK's own agent loop is held to that (one SDK session per user request):
 
 Fail-closed checks (each ends the request with a clear error, never a success):
 
-- the credential source the CLI reports (``account`` in the initialize response, before the
-  prompt is sent - missing or unreadable is a refusal; then ``apiKeySource`` in the init
-  message) must match the D-014 switch;
+- the CLI version (``claude_code_version`` in the initialize response) must be
+  ``PINNED_CLI_VERSION``, and the credential source it reports (``account`` in the same
+  response, before the prompt is sent - missing or unreadable is a refusal; then
+  ``apiKeySource`` in the init message) must match the D-014 switch;
 - the init message must list no tool outside this server, and must come before any answer;
 - a second model call inside one ``complete`` (one the guard did not permit), a sub-agent
   model call, a relay call without approval and a stream that ends without a result are
@@ -48,7 +49,8 @@ What is **not verified** (research note ``2026-10-28_agent-sdk-behaviour.md``, #
 hook fires before the SDK's own schema check (V4/V9), that ``updatedInput`` reaches the tool
 (V9), the init ``tools`` list with this configuration (V6), the ``apiKeySource`` values on the
 user's machine (V7), the turn definition behind ``max_turns`` (V1), the ``account`` field
-of the initialize response (read from the bundled CLI 2.1.310, not documented), what the CLI
+of the initialize response (read from the bundled CLI 2.1.310, not documented; on the user's
+machine only ``tokenSource: "none"`` is observed so far, #147), what the CLI
 does on a hook timeout (docs: blocks the call, turn goes on) and with a hook that is never
 answered while it is being shut down (V4).
 
@@ -147,10 +149,26 @@ GRACE_S = 5.0
 # + grace (the guard policy allows at most 3600 s), long before this. 7 days, well below the
 # 2**31 - 1 ms a JavaScript timer can hold (a larger value could fire at once).
 HOOK_TIMEOUT_S = 7 * 24 * 3600.0
-# Token sources a subscription login may report (bundled CLI 2.1.310, undocumented).
+# The only Claude Code version whose initialize "account" was read from the source (#147):
+# the CLI bundled with the pinned claude-agent-sdk 0.2.174. Any other version is refused before
+# the prompt, because the account check below relies on that version's behaviour.
+PINNED_CLI_VERSION = "2.1.310"
+# Initialize "account" of CLI 2.1.310 (function O0e() in the bundle; undocumented, #147):
+# ``tokenSource`` is the CLI's own token lookup at the moment the answer is built, and API keys
+# are reported separately in ``apiKeySource``. tokenSource values of a subscription credential:
+# "none" - no OAuth token visible yet (the user's Max login on Windows reported this, #147);
+# "claude.ai" - the stored claude.ai login; the two OAuth-token variables (`claude setup-token`).
+# Not here, so refused: ANTHROPIC_AUTH_TOKEN, apiKeyHelper, CCR_OAUTH_TOKEN_FILE and anything
+# unknown.
 SUBSCRIPTION_TOKEN_SOURCES = (
-    None, "CLAUDE_CODE_OAUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN_FILE_DESCRIPTOR",
+    "none", "claude.ai", "CLAUDE_CODE_OAUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN_FILE_DESCRIPTOR",
 )
+# Without a tokenSource the CLI reports a subscription only through ``subscriptionType``
+# ("Claude Max", "Claude Pro", "Claude Team", "Claude Enterprise" or "Claude <plan name>").
+# "Claude API" is its label for an unknown plan; an Anthropic profile (~/.config/anthropic)
+# reports neither field. Both are refused.
+SUBSCRIPTION_PLAN_PREFIX = "Claude "
+NOT_A_SUBSCRIPTION_PLAN = "Claude API"
 
 TransportFactory = Callable[[ClaudeAgentOptions], Any]
 
@@ -358,6 +376,9 @@ class SdkModelClient:
             "ENABLE_TOOL_SEARCH": "false",
             # Per-call output cap from the guard permit (Claude Code setting; not verified).
             "CLAUDE_CODE_MAX_OUTPUT_TOKENS": str(int(request.max_output_tokens)),
+            # Never let a session update Claude Code away from PINNED_CLI_VERSION (#147; the
+            # CLI 2.1.310 updater honours DISABLE_AUTOUPDATER, read from the bundle).
+            "DISABLE_AUTOUPDATER": "1",
         }
         if self.settings.mode is AuthMode.API_KEY:
             key = merged_environment(self._environ, self._env_file).get("ANTHROPIC_API_KEY", "")
@@ -482,12 +503,14 @@ class SdkModelClient:
     # ----- checks ----------------------------------------------------------------------------
 
     def _check_account(self, info: Any) -> None:
-        """Check before the prompt is sent: the initialize response's ``account``. Not
-        documented, but the pinned bundled CLI (2.1.310) always sends it
-        (``account: e.account ?? {apiProvider: "firstParty"}``; ``apiKeySource`` only when a
-        key is in use), and the SDK prefers the bundled CLI. So anything else means an
-        unexpected CLI: fail closed. This is the only check that sees a Console login
-        (``"/login managed key"``, billed as API) before a model call."""
+        """Check before the prompt is sent: the initialize response's ``claude_code_version``
+        and ``account``. Not documented; read from the bundled CLI 2.1.310 (#147): the account
+        is built by ``O0e()`` - ``tokenSource`` only for a token the CLI sees (or no field when
+        it reports ``subscriptionType`` instead), ``apiKeySource`` only when a key is in use,
+        ``apiProvider`` always. Any other CLI version or shape fails closed. This is the only
+        check that sees a Console login (``"/login managed key"``, billed as API) before a
+        model call."""
+        version = info.get("claude_code_version") if isinstance(info, Mapping) else None
         account = info.get("account") if isinstance(info, Mapping) else None
 
         def refuse(why: str) -> None:
@@ -495,6 +518,12 @@ class SdkModelClient:
                 f"auth mode {self.settings.mode.value!r}: {why}", request_sent=False
             )
 
+        if version != PINNED_CLI_VERSION:
+            refuse(
+                f"Claude Code version {version!r} is not the checked version "
+                f"{PINNED_CLI_VERSION!r} (bundled with claude-agent-sdk 0.2.174); its login "
+                "report is not verified, refusing to send the request"
+            )
         if not isinstance(account, Mapping):
             refuse("Claude Code reported no readable account; refusing to send the request")
         source = account.get("apiKeySource")
@@ -508,7 +537,15 @@ class SdkModelClient:
                     "Claude login; remove it or set ABELTONGOD_CLAUDE_AUTH=api_key"
                 )
             token = account.get("tokenSource")
-            if token not in SUBSCRIPTION_TOKEN_SOURCES:
+            if "tokenSource" not in account:
+                plan = account.get("subscriptionType")
+                if (not isinstance(plan, str) or not plan.startswith(SUBSCRIPTION_PLAN_PREFIX)
+                        or plan == NOT_A_SUBSCRIPTION_PLAN):
+                    refuse(
+                        f"Claude Code reports no Claude subscription (plan {plan!r}) and no "
+                        "login token; refusing to send the request"
+                    )
+            elif token not in SUBSCRIPTION_TOKEN_SOURCES:
                 refuse(f"Claude Code uses the credential {token!r} instead of your Claude login")
         elif source != "ANTHROPIC_API_KEY":
             refuse(f"Claude Code reports key source {source!r}, expected ANTHROPIC_API_KEY")

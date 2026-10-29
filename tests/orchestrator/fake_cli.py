@@ -21,6 +21,7 @@ and the turn goes on - with the next model call.
 Script (a dict)::
 
     {"account": {...} | "<omit>",          # initialize "account" (default DEFAULT_ACCOUNT)
+     "cli_version": "2.1.310" | "<omit>",  # initialize "claude_code_version"
      "api_key_source": "none",             # init message apiKeySource
      "init_tools": [...] | None,           # default: the MCP tools the server lists
      "skip_init": False,                   # True: no init message at all
@@ -60,9 +61,15 @@ PREFIX = f"mcp__{SERVER}__"
 # every message it already has (a few event-loop steps), so a client that answers a waiting
 # hook on shutdown is seen making the extra model call (mutant S31).
 LAG_S = 0.03
-# Initialize "account" of a subscription login (shape read from the bundled CLI 2.1.310).
-DEFAULT_ACCOUNT = {"apiProvider": "firstParty"}
-OMIT = "<omit>"  # script value: send no "account" at all
+# Initialize fields taken from the real bundled CLI 2.1.310 (#147): ``claude_code_version`` was
+# probed (initialize only, no prompt) from the Linux build; the account shape is the one
+# ``O0e()`` builds for a Max login whose token the CLI sees (``subscriptionType`` from the plan,
+# ``email`` for a claude.ai login, no ``tokenSource``). The field values are derived from the
+# code, not recorded on the user's machine; there the CLI reported ``tokenSource: "none"``.
+CLI_VERSION = "2.1.310"
+DEFAULT_ACCOUNT = {"email": "user@example.invalid", "subscriptionType": "Claude Max",
+                   "apiProvider": "firstParty"}
+OMIT = "<omit>"  # script value: send no "account" (or "claude_code_version") at all
 
 
 class HookTimeout(Exception):
@@ -139,6 +146,9 @@ class FakeCLI(Transport):
                 account = self.script.get("account", DEFAULT_ACCOUNT)
                 if account != OMIT:
                     response["account"] = account
+                version = self.script.get("cli_version", CLI_VERSION)
+                if version != OMIT:
+                    response["claude_code_version"] = version
             elif req.get("subtype") == "interrupt" and self.task is not None:
                 # Not instantaneous: what the CLI already received (e.g. a hook answer) is
                 # still acted on before the turn ends.
@@ -217,7 +227,7 @@ class FakeCLI(Transport):
             "tools": tools if init_tools is None else init_tools,
             "mcp_servers": [], "model": "claude-opus-5-5", "cwd": ".",
             "permissionMode": "dontAsk", "slash_commands": [], "output_style": "default",
-            "skills": [], "claude_code_version": "fake",
+            "skills": [], "claude_code_version": CLI_VERSION,
         })
 
     async def _run_turns(self) -> None:

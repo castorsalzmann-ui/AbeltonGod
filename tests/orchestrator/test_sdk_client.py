@@ -109,6 +109,7 @@ def test_session_options_close_the_tool_surface(make_guard, events, clients):
     assert not any(t.startswith("mcp__") for t in opts.disallowed_tools)
     assert opts.env["ENABLE_TOOL_SEARCH"] == "false"
     assert opts.env["CLAUDE_CODE_MAX_OUTPUT_TOKENS"] == "1000"  # TEST_POLICY max_output_tokens
+    assert opts.env["DISABLE_AUTOUPDATER"] == "1"  # stays on the checked CLI version (#147)
     assert "ANTHROPIC_API_KEY" not in opts.env
     assert opts.agents is None and opts.plugins == []
     assert opts.model == "claude-opus-5-5"
@@ -433,6 +434,9 @@ def test_api_key_mode_refuses_a_wrong_account_before_the_prompt(account, make_gu
     assert factory.cli.prompts == [] and factory.cli.model_calls == 0
 
 
+FP = {"apiProvider": "firstParty"}
+
+
 @pytest.mark.parametrize("account", [
     {"apiProvider": "firstParty", "apiKeySource": "ANTHROPIC_API_KEY"},
     {"apiProvider": "firstParty", "apiKeySource": "/login managed key"},  # Console login
@@ -441,6 +445,30 @@ def test_api_key_mode_refuses_a_wrong_account_before_the_prompt(account, make_gu
     "<omit>", None, "string", {}, {"apiKeySource": None, "apiProvider": None},
     {"apiProvider": "firstParty", "tokenSource": "ANTHROPIC_AUTH_TOKEN"},
     {"apiProvider": "firstParty", "tokenSource": "apiKeyHelper"},
+    # #147: the shapes CLI 2.1.310 builds for API-billed credentials (O0e(), read from the
+    # bundle); "none" is a subscription value only without an apiKeySource
+    {**FP, "tokenSource": "none", "apiKeySource": "/login managed key"},  # Console login
+    {**FP, "tokenSource": "none", "apiKeySource": "ANTHROPIC_API_KEY"},
+    {**FP, "tokenSource": "none", "apiKeySource": "apiKeyHelper"},
+    {**FP, "tokenSource": "apiKeyHelper", "apiKeySource": "apiKeyHelper"},
+    {**FP, "email": "a@b.c", "organization": "Org", "subscriptionType": "Claude API",
+     "apiKeySource": "/login managed key"},  # Console key next to an OAuth token (probed)
+    {**FP, "tokenSource": "claude.ai", "apiKeySource": "ANTHROPIC_API_KEY"},
+    {**FP, "subscriptionType": "Claude Max", "apiKeySource": "/login managed key"},
+    {**FP, "tokenSource": "CCR_OAUTH_TOKEN_FILE"},  # Claude Code on the web host token
+    {**FP, "tokenSource": "profile"},
+    FP,  # no token, no plan: what an Anthropic profile (~/.config/anthropic) reports
+    {**FP, "tokenSource": None}, {**FP, "tokenSource": None, "subscriptionType": "Claude Max"},
+    {**FP, "subscriptionType": "Claude API"},  # the CLI's label for an unknown plan
+    {**FP, "subscriptionType": "max"}, {**FP, "subscriptionType": "Claude"},
+    {**FP, "subscriptionType": ""}, {**FP, "subscriptionType": 1},
+    {**FP, "subscriptionType": None},
+    {**FP, "tokenSource": "None"}, {**FP, "tokenSource": "NONE"}, {**FP, "tokenSource": ""},
+    {**FP, "tokenSource": ["none"]}, {**FP, "tokenSource": 0},
+    {"tokenSource": "none", "apiProvider": "bedrock"},
+    {"tokenSource": "none"},  # provider missing
+    {"subscriptionType": "Claude Max", "apiProvider": "vertex"},
+    {"subscriptionType": "Claude Max", "apiProvider": "gateway"},
 ])
 def test_account_mismatch_is_refused_before_the_prompt(account, make_guard, events, clients):
     # the init message would say "none": only the pre-prompt check can refuse here
@@ -453,12 +481,78 @@ def test_account_mismatch_is_refused_before_the_prompt(account, make_guard, even
 
 
 @pytest.mark.parametrize("account", [
-    {"subscriptionType": "max", "apiProvider": "firstParty"},
-    {"apiProvider": "firstParty", "tokenSource": "CLAUDE_CODE_OAUTH_TOKEN"},  # setup-token
+    {"tokenSource": "none", "apiProvider": "firstParty"},  # the user's Max login (#147)
+    {**FP, "email": "a@b.c", "subscriptionType": "Claude Max"},  # Max, token visible
+    {**FP, "subscriptionType": "Claude Pro"}, {**FP, "subscriptionType": "Claude Team"},
+    {**FP, "subscriptionType": "Claude Enterprise"},
+    {**FP, "subscriptionType": "Claude Max 20x"},  # "Claude <planDisplayName>"
+    {**FP, "email": "a@b.c", "organization": "Org", "tokenSource": "claude.ai"},
+    {**FP, "tokenSource": "CLAUDE_CODE_OAUTH_TOKEN"},  # setup-token
+    {**FP, "tokenSource": "CLAUDE_CODE_OAUTH_TOKEN_FILE_DESCRIPTOR"},
 ])
 def test_subscription_account_passes(account, make_guard, events, clients):
     factory = FakeCLIFactory({"account": account, "turns": [{"text": "hi"}]})
     assert run(make_guard(), make_client(clients, factory), []).success
+
+
+# Written from the CLI 2.1.310 source (#147), not from sdk_client: field values that mean API
+# billing or another provider, and the ones a subscription login may report.
+API_KEY_SOURCES = ("ANTHROPIC_API_KEY", "apiKeyHelper", "/login managed key", "none", "user",
+                   "project", "org", "temporary", "oauth", "", "None")
+API_TOKEN_SOURCES = ("ANTHROPIC_AUTH_TOKEN", "apiKeyHelper", "CCR_OAUTH_TOKEN_FILE", "profile")
+SUB_TOKEN_SOURCES = ("none", "claude.ai", "CLAUDE_CODE_OAUTH_TOKEN",
+                     "CLAUDE_CODE_OAUTH_TOKEN_FILE_DESCRIPTOR")
+SUB_PLANS = ("Claude Max", "Claude Pro", "Claude Team", "Claude Enterprise", "Claude Max 5x")
+PROVIDERS = ("firstParty", "bedrock", "vertex", "foundry", "anthropicAws",
+             "anthropicGoogleCloud", "mantle", "gateway")
+MISSING = object()
+
+
+def test_account_property_api_billing_is_never_accepted(make_guard, events, clients):
+    """Seeded random accounts over every field value the CLI can send, plus junk. Safety
+    property: any API key, API token, other provider or unknown value is refused before the
+    prompt; a subscription credential alone passes."""
+    rng = random.Random(147)
+    pools = {
+        # weighted towards the subscription shape so the passing branch is hit often enough
+        "apiProvider": PROVIDERS + ("firstParty",) * 8 + (MISSING, None, "FirstParty"),
+        "apiKeySource": API_KEY_SOURCES + (MISSING,) * 12,
+        "tokenSource": API_TOKEN_SOURCES + SUB_TOKEN_SOURCES + (MISSING,) * 4 + ("x", None),
+        "subscriptionType": SUB_PLANS + ("Claude API", "max", "", "Claude", MISSING, MISSING),
+        "email": ("a@b.c", MISSING),
+    }
+    seen = {True: 0, False: 0}
+    for _ in range(300):
+        account = {k: v for k, pool in pools.items()
+                   if (v := rng.choice(pool)) is not MISSING}
+        token, plan = account.get("tokenSource"), account.get("subscriptionType")
+        expected = (account.get("apiProvider") == "firstParty"
+                    and "apiKeySource" not in account
+                    and (token in SUB_TOKEN_SOURCES
+                         or ("tokenSource" not in account and plan in SUB_PLANS)))
+        factory = FakeCLIFactory({"account": account, "turns": [{"text": "hi"}]})
+        out = run(make_guard(), make_client(clients, factory), [])
+        assert out.success is expected, (account, out.message_de)
+        if not expected:
+            assert factory.cli.prompts == [] and factory.cli.model_calls == 0, account
+        seen[expected] += 1
+    assert seen[True] >= 10 and seen[False] >= 100, seen  # both branches really exercised
+
+
+@pytest.mark.parametrize("mode", [AuthMode.SUBSCRIPTION, AuthMode.API_KEY])
+@pytest.mark.parametrize("version", ["<omit>", None, "2.1.311", "2.1.309", "2.1.31",
+                                     "2.1.310 ", "v2.1.310", "fake", 2.131, ["2.1.310"]])
+def test_other_cli_version_is_refused_before_the_prompt(version, mode, make_guard, events,
+                                                        clients):
+    script = {"cli_version": version, "turns": [{"text": "hi"}]}
+    kwargs = {}
+    if mode is AuthMode.API_KEY:
+        script.update(account=KEY_ACCOUNT, api_key_source="ANTHROPIC_API_KEY")
+        kwargs = {"environ": {"ANTHROPIC_API_KEY": "sk-test"}, "env_file": None}
+    factory = FakeCLIFactory(script)
+    out = run(make_guard(), make_client(clients, factory, mode=mode, **kwargs), [])
+    assert out.error == "model_unavailable" and "version" in out.message_de
+    assert factory.cli.prompts == [] and factory.cli.model_calls == 0
 
 
 @pytest.mark.parametrize("tools", [[ECHO, "Bash"], ["ToolSearch"], [ECHO, "mcp__x__y"], "Bash"])
