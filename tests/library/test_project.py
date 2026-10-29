@@ -69,8 +69,8 @@ def symlink(link: Path, target: Path) -> None:
 
 def test_reason_codes_are_the_agreed_strings_in_check_order():
     assert [r.value for r in ProjectReason] == [
-        "empty", "not_absolute", "missing", "in_checkout", "backup_folder", "unreadable",
-        "no_als_file"]
+        "empty", "not_absolute", "missing", "checkout_unknown", "in_checkout", "backup_folder",
+        "unreadable", "no_als_file"]
     assert all(isinstance(r, str) for r in ProjectReason)
     assert library.check_project_dir is check_project_dir
 
@@ -78,6 +78,79 @@ def test_reason_codes_are_the_agreed_strings_in_check_order():
 def test_default_root_is_this_checkout():
     assert CHECKOUT_ROOT == REPO
     assert (CHECKOUT_ROOT / "src" / "library" / "project.py").is_file()
+    assert project_mod.checkout_problem(REPO) is None
+
+
+# -- the default root must be a verified checkout (round 1, finding 4) ----------------------
+
+def fake_checkout(base: Path, pyproject: str | None, src: bool = True) -> Path:
+    base.mkdir(parents=True)
+    if pyproject is not None:
+        (base / "pyproject.toml").write_text(pyproject, encoding="utf-8")
+    if src:
+        (base / "src" / "library").mkdir(parents=True)
+    return base
+
+
+@pytest.mark.parametrize("pyproject, src, part", [
+    (None, True, "no readable pyproject.toml"),
+    ('[project]\nname = "other"\n', True, "names project 'other'"),
+    ("[tool.x]\n", True, "names project None"),
+    ("[project\nname=", True, "TOMLDecodeError"),
+    ('project = "abeltongod"\n', True, "AttributeError"),
+    ('[project]\nname = "abeltongod"\n', False, "no src/library folder"),
+])
+def test_unverified_default_root_refuses_everything(tmp_path, project, monkeypatch, pyproject,
+                                                    src, part):
+    """E.g. a non-editable install: CHECKOUT_ROOT is the venv's Lib folder."""
+    fake = fake_checkout(tmp_path / "lib", pyproject, src)
+    monkeypatch.setattr(project_mod, "CHECKOUT_ROOT", fake)
+    problem = check_project_dir(project)
+    assert problem.reason is R.CHECKOUT_UNKNOWN and problem.path == str(project)
+    assert part in problem.detail and str(fake) in problem.detail
+    # explicit roots do not need the default root
+    assert check_project_dir(project, refused_roots=(tmp_path / "elsewhere",)) is None
+
+
+def test_verified_fake_default_root_is_used(tmp_path, monkeypatch):
+    fake = fake_checkout(tmp_path / "clone", '[project]\nname = "abeltongod"\n')
+    monkeypatch.setattr(project_mod, "CHECKOUT_ROOT", fake)
+    inside = fake / "docs"
+    inside.mkdir()
+    (inside / "s.als").write_bytes(b"")
+    outside = tmp_path / "p"
+    outside.mkdir()
+    (outside / "s.als").write_bytes(b"")
+    assert check_project_dir(inside) == ProjectDirProblem(R.IN_CHECKOUT, str(inside),
+                                                          str(fake.resolve()))
+    assert check_project_dir(outside) is None
+
+
+def test_order_missing_before_checkout_unknown(tmp_path, monkeypatch):
+    monkeypatch.setattr(project_mod, "CHECKOUT_ROOT", tmp_path / "nothing")
+    assert check_project_dir(tmp_path / "nope").reason is R.MISSING
+    assert check_project_dir("rel").reason is R.NOT_ABSOLUTE
+
+
+# -- refused_roots: any iterable of paths, never a single path (round 1, finding 5) ---------
+
+def test_refused_roots_any_iterable(tmp_path, root):
+    inside = root / "proj"
+    inside.mkdir()
+    for roots in ([root], [str(root)], {str(root)}, (r for r in [root]),
+                  (tmp_path / "other", root)):
+        assert reason_with(inside, roots) is R.IN_CHECKOUT, roots
+
+
+def reason_with(path, roots):
+    problem = check_project_dir(path, refused_roots=roots)
+    return None if problem is None else problem.reason
+
+
+@pytest.mark.parametrize("single", ["/nonexistent/other", "zz", b"/x", Path("/x")])
+def test_refused_roots_single_path_is_a_type_error(project, single):
+    with pytest.raises(TypeError, match="iterable of paths"):
+        check_project_dir(project, refused_roots=single)
 
 
 # -- accepted -------------------------------------------------------------------------------
@@ -316,6 +389,24 @@ def test_unreadable_listing(project, root, monkeypatch):
     assert "Zugriff verweigert" in problem.detail
 
 
+def test_unreadable_listing_names_the_folder_as_given(tmp_path, project, root, monkeypatch):
+    """The folder is listed as given (as before #149), so the error text names the path the
+    user typed, not the folder a symlink resolves to (round 1, finding 2)."""
+    link = tmp_path / "projlink"
+    symlink(link, project)
+
+    def denied(self):
+        raise PermissionError(13, "Permission denied", str(self))
+    monkeypatch.setattr(Path, "iterdir", denied)
+    problem = check(link, root)
+    assert problem.reason is R.UNREADABLE
+    assert problem.detail == f"[Errno 13] Permission denied: {str(link)!r}"
+    k2l = load_kick_to_live()
+    monkeypatch.setattr(k2l, "REFUSED_ROOTS", (root,))
+    assert k2l.project_problem(str(link)) == (
+        f"{link} lässt sich nicht lesen: [Errno 13] Permission denied: {str(link)!r}")
+
+
 def test_unreadable_entry(project, root, monkeypatch):
     real_is_file = Path.is_file
 
@@ -328,6 +419,9 @@ def test_unreadable_entry(project, root, monkeypatch):
 
 
 def test_unreadable_is_dir(project, root, monkeypatch):
+    """Real only up to Python 3.13: there ``is_dir()`` raises on EACCES. From 3.14 on it
+    returns False and such a folder is ``missing`` (still a refusal); the fault is injected
+    here so the except path is tested on every version."""
     def denied(self, *a, **kw):
         raise PermissionError(13, "denied", str(self))
     monkeypatch.setattr(Path, "is_dir", denied)
@@ -541,6 +635,9 @@ GERMAN = {  # copied from project_problem before #149; must not change
                     "eines gespeicherten Live-Sets. Set zuerst in Live speichern (Datei -> "
                     "Live-Set speichern unter ...), dann den Ordner nehmen, in dem die "
                     ".als-Datei liegt."),
+    # new in #149 round 2; the script always passes its own roots, so it only gets the
+    # fallback text if that ever changes
+    R.CHECKOUT_UNKNOWN: "C:\\Proj wurde abgelehnt (checkout_unknown: DETAIL).",
 }
 
 
@@ -550,12 +647,23 @@ def test_kick_to_live_text_for_each_reason(code, monkeypatch):
     seen = {}
 
     def fake_check(raw, *, refused_roots):
-        seen["roots"] = refused_roots
+        seen["raw"], seen["roots"] = raw, refused_roots
         return ProjectDirProblem(code, raw, "DETAIL")
     monkeypatch.setattr(k2l, "check_project_dir", fake_check)
     monkeypatch.setattr(k2l, "REFUSED_ROOTS", ("ROOTS",))
+    padded = " " + RAW + " "
     assert k2l.project_problem(RAW) == GERMAN[code]
-    assert seen["roots"] == ("ROOTS",)  # the script's roots, read at call time
+    assert seen == {"raw": RAW, "roots": ("ROOTS",)}  # script's roots, read at call time
+    k2l.project_problem(padded)
+    assert seen["raw"] == padded  # passed on unchanged, never stripped
+
+
+def test_kick_to_live_refuses_a_padded_absolute_path(project, root, monkeypatch):
+    """The script keeps working with raw, so the check must see raw (round 1, finding 1)."""
+    k2l = load_kick_to_live()
+    monkeypatch.setattr(k2l, "REFUSED_ROOTS", (root,))
+    raw = " " + str(project)
+    assert k2l.project_problem(raw).startswith("--project muss ein voller Pfad sein")
 
 
 def test_kick_to_live_unknown_reason_still_refuses(monkeypatch):
