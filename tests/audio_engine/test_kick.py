@@ -594,6 +594,38 @@ def test_name_taken_between_check_and_write_moves_to_next_counter(tmp_path, monk
     assert (tmp_path / "kick.wav").read_bytes() == b"other"
 
 
+def test_sidecar_name_taken_between_check_and_write_removes_our_wav(
+    tmp_path, monkeypatch
+) -> None:
+    """Issue #88: the ``.json`` name is taken after the free-name check (our WAV is already
+    written). Our WAV of that attempt must be removed again, the foreign sidecar left as it
+    was, and the pair written under the next counter - no orphan WAV without a sidecar."""
+    real_unique_pair = io_mod._unique_pair
+    calls = {"n": 0}
+
+    def racing_unique_pair(out, stem):
+        wav, js = real_unique_pair(out, stem)
+        if calls["n"] == 0:  # someone else creates the sidecar right after our check
+            js.write_bytes(b"theirs")
+        calls["n"] += 1
+        return wav, js
+
+    monkeypatch.setattr(io_mod, "_unique_pair", racing_unique_pair)
+    wav_path, json_path = write_kick(BASE, tmp_path, created_at=FIXED_TIME)
+    assert calls["n"] == 2  # the clash really happened and forced a second attempt
+    assert (wav_path.name, json_path.name) == ("kick_002.wav", "kick_002.json")
+    assert not (tmp_path / "kick.wav").exists()
+    assert (tmp_path / "kick.json").read_bytes() == b"theirs"
+    assert sorted(p.name for p in tmp_path.iterdir()) == [
+        "kick.json",
+        "kick_002.json",
+        "kick_002.wav",
+    ]
+    meta = json.loads(json_path.read_text(encoding="utf-8"))
+    assert meta["file"] == "kick_002.wav"
+    assert meta["sha256"] == hashlib.sha256(wav_path.read_bytes()).hexdigest()
+
+
 def test_sidecar_write_error_cleans_up_and_does_not_loop(tmp_path, monkeypatch) -> None:
     """Review N1: a write error (disk full) after the sidecar file was created must not be
     mistaken for a name clash; nothing may be left behind and the real error surfaces."""
