@@ -25,7 +25,10 @@ existing WAV as its one positional argument and its result block is the #50 evid
 a render mode would make both conditional. This script reuses its ``run`` and helpers and
 changes nothing in it (#126 is reviewed separately). The outer error handling of
 ``live_import.main`` is repeated here (``import_kick``) because ``main`` does not return its
-report; keep the two in step.
+report; keep the two in step until #136 merges them into one function.
+
+Step 2 refuses ``--project`` unless it is an existing absolute folder with a ``.als`` file
+directly in it, not Live's ``Backup`` folder and not inside the AbeltonGod checkout.
 
 User-facing text is German; code and comments are English.
 """
@@ -50,6 +53,7 @@ from audio_engine.presets import UnknownPresetError
 from bridge.capabilities import CapabilityError, CapabilityRegistry
 from bridge.clip_import import (
     DEFAULT_ACTION_LOG,
+    REPO_ROOT,
     ActionLog,
     ImportPathError,
     validate_wav_path,
@@ -100,6 +104,10 @@ CLIP_REMOVED = "removed by undo (read back)"
 CLIP_REMOVED_NAMES = "removed by undo (read back; track names not restored)"
 CLIP_UNKNOWN = "unknown (see the messages above)"
 
+# --project may not lie in the AbeltonGod checkout this script runs from, nor in the one the
+# bridge package is imported from (the same folder after `pip install -e .`).
+REFUSED_ROOTS = tuple(sorted({Path(__file__).resolve().parent.parent, REPO_ROOT.resolve()}))
+
 
 @dataclass
 class Kick:
@@ -132,21 +140,21 @@ def make_kick(args: argparse.Namespace, kick: Kick, out: TextIO) -> int | None:
         kick.seed = str(params["seed"])
         kick.custom = ", ".join(args.overrides) or "-"
         kick.folder = str(folder)
-        if not Path(kick.project).is_dir():
-            print(f"FEHLER: Den Projektordner gibt es nicht: {kick.project}\nEs wurde nichts "
-                  "geschrieben und nichts in Live geändert.", file=out)
-            kick.written = "no (project folder missing)"
+        problem = project_problem(args.project)
+        if problem is not None:
+            print(f"FEHLER mit dem Projektordner: {problem}\nEs wurde nichts geschrieben und "
+                  "nichts in Live geändert. Anleitung: docs/setup/KICK_TO_LIVE.md", file=out)
+            kick.written = "no (project folder refused)"
             return EXIT_SETUP_ERROR
-        if not any(Path(kick.project).glob("*.als")):
-            print(f"Hinweis: In {kick.project} liegt keine .als-Datei. Ist das wirklich der "
-                  "Projektordner deines Sets?", file=out)
         print(f"Kick: Preset {args.preset}, Seed {kick.seed}"
               + (f", geändert: {kick.custom}" if args.overrides else "") + "\n"
               f"Schreibe WAV + Sidecar nach:\n  {folder}\n"
               "(vorhandene Dateien werden nie überschrieben; neue Datei bekommt dann _002 ...)",
               file=out)
         try:
-            wav = place_kick(params, kick.project, name=stems[0], description=descriptions[0])
+            # Stored at once: a Ctrl+C after this line still knows the pair exists.
+            kick.wav = place_kick(params, kick.project, name=stems[0],
+                                  description=descriptions[0])
         except ValueError as exc:  # LibraryPathError (path too long ...), KickParamsError
             print(f"FEHLER: {exc}\nEs wurde nichts geschrieben und nichts in Live geändert.",
                   file=out)
@@ -158,7 +166,14 @@ def make_kick(args: argparse.Namespace, kick: Kick, out: TextIO) -> int | None:
                   file=out)
             kick.written = f"no ({type(exc).__name__}: {exc})"
             return EXIT_WRITE_FAILED
+        kick.sidecar, kick.written = sidecar_path(kick.wav), "yes"
+        print(f"Geschrieben:\n  {kick.wav}\n  {kick.sidecar}\n", file=out)
     except KeyboardInterrupt:
+        if kick.wav is not None:  # place_kick had returned: the pair is complete and stays
+            kick.sidecar, kick.written = sidecar_path(kick.wav), "yes"
+            print(f"\nABGEBROCHEN mit Strg+C. Der Kick war schon geschrieben:\n  {kick.wav}\n"
+                  f"  {kick.sidecar}\nIn Live wurde nichts geändert.", file=out)
+            return EXIT_INTERRUPTED
         print("\nABGEBROCHEN mit Strg+C beim Erzeugen des Kicks. place_kick entfernt, was "
               "dieser Aufruf angelegt hat (bis auf seltene, in library.place_kick beschriebene "
               "Fälle, z. B. ein leerer Ordner). Bitte in "
@@ -166,8 +181,39 @@ def make_kick(args: argparse.Namespace, kick: Kick, out: TextIO) -> int | None:
               "wurde nichts geändert.", file=out)
         kick.written = "no (interrupted by user, Ctrl+C)"
         return EXIT_INTERRUPTED
-    kick.wav, kick.sidecar, kick.written = wav, sidecar_path(wav), "yes"
-    print(f"Geschrieben:\n  {wav}\n  {kick.sidecar}\n", file=out)
+    return None
+
+
+def project_problem(raw: str) -> str | None:
+    """Why ``--project`` is not accepted (German), or None. Nothing is written before this.
+
+    Required: an existing absolute folder with a ``.als`` file directly in it (Live keeps the
+    set at the top of its project folder), not Live's ``Backup`` folder, not inside the
+    AbeltonGod checkout (an empty ``--project`` would otherwise mean the current folder)."""
+    if not raw.strip():
+        return "--project ist leer. Bitte den vollen Pfad des Projektordners angeben."
+    if not os.path.isabs(raw):
+        return (f"--project muss ein voller Pfad sein (z. B. \"C:\\...\\Test Project\"), "
+                f"nicht {raw!r}.")
+    folder = Path(raw)
+    if not folder.is_dir():
+        return f"Den Ordner gibt es nicht: {raw}"
+    real = folder.resolve()
+    for root in REFUSED_ROOTS:
+        if real.is_relative_to(root):
+            return (f"{raw} liegt im AbeltonGod-Ordner ({root}). Das ist kein Live-Projekt; "
+                    "bitte den Projektordner deines Test-Sets angeben.")
+    if folder.name.lower() == "backup":
+        return (f"{raw} ist Lives Backup-Ordner. Bitte den Ordner darüber nehmen (dort liegt "
+                "die .als-Datei des Sets).")
+    try:
+        has_set = any(p.suffix.lower() == ".als" and p.is_file() for p in folder.iterdir())
+    except OSError as exc:
+        return f"{raw} lässt sich nicht lesen: {exc}"
+    if not has_set:
+        return (f"In {raw} liegt keine .als-Datei, also ist es nicht der Projektordner eines "
+                "gespeicherten Live-Sets. Set zuerst in Live speichern (Datei -> Live-Set "
+                "speichern unter ...), dann den Ordner nehmen, in dem die .als-Datei liegt.")
     return None
 
 
@@ -175,10 +221,14 @@ def make_kick(args: argparse.Namespace, kick: Kick, out: TextIO) -> int | None:
 
 def import_kick(args: argparse.Namespace, kick: Kick, report: live_import.Report,
                 input_fn: Callable[[str], str], out: TextIO) -> int:
-    """``live_import.main`` without argument parsing and result block (same handling)."""
+    """``live_import.main`` without argument parsing and result block. Differences: the WAV
+    must lie in the project's kick folder (``library_root``); Ctrl+C texts come from
+    :func:`interrupted_text`; Ctrl+C while connecting or after ``run()`` is caught (#135 is
+    the same gap in ``live_import.main``). De-duplication: issue #136."""
     assert kick.wav is not None
     code = EXIT_OK
     bridge: AbletonBridge | None = None
+    run_started = False
     log = ActionLog(args.log)
     try:
         report.path = validate_wav_path(kick.wav, library_root=kick.folder)
@@ -198,6 +248,7 @@ def import_kick(args: argparse.Namespace, kick: Kick, report: live_import.Report
             report.error = f"ReceivePortInUseError: {exc}"
             code = EXIT_PORT_IN_USE
         if bridge is not None:
+            run_started = True
             try:
                 code = live_import.run(bridge, report, report.path, args.slot, log,
                                        args.timeout, input_fn, out)
@@ -206,17 +257,7 @@ def import_kick(args: argparse.Namespace, kick: Kick, report: live_import.Report
             except KeyboardInterrupt:
                 report.interrupted = True
                 report.error = "interrupted by user (Ctrl+C) outside a write"
-                done = report.importer.last_outcome if report.importer is not None else None
-                if report.import_result == "PASS" and done is not None:
-                    tail = ("Der Import war schon fertig; der Clip bleibt im Set"
-                            + (", die neue Spur auch" if done.created_track else "")
-                            + ".\n" + live_import.manual_removal_text(done))
-                elif report.plan_confirmed:
-                    tail = ("Ob schon etwas gesendet wurde, ist unbekannt. Bitte in Live "
-                            "nachsehen. " + live_import.UNDO_HINT)
-                else:
-                    tail = "Es wurde nichts in Live geändert."
-                print("\nABGEBROCHEN mit Strg+C. " + tail, file=out)
+                print("\nABGEBROCHEN mit Strg+C. " + interrupted_text(report), file=out)
             except BridgeUnavailableError as exc:
                 print(live_import.msg_no_answer(DEFAULT_HOST, send_port) + "\n" + (
                     "Es wurde nichts in Live geändert." if not report.plan_confirmed
@@ -236,10 +277,18 @@ def import_kick(args: argparse.Namespace, kick: Kick, report: live_import.Report
         print(f"FEHLER in der Konfiguration: {exc}", file=out)
         report.error = f"{type(exc).__name__}: {exc}"
         code = EXIT_SETUP_ERROR
-    except KeyboardInterrupt:  # before run(): while checking the file or connecting
+    except KeyboardInterrupt:
+        # Before run(): checking the file or connecting. After run() started: a Ctrl+C in
+        # split_overrides or a second Ctrl+C while a handler above was printing (PR #134
+        # review, problem 2): say what the importer's record shows, not "nothing changed".
         report.interrupted = True
-        report.error = "interrupted by user (Ctrl+C) before connecting"
-        print("\nABGEBROCHEN mit Strg+C. Es wurde nichts in Live geändert.", file=out)
+        if not run_started:
+            report.error = "interrupted by user (Ctrl+C) before connecting"
+            print("\nABGEBROCHEN mit Strg+C. Es wurde nichts in Live geändert.", file=out)
+        else:
+            if report.error is None:
+                report.error = "interrupted by user (Ctrl+C) after the import flow"
+            print("\nABGEBROCHEN mit Strg+C. " + interrupted_text(report), file=out)
     finally:
         if bridge is not None:
             bridge.close()
@@ -255,6 +304,11 @@ def clip_in_live(report: live_import.Report) -> str:
     outcome = report.importer.last_outcome if report.importer is not None else None
     sent = outcome is not None and any(s.outcome != "refused" for s in outcome.steps)
     if not sent:
+        # Plan confirmed, but the import flow ended without a result (Ctrl+C or a lost
+        # connection inside the import): a write may have gone out before its step was
+        # recorded (clip_import._send), so this is unknown, not none (PR #134 review).
+        if report.plan_confirmed and report.import_result == "SKIPPED":
+            return CLIP_UNKNOWN
         return CLIP_NONE
     if report.import_result != "PASS":
         return CLIP_UNKNOWN
@@ -267,6 +321,22 @@ def clip_in_live(report: live_import.Report) -> str:
     return CLIP_UNKNOWN
 
 
+def interrupted_text(report: live_import.Report) -> str:
+    """What a Ctrl+C message says about Live (German), from :func:`clip_in_live`."""
+    state = clip_in_live(report)
+    done = report.importer.last_outcome if report.importer is not None else None
+    if state.startswith("in Live") and done is not None:
+        return ("Der Import war schon fertig; der Clip bleibt im Set"
+                + (", die neue Spur auch" if done.created_track else "")
+                + ".\n" + live_import.manual_removal_text(done))
+    if state in (CLIP_REMOVED, CLIP_REMOVED_NAMES):
+        return "Der Import war schon per Undo zurückgenommen (zurückgelesen)."
+    if state == CLIP_UNKNOWN:
+        return ("Ob schon etwas gesendet wurde oder noch im Set ist, ist unbekannt. Erst in "
+                "Live nachsehen. " + live_import.UNDO_HINT)
+    return "Es wurde nichts in Live geändert."
+
+
 def summary_text(kick: Kick, state: str) -> str:
     lines = ["", "Zusammenfassung:"]
     if state == CLIP_NONE:
@@ -276,8 +346,8 @@ def summary_text(kick: Kick, state: str) -> str:
                      + (" Spurnamen bitte von Hand prüfen (siehe oben)."
                         if state == CLIP_REMOVED_NAMES else ""))
     elif state == CLIP_UNKNOWN:
-        lines.append("  Live: ob noch ein Clip im Set ist, ist UNBEKANNT. Bitte in Live "
-                     "nachsehen (siehe oben).")
+        lines.append("  Live: ob ein Clip im Set ist, ist UNBEKANNT. Erst in Live nachsehen "
+                     "(siehe oben).")
     else:
         lines.append("  Live: der Clip ist im Set und verweist auf die Datei unten.")
     lines += ["  Kick-Datei (bleibt im Projektordner; das Script löscht nichts):",
@@ -350,12 +420,24 @@ def main(argv: list[str] | None = None, input_fn: Callable[[str], str] = input,
     kick = Kick(preset=args.preset, project=os.path.abspath(args.project))
     print(f"AbeltonGod kick_to_live {SCRIPT_VERSION} (Import wie live_import "
           f"{live_import.SCRIPT_VERSION})\n", file=out)
-    code = make_kick(args, kick, out)
-    state = CLIP_NONE
-    if code is None:
-        code = import_kick(args, kick, report, input_fn, out)
-        state = clip_in_live(report)
-        print(summary_text(kick, state), file=out)
+    # Ctrl+C between the steps (after make_kick returned, before or after import_kick) or
+    # while the summary is printed still ends with the WAV location and a result block.
+    code: int | None = None
+    try:
+        code = make_kick(args, kick, out)
+        if code is None:
+            code = import_kick(args, kick, report, input_fn, out)
+            print(summary_text(kick, clip_in_live(report)), file=out)
+    except KeyboardInterrupt:
+        code = EXIT_INTERRUPTED
+        report.interrupted = True
+        if report.error is None:
+            report.error = "interrupted by user (Ctrl+C) between steps"
+        print("\nABGEBROCHEN mit Strg+C. " + interrupted_text(report), file=out)
+        if kick.wav is not None:
+            print(f"Kick-Datei (bleibt im Projektordner):\n  {kick.wav}\n  {kick.sidecar}",
+                  file=out)
+    state = clip_in_live(report)
     report.finished_at = live_import.now_iso()
     print("\nBitte den folgenden Block komplett in Issue #129 einfügen:\n", file=out)
     print(render_result_block(kick, report, state), file=out)

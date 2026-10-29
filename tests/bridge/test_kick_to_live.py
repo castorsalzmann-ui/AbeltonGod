@@ -34,6 +34,15 @@ UNDO = "/live/song/undo"
 WRITES = (CREATE_CLIP, CREATE_TRACK, UNDO)
 PROBE = (CREATE_CLIP, ())
 KICKS = ("Samples", "Drums", "Kicks")  # library default layout (#64)
+REAL_REFUSED_ROOTS = k2l.REFUSED_ROOTS
+
+
+@pytest.fixture(autouse=True)
+def repo_root_elsewhere(tmp_path, monkeypatch):
+    """pytest's tmp folder lies inside the checkout (--basetemp=.pytest_tmp), which the
+    script refuses as a project. Tests point the refused root elsewhere; the real roots are
+    checked in test_project_inside_the_abeltongod_checkout_is_refused."""
+    monkeypatch.setattr(k2l, "REFUSED_ROOTS", ((tmp_path / "not-the-repo").resolve(),))
 
 
 def free_udp_port() -> int:
@@ -86,11 +95,14 @@ def run(fake, tmp_path, project, answers, extra=(), preset="dense", send_port=No
 
     out = io.StringIO()
     port = send_port if send_port is not None else fake.port
-    code = k2l.main(
-        ["--preset", preset, "--project", str(project), "--send-port", str(port),
-         "--receive-port", str(receive), "--timeout", "0.3",
-         "--log", str(tmp_path / "actions.jsonl"), *extra],
-        input_fn=input_fn, out=out)
+    try:
+        code = k2l.main(
+            ["--preset", preset, "--project", str(project), "--send-port", str(port),
+             "--receive-port", str(receive), "--timeout", "0.3",
+             "--log", str(tmp_path / "actions.jsonl"), *extra],
+            input_fn=input_fn, out=out)
+    except KeyboardInterrupt:  # would end the whole pytest session instead of failing
+        pytest.fail("Ctrl+C escaped kick_to_live.main():\n" + out.getvalue())
     return code, out.getvalue(), prompts
 
 
@@ -219,6 +231,7 @@ def test_every_preset_with_random_seed_and_set_matches_the_cli(fake, tmp_path):
         extra = ["--seed", str(seed), "--set", f"tone={tone}"]
         proj = tmp_path / f"p{i}"
         proj.mkdir()
+        (proj / "p.als").write_bytes(b"")
         fake.received.clear()
         code, out, _ = run(fake, tmp_path, proj, [""], extra=extra, preset=name)
         assert code == 0, out
@@ -261,13 +274,18 @@ def assert_no_clip_and_wav_stated(fake, out, project):
     assert b["kick_written"] == "yes" and b["kick_wav"] == str(wav)
 
 
-@pytest.mark.parametrize("answers", [[], [""], ["n"], ["y", ""], ["y", "0", ""],
-                                     ["y", "0", "n"], ["y", "1", "1", "1"]])
-def test_refusals_leave_no_clip_and_say_where_the_wav_is(fake, tmp_path, project, answers):
+@pytest.mark.parametrize("answers, error", [
+    ([], "user: not a test set"), ([""], "user: not a test set"),
+    (["n"], "user: not a test set"), (["y", ""], "no target chosen"),
+    (["y", "0", ""], "user answered no"), (["y", "0", "n"], "user answered no"),
+    (["y", "1", "1", "1"], "no target chosen")])
+def test_refusals_leave_no_clip_and_say_where_the_wav_is(fake, tmp_path, project, answers,
+                                                         error):
     code, out, _ = run(fake, tmp_path, project, answers)
     assert code == 0, out
     assert_no_clip_and_wav_stated(fake, out, project)
     assert not (tmp_path / "actions.jsonl").exists()
+    assert block(out)["error"] == error  # the block is the user's evidence (review R04)
 
 
 @pytest.mark.parametrize("case", ["occupied", "no_free_slot", "out_of_range", "no_scene"])
@@ -387,7 +405,7 @@ def test_ctrl_c_during_undo(fake, tmp_path, project, monkeypatch):
     code, out, _ = run(fake, tmp_path, project, ["y", "0", "y", "y"])
     assert code == 130, out
     assert block(out)["kick_in_live"] == "unknown (see the messages above)"
-    assert "ob noch ein Clip im Set ist, ist UNBEKANNT" in out
+    assert "Live: ob ein Clip im Set ist, ist UNBEKANNT. Erst in Live nachsehen" in out
     assert (kick_dir(project) / "dense_s1001_v0.wav").is_file()
 
 
@@ -412,12 +430,92 @@ def test_missing_project_folder_is_not_created(fake, tmp_path):
     code, out, _ = run(fake, tmp_path, missing, ["y"])
     assert code == k2l.EXIT_SETUP_ERROR
     assert not missing.exists() and fake.received == []
-    assert "Den Projektordner gibt es nicht" in out
+    assert f"FEHLER mit dem Projektordner: Den Ordner gibt es nicht: {missing}" in out
+    assert block(out)["kick_written"] == "no (project folder refused)"
+
+
+def refused_project(fake, tmp_path, raw: str, cwd: Path, monkeypatch):
+    monkeypatch.chdir(cwd)
+    before = files(cwd)
+    code, out, prompts = run(fake, tmp_path, raw, ["y", "0", "y"])
+    assert code == k2l.EXIT_SETUP_ERROR, out
+    assert files(cwd) == before and not (cwd / "Samples").exists()
+    assert fake.received == [] and prompts == []
+    assert "FEHLER mit dem Projektordner:" in out
+    assert "Es wurde nichts geschrieben und nichts in Live geändert." in out
+    b = block(out)
+    assert b["kick_written"] == "no (project folder refused)" and b["kick_wav"] == "-"
+    return out
+
+
+@pytest.mark.parametrize("raw", ["", "   "])
+def test_empty_project_is_refused_not_the_current_folder(fake, tmp_path, project, raw,
+                                                         monkeypatch):
+    """PR #134 review, problem 3: --project "" meant the current folder (the checkout)."""
+    (project / "x.als").write_bytes(b"")  # even a cwd that looks like a project
+    out = refused_project(fake, tmp_path, raw, project, monkeypatch)
+    assert "--project ist leer" in out
+
+
+def test_relative_project_is_refused(fake, tmp_path, project, monkeypatch):
+    out = refused_project(fake, tmp_path, "My Project", tmp_path, monkeypatch)
+    assert "--project muss ein voller Pfad sein" in out
+
+
+def test_project_that_is_a_file_is_refused(fake, tmp_path, project, monkeypatch):
+    f = project / "My Project.als"
+    out = refused_project(fake, tmp_path, str(f), tmp_path, monkeypatch)
+    assert f"Den Ordner gibt es nicht: {f}" in out
+
+
+def test_project_without_als_is_refused(fake, tmp_path, monkeypatch):
+    p = tmp_path / "plain"
+    p.mkdir()
+    (p / "x.als.txt").write_bytes(b"")
+    (p / "sub.als").mkdir()  # a folder named *.als is not a set
+    out = refused_project(fake, tmp_path, str(p), p, monkeypatch)
+    assert f"In {p} liegt keine .als-Datei" in out
+    assert "Datei -> Live-Set speichern unter" in out
+
+
+def test_als_suffix_case_does_not_matter(fake, tmp_path):
+    p = tmp_path / "Upper Project"
+    p.mkdir()
+    (p / "SET.ALS").write_bytes(b"")
+    code, out, _ = run(fake, tmp_path, p, [""])
+    assert code == 0, out
+    assert (kick_dir(p) / "dense_s1001_v0.wav").is_file()
+
+
+@pytest.mark.parametrize("name", ["Backup", "backup"])
+def test_live_backup_folder_is_refused(fake, tmp_path, project, name, monkeypatch):
+    backup = project / name
+    backup.mkdir()
+    (backup / "My Project [2026-10-29 120000].als").write_bytes(b"")
+    out = refused_project(fake, tmp_path, str(backup), tmp_path, monkeypatch)
+    assert "ist Lives Backup-Ordner" in out
+
+
+@pytest.mark.parametrize("sub", ["", "docs", "tests/bridge"])
+def test_project_inside_the_abeltongod_checkout_is_refused(fake, tmp_path, sub, monkeypatch):
+    """The real refused roots (no fixture override) contain this checkout; the check comes
+    before the .als check, so the message names the checkout."""
+    monkeypatch.setattr(k2l, "REFUSED_ROOTS", REAL_REFUSED_ROOTS)
+    assert ROOT.resolve() in REAL_REFUSED_ROOTS
+    target = ROOT / sub if sub else ROOT
+    before = files(target) if sub else None
+    code, out, _ = run(fake, tmp_path, target, ["y"])
+    assert code == k2l.EXIT_SETUP_ERROR, out
+    assert "liegt im AbeltonGod-Ordner" in out and fake.received == []
+    assert not (target / "Samples").exists()
+    if sub:
+        assert files(target) == before
 
 
 def test_too_long_project_path_is_refused_before_writing(fake, tmp_path):
     deep = tmp_path / ("x" * 200) / ("y" * 40)
     deep.mkdir(parents=True)
+    (deep / "s.als").write_bytes(b"")
     code, out, _ = run(fake, tmp_path, deep, ["y"])
     assert code == k2l.EXIT_SETUP_ERROR, out
     assert not (deep / "Samples").exists() and fake.received == []
@@ -455,13 +553,148 @@ def test_only_a_file_in_the_project_kick_folder_goes_to_live(fake, tmp_path, pro
     assert fake.received == []
 
 
-def test_project_without_als_gets_a_hint_but_runs(fake, tmp_path):
-    p = tmp_path / "plain"
-    p.mkdir()
-    code, out, _ = run(fake, tmp_path, p, [""])
-    assert code == 0
-    assert f"Hinweis: In {p} liegt keine .als-Datei." in out
-    assert (kick_dir(p) / "dense_s1001_v0.wav").is_file()
+def test_ctrl_c_after_clip_confirmed_before_step_recorded_is_unknown(fake, tmp_path, project,
+                                                                     monkeypatch):
+    """PR #134 review, problem 1 (probe rv134/window.py): AbletonOSC confirmed the clip, the
+    Ctrl+C lands before ClipImporter records the step. The clip IS in the fake; the script
+    must say unknown, never "nothing changed"."""
+    import bridge.clip_import as ci
+
+    real_step = ci.Step
+
+    def step(label, outcome, detail=""):
+        if label == "create_audio_clip" and outcome == "confirmed":
+            raise KeyboardInterrupt
+        return real_step(label, outcome, detail)
+
+    monkeypatch.setattr(ci, "Step", step)
+    code, out, _ = run(fake, tmp_path, project, ["y", "0", "y"])
+    assert code == 130, out
+    wav = kick_dir(project) / "dense_s1001_v0.wav"
+    assert fake.tracks[0]["slots"][1] == str(wav)  # the clip is there
+    assert "Ob schon etwas gesendet wurde oder noch im Set ist, ist unbekannt." in out
+    assert "nichts in Live geändert" not in out and "kein Clip" not in out
+    b = block(out)
+    assert b["kick_in_live"] == "unknown (see the messages above)"
+    assert b["error"] == "interrupted by user (Ctrl+C) outside a write"
+    assert UNDO not in [a for a, _ in writes(fake)]
+
+
+@pytest.mark.parametrize("undo, text, in_live", [
+    ("", "Der Import war schon fertig; der Clip bleibt im Set.", "in Live (track 0, slot 1)"),
+    ("y", "Der Import war schon per Undo zurückgenommen (zurückgelesen).",
+     "removed by undo (read back)")])
+def test_ctrl_c_right_after_the_import_flow(fake, tmp_path, project, monkeypatch, undo, text,
+                                            in_live):
+    """PR #134 review, problem 2 (probe rv134/outer.py): Ctrl+C in split_overrides, after
+    run() returned. The message follows the importer's record."""
+    def interrupted(report, used):
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(k2l.live_import, "split_overrides", interrupted)
+    code, out, _ = run(fake, tmp_path, project, ["y", "0", "y", undo, "y"])
+    assert code == 130, out
+    assert "ABGEBROCHEN mit Strg+C. " + text in out
+    assert "Es wurde nichts in Live geändert." not in out
+    b = block(out)
+    assert b["kick_in_live"] == in_live
+    assert b["error"] == "interrupted by user (Ctrl+C) after the import flow"
+
+
+def test_ctrl_c_between_render_and_import(fake, tmp_path, project, monkeypatch):
+    """Ctrl+C after make_kick returned, before import_kick's own handlers: block and WAV."""
+    def interrupted(*a, **k):
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(k2l, "ActionLog", interrupted)
+    code, out, _ = run(fake, tmp_path, project, ["y"])
+    assert code == 130 and fake.received == []
+    wav = kick_dir(project) / "dense_s1001_v0.wav"
+    assert "ABGEBROCHEN mit Strg+C. Es wurde nichts in Live geändert." in out
+    assert f"Kick-Datei (bleibt im Projektordner):\n  {wav}" in out and wav.is_file()
+    b = block(out)
+    assert b["error"] == "interrupted by user (Ctrl+C) between steps"
+    assert b["kick_in_live"] == "none (nothing sent to Live)" and b["kick_wav"] == str(wav)
+
+
+def test_ctrl_c_while_printing_the_summary_still_gives_the_block(fake, tmp_path, project,
+                                                                 monkeypatch):
+    def interrupted(*a, **k):
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(k2l, "summary_text", interrupted)
+    code, out, _ = run(fake, tmp_path, project, ["y", "0", "y", "", "y"])
+    assert code == 130
+    wav = kick_dir(project) / "dense_s1001_v0.wav"
+    assert "Der Import war schon fertig; der Clip bleibt im Set." in out
+    assert f"  {wav}" in out
+    assert block(out)["kick_in_live"] == "in Live (track 0, slot 1)"
+
+
+def test_ctrl_c_right_after_place_kick_returned(fake, tmp_path, project, monkeypatch):
+    """The pair is complete: say so, keep it, send nothing."""
+    calls = []
+    real = k2l.sidecar_path
+
+    def first_call_interrupted(wav):
+        calls.append(wav)
+        if len(calls) == 1:
+            raise KeyboardInterrupt
+        return real(wav)
+
+    monkeypatch.setattr(k2l, "sidecar_path", first_call_interrupted)
+    code, out, prompts = run(fake, tmp_path, project, ["y"])
+    wav = kick_dir(project) / "dense_s1001_v0.wav"
+    assert code == 130 and prompts == [] and fake.received == []
+    assert wav.is_file() and wav.with_suffix(".json").is_file()
+    assert f"Der Kick war schon geschrieben:\n  {wav}" in out
+    b = block(out)
+    assert b["kick_written"] == "yes" and b["kick_wav"] == str(wav)
+
+
+def test_connection_lost_after_the_plan_was_confirmed(fake, tmp_path, project):
+    """Fake stops answering right after "ausführen? y": BridgeTimeoutError inside the import
+    pre-check. Not "nothing changed": the user is told to look (review R10)."""
+    answers = iter(["y", "0"])
+
+    def input_fn(prompt):
+        a = next(answers, None)
+        if a is not None:
+            return a
+        fake.hold()  # Live stops answering after the confirmation
+        return "y"
+
+    receive = free_udp_port()
+    fake.response_port = receive
+    out = io.StringIO()
+    try:
+        code = k2l.main(["--preset", "dense", "--project", str(project), "--send-port",
+                         str(fake.port), "--receive-port", str(receive), "--timeout", "0.3",
+                         "--log", str(tmp_path / "a.jsonl")], input_fn=input_fn, out=out)
+    finally:
+        fake.release()
+    text = out.getvalue()
+    assert code == k2l.EXIT_NO_CONNECTION, text
+    assert "Bitte in Live nachsehen, was schon ausgeführt wurde." in text
+    assert "Es wurde nichts in Live geändert." not in text
+    b = block(text)
+    assert b["kick_in_live"] == "unknown (see the messages above)"
+    assert b["error"].startswith("BridgeTimeoutError")
+    assert writes(fake) == []
+
+
+def test_bridge_is_closed_once(fake, tmp_path, project, monkeypatch):
+    closed = []
+    real_close = k2l.AbletonBridge.close
+
+    def close(self):
+        closed.append(self)
+        real_close(self)
+
+    monkeypatch.setattr(k2l.AbletonBridge, "close", close)
+    code, out, _ = run(fake, tmp_path, project, ["y", "0", "y", "y"])
+    assert code == 0, out
+    assert len(closed) == 1
 
 
 def test_timed_out_import_is_unknown_and_never_undone(fake, tmp_path, project):

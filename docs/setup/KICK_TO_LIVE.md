@@ -10,13 +10,16 @@ Voraussetzung: die AbeltonGod-Erweiterung ist installiert (`ABLETONOSC_WINDOWS.m
 
 ## Projektordner finden
 
-Der Projektordner ist der Ordner, in dem die `.als`-Datei deines Test-Sets liegt (Live legt beim ersten Speichern einen Ordner `<Name> Project` an). Suchen in PowerShell:
+Der Projektordner ist der Ordner, in dem die `.als`-Datei deines Test-Sets liegt (Live legt beim ersten Speichern einen Ordner `<Name> Project` an). Suchen in PowerShell (liest nur, ändert nichts):
 
 ```powershell
 Get-ChildItem "$env:USERPROFILE\Music", "$env:USERPROFILE\Documents" -Recurse -Filter *.als -ErrorAction SilentlyContinue | Select-Object FullName
 ```
 
-Liegt dort keine `.als`-Datei, sagt das Script `Hinweis: In … liegt keine .als-Datei.` und macht trotzdem weiter.
+- Treffer unter `...\Backup\` sind Lives Sicherungskopien, **nicht** der Projektordner. Nimm den Ordner darüber (dort liegt die `.als`-Datei ohne Datum im Namen).
+- **Findet die Suche dein Test-Set nicht** (es wurde nie gespeichert): in Live **Datei → Live-Set speichern unter …** (englisch *File → Save Live Set As…*), z. B. in `Musik\AbeltonGod-Test` unter dem Namen `AbeltonGod-Test`. Live legt dann den Ordner `AbeltonGod-Test Project` mit `AbeltonGod-Test.als` darin an. Diesen Ordner als `--project` nehmen. (Die genauen Menünamen sind hier nicht gegen das Handbuch oder deine Oberfläche geprüft; gemeint ist „Speichern unter“ für das Live-Set.)
+
+Das Script nimmt nur einen **vollen Pfad** zu einem **vorhandenen Ordner mit einer `.als`-Datei direkt darin**. Es lehnt ab (und schreibt nichts): leeres `--project`, einen relativen Pfad, einen `Backup`-Ordner, einen Ordner ohne `.als`-Datei und jeden Ordner im AbeltonGod-Ordner selbst.
 
 ## Aufruf
 
@@ -52,14 +55,14 @@ Im Ergebnis-Block (in **Issue #129** einfügen) stehen zusätzlich zu den `live_
 | `in Live (track <n>, slot <z>)` | Clip ist im Set (kein Undo) |
 | `removed by undo (read back)` | Clip per Undo entfernt, zurückgelesen |
 | `removed by undo (read back; track names not restored)` | wie oben, aber ein Spurname ist nicht wie vorher |
-| `unknown (see the messages above)` | Zeitüberschreitung, verweigertes oder ungeklärtes Undo, *Strg + C* während des Undo: bitte in Live nachsehen |
+| `unknown (see the messages above)` | Zeitüberschreitung, Verbindung nach der Bestätigung verloren, *Strg + C* während des Imports oder des Undo, verweigertes oder ungeklärtes Undo: **erst in Live nachsehen** |
 
 ## Fehler vor Live
 
 | Fall | Erwartet |
 | --- | --- |
 | unbekanntes Preset oder ungültiger `--set`-Wert | `FEHLER in den Kick-Werten: …`, nichts geschrieben, nichts gesendet, Exit-Code 4 |
-| Projektordner gibt es nicht | `FEHLER: Den Projektordner gibt es nicht: …`, Exit-Code 4 (der Ordner wird nicht angelegt) |
+| Projektordner abgelehnt (leer, relativ, gibt es nicht, keine `.als`, `Backup`, im AbeltonGod-Ordner) | `FEHLER mit dem Projektordner: …`, `kick_written: no (project folder refused)`, Exit-Code 4 (kein Ordner wird angelegt) |
 | Pfad zu lang (Windows MAX_PATH) | Meldung mit `MAX_PATH`, nichts geschrieben, Exit-Code 4 |
 | Schreiben fehlgeschlagen (Platte voll …) | `FEHLER beim Schreiben: …`, Exit-Code 6 |
 | *Strg + C* während des Erzeugens | `ABGEBROCHEN mit Strg+C beim Erzeugen des Kicks …`, Exit-Code 130 |
