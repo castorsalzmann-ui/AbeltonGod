@@ -22,8 +22,10 @@ Steps:
    the import left it; each undo is read back. Never after a timeout or Ctrl+C.
 9. Prints a result block to paste into issue #50.
 
-Capability gate: ``clip_slot.create_audio_clip`` (``unknown``), ``song.create_audio_track``
-(``supported``) and the pending reads go through the gate's explicit check-script override;
+Capability gate: ``clip_slot.create_audio_clip`` is ``tested`` since #50 (user runs 2-4);
+``song.create_audio_track`` (``supported``) still goes through the gate's explicit
+check-script override, and so would the import and its pending reads if a bug set the clip
+entry back (D-004);
 ``capability_overrides_used`` in the result block lists those whose write was really sent;
 ``capability_overrides_reads_only`` lists overrides used only for the extension probe and the
 pre-check reads. Statuses change only in a
