@@ -15,6 +15,9 @@ dependencies = [
   # Claude copilot (D-014, #106). Exact pin: the research notes and the fake CLI in
   # tests/orchestrator follow this version's source and control protocol; bump deliberately.
   "claude-agent-sdk==0.2.174",
+  # Same reason: the SDK's in-process MCP server (and so every fake-CLI test) runs on mcp,
+  # which the SDK only bounds to <3. Pinned to the version the tests ran on.
+  "mcp==2.3.0",
 ]
 
 [project.optional-dependencies]

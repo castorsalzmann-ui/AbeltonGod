@@ -13,11 +13,14 @@ the tool, a deny becomes an error tool result with the reason, an allow's ``upda
 replaces the arguments, and a tool name without the ``mcp__<server>__`` prefix is a built-in
 that "executes" here (logged as ``builtin_executed``: in a real CLI that would be Bash etc.).
 Interrupt and close take effect after ``LAG_S``, so what the fake already received is still
-acted on (a real CLI is a separate process).
+acted on. The lag is a modelling choice (a real CLI is a separate process), not a measured
+CLI property; mutant S31 depends on it. A hook matcher's ``timeout`` is applied as the docs
+describe it (research note Q3, not verified): the request is cancelled, the call is blocked
+and the turn goes on - with the next model call.
 
 Script (a dict)::
 
-    {"account": {...} | None,              # initialize response "account" (default {})
+    {"account": {...} | "<omit>",          # initialize "account" (default DEFAULT_ACCOUNT)
      "api_key_source": "none",             # init message apiKeySource
      "init_tools": [...] | None,           # default: the MCP tools the server lists
      "skip_init": False,                   # True: no init message at all
@@ -26,7 +29,10 @@ Script (a dict)::
         {"eof": True},                      # output stream ends, no result
         {"text": "...", "id": "msg_1", "split": False,
          "tool_uses": [{"id": "t1", "name": "mcp__abeltongod__echo", "input": {...},
-                        "agent_id": None, "skip_hooks": False}]},
+                        "agent_id": None, "skip_hooks": False,
+                        "no_id": False,          # hook request without a tool_use_id
+                        "call_input": {...},     # tools/call with these, not updatedInput
+                        "repeat_call": False}]}, # tools/call twice for one approval
         {"text": "final answer"},           # no tool_uses -> success result
         {"result": {"subtype": "error_max_turns", "is_error": True, ...},
          "then_exit": False},               # True: the read stream fails like a CLI exit
@@ -54,6 +60,13 @@ PREFIX = f"mcp__{SERVER}__"
 # every message it already has (a few event-loop steps), so a client that answers a waiting
 # hook on shutdown is seen making the extra model call (mutant S31).
 LAG_S = 0.03
+# Initialize "account" of a subscription login (shape read from the bundled CLI 2.1.310).
+DEFAULT_ACCOUNT = {"apiProvider": "firstParty"}
+OMIT = "<omit>"  # script value: send no "account" at all
+
+
+class HookTimeout(Exception):
+    """A hook answer did not arrive within the matcher's timeout."""
 
 
 class FakeCLI(Transport):
@@ -120,8 +133,12 @@ class FakeCLI(Transport):
             if req.get("subtype") == "initialize":
                 for matcher in (req.get("hooks") or {}).get("PreToolUse", []):
                     self.hook_matchers.append((matcher.get("matcher"),
-                                               list(matcher["hookCallbackIds"])))
-                response = {"commands": [], "account": self.script.get("account", {})}
+                                               list(matcher["hookCallbackIds"]),
+                                               matcher.get("timeout")))
+                response = {"commands": []}
+                account = self.script.get("account", DEFAULT_ACCOUNT)
+                if account != OMIT:
+                    response["account"] = account
             elif req.get("subtype") == "interrupt" and self.task is not None:
                 # Not instantaneous: what the CLI already received (e.g. a hook answer) is
                 # still acted on before the turn ends.
@@ -138,12 +155,20 @@ class FakeCLI(Transport):
             self.prompts.append(msg["message"]["content"])
             self.task = asyncio.ensure_future(self._run())
 
-    async def _control(self, request: dict[str, Any]) -> dict[str, Any]:
+    async def _control(self, request: dict[str, Any], timeout: float | None = None):
+        """Send a control request and wait for the answer. With ``timeout`` (a hook
+        matcher's), emulate the documented CLI behaviour: on expiry cancel the request and
+        raise ``HookTimeout`` - the caller then blocks the call and goes on with the turn."""
         rid = f"cli_{next(self.ids)}"
         fut = asyncio.get_running_loop().create_future()
         self.pending[rid] = fut
         await self.out.put({"type": "control_request", "request_id": rid, "request": request})
-        resp = await fut
+        try:
+            resp = await asyncio.wait_for(asyncio.shield(fut), timeout)
+        except TimeoutError:
+            self.pending.pop(rid, None)
+            await self.out.put({"type": "control_cancel_request", "request_id": rid})
+            raise HookTimeout from None
         if resp.get("subtype") == "error":
             raise RuntimeError(resp.get("error"))
         return resp.get("response", {})
@@ -252,19 +277,27 @@ class FakeCLI(Transport):
     async def _run_tool(self, use: dict[str, Any]) -> tuple[str, bool]:
         name, args = use["name"], copy.deepcopy(use["input"])
         if not use.get("skip_hooks"):
-            for matcher, callback_ids in self.hook_matchers:
+            for matcher, callback_ids, timeout in self.hook_matchers:
                 if matcher and not re.fullmatch(matcher, name):
                     continue
                 for cid in callback_ids:
+                    tid = None if use.get("no_id") else use["id"]
                     hook_input = {"hook_event_name": "PreToolUse", "tool_name": name,
-                                  "tool_input": copy.deepcopy(args), "tool_use_id": use["id"],
+                                  "tool_input": copy.deepcopy(args),
                                   "session_id": "s1", "cwd": ".", "transcript_path": "",
                                   "permission_mode": "dontAsk"}
+                    if tid is not None:
+                        hook_input["tool_use_id"] = tid
                     if use.get("agent_id"):
                         hook_input["agent_id"] = use["agent_id"]
                         hook_input["agent_type"] = "general-purpose"
-                    out = await self._control({"subtype": "hook_callback", "callback_id": cid,
-                                               "input": hook_input, "tool_use_id": use["id"]})
+                    try:
+                        out = await self._control(
+                            {"subtype": "hook_callback", "callback_id": cid,
+                             "input": hook_input, "tool_use_id": tid}, timeout=timeout)
+                    except HookTimeout:
+                        self.log.append(("hook_timeout", name, use["id"]))
+                        return "PreToolUse hook timed out; the call was blocked", True
                     spec = out.get("hookSpecificOutput") or {}
                     decision = spec.get("permissionDecision")
                     self.log.append(("hook", name, decision, use["id"]))
@@ -275,11 +308,16 @@ class FakeCLI(Transport):
                     if "updatedInput" in spec:
                         args = copy.deepcopy(spec["updatedInput"])
         if name.startswith(PREFIX):
-            resp = await self._mcp("tools/call", {"name": name[len(PREFIX):], "arguments": args})
-            result = resp.get("result", {})
-            text = "".join(c.get("text", "") for c in result.get("content", []))
-            is_error = bool(result.get("isError"))
-            self.log.append(("mcp_call", name, copy.deepcopy(args), is_error, text))
+            if "call_input" in use:  # a CLI that does not pass updatedInput on (V9)
+                args = copy.deepcopy(use["call_input"])
+            text, is_error = "", True
+            for _ in range(2 if use.get("repeat_call") else 1):  # a CLI that calls twice
+                resp = await self._mcp("tools/call",
+                                       {"name": name[len(PREFIX):], "arguments": args})
+                result = resp.get("result", {})
+                text = "".join(c.get("text", "") for c in result.get("content", []))
+                is_error = bool(result.get("isError"))
+                self.log.append(("mcp_call", name, copy.deepcopy(args), is_error, text))
             return text, is_error
         self.log.append(("builtin_executed", name, copy.deepcopy(args)))
         return "ok", False

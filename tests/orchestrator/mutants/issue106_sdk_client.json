@@ -60,16 +60,17 @@
     {
       "id": "S8_RELAY_SUCCEEDS_WITHOUT_APPROVAL",
       "file": "src/orchestrator/sdk_client.py",
-      "old": "                    \"is_error\": True,\n",
-      "new": "                    \"is_error\": False,\n",
+      "old": "                await client._hold(sess, f\"tool {name} was called without the guard's approval\")\n",
+      "new": "                return {\"content\": [{\"type\": \"text\", \"text\": \"{}\"}]}\n",
       "tests": ["tests/orchestrator/test_sdk_client.py"],
       "note": "relay answers success for a call the guard never approved"
     },
     {
-      "id": "S9_RELAY_VIOLATION_IGNORED",
+      "id": "S9_RELAY_ANSWERS_WITH_AN_ERROR",
       "file": "src/orchestrator/sdk_client.py",
-      "old": "                    sess.violation = f\"tool {name} was called without the guard's approval\"\n",
-      "new": "                    pass\n",
+      "old": "                await client._hold(sess, f\"tool {name} was called without the guard's approval\")\n",
+      "new": "                return {\"content\": [{\"type\": \"text\", \"text\": \"no\"}], \"is_error\": True}\n",
+      "note": "pre-review behaviour: an error answer lets the CLI go on",
       "tests": ["tests/orchestrator/test_sdk_client.py"],
       "note": "an unapproved relay call no longer fails the request"
     },
@@ -107,7 +108,7 @@
     {
       "id": "S14_ACCOUNT_KEY_IGNORED",
       "file": "src/orchestrator/sdk_client.py",
-      "old": "            if source:\n",
+      "old": "            if source is not None:\n",
       "new": "            if False:\n",
       "tests": ["tests/orchestrator/test_sdk_client.py"],
       "note": "early (pre-prompt) auth check removed"
@@ -229,8 +230,8 @@
     {
       "id": "S31_CLOSE_ANSWERS_WAITING_HOOKS",
       "file": "src/orchestrator/sdk_client.py",
-      "old": "        sess.closed = True\n        client = sess.client\n",
-      "new": "        sess.closed = True\n        for _h in sess.hooks.values():\n            _h.future.done() or _h.future.set_result(None)\n        await asyncio.sleep(0)\n        client = sess.client\n",
+      "old": "            sess.watchdog.cancel()\n        client = sess.client\n",
+      "new": "            sess.watchdog.cancel()\n        for _h in sess.hooks.values():\n            _h.future.done() or _h.future.set_result(None)\n        await asyncio.sleep(0)\n        client = sess.client\n",
       "tests": ["tests/orchestrator/test_sdk_client.py"],
       "note": "the bug found while writing #106: a deny on close lets the CLI make one more model call"
     },
@@ -254,6 +255,134 @@
       "file": "src/orchestrator/sdk_client.py",
       "old": "        except Exception as exc:  # the prompt may be partly written: count it as sent\n",
       "new": "        except ZeroDivisionError as exc:  # the prompt may be partly written: count it as sent\n",
+      "tests": ["tests/orchestrator/test_sdk_client.py"]
+    },
+    {
+      "id": "T1_HOOK_TIMEOUT_SHORT",
+      "file": "src/orchestrator/sdk_client.py",
+      "old": "        hook_timeout = HOOK_TIMEOUT_S\n",
+      "new": "        hook_timeout = 1.0\n",
+      "tests": ["tests/orchestrator/test_sdk_client.py"],
+      "note": "review 1 R3 on the redesigned code: the CLI's hook timeout fires during a slow approval/tool"
+    },
+    {
+      "id": "T2_NO_WATCHDOG",
+      "file": "src/orchestrator/sdk_client.py",
+      "old": "        if self._session is sess and not sess.closed:\n            await self._close_session()\n",
+      "new": "        pass\n",
+      "tests": ["tests/orchestrator/test_sdk_client.py"]
+    },
+    {
+      "id": "T3_HOOK_TIMEOUT_OVERFLOWS_JS_TIMER",
+      "file": "src/orchestrator/sdk_client.py",
+      "old": "HOOK_TIMEOUT_S = 7 * 24 * 3600.0\n",
+      "new": "HOOK_TIMEOUT_S = 30 * 24 * 3600.0\n",
+      "tests": ["tests/orchestrator/test_sdk_client.py"]
+    },
+    {
+      "id": "H1_MISSING_ID_ANSWERED",
+      "file": "src/orchestrator/sdk_client.py",
+      "old": "                await self._hold(sess, \"Claude Code asked about a tool call without an id\")\n",
+      "new": "                return _deny(\"tool call without an id\")\n",
+      "tests": ["tests/orchestrator/test_sdk_client.py"],
+      "note": "review 1 problem 2"
+    },
+    {
+      "id": "H2_DUPLICATE_ID_ANSWERED",
+      "file": "src/orchestrator/sdk_client.py",
+      "old": "                await self._hold(sess, f\"Claude Code presented tool call {tid!r} twice\")\n",
+      "new": "                return _deny(\"the same tool call was presented twice\")\n",
+      "tests": ["tests/orchestrator/test_sdk_client.py"],
+      "note": "review 1 problem 2 / R7"
+    },
+    {
+      "id": "H3_INTERNAL_ERROR_ANSWERED",
+      "file": "src/orchestrator/sdk_client.py",
+      "old": "            await self._hold(self._session, f\"internal error in the guard hook: {exc!r}\")\n",
+      "new": "            return _deny(\"internal error\", stop=True)\n",
+      "tests": ["tests/orchestrator/test_sdk_client.py"],
+      "note": "review 1 problem 2"
+    },
+    {
+      "id": "H4_VIOLATION_NOT_CHECKED_BEFORE_DELIVERY",
+      "file": "src/orchestrator/sdk_client.py",
+      "old": "                if sess.violation:  # before any hook gets an answer\n",
+      "new": "                if False:  # before any hook gets an answer\n",
+      "tests": ["tests/orchestrator/test_sdk_client.py"]
+    },
+    {
+      "id": "H5_HOLD_NOT_SIGNALLED",
+      "file": "src/orchestrator/sdk_client.py",
+      "old": "            await sess.events.put((\"violation\", reason))\n",
+      "new": "            pass\n",
+      "tests": ["tests/orchestrator/test_sdk_client.py"]
+    },
+    {
+      "id": "R1_RELAY_APPROVAL_REUSED",
+      "file": "src/orchestrator/sdk_client.py",
+      "old": "\"text\": queue.pop(0)}]}",
+      "new": "\"text\": queue[0]}]}",
+      "tests": ["tests/orchestrator/test_sdk_client.py"],
+      "note": "reviewer's R1 (review 1 of PR #122), copied"
+    },
+    {
+      "id": "R2_RELAY_IGNORES_ARGUMENTS",
+      "file": "src/orchestrator/sdk_client.py",
+      "old": "queue = sess.approved.get((name, _canon(args))) if sess is not None else None",
+      "new": "queue = next((q for (n, _a), q in sess.approved.items() if n == name and q), None) if sess is not None else None",
+      "tests": ["tests/orchestrator/test_sdk_client.py"],
+      "note": "reviewer's R2, copied"
+    },
+    {
+      "id": "R5_API_KEY_ACCOUNT_CHECK_OFF",
+      "file": "src/orchestrator/sdk_client.py",
+      "old": "        elif source != \"ANTHROPIC_API_KEY\":\n",
+      "new": "        elif False:\n",
+      "tests": ["tests/orchestrator/test_sdk_client.py"],
+      "note": "reviewer's R5, re-pointed to the rewritten check"
+    },
+    {
+      "id": "R7_DUPLICATE_HOOK_REPLACES",
+      "file": "src/orchestrator/sdk_client.py",
+      "old": "            if tid in sess.hooks:\n",
+      "new": "            if False:\n",
+      "tests": ["tests/orchestrator/test_sdk_client.py"],
+      "note": "reviewer's R7, copied"
+    },
+    {
+      "id": "A1_MISSING_ACCOUNT_ACCEPTED",
+      "file": "src/orchestrator/sdk_client.py",
+      "old": "        if not isinstance(account, Mapping):\n            refuse(",
+      "new": "        if not isinstance(account, Mapping):\n            return\n            refuse(",
+      "tests": ["tests/orchestrator/test_sdk_client.py"],
+      "note": "review 1 problem 4"
+    },
+    {
+      "id": "A2_PROVIDER_NOT_REQUIRED",
+      "file": "src/orchestrator/sdk_client.py",
+      "old": "        if provider != \"firstParty\":\n",
+      "new": "        if provider not in (None, \"firstParty\"):\n",
+      "tests": ["tests/orchestrator/test_sdk_client.py"]
+    },
+    {
+      "id": "A3_TOKEN_SOURCE_IGNORED",
+      "file": "src/orchestrator/sdk_client.py",
+      "old": "            if token not in SUBSCRIPTION_TOKEN_SOURCES:\n",
+      "new": "            if False:\n",
+      "tests": ["tests/orchestrator/test_sdk_client.py"]
+    },
+    {
+      "id": "C1_SECOND_CLOSE_BLOCKS",
+      "file": "src/orchestrator/sdk_client.py",
+      "old": "        if self._closed:\n            return\n        fut = asyncio.run_coroutine_threadsafe(self._close_session(), self._loop)\n",
+      "new": "        fut = asyncio.run_coroutine_threadsafe(self._close_session(), self._loop)\n",
+      "tests": ["tests/orchestrator/test_sdk_client.py"]
+    },
+    {
+      "id": "C2_KEY_KEPT_IN_LAST_OPTIONS",
+      "file": "src/orchestrator/sdk_client.py",
+      "old": "            k: (\"<redacted>\" if k == \"ANTHROPIC_API_KEY\" else v) for k, v in options.env.items()\n",
+      "new": "            k: v for k, v in options.env.items()\n",
       "tests": ["tests/orchestrator/test_sdk_client.py"]
     },
     {

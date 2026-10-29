@@ -19,6 +19,7 @@ import asyncio
 import dataclasses
 import json
 import random
+import time
 
 import pytest
 from claude_agent_sdk import CLINotFoundError, ResultError
@@ -299,8 +300,55 @@ def test_relay_without_hook_approval_fails_closed(make_guard, events, clients):
     out = run(make_guard(), make_client(clients, factory), [echo_tool(events, calls)])
     assert out.success is False and out.error == "model_protocol"
     assert calls == []
-    [mcp] = factory.cli.events("mcp_call")
-    assert mcp[3] is True and "not_permitted" in mcp[4]
+    # the relay gives no answer at all (an error result would let the CLI go on)
+    assert factory.cli.events("mcp_call") == []
+    assert factory.cli.model_calls == model_permits(events) == 1
+
+
+def test_relay_approval_is_used_once(make_guard, events, clients):
+    """A CLI that calls the tool twice for one approval gets the result once (R1)."""
+    calls: list = []
+    factory = FakeCLIFactory({"turns": [
+        {"tool_uses": [use("t1", {"n": 1}, repeat_call=True)]}, {"text": "ok"}]})
+    out = run(make_guard(), make_client(clients, factory), [echo_tool(events, calls)])
+    assert out.success is False and out.error == "model_protocol"
+    assert calls == [{"n": 1}]
+    assert [e[3] for e in factory.cli.events("mcp_call")] == [False]  # second call held
+    assert factory.cli.model_calls == 1  # no model call after the held relay call
+
+
+def test_relay_refuses_arguments_other_than_the_approved_ones(make_guard, events, clients):
+    """A CLI that drops updatedInput and calls with other arguments (V9; R2)."""
+    calls: list = []
+    factory = FakeCLIFactory({"turns": [
+        {"tool_uses": [use("t1", {"n": 1}, call_input={"n": 99})]}, {"text": "ok"}]})
+    out = run(make_guard(), make_client(clients, factory), [echo_tool(events, calls)])
+    assert out.success is False and out.error == "model_protocol"
+    assert calls == [{"n": 1}] and factory.cli.events("mcp_call") == []
+    assert factory.cli.model_calls == 1  # no model call after the held relay call
+
+
+@pytest.mark.parametrize("case", ["no_id", "duplicate_id", "internal_error"])
+def test_refused_hook_is_never_answered(case, make_guard, events, clients, monkeypatch):
+    """A hook the loop has not seen gets no answer, so it cannot act as a permit (R7)."""
+    calls: list = []
+    first = use("t1", {"n": 1}, no_id=case == "no_id")
+    turns = [{"id": "m1", "tool_uses": [first]}, {"id": "m2", "text": "unpermitted"}]
+    if case == "duplicate_id":
+        turns = [{"id": "m1", "tool_uses": [use("t1", {"n": 1})]},
+                 {"id": "m2", "tool_uses": [use("t1", {"n": 2})]},
+                 {"id": "m3", "text": "unpermitted"}]
+    if case == "internal_error":
+        def broken(*_args):
+            raise RuntimeError("boom")
+
+        monkeypatch.setattr("orchestrator.sdk_client._Hook", broken)  # used only in the hook
+    factory = FakeCLIFactory({"turns": turns})
+    out = run(make_guard(), make_client(clients, factory), [echo_tool(events, calls)])
+    assert out.success is False and out.error == "model_protocol", out.message_de
+    cli = factory.cli
+    assert cli.model_calls == model_permits(events), cli.log
+    assert [e for e in cli.events("hook") if e[3] == "t1" and e[2] != "allow"] == []
 
 
 def test_relay_violation_blocks_a_success_result(make_guard, events, clients):
@@ -346,23 +394,56 @@ def test_subscription_mode_refuses_another_credential_source(source, make_guard,
     assert factory.cli.closed and factory.cli.events("mcp_call") == []
 
 
+KEY_ACCOUNT = {"apiProvider": "firstParty", "apiKeySource": "ANTHROPIC_API_KEY"}
+
+
 def test_api_key_mode_passes_the_key_and_expects_its_source(make_guard, events, clients):
-    factory = FakeCLIFactory({"api_key_source": "ANTHROPIC_API_KEY", "turns": [{"text": "hi"}]})
+    factory = FakeCLIFactory({"account": KEY_ACCOUNT, "api_key_source": "ANTHROPIC_API_KEY",
+                              "turns": [{"text": "hi"}]})
     client = make_client(clients, factory, mode=AuthMode.API_KEY,
                          environ={"ANTHROPIC_API_KEY": " sk-test "}, env_file=None)
     assert run(make_guard(), client, []).success
     assert factory.options[0].env["ANTHROPIC_API_KEY"] == "sk-test"
     assert "sk-test" not in repr(client.settings)
+    assert "sk-test" not in repr(client.last_options)  # diagnostics keep no key
+    assert client.last_options.env["ANTHROPIC_API_KEY"] == "<redacted>"
 
-    factory = FakeCLIFactory({"api_key_source": "none", "turns": [{"text": "hi"}]})
+    factory = FakeCLIFactory({"account": KEY_ACCOUNT, "api_key_source": "none",
+                              "turns": [{"text": "hi"}]})
     client = make_client(clients, factory, mode=AuthMode.API_KEY,
                          environ={"ANTHROPIC_API_KEY": "sk-test"}, env_file=None)
     assert run(make_guard(), client, []).error == "model_unavailable"
 
 
-@pytest.mark.parametrize("account", [{"apiKeySource": "ANTHROPIC_API_KEY"},
-                                     {"apiProvider": "bedrock"}])
+@pytest.mark.parametrize("account", [
+    "<omit>", None, "string", [], {}, {"apiProvider": None},
+    {"apiProvider": "firstParty"},  # no key reported although api_key mode uses one
+    {"apiProvider": "firstParty", "apiKeySource": "apiKeyHelper"},
+    {"apiProvider": "firstParty", "apiKeySource": "/login managed key"},
+    {"apiProvider": "vertex", "apiKeySource": "ANTHROPIC_API_KEY"},
+])
+def test_api_key_mode_refuses_a_wrong_account_before_the_prompt(account, make_guard, events,
+                                                                clients):
+    factory = FakeCLIFactory({"account": account, "api_key_source": "ANTHROPIC_API_KEY",
+                              "turns": [{"text": "hi"}]})
+    client = make_client(clients, factory, mode=AuthMode.API_KEY,
+                         environ={"ANTHROPIC_API_KEY": "sk-test"}, env_file=None)
+    out = run(make_guard(), client, [])
+    assert out.error == "model_unavailable"
+    assert factory.cli.prompts == [] and factory.cli.model_calls == 0
+
+
+@pytest.mark.parametrize("account", [
+    {"apiProvider": "firstParty", "apiKeySource": "ANTHROPIC_API_KEY"},
+    {"apiProvider": "firstParty", "apiKeySource": "/login managed key"},  # Console login
+    {"apiKeySource": "ANTHROPIC_API_KEY"}, {"apiProvider": "bedrock"},
+    # fails closed when the field is missing or changes shape (the pinned CLI always sends it)
+    "<omit>", None, "string", {}, {"apiKeySource": None, "apiProvider": None},
+    {"apiProvider": "firstParty", "tokenSource": "ANTHROPIC_AUTH_TOKEN"},
+    {"apiProvider": "firstParty", "tokenSource": "apiKeyHelper"},
+])
 def test_account_mismatch_is_refused_before_the_prompt(account, make_guard, events, clients):
+    # the init message would say "none": only the pre-prompt check can refuse here
     factory = FakeCLIFactory({"account": account, "turns": [{"text": "hi"}]})
     guard = make_guard()
     out = run(guard, make_client(clients, factory), [])
@@ -371,9 +452,12 @@ def test_account_mismatch_is_refused_before_the_prompt(account, make_guard, even
     assert guard.session_spent_usd == 0.0  # provably not sent
 
 
-def test_account_without_key_passes(make_guard, events, clients):
-    factory = FakeCLIFactory({"account": {"subscriptionType": "max", "apiProvider": "firstParty"},
-                              "turns": [{"text": "hi"}]})
+@pytest.mark.parametrize("account", [
+    {"subscriptionType": "max", "apiProvider": "firstParty"},
+    {"apiProvider": "firstParty", "tokenSource": "CLAUDE_CODE_OAUTH_TOKEN"},  # setup-token
+])
+def test_subscription_account_passes(account, make_guard, events, clients):
+    factory = FakeCLIFactory({"account": account, "turns": [{"text": "hi"}]})
     assert run(make_guard(), make_client(clients, factory), []).success
 
 
@@ -488,6 +572,97 @@ def test_timeout_closes_the_session(clients):
         client.complete(request)
     assert "timeout" in err.value.detail and err.value.request_sent is True
     assert factory.cli.closed and ("control", "interrupt") in factory.cli.log
+
+
+@pytest.mark.parametrize("slow", ["approval", "handler"])
+def test_slow_loop_never_reaches_the_cli_hook_timeout(slow, make_guard, events, clock, clients):
+    """Problem 1 of the PR #122 review. The fake CLI applies the matcher timeout as
+    documented (cancel, block the call, next model call). A slow approval or tool must end
+    via the guard's timeout stop, with no CLI model call beyond the guard's permits."""
+    from orchestrator.tools import Approval
+
+    ran: list = []
+
+    def handler(args):
+        ran.append(args)
+        return ToolOutput({"ok": True}, files_written=0, live_writes=0)
+
+    closed_while_waiting: list = []
+
+    class SlowApprover:
+        def confirm(self, tool, arguments):
+            time.sleep(2.0)  # the user takes a while
+            closed_while_waiting.append(factory.cli.closed)  # the watchdog acted already
+            clock.t += 2.0
+            return True
+
+    if slow == "handler":
+        def handler(args):  # noqa: F811 - same tool, slow inside the handler
+            time.sleep(2.0)
+            closed_while_waiting.append(factory.cli.closed)
+            clock.t += 2.0
+            ran.append(args)
+            return ToolOutput({"ok": True}, files_written=0, live_writes=0)
+
+    tool = Tool("work", "slow work", {"type": "object", "properties": {}}, handler,
+                approval=Approval.CONFIRM if slow == "approval" else Approval.ROUTINE)
+
+    def estimate(_request):  # first call: 3.5 of 5 s already used -> 1.5 s left
+        if clock.t == 1000.0:
+            clock.t += 3.5
+        return EST
+
+    factory = FakeCLIFactory({"turns": [{"tool_uses": [use("t1", {}, name=PREFIX + "work")]},
+                                        {"text": "unpermitted"}]})
+    client = make_client(clients, factory, grace_s=0.2)  # watchdog at 1.7 s
+    out = Orchestrator(make_guard(timeout_s=5), client, Toolbox([tool]), profile="p",
+                       approver=SlowApprover(), estimate_cost_usd=estimate).handle("x")
+    assert out.success is False and out.stop_reason is Limit.TIMEOUT, out.message_de
+    cli = factory.cli
+    assert cli.events("hook_timeout") == []
+    assert cli.model_calls == model_permits(events) == 1
+    assert cli.closed and cli.events("mcp_call") == []
+    # the session was already closed at request timeout + grace, while the loop still waited
+    assert closed_while_waiting == [True]
+
+
+def test_violation_during_tool_run_answers_no_hook(make_guard, events, clients):
+    """A violation noticed while the loop runs tools: the next complete must fail before it
+    delivers any result, so the waiting hook gets no allow (which would start a model call)."""
+    holder: dict = {}
+
+    def handler(args):
+        holder["client"]._session.violation = "noticed while the tool ran"
+        return ToolOutput({"ok": True}, files_written=0, live_writes=0)
+
+    tool = Tool("echo", "x", {"type": "object", "properties": {"n": {"type": "integer"}}},
+                handler)
+    factory = FakeCLIFactory({"turns": [{"tool_uses": [use("t1", {"n": 1})]}, {"text": "no"}]})
+    holder["client"] = client = make_client(clients, factory)
+    out = run(make_guard(), client, [tool])
+    assert out.success is False and out.error == "model_protocol"
+    cli = factory.cli
+    assert cli.events("hook") == [] and cli.events("mcp_call") == []
+    assert cli.model_calls == 1
+
+
+def test_cli_hook_timeout_is_far_beyond_any_request(make_guard, events, clients):
+    factory = FakeCLIFactory({"turns": [{"text": "x"}]})
+    run(make_guard(), make_client(clients, factory), [echo_tool(events)])
+    [matcher] = factory.options[0].hooks["PreToolUse"]
+    assert matcher.timeout >= 24 * 3600 * 7 > 3600 * 100  # policy max timeout_s is 3600
+    assert matcher.timeout * 1000 < 2**31 - 1  # still a valid JavaScript timer
+
+
+def test_close_twice_returns_at_once(clients):
+    client = make_client(clients, FakeCLIFactory({"turns": []}))
+    client.close()
+    start = time.monotonic()
+    client.close()
+    client.end_request()
+    with pytest.raises(ModelUnavailable):
+        client.complete(None)
+    assert time.monotonic() - start < 1.0
 
 
 def test_guard_timeout_ends_the_request(make_guard, events, clients):
@@ -630,14 +805,21 @@ def test_sdk_client_cannot_reach_a_tool_handler():
 
 
 @pytest.mark.parametrize("bad", [None, "x", {"tool_name": ECHO}, {"tool_input": {}}])
-def test_hook_fails_closed_on_malformed_input(bad, make_guard, events, clients):
+def test_hook_holds_malformed_input_and_fails_the_session(bad, clients):
     from orchestrator.sdk_client import _Session
 
     client = make_client(clients, FakeCLIFactory({"turns": []}))
-    client._session = _Session(system="s", allowed_names=frozenset({ECHO}))
-    out = asyncio.run(client._pre_tool_use(bad, None, {}))
-    assert out["hookSpecificOutput"]["permissionDecision"] == "deny"
-    client._session = None
+
+    async def probe():
+        sess = _Session(system="s", allowed_names=frozenset({ECHO}))
+        client._session = sess
+        with pytest.raises(TimeoutError):  # no answer, not even a deny
+            await asyncio.wait_for(client._pre_tool_use(bad, None, {}), timeout=0.2)
+        client._session = None
+        return sess
+
+    sess = asyncio.run(probe())
+    assert sess.violation and sess.events.get_nowait()[0] == "violation"
 
 
 def test_argument_key_treats_json_numbers_alike():

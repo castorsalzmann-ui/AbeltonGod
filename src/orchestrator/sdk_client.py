@@ -22,14 +22,20 @@ How the SDK's own agent loop is held to that (one SDK session per user request):
    stored result. So the CLI can only start its next model call *after* the guard permitted
    it.
 4. The relay never sees a ``Tool`` handler (it is built from ``ToolSpec`` only), so it cannot
-   run local code. A relay call without a matching guard-approved result returns an error and
-   marks the session as violated; a hook allow is only possible for a name with this
-   server's prefix, never for a built-in or a sub-agent tool.
+   run local code. A hook allow is only possible for a name with this server's prefix, never
+   for a built-in or a sub-agent tool.
+5. **Nothing else ever answers the CLI.** Every answer - a deny too - lets the CLI go on to
+   its next model call. So a refusal that is not a guarded result (hook without an id, a
+   repeated id, an internal error, a relay call without approval) gets no answer: the request
+   fails and closing the session cancels the waiting handler. A slow approval or tool cannot
+   make the CLI's own hook timeout fire either: that timeout is 7 days, and a watchdog closes
+   every session at request timeout + grace.
 
 Fail-closed checks (each ends the request with a clear error, never a success):
 
 - the credential source the CLI reports (``account`` in the initialize response, before the
-  prompt is sent; then ``apiKeySource`` in the init message) must match the D-014 switch;
+  prompt is sent - missing or unreadable is a refusal; then ``apiKeySource`` in the init
+  message) must match the D-014 switch;
 - the init message must list no tool outside this server, and must come before any answer;
 - a second model call inside one ``complete`` (one the guard did not permit), a sub-agent
   model call, a relay call without approval and a stream that ends without a result are
@@ -41,8 +47,10 @@ Fail-closed checks (each ends the request with a clear error, never a success):
 What is **not verified** (research note ``2026-10-28_agent-sdk-behaviour.md``, #83): that the
 hook fires before the SDK's own schema check (V4/V9), that ``updatedInput`` reaches the tool
 (V9), the init ``tools`` list with this configuration (V6), the ``apiKeySource`` values on the
-user's machine (V7), the turn definition behind ``max_turns`` (V1), and the ``account`` field
-of the initialize response (read from the bundled CLI 2.1.310, not documented).
+user's machine (V7), the turn definition behind ``max_turns`` (V1), the ``account`` field
+of the initialize response (read from the bundled CLI 2.1.310, not documented), what the CLI
+does on a hook timeout (docs: blocks the call, turn goes on) and with a hook that is never
+answered while it is being shut down (V4).
 
 Cost: the SDK reports cost only at the end (``total_cost_usd``, an API-equivalent estimate
 under the subscription). Intermediate turns report no usage, so the guard counts each call's
@@ -59,13 +67,14 @@ from __future__ import annotations
 import asyncio
 import concurrent.futures
 import copy
+import dataclasses
 import json
 import math
 import threading
 import time
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, NoReturn
 
 from claude_agent_sdk import (
     AssistantMessage as SdkAssistantMessage,
@@ -122,14 +131,26 @@ SUBAGENT_PREFIX = "subagent:"
 LIMIT_SUBTYPES = ("error_max_turns", "error_max_budget_usd")
 # Second layer behind tools=[] (research note Q5). Not "mcp__*": that would remove ours too.
 DISALLOWED_TOOLS = (
-    "Agent", "Task", "Bash", "Read", "Write", "Edit", "Glob", "Grep",
-    "WebFetch", "WebSearch", "ToolSearch", "Skill", "NotebookEdit", "TodoWrite",
+    "Agent", "Task", "Bash", "BashOutput", "KillShell", "Read", "Write", "Edit", "MultiEdit",
+    "Glob", "Grep", "LS", "WebFetch", "WebSearch", "ToolSearch", "Skill", "SlashCommand",
+    "NotebookEdit", "TodoWrite", "ExitPlanMode", "ListMcpResourcesTool", "ReadMcpResourceTool",
 )
 # How long the first hook of a turn waits for the assistant message that carries its
 # tool_use block, so all calls of one model answer reach the loop together.
 BLOCK_WAIT_S = 0.5
-# Extra seconds the hook (and the sync wrapper) wait beyond the request timeout.
+# Extra seconds beyond the request timeout before the watchdog closes a session (and the sync
+# wrapper gives up).
 GRACE_S = 5.0
+# PreToolUse timeout handed to the CLI. On a hook timeout the CLI blocks the call and goes on
+# with the turn, i.e. it makes the next model call by itself (research note Q3, not verified,
+# #83). So the CLI must never reach it: the watchdog closes every session at request timeout
+# + grace (the guard policy allows at most 3600 s), long before this. 7 days, well below the
+# 2**31 - 1 ms a JavaScript timer can hold (a larger value could fire at once).
+HOOK_TIMEOUT_S = 7 * 24 * 3600.0
+# Token sources a subscription login may report (bundled CLI 2.1.310, undocumented).
+SUBSCRIPTION_TOKEN_SOURCES = (
+    None, "CLAUDE_CODE_OAUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN_FILE_DESCRIPTOR",
+)
 
 TransportFactory = Callable[[ClaudeAgentOptions], Any]
 
@@ -228,6 +249,7 @@ class _Session:
     history_len: int = 0
     unapproved_relay_calls: int = 0
     stream_ended: bool = False  # the CLI's output ended: nobody would answer an interrupt
+    watchdog: asyncio.Task | None = None
 
 
 class SdkModelClient:
@@ -243,10 +265,13 @@ class SdkModelClient:
         environ: Mapping[str, str] | None = None,
         env_file: Any = None,
         cli_path: str | None = None,
+        grace_s: float = GRACE_S,
     ) -> None:
         if not isinstance(settings, AuthSettings):
             raise TypeError("settings must be AuthSettings (from orchestrator.auth.load_auth)")
         self.settings = settings
+        self._grace = float(grace_s)
+        self._closed = False
         self._estimate = per_call_estimate_usd
         self._transport_factory = transport_factory
         self._environ = environ
@@ -258,7 +283,8 @@ class SdkModelClient:
             target=self._loop.run_forever, name="claude-agent-sdk", daemon=True
         )
         self._thread.start()
-        self.last_options: ClaudeAgentOptions | None = None  # for tests and diagnostics
+        # Options of the last session for diagnostics, with the API key redacted.
+        self.last_options: ClaudeAgentOptions | None = None
 
     # ----- ModelClient ----------------------------------------------------------------------
 
@@ -266,7 +292,9 @@ class SdkModelClient:
         return self._estimate
 
     def complete(self, request: ModelRequest) -> ModelResponse:
-        wait = max(0.0, float(request.timeout_s)) + GRACE_S
+        if self._closed:
+            raise ModelUnavailable("the Claude client is closed", request_sent=False)
+        wait = max(0.0, float(request.timeout_s)) + self._grace
         fut = asyncio.run_coroutine_threadsafe(self._complete(request), self._loop)
         try:
             return fut.result(timeout=wait)
@@ -278,7 +306,7 @@ class SdkModelClient:
     def end_request(self) -> None:
         """Close the open SDK session (if any). The loop calls this when a request ends, so a
         CLI waiting in the hook can never go on to an unpermitted model call."""
-        if self._loop.is_closed():
+        if self._closed:
             return
         fut = asyncio.run_coroutine_threadsafe(self._close_session(), self._loop)
         try:
@@ -287,10 +315,15 @@ class SdkModelClient:
             pass
 
     def close(self) -> None:
+        """End any session and stop the private event loop. Safe to call more than once."""
+        if self._closed:
+            return
         self.end_request()
-        if not self._loop.is_closed():
-            self._loop.call_soon_threadsafe(self._loop.stop)
-            self._thread.join(timeout=5)
+        self._closed = True
+        self._loop.call_soon_threadsafe(self._loop.stop)
+        self._thread.join(timeout=5)
+        if not self._thread.is_alive():
+            self._loop.close()
 
     # ----- session ---------------------------------------------------------------------------
 
@@ -307,6 +340,8 @@ class SdkModelClient:
                     raise ModelUnavailable(
                         "no open Claude session for this request", request_sent=False
                     )
+                if sess.violation:  # before any hook gets an answer
+                    raise ModelProtocolError(sess.violation)
                 self._deliver(sess, request)
             return await self._pump(sess, request, deadline)
         except BaseException:
@@ -327,7 +362,7 @@ class SdkModelClient:
         if self.settings.mode is AuthMode.API_KEY:
             key = merged_environment(self._environ, self._env_file).get("ANTHROPIC_API_KEY", "")
             env["ANTHROPIC_API_KEY"] = key.strip()
-        hook_timeout = max(1.0, float(request.timeout_s)) + GRACE_S
+        hook_timeout = HOOK_TIMEOUT_S
         return ClaudeAgentOptions(
             tools=[],
             allowed_tools=sorted(sess.allowed_names),
@@ -356,11 +391,14 @@ class SdkModelClient:
         allowed = frozenset(TOOL_PREFIX + spec.name for spec in request.tools)
         sess = _Session(system=request.system, allowed_names=allowed)
         options = self._options(request, limits, sess)
-        self.last_options = options
+        self.last_options = dataclasses.replace(options, env={
+            k: ("<redacted>" if k == "ANTHROPIC_API_KEY" else v) for k, v in options.env.items()
+        })
         transport = self._transport_factory(options) if self._transport_factory else None
         client = ClaudeSDKClient(options=options, transport=transport)
         sess.client = client
         self._session = sess
+        sess.watchdog = asyncio.ensure_future(self._watchdog(sess, deadline + self._grace))
         try:
             await asyncio.wait_for(client.connect(), timeout=max(0.1, deadline - time.monotonic()))
         except CLINotFoundError as exc:
@@ -399,6 +437,15 @@ class SdkModelClient:
             sess.stream_ended = True
             await sess.events.put(("error", exc))
 
+    async def _watchdog(self, sess: _Session, until: float) -> None:
+        """Close the session at request timeout + grace, whatever the loop is doing (a slow
+        approval or tool). The CLI's own hook timeout (HOOK_TIMEOUT_S) is never reached, and
+        its waiting hook is cancelled without an answer. The guard's own timeout check then
+        stops the request at its next step."""
+        await asyncio.sleep(max(0.0, until - time.monotonic()))
+        if self._session is sess and not sess.closed:
+            await self._close_session()
+
     async def _close_session(self) -> None:
         """End the session without ever answering a waiting hook: an answer (even a deny)
         lets the CLI go on to its next model call, which the guard did not permit (found by
@@ -412,6 +459,8 @@ class SdkModelClient:
         if sess is None or sess.closed:
             return
         sess.closed = True
+        if sess.watchdog is not None and sess.watchdog is not asyncio.current_task():
+            sess.watchdog.cancel()
         client = sess.client
         if client is not None:
             if not sess.stream_ended:
@@ -433,30 +482,36 @@ class SdkModelClient:
     # ----- checks ----------------------------------------------------------------------------
 
     def _check_account(self, info: Any) -> None:
-        """Early check before the prompt is sent: the initialize response's ``account`` (not
-        documented; read from the bundled CLI). Refuses only on positive evidence."""
+        """Check before the prompt is sent: the initialize response's ``account``. Not
+        documented, but the pinned bundled CLI (2.1.310) always sends it
+        (``account: e.account ?? {apiProvider: "firstParty"}``; ``apiKeySource`` only when a
+        key is in use), and the SDK prefers the bundled CLI. So anything else means an
+        unexpected CLI: fail closed. This is the only check that sees a Console login
+        (``"/login managed key"``, billed as API) before a model call."""
         account = info.get("account") if isinstance(info, Mapping) else None
+
+        def refuse(why: str) -> None:
+            raise ModelUnavailable(
+                f"auth mode {self.settings.mode.value!r}: {why}", request_sent=False
+            )
+
         if not isinstance(account, Mapping):
-            return
+            refuse("Claude Code reported no readable account; refusing to send the request")
         source = account.get("apiKeySource")
         provider = account.get("apiProvider")
+        if provider != "firstParty":
+            refuse(f"Claude Code uses API provider {provider!r}, expected 'firstParty'")
         if self.settings.mode is AuthMode.SUBSCRIPTION:
-            if source:
-                raise ModelUnavailable(
-                    f"auth mode 'subscription', but Claude Code would use an API key "
-                    f"(source {source!r}); remove it or set ABELTONGOD_CLAUDE_AUTH=api_key",
-                    request_sent=False,
+            if source is not None:
+                refuse(
+                    f"Claude Code would use an API key (source {source!r}) instead of your "
+                    "Claude login; remove it or set ABELTONGOD_CLAUDE_AUTH=api_key"
                 )
-            if provider not in (None, "firstParty"):
-                raise ModelUnavailable(
-                    f"auth mode 'subscription', but Claude Code uses provider {provider!r}",
-                    request_sent=False,
-                )
-        elif source not in (None, "ANTHROPIC_API_KEY"):
-            raise ModelUnavailable(
-                f"auth mode 'api_key', but Claude Code reports key source {source!r}",
-                request_sent=False,
-            )
+            token = account.get("tokenSource")
+            if token not in SUBSCRIPTION_TOKEN_SOURCES:
+                refuse(f"Claude Code uses the credential {token!r} instead of your Claude login")
+        elif source != "ANTHROPIC_API_KEY":
+            refuse(f"Claude Code reports key source {source!r}, expected ANTHROPIC_API_KEY")
 
     def _check_init(self, sess: _Session, data: Mapping[str, Any]) -> None:
         try:
@@ -541,7 +596,7 @@ class SdkModelClient:
             tid = tool_use_id if isinstance(tool_use_id, str) and tool_use_id else data.get(
                 "tool_use_id")
             if not isinstance(tid, str) or not tid:
-                return _deny("tool call without an id")
+                await self._hold(sess, "Claude Code asked about a tool call without an id")
             raw = data.get("tool_name")
             hook = _Hook(
                 future=asyncio.get_running_loop().create_future(),
@@ -551,7 +606,7 @@ class SdkModelClient:
                 agent_id=data.get("agent_id"),
             )
             if tid in sess.hooks:
-                return _deny("the same tool call was presented twice")
+                await self._hold(sess, f"Claude Code presented tool call {tid!r} twice")
             sess.hooks[tid] = hook
             if tid in sess.results:
                 return self._decide(sess, tid, hook, sess.results[tid])
@@ -560,8 +615,20 @@ class SdkModelClient:
             return self._decide(sess, tid, hook, result)
         except asyncio.CancelledError:
             raise
-        except Exception:  # noqa: BLE001 - fail closed
-            return _deny("internal error in the resource guard hook", stop=True)
+        except Exception as exc:  # noqa: BLE001 - fail closed, without an answer
+            await self._hold(self._session, f"internal error in the guard hook: {exc!r}")
+
+    async def _hold(self, sess: _Session | None, reason: str) -> NoReturn:
+        """Fail the request without answering the CLI. Any answer - a deny too - lets the
+        CLI go on to its next model call, which the guard has not permitted; the session is
+        closed instead (``_pump`` raises on the event, ``_complete`` before delivering), and
+        closing cancels this handler without a reply."""
+        if sess is not None and not sess.closed:
+            if sess.violation is None:
+                sess.violation = reason
+            await sess.events.put(("violation", reason))
+        await asyncio.get_running_loop().create_future()  # until cancelled
+        raise AssertionError("unreachable")
 
     def _relay(self, name: str, description: str, schema: dict[str, Any]):
         client = self
@@ -570,14 +637,10 @@ class SdkModelClient:
             sess = client._session
             queue = sess.approved.get((name, _canon(args))) if sess is not None else None
             if not queue:
+                # No answer at all (an error result would also let the CLI go on).
                 if sess is not None:
                     sess.unapproved_relay_calls += 1
-                    sess.violation = f"tool {name} was called without the guard's approval"
-                return {
-                    "content": [{"type": "text", "text": _text(
-                        {"error": "not_permitted", "message": "not approved by the guard"})}],
-                    "is_error": True,
-                }
+                await client._hold(sess, f"tool {name} was called without the guard's approval")
             return {"content": [{"type": "text", "text": queue.pop(0)}]}
 
         return tool(name, description, copy.deepcopy(schema))(relay)
@@ -608,7 +671,11 @@ class SdkModelClient:
                 if payload in sess.returned:
                     continue  # its result is already on the way (or delivered)
                 await self._collect_blocks(sess, payload, new_ids, request, deadline)
+                if sess.violation:
+                    raise ModelProtocolError(sess.violation)
                 return self._tool_turn(sess, request)
+            elif kind == "violation":
+                raise ModelProtocolError(payload)
             elif kind == "error":
                 raise self._map_exception(sess, payload, request)
             else:  # "end"
@@ -630,6 +697,8 @@ class SdkModelClient:
                     raise ModelProtocolError("run ended while a tool call was pending")
             elif kind == "hook":
                 continue  # handled with the others in _tool_turn
+            elif kind == "violation":
+                raise ModelProtocolError(payload)
             elif kind == "error":
                 raise self._map_exception(sess, payload, request)
             else:
