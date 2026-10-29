@@ -30,30 +30,37 @@ jobs:
       - name: Lint
         run: ruff check .
       - name: Test
+        id: test
         run: pytest --junitxml=pytest-junit.xml
       # Job logs need a signed-in browser; check-run annotations are readable through the
-      # REST API. On failure, name every failed test as an annotation (#145).
+      # REST API. When the Test step fails, name the failed tests as annotations (#145).
+      # GitHub keeps at most 10 error annotations per step, so: 9 tests + 1 total line.
       - name: Annotate failed tests
-        if: failure()
+        if: failure() && steps.test.outcome == 'failure'
         shell: python
         run: |
           import pathlib
+          import sys
           import xml.etree.ElementTree as ET
+          # Windows pipes default to cp1252; a non-ASCII test id must not crash the step.
+          sys.stdout.reconfigure(encoding="utf-8")
           p = pathlib.Path("pytest-junit.xml")
           if not p.exists():
               print("::error title=pytest::no junit report (pytest did not finish)")
           else:
-              n = 0
+              bad_cases = []
               for case in ET.parse(p).getroot().iter("testcase"):
                   for tag in ("failure", "error"):
                       for bad in case.findall(tag):
-                          if n >= 40:
-                              break
-                          name = f"{case.get('classname')} / {case.get('name')}"[:200]
-                          title = (f"{tag} {name}".replace("%", "%25")
-                                   .replace(",", "%2C").replace(":", "%3A"))
-                          lines = (bad.get("message") or "").splitlines()
-                          msg = (lines[0] if lines else "")[:300].replace("%", "%25")
-                          print(f"::error title={title}::{msg}")
-                          n += 1
-              print(f"annotated {n} failed test(s)")
+                          bad_cases.append((tag, case, bad))
+              for tag, case, bad in bad_cases[:9]:
+                  name = f"{case.get('classname')} / {case.get('name')}"[:200]
+                  title = (f"{tag} {name}".replace("%", "%25")
+                           .replace(",", "%2C").replace(":", "%3A"))
+                  lines = (bad.get("message") or "").splitlines()
+                  msg = (lines[0] if lines else "")[:300].replace("%", "%25")
+                  print(f"::error title={title}::{msg}")
+              total = len(bad_cases)
+              print(f"::error title=pytest::{total} failed test(s) in total, "
+                    f"{min(total, 9)} named above")
+              print(f"annotated {min(total, 9)} of {total} failed test(s)")
