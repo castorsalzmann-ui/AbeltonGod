@@ -1,10 +1,11 @@
-"""Read-back after create_audio_clip (#50 user run 1, PR for issue #50 follow-up).
+"""Read-back after create_audio_clip (#50 user run 1, PR #97).
 
 User run 1 in Live 12.4.5: Live made the new track and the clip and played it, but the script
-reported "read-back ... does not show exactly the new clip (file_path=None)". Live had renamed
-the new track after the clip ("3 centre s1001"). The old read-back compared all track names,
-so it never asked for the file path. A clip that becomes visible only a moment later would
-have failed the same way. CI only: the fake simulates both; Live's real timing is not known.
+reported "read-back ... does not show exactly the new clip (file_path=None)". The user's
+action log (#50, 09:58) shows the cause: at the first read the clip was already in slot 0, and
+Live had renamed the new track ``3-Audio`` -> ``3-centre_s1001_v0``. The old read-back
+compared all track names, so it never asked for the file path. The polling tested here is a
+bounded precaution; a late clip has not been observed in Live. CI only: the fake simulates it.
 """
 
 from __future__ import annotations
@@ -22,6 +23,7 @@ from bridge.clip_import import (
     ActionLog,
     ClipImporter,
     ImportAborted,
+    ImportInterrupted,
     SlotState,
     same_except_track_name,
 )
@@ -30,7 +32,7 @@ from bridge.osc_client import ADDRESSES, AbletonBridge
 IMPORT_CAPS = ("clip_slot.create_audio_clip", "song.create_audio_track", "song.undo")
 CREATE_CLIP = "/live/clip_slot/create_audio_clip"
 UNDO = "/live/song/undo"
-RENAMED = "3 centre s1001"
+RENAMED = "3-centre_s1001_v0"  # Live's read-back name in run 1 (user's action log, #50)
 
 
 def wav_file(path) -> str:
@@ -77,9 +79,10 @@ def undos(fake):
 # -- the user's run 1, reproduced --------------------------------------------------------------
 
 
-@pytest.mark.parametrize("delay", [0.0, 0.3], ids=["rename-only", "rename-and-late-clip"])
+@pytest.mark.parametrize("delay", [0.0, 0.3], ids=["run-1-rename-only", "rename-and-late-clip"])
 def test_user_run_1_renamed_track_is_accepted(ibridge, midi_set, log, tmp_path, delay):
-    """Regression for #50 run 1: before the fix this raised ImportAborted(file_path=None)."""
+    """Regression for #50 run 1 (delay 0, as in the user's log): before the fix this raised
+    ImportAborted(file_path=None). The late-clip case is the simulated precaution."""
     midi_set.rename_on_clip = RENAMED
     midi_set.clip_delay_s = delay
     p = wav_file(tmp_path / "centre_s1001_v0.wav")
@@ -91,8 +94,7 @@ def test_user_run_1_renamed_track_is_accepted(ibridge, midi_set, log, tmp_path, 
     last = entries(log)[-1]
     assert last["ok"] is True
     assert last["target_track_name"] == {"before": "3-Audio", "after": RENAMED}
-    if delay:
-        assert last["polls"] > 1
+    assert last["polls"] > 1 if delay else last["polls"] == 1
 
 
 @pytest.mark.parametrize("reverts_rename", [True, False])
@@ -197,6 +199,151 @@ def test_undo_refused_when_another_track_was_renamed(ibridge, fake, log, tmp_pat
     assert undos(fake) == 0
 
 
+# -- Ctrl+C while polling (review of #97, R5) -------------------------------------------------
+
+
+def two_tracks(fake):
+    fake.tracks = [{"name": "Kick", "mute": False, "audio": True, "slots": [None] * 4},
+                   {"name": "Bass", "mute": False, "slots": [None] * 4}]
+    return SlotState(("Kick", "Bass"), (False,) * 4)
+
+
+def test_ctrl_c_during_poll_sleep_is_unknown_and_blocks_undo(ibridge, fake, log, tmp_path):
+    before = two_tracks(fake)
+    fake.clip_delay_s = 30.0  # not visible at the first read, so the poll sleeps
+    sleeps = []
+
+    def sleep(s):
+        sleeps.append(s)
+        raise KeyboardInterrupt
+
+    imp = ClipImporter(ibridge, log, timeout_s=TEST_TIMEOUT_S, sleep=sleep)
+    with pytest.raises(ImportInterrupted, match="read-back interrupted"):
+        imp.run(path=wav_file(tmp_path / "k.wav"), track_index=0, slot_index=0, num_slots=4,
+                expected_before=before)
+    out = imp.last_outcome
+    assert sleeps == [READBACK_POLL_INTERVAL_S]
+    assert out.outcome_unknown and not out.done
+    last = entries(log)[-1]
+    assert last["status"] == "interrupted" and "no undo will be sent" in last["note"]
+    with pytest.raises(ImportAborted, match="unknown outcome"):
+        imp.undo_step(out, expect_now=before, expect_after=before, label="undo_clip")
+    assert undos(fake) == 0
+
+
+def test_ctrl_c_during_poll_read_is_unknown(ibridge, fake, log, tmp_path):
+    before = two_tracks(fake)
+    fake.clip_delay_s = 30.0
+    orig = ibridge.get_track_names
+    calls = []
+
+    def names(*a, **k):
+        calls.append(1)
+        if len(calls) == 3:  # 1: pre-check, 2: first poll, 3: second poll
+            raise KeyboardInterrupt
+        return orig(*a, **k)
+
+    ibridge.get_track_names = names
+    imp = ClipImporter(ibridge, log, timeout_s=TEST_TIMEOUT_S)
+    with pytest.raises(ImportInterrupted):
+        imp.run(path=wav_file(tmp_path / "k.wav"), track_index=0, slot_index=0, num_slots=4,
+                expected_before=before)
+    assert imp.last_outcome.outcome_unknown
+    assert entries(log)[-1]["status"] == "interrupted"
+    assert undos(fake) == 0
+
+
+# -- undo post-check: names and track count (review of #97, R6) -------------------------------
+
+
+def _rename_other(fake):
+    fake.tracks[1]["name"] = "Bass 2"
+
+
+def _delete_other(fake):
+    del fake.tracks[1]
+
+
+def _rename_target_foreign(fake):
+    fake.tracks[0]["name"] = "Someone else"
+
+
+@pytest.mark.parametrize("side_effect", [_rename_other, _delete_other, _rename_target_foreign],
+                         ids=["other-renamed", "other-deleted", "target-foreign-name"])
+def test_undo_post_check_compares_names_and_count(ibridge, fake, log, tmp_path, side_effect):
+    """The undo removes the clip (target slots right), but also changes a name or the track
+    count. That is not "set restored"."""
+    before = two_tracks(fake)
+    imp = ClipImporter(ibridge, log, timeout_s=TEST_TIMEOUT_S, readback_window_s=0.3)
+    out = imp.run(path=wav_file(tmp_path / "k.wav"), track_index=0, slot_index=0, num_slots=4,
+                  expected_before=before)
+    orig = fake._undo
+
+    def undo_and_more(p):
+        orig(p)
+        side_effect(fake)
+
+    fake._undo = undo_and_more
+    assert imp.undo_step(out, expect_now=out.after, expect_after=before,
+                         label="undo_clip") is False
+    assert fake.tracks[0]["slots"] == [None] * 4  # the clip itself is gone
+    assert entries(log)[-1]["ok"] is False and "read-back differs" in out.steps[-1].detail
+
+
+# -- undo pre-check: the target name must be one this import saw (review of #97, Problem 5) --
+
+
+def test_undo_refused_when_target_renamed_by_someone_else(ibridge, fake, log, tmp_path):
+    """A foreign rename of the target is the newest undo step: one undo would revert it, not
+    the clip. Refused before sending."""
+    before = two_tracks(fake)
+    imp = ClipImporter(ibridge, log, timeout_s=TEST_TIMEOUT_S)
+    out = imp.run(path=wav_file(tmp_path / "k.wav"), track_index=0, slot_index=0, num_slots=4,
+                  expected_before=before)
+    fake.undo_stack.append(("rename", 0, "Kick"))
+    fake.tracks[0]["name"] = "Kick (user)"
+    with pytest.raises(ImportAborted, match="undo NOT sent"):
+        imp.undo_step(out, expect_now=out.after, expect_after=before, label="undo_clip")
+    assert undos(fake) == 0
+    assert entries(log)[-1]["expected_target_name"] == "Kick"
+
+
+def test_undo_clip_pre_check_is_strict_about_the_renamed_name(ibridge, midi_set, log,
+                                                              tmp_path):
+    """After Live's rename, the first undo needs the name Live gave; the old default name
+    (also seen by this import) now means someone renamed it back: refused."""
+    midi_set.rename_on_clip = RENAMED
+    imp = ClipImporter(ibridge, log, timeout_s=TEST_TIMEOUT_S)
+    out = imp.run(path=wav_file(tmp_path / "k.wav"), track_index=None, slot_index=0,
+                  num_slots=8, expected_before=BEFORE)
+    midi_set.tracks[2]["name"] = "3-Audio"
+    with pytest.raises(ImportAborted, match="undo NOT sent"):
+        imp.undo_step(out, expect_now=out.after, expect_after=out.after_track,
+                      label="undo_clip")
+    assert undos(midi_set) == 0
+
+
+@pytest.mark.parametrize("reverts_rename", [True, False])
+def test_undo_track_refused_after_foreign_rename_between_undos(ibridge, midi_set, log,
+                                                               tmp_path, reverts_rename):
+    midi_set.rename_on_clip = RENAMED
+    midi_set.undo_reverts_rename = reverts_rename
+    imp = ClipImporter(ibridge, log, timeout_s=TEST_TIMEOUT_S)
+    out = imp.run(path=wav_file(tmp_path / "k.wav"), track_index=None, slot_index=0,
+                  num_slots=8, expected_before=BEFORE)
+    assert imp.undo_step(out, expect_now=out.after, expect_after=out.after_track,
+                         label="undo_clip")
+    assert out.after_undo.track_names[2] == ("3-Audio" if reverts_rename else RENAMED)
+    # The other name this import saw is not enough: it must be the one read after undo 1.
+    midi_set.tracks[2]["name"] = RENAMED if reverts_rename else "3-Audio"
+    with pytest.raises(ImportAborted, match="undo NOT sent"):
+        imp.undo_step(out, expect_now=out.after_track, expect_after=BEFORE, label="undo_track")
+    midi_set.tracks[2]["name"] = "Kick (user)"
+    with pytest.raises(ImportAborted, match="undo NOT sent"):
+        imp.undo_step(out, expect_now=out.after_track, expect_after=BEFORE, label="undo_track")
+    assert undos(midi_set) == 1
+
+
 # -- _poll and same_except_track_name, without a server --------------------------------------
 
 
@@ -218,10 +365,22 @@ def make_importer(clock, window=1.0, interval=0.1):
                         poll_interval_s=interval, clock=clock, sleep=clock.sleep)
 
 
+def bounded(check, limit=100):
+    """Wrap ``check`` so a poll that never ends goes red instead of hanging the suite."""
+    calls = []
+
+    def wrapped():
+        calls.append(1)
+        assert len(calls) <= limit, f"_poll did not stop after {limit} reads"
+        return check()
+
+    return wrapped
+
+
 def test_poll_stops_at_first_match():
     clock = FakeClock()
     results = iter([False, False, True, True])
-    value, ok, polls = make_importer(clock)._poll(lambda: ("v", next(results)))
+    value, ok, polls = make_importer(clock)._poll(bounded(lambda: ("v", next(results))))
     assert (value, ok, polls) == ("v", True, 3)
     assert clock.sleeps == [0.1, 0.1]
 
@@ -229,7 +388,7 @@ def test_poll_stops_at_first_match():
 def test_poll_never_reports_a_match_it_did_not_see():
     clock = FakeClock()
     value, ok, polls = make_importer(clock, window=1.0, interval=0.25)._poll(
-        lambda: (clock.t, False))
+        bounded(lambda: (clock.t, False)))
     assert ok is False
     assert polls == 5  # t = 0, 0.25, 0.5, 0.75, 1.0 -> deadline reached at the 5th read
     assert value == pytest.approx(1.0)
@@ -237,7 +396,7 @@ def test_poll_never_reports_a_match_it_did_not_see():
 
 def test_poll_reads_at_least_once_with_zero_window():
     clock = FakeClock()
-    assert make_importer(clock, window=0.0)._poll(lambda: (1, False)) == (1, False, 1)
+    assert make_importer(clock, window=0.0)._poll(bounded(lambda: (1, False))) == (1, False, 1)
     assert clock.sleeps == []
 
 

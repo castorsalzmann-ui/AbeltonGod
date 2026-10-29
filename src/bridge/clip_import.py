@@ -14,14 +14,20 @@ Rules this module enforces (D-006, research note on the bridge):
   the planned entry cannot be written, nothing is sent.
 - A write counts as done only after a read-back: the slot has a clip, no other slot of the
   track changed, the track list is unchanged, and the clip's ``file_path`` is the file.
-- The read-back after a confirmed write is repeated (every ``READBACK_POLL_INTERVAL_S``) until
-  it matches or ``READBACK_WINDOW_S`` is over: Live may show the clip a moment later and may
-  rename the target track after the clip (#50 user run 1). The target track's name is
-  therefore not compared; every other track name, every slot and the file path are.
+- Live renames a default-named audio track after the clip it gets (#50 user run 1, from the
+  user's action log: ``3-Audio`` -> ``3-centre_s1001_v0``). The read-back after the clip
+  therefore does not pin the target track's name; every other track name, the track count,
+  every slot of the target track and the file path are compared.
+- As a precaution, the read-back after a confirmed write is repeated (every
+  ``READBACK_POLL_INTERVAL_S``) until it matches or ``READBACK_WINDOW_S`` is over. A clip that
+  shows up only a moment later is possible but has not been observed (in run 1 it was visible
+  at the first read). The window is bounded and fail-safe: no match means unknown, no undo.
 - A write whose outcome is unknown (timeout, Ctrl+C, failed read-back, or a read-back that
   never matched within the window) is logged, and no undo is ever sent after it.
-- Undo is sent only after a read-back shows the set exactly as the import left it, and its
-  effect is read back too. At most one undo per confirmed write.
+- Undo is sent only after a read-back shows the set exactly as this import last read it back
+  (the target track's name included), and its effect is read back too: track count, all other
+  names, the target's slots, and a target name that is one of the two this import saw (before
+  or after Live's rename). At most one undo per confirmed write.
 
 Blind spots: clips on other tracks, devices, automation, return/master tracks. Nothing here
 deletes anything.
@@ -53,9 +59,10 @@ DEFAULT_ACTION_LOG = REPO_ROOT / "logs" / "bridge-actions.jsonl"  # logs/ is git
 # A timed-out write may still be queued behind a blocked GUI thread: read back with more time.
 READBACK_AFTER_TIMEOUT_FACTOR = 3.0
 
-# After a confirmed write, the read-back is repeated until it matches or this window is over
-# (#50 user run 1: the first read-back did not match although Live had made the clip).
-# Bounded: a read-back that never matches is an unknown outcome, never a success.
+# Precaution, not the #50 run-1 fix (that was the target-name comparison): after a confirmed
+# write, the read-back is repeated until it matches or this window is over. A late clip has
+# not been observed. Bounded and fail-safe: a read-back that never matches is an unknown
+# outcome, never a success.
 READBACK_WINDOW_S = 2.0
 READBACK_POLL_INTERVAL_S = 0.1
 
@@ -202,7 +209,9 @@ class ImportOutcome:
     after_track: SlotState | None = None  # after the new track, before the clip
     after: SlotState | None = None  # after the clip, as read back
     file_path_read: str | None = None
+    target_name_before: str | None = None  # target track's name right before the clip
     target_name_after: str | None = None  # Live may rename the target track after the clip
+    after_undo: SlotState | None = None  # read back after the last undo that was sent
     steps: list[Step] = field(default_factory=list)
     done: bool = False  # clip read back in the slot with the right file
     outcome_unknown: bool = False  # a write timed out / was interrupted / not read back
@@ -211,6 +220,15 @@ class ImportOutcome:
     def confirmed_writes(self) -> int:
         return sum(1 for s in self.steps
                    if s.outcome == "confirmed" and not s.label.startswith("undo"))
+
+    def import_names(self) -> frozenset[str | None]:
+        """The target track names this import itself read: before and after the clip."""
+        return frozenset({self.target_name_before, self.target_name_after})
+
+
+def target_name(state: SlotState, track_index: int) -> str | None:
+    """The target track's name in ``state``; None if the track does not exist there."""
+    return state.track_names[track_index] if track_index < len(state.track_names) else None
 
 
 class ClipImporter:
@@ -373,8 +391,8 @@ class ClipImporter:
         def check_clip() -> tuple[tuple[SlotState, str | None], bool]:
             state = read_state(self.bridge, target, num_slots)
             fp = None
-            # Live may rename the target track after the clip (user run 1, #50: "3-Audio" ->
-            # "3 centre s1001"), so its name is not compared; all other names are.
+            # Live renames a default-named target track after the clip (#50 run 1, action
+            # log: "3-Audio" -> "3-centre_s1001_v0"), so its name is not compared here.
             if (same_except_track_name(state, SlotState(clip_before.track_names,
                                                         state.has_clip), target)
                     and state.has_clip[slot_index]):
@@ -392,8 +410,8 @@ class ClipImporter:
             lambda: self._poll(check_clip))
         outcome.after, outcome.file_path_read, outcome.done = after, file_path, done
         name_before = clip_before.track_names[target]
-        name_after = after.track_names[target] if target < len(after.track_names) else None
-        outcome.target_name_after = name_after
+        name_after = target_name(after, target)
+        outcome.target_name_before, outcome.target_name_after = name_before, name_after
         self._log(action="create_audio_clip", capability="clip_slot.create_audio_clip",
                   params=params, status="read_back", after=after.as_json(),
                   file_path=file_path, ok=done, polls=polls,
@@ -414,31 +432,46 @@ class ClipImporter:
                   expect_after: SlotState, label: str) -> bool:
         """One Live undo, only if the set reads back exactly as ``expect_now``.
 
-        Returns True if the state after the undo equals ``expect_after``. Raises
-        :class:`ImportAborted` if undo is not allowed, if the read-back before the undo
-        differs (nothing sent), or on a bridge error.
+        Pre-check: everything as ``expect_now``, and the target track's name exactly as this
+        import last read it back (after the clip for the first undo, after the previous undo
+        otherwise). A name nobody here saw means a foreign action is the newest undo step.
+
+        Returns True if the state after the undo equals ``expect_after`` apart from the
+        target track's name, and that name is one of the two this import saw (before or after
+        Live's rename; whether Live's undo reverts the rename is not known). The state read
+        is kept in ``outcome.after_undo``, so the caller can tell whether the name came back.
+        Raises :class:`ImportAborted` if undo is not allowed, if the read-back before the
+        undo differs (nothing sent), or on a bridge error.
         """
         if outcome.outcome_unknown:
             raise ImportAborted("a write has an unknown outcome; undo is never sent then")
         if outcome.undos_sent >= outcome.confirmed_writes():
             raise ImportAborted("every confirmed write has been undone already")
-        now = read_state(self.bridge, outcome.track_index, len(expect_now.has_clip))
-        # The target track's name is not compared: Live may rename it after the clip, and
-        # whether undo reverts that rename is not known (#50 run 1). All else must match.
-        if not same_except_track_name(now, expect_now, outcome.track_index):
+        idx = outcome.track_index
+        now = read_state(self.bridge, idx, len(expect_now.has_clip))
+        last_seen = (outcome.target_name_after if outcome.after_undo is None
+                     else target_name(outcome.after_undo, idx))
+        name_now = target_name(now, idx)
+        # last_seen is always one of outcome.import_names(): check_undo below enforces it.
+        if not (same_except_track_name(now, expect_now, idx) and name_now == last_seen):
             self._log(action=label, capability="song.undo", status="refused",
                       reason="read-back before undo differs from the expected state",
-                      now=now.as_json(), expected=expect_now.as_json())
+                      now=now.as_json(), expected=expect_now.as_json(),
+                      expected_target_name=last_seen)
             outcome.steps.append(Step(label, "refused", "set changed since the import"))
             raise ImportAborted("the set is not as the import left it; undo NOT sent")
         self._send(outcome, label, "song.undo", {}, now, self.bridge.undo)
         outcome.undos_sent += 1
+
         def check_undo() -> tuple[SlotState, bool]:
-            state = read_state(self.bridge, outcome.track_index, len(expect_after.has_clip))
-            return state, same_except_track_name(state, expect_after, outcome.track_index)
+            state = read_state(self.bridge, idx, len(expect_after.has_clip))
+            name = target_name(state, idx)
+            return state, (same_except_track_name(state, expect_after, idx)
+                           and (name is None or name in outcome.import_names()))
 
         after, ok, polls = self._readback(outcome, label, "song.undo", {},
                                           lambda: self._poll(check_undo))
+        outcome.after_undo = after
         self._log(action=label, capability="song.undo", status="read_back",
                   after=after.as_json(), expected=expect_after.as_json(), ok=ok, polls=polls)
         if not ok:

@@ -342,10 +342,10 @@ def run(bridge: AbletonBridge, report: Report, path: str, slot_arg: int | None,
     report.target_name_after = repr(outcome.target_name_after)
     print(f"\nOK: Clip liegt in Spur {outcome.track_index}, Zelle {slot}. Live meldet als "
           f"Datei:\n  {outcome.file_path_read}", file=out)
-    before_name = (outcome.after_track or outcome.before).track_names[outcome.track_index]
-    if outcome.target_name_after != before_name:
-        print(f"Live hat die Spur umbenannt: '{before_name}' -> '{outcome.target_name_after}' "
-              "(normal, wenn die Spur noch ihren Standardnamen hatte).", file=out)
+    if outcome.target_name_after != outcome.target_name_before:
+        print(f"Live hat die Spur umbenannt: '{outcome.target_name_before}' -> "
+              f"'{outcome.target_name_after}' (normal, wenn die Spur noch ihren Standardnamen "
+              "hatte).", file=out)
 
     answer = ask("\nBitte in Live die Zelle starten und anhören. Spielt der Kick? [y/n]: ",
                  input_fn)
@@ -441,9 +441,27 @@ def run_undo(importer: ClipImporter, outcome: ImportOutcome, report: Report,
         report.undo_result = f"FAIL ({type(exc).__name__}: {exc})"
         print(f"FEHLER beim Undo: {exc}\nDas Script sendet nichts mehr. " + UNDO_HINT, file=out)
         return EXIT_CHECK_FAILED
+    # The undo read-back tolerates Live's rename of the target track; "as before" needs every
+    # name and the track count to be back (#97 review: a kept rename was reported as PASS).
+    final = outcome.after_undo
+    assert final is not None
+    if final.track_names != before.track_names:
+        # check_undo already pins the track count; the full lists are the fallback anyway.
+        changed = "; ".join(
+            f"{a!r} -> {b!r}" for a, b in
+            zip(before.track_names, final.track_names, strict=False) if a != b
+        ) or f"{list(before.track_names)} -> {list(final.track_names)}"
+        report.undo_result = ("PARTIAL (" + ", ".join(results) + "; read back; track names "
+                              f"not restored: {changed})")
+        print("ACHTUNG: Undo hat den Import zurückgenommen (zurückgelesen), aber die Spurnamen "
+              f"sind nicht wie vor dem Import: {changed}. Das Set ist NICHT ganz wie vorher. "
+              "Bitte die Spur in Live von Hand zurückbenennen. Das Script sendet nichts mehr.",
+              file=out)
+        return EXIT_CHECK_FAILED
     report.undo_result = "PASS (" + ", ".join(results) + "; read back)"
-    print("Das Set ist wieder wie vor dem Import (geprüft: Spurnamen und Zellen der Zielspur; "
-          "nicht geprüft: andere Spuren, Geräte, Automation).", file=out)
+    print("Das Set ist wieder wie vor dem Import (geprüft: alle Spurnamen, Anzahl der Spuren und "
+          "Zellen der Zielspur; nicht geprüft: Clips anderer Spuren, Geräte, Automation).",
+          file=out)
     return EXIT_OK
 
 

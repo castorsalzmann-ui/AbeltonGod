@@ -41,6 +41,9 @@ IMPORT_CAPS = ("clip_slot.create_audio_clip", "song.create_audio_track", "song.u
 CREATE_CLIP = "/live/clip_slot/create_audio_clip"
 CREATE_TRACK = "/live/song/create_audio_track"
 UNDO = "/live/song/undo"
+# Read-back window for tests whose read-back never matches (saves ~1.7 s each; the default
+# window is pinned in test_clip_readback.py::test_window_constants).
+SHORT_WINDOW_S = 0.3
 
 
 def wav_file(path, frames: int = 4) -> str:
@@ -477,7 +480,7 @@ def test_new_track_with_a_clip_stops_before_clip(ibridge, audio_set, log, tmp_pa
         audio_set.tracks[-1]["slots"][2] = "C:\\template.wav"  # e.g. a default-set template
 
     audio_set._create_audio_track = track_with_clip
-    imp = ClipImporter(ibridge, log, timeout_s=TEST_TIMEOUT_S)
+    imp = ClipImporter(ibridge, log, timeout_s=TEST_TIMEOUT_S, readback_window_s=SHORT_WINDOW_S)
     with pytest.raises(ImportAborted, match="not an empty audio track"):
         imp.run(path=wav_file(tmp_path / "k.wav"), track_index=None, slot_index=0,
                 num_slots=4, expected_before=SlotState(("1-Audio", "2-MIDI", "3-Audio"), ()))
@@ -537,7 +540,7 @@ def test_readback_failure_after_confirmed_write_blocks_undo(ibridge, audio_set, 
 def test_wrong_file_path_read_back_is_failure(ibridge, audio_set, log, tmp_path):
     orig = audio_set._get_file_path
     audio_set._get_file_path = lambda p: (*orig(p)[:2], "C:\\other.wav")
-    imp = ClipImporter(ibridge, log, timeout_s=TEST_TIMEOUT_S)
+    imp = ClipImporter(ibridge, log, timeout_s=TEST_TIMEOUT_S, readback_window_s=SHORT_WINDOW_S)
     with pytest.raises(ImportAborted, match="does not show exactly"):
         imp.run(path=wav_file(tmp_path / "k.wav"), track_index=0, slot_index=0,
                 num_slots=4, expected_before=expected_state(audio_set, 0))
@@ -547,7 +550,7 @@ def test_wrong_file_path_read_back_is_failure(ibridge, audio_set, log, tmp_path)
 def test_clip_in_other_slot_is_failure(ibridge, audio_set, log, tmp_path):
     orig = audio_set._create_audio_clip
     audio_set._create_audio_clip = lambda p: orig((p[0], p[1] + 1, p[2]))
-    imp = ClipImporter(ibridge, log, timeout_s=TEST_TIMEOUT_S)
+    imp = ClipImporter(ibridge, log, timeout_s=TEST_TIMEOUT_S, readback_window_s=SHORT_WINDOW_S)
     with pytest.raises(ImportAborted, match="does not show exactly"):
         imp.run(path=wav_file(tmp_path / "k.wav"), track_index=0, slot_index=0,
                 num_slots=4, expected_before=expected_state(audio_set, 0))
@@ -562,7 +565,7 @@ def test_extra_clip_in_other_slot_is_failure(ibridge, audio_set, log, tmp_path):
         audio_set.tracks[int(p[0])]["slots"][3] = p[2]
 
     audio_set._create_audio_clip = two_clips
-    imp = ClipImporter(ibridge, log, timeout_s=TEST_TIMEOUT_S)
+    imp = ClipImporter(ibridge, log, timeout_s=TEST_TIMEOUT_S, readback_window_s=SHORT_WINDOW_S)
     with pytest.raises(ImportAborted, match="does not show exactly"):
         imp.run(path=wav_file(tmp_path / "k.wav"), track_index=0, slot_index=0,
                 num_slots=4, expected_before=expected_state(audio_set, 0))
@@ -576,7 +579,7 @@ def test_new_track_not_audio_stops_before_clip(ibridge, audio_set, log, tmp_path
         audio_set.tracks[-1]["audio"] = False
 
     audio_set._create_audio_track = midi_track
-    imp = ClipImporter(ibridge, log, timeout_s=TEST_TIMEOUT_S)
+    imp = ClipImporter(ibridge, log, timeout_s=TEST_TIMEOUT_S, readback_window_s=SHORT_WINDOW_S)
     with pytest.raises(ImportAborted, match="not an empty audio track"):
         imp.run(path=wav_file(tmp_path / "k.wav"), track_index=None, slot_index=0,
                 num_slots=4, expected_before=SlotState(("1-Audio", "2-MIDI", "3-Audio"), ()))
@@ -589,7 +592,7 @@ def test_new_track_not_at_end_stops_before_clip(ibridge, audio_set, log, tmp_pat
     audio_set.tracks[2]["slots"] = [None] * 4
     orig = audio_set._create_audio_track
     audio_set._create_audio_track = lambda p: orig((0,))
-    imp = ClipImporter(ibridge, log, timeout_s=TEST_TIMEOUT_S)
+    imp = ClipImporter(ibridge, log, timeout_s=TEST_TIMEOUT_S, readback_window_s=SHORT_WINDOW_S)
     with pytest.raises(ImportAborted, match="not an empty audio track"):
         imp.run(path=wav_file(tmp_path / "k.wav"), track_index=None, slot_index=0,
                 num_slots=4, expected_before=SlotState(("1-Audio", "2-MIDI", "3-Audio"), ()))
@@ -615,7 +618,7 @@ def test_undo_that_reverts_something_else_is_reported(ibridge, audio_set, log, t
     audio_set.clip_undoable = False  # Live does not record the clip as an undo step
     audio_set.undo_stack = [(1, True)]  # the user's last action: unmute of track 1
     before = expected_state(audio_set, 0)
-    imp = ClipImporter(ibridge, log, timeout_s=TEST_TIMEOUT_S)
+    imp = ClipImporter(ibridge, log, timeout_s=TEST_TIMEOUT_S, readback_window_s=SHORT_WINDOW_S)
     out = imp.run(path=wav_file(tmp_path / "k.wav"), track_index=0, slot_index=0,
                   num_slots=4, expected_before=before)
     assert imp.undo_step(out, expect_now=out.after, expect_after=before,

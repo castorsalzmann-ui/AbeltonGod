@@ -239,12 +239,14 @@ OK: Clip liegt in Spur 0, Zelle 0. Live meldet als Datei:
   C:\voller\Pfad\zur\kick.wav
 ...
 Undo 1: Clip ist wieder weg (zurückgelesen).
-Das Set ist wieder wie vor dem Import (geprüft: Spurnamen und Zellen der Zielspur; nicht geprüft: andere Spuren, Geräte, Automation).
+Das Set ist wieder wie vor dem Import (geprüft: alle Spurnamen, Anzahl der Spuren und Zellen der Zielspur; nicht geprüft: Clips anderer Spuren, Geräte, Automation).
 ```
 
 Im Ergebnis-Block sollten dann stehen: `extension: PRESENT`, `clip_slot.create_audio_clip: PASS`, `clip_file_path_read: '<dein Pfad>'`, `user_hears_kick: yes`, `song.undo: PASS (clip removed; read back)`. Den ganzen Block (mit den drei Backticks) in **Issue #50** einfügen.
 
-Nach dem Import liest das Script bis zu 2 Sekunden lang alle 0,1 s zurück, bis Clip und Dateipfad zu sehen sind. Den Namen der Zielspur vergleicht es dabei nicht: Live benennt eine neue Spur nach dem Clip um (im ersten Lauf: `3 centre s1001`). Das Script meldet das mit `Live hat die Spur umbenannt: …`, im Ergebnis-Block steht der neue Name unter `target_track_name_after_import`. Zeigt das Zurücklesen nach 2 Sekunden immer noch nicht den Clip, meldet das Script `FEHLER: AbletonOSC hat den letzten Schritt bestätigt, aber das Zurücklesen zeigt nicht das erwartete Ergebnis`, sendet kein Undo, und du entfernst Clip/Spur von Hand.
+Live benennt eine Spur mit Standardnamen nach dem Clip um (im ersten Lauf: `3-Audio` -> `3-centre_s1001_v0`). Den Namen der Zielspur vergleicht das Script beim Zurücklesen deshalb nicht; es meldet die Umbenennung mit `Live hat die Spur umbenannt: …`, im Ergebnis-Block steht der neue Name unter `target_track_name_after_import`. Zur Vorsicht liest das Script bis zu 2 Sekunden lang alle 0,1 s zurück (ein verspäteter Clip wurde bisher nicht beobachtet). Zeigt das Zurücklesen danach immer noch nicht den Clip, meldet das Script `FEHLER: AbletonOSC hat den letzten Schritt bestätigt, aber das Zurücklesen zeigt nicht das erwartete Ergebnis`, sendet kein Undo, und du entfernst Clip/Spur von Hand.
+
+Behält die Spur nach dem Undo den neuen Namen (ob Live das tut, ist nicht geprüft), meldet das Script `ACHTUNG: Undo hat den Import zurückgenommen (zurückgelesen), aber die Spurnamen sind nicht wie vor dem Import: …`, im Ergebnis-Block `song.undo: PARTIAL (…; track names not restored: '<alt>' -> '<neu>')` und Exit-Code 1. Dann die Spur von Hand zurückbenennen und den Block trotzdem einfügen; das ist ein gültiges Ergebnis.
 
 Ob Live den Dateipfad genau so zurückmeldet, wie er gesendet wurde (Groß/Klein, `\` statt `/`), ist nicht geprüft. Das Script vergleicht ohne Rücksicht auf Groß/Klein und Schrägstrich-Richtung. Steht `FAIL` mit einem anderen Pfad, bitte den Block trotzdem einfügen.
 
