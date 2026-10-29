@@ -345,8 +345,7 @@ def test_prompt_mentions_closing_live(osc):
 
 
 def test_ctrl_c_at_prompt_exits_130_and_changes_nothing(osc, monkeypatch):
-    monkeypatch.setattr(inst, "KNOWN_ORIGINAL_SHA256", SHA)
-    monkeypatch.setattr(inst.run, "__kwdefaults__", {"known_original": SHA})
+    monkeypatch.setattr(inst.run, "__kwdefaults__", {"known_original": SHA, "specs": None})
 
     def interrupt(prompt):
         raise KeyboardInterrupt

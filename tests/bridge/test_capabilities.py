@@ -17,7 +17,13 @@ from bridge.capabilities import (
     CapabilityRegistryError,
     UnknownCapabilityError,
 )
-from bridge.osc_client import ADDRESSES, EXTENSION_ADDRESSES, PENDING_REGISTRY, AbletonBridge
+from bridge.osc_client import (
+    ADDRESSES,
+    EXTENSION_ADDRESSES,
+    PENDING_REGISTRY,
+    UNREGISTERED,
+    AbletonBridge,
+)
 
 RAW = json.loads(CAPABILITIES_FILE.read_text(encoding="utf-8"))
 
@@ -69,8 +75,15 @@ def test_every_address_the_bridge_sends_is_registered_or_pending():
     known = {a for addrs in ADDRESSES.values() for a in addrs}
     known |= {a for addrs, _ in PENDING_REGISTRY.values() for a in addrs}
     known |= {a for addrs, _ in EXTENSION_ADDRESSES.values() for a in addrs}
+    known |= {a for addrs, _kind, _src in UNREGISTERED.values() for a in addrs}
     known |= {"/live/error", "/live/song/get/tempo"}  # reply error address; request marker
-    assert literals - known == set()
+    # The installer quotes AbletonOSC's own track.py line 109 as its patch anchor (#140); the
+    # bridge never sends that address. Allowed only there, nowhere else.
+    installer = ROOT / "scripts" / "install_abletonosc_extension.py"
+    other = {m for f in [*(ROOT / "src" / "bridge").glob("*.py"), *(ROOT / "scripts").glob("*.py")]
+             if f != installer for m in OSC_LITERAL.findall(f.read_text(encoding="utf-8"))}
+    assert "/live/track/delete_clip" not in other
+    assert literals - known == {"/live/track/delete_clip"}
 
 
 def test_extension_capabilities_are_registered_with_their_lom_target():

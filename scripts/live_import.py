@@ -41,9 +41,7 @@ Never sends destructive commands. User-facing text is German; code and comments 
 from __future__ import annotations
 
 import argparse
-import datetime as dt
 import logging
-import os
 import platform
 import sys
 from collections.abc import Callable
@@ -52,6 +50,15 @@ from pathlib import Path
 from typing import TextIO
 
 from bridge.capabilities import CapabilityError, CapabilityRegistry
+from bridge.check_cli import (
+    MSG_PORT_IN_USE,
+    UNDO_HINT,
+    ask,
+    ask_yes,
+    env_port,
+    msg_no_answer,
+    now_iso,
+)
 from bridge.clip_import import (
     DEFAULT_ACTION_LOG,
     ActionLog,
@@ -93,34 +100,10 @@ EXIT_SETUP_ERROR = 4
 EXIT_EXTENSION_MISSING = 5
 EXIT_INTERRUPTED = 130
 
-YES = {"y", "yes", "j", "ja"}
 NEW_TRACK = {"n", "neu", "new"}
 
 
-def now_iso() -> str:
-    return dt.datetime.now(dt.UTC).astimezone().isoformat(timespec="seconds")
-
-
-# -- German user messages --------------------------------------------------------------------
-
-def msg_no_answer(host: str, send_port: int) -> str:
-    return (
-        f"FEHLER: AbletonOSC antwortet nicht ({host}:{send_port}).\n"
-        "Mögliche Ursachen (von hier aus nicht zu unterscheiden, bitte alle prüfen):\n"
-        "  1. Ableton Live ist nicht geöffnet.\n"
-        "  2. 'AbletonOSC' ist nicht als Control Surface ausgewählt\n"
-        "     (Optionen -> Einstellungen -> Link, Tempo & MIDI).\n"
-        "  3. In Live ist ein Dialog offen (z. B. Speichern) und blockiert die Antwort.\n"
-        "  4. Live wurde nach der Installation nicht neu gestartet.\n"
-        "Log: ...\\Remote Scripts\\AbletonOSC\\logs\\abletonosc.log"
-    )
-
-
-MSG_PORT_IN_USE = (
-    "FEHLER: Port {port} ({host}) ist schon belegt. Ein anderes Programm (z. B. ein zweites\n"
-    "Terminal mit diesem Script oder bridge_check.py) empfängt dort. Dieses schließen und neu\n"
-    "starten. Es wurde nichts in Live geändert."
-)
+# -- German user messages (shared ones in bridge.check_cli) ----------------------------------
 
 MSG_EXTENSION_MISSING = (
     "FEHLER: Die AbeltonGod-Erweiterung fehlt in AbletonOSC (AbletonOSC kennt den Import-Befehl\n"
@@ -131,15 +114,6 @@ MSG_EXTENSION_MISSING = (
     "Anleitung: docs/setup/ABLETONOSC_WINDOWS.md, Abschnitt 7.\n"
     "Ohne Erweiterung geht der Import von Hand: docs/setup/SAMPLE_IMPORT_FALLBACK.md"
 )
-
-# Live 12 manual: English "View -> Undo History", German "Ansicht -> Widerrufen-Historie",
-# shortcut Ctrl+Alt+Z (Win); clicking an entry undoes back to it (checked 2026-10-29:
-# ableton.com/en/live-manual/12/managing-files-and-sets/, /de/live-manual/12/live-concepts/
-# section 3.20).
-UNDO_HINT = ("In Live zeigt die Widerrufen-Historie, welche Schritte es gibt: Strg+Alt+Z oder "
-             "Menü Ansicht -> Widerrufen-Historie (englische Oberfläche: View -> Undo History). "
-             "Dort nur nachsehen, keinen Eintrag anklicken: ein Klick setzt das Set auf diesen "
-             "Stand zurück.")
 
 UNDO_CHOICE = (
     "\nJetzt entscheiden: Undo ODER Anhören (beides nacheinander ist nicht sicher).\n"
@@ -241,18 +215,6 @@ def render_result_block(r: Report) -> str:
 
 
 # -- interaction -----------------------------------------------------------------------------
-
-def ask(prompt: str, input_fn: Callable[[str], str]) -> str | None:
-    """Stripped answer, or None on EOF. Ctrl+C propagates."""
-    try:
-        return input_fn(prompt).strip()
-    except EOFError:
-        return None
-
-
-def ask_yes(prompt: str, input_fn: Callable[[str], str]) -> bool:
-    return (ask(prompt, input_fn) or "").lower() in YES
-
 
 def choose_target(names: list[str], audio: list[bool], input_fn: Callable[[str], str],
                   out: TextIO) -> tuple[bool, int | None]:
@@ -545,11 +507,6 @@ def split_overrides(report: Report, used: list[str]) -> None:
             for prefix, cap in STEP_CAPABILITY.items() if s.label.startswith(prefix)}
     report.overrides_used = sorted(c for c in set(used) if c in sent)
     report.overrides_reads_only = sorted(c for c in set(used) if c not in sent)
-
-
-def env_port(name: str, default: int) -> int:
-    raw = os.environ.get(name, "").strip()
-    return int(raw) if raw else default
 
 
 def parse_args(argv: list[str] | None) -> argparse.Namespace:

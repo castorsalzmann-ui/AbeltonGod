@@ -228,6 +228,24 @@ class ImportOutcome:
         return frozenset({self.target_name_before, self.target_name_after})
 
 
+def poll_until(check: Callable[[], tuple[Any, bool]], window_s: float, interval_s: float,
+               clock: Callable[[], float], sleep: Callable[[float], None]
+               ) -> tuple[Any, bool, int]:
+    """Call ``check`` until it reports a match or ``window_s`` is over.
+
+    Returns (last value, matched, number of reads). It always reads at least once and never
+    reports a match that ``check`` did not report: "not visible yet" is not success.
+    """
+    deadline = clock() + window_s
+    polls = 0
+    while True:
+        value, ok = check()
+        polls += 1
+        if ok or clock() >= deadline:
+            return value, ok, polls
+        sleep(interval_s)
+
+
 def target_name(state: SlotState, track_index: int) -> str | None:
     """The target track's name in ``state``; None if the track does not exist there."""
     return state.track_names[track_index] if track_index < len(state.track_names) else None
@@ -262,19 +280,8 @@ class ClipImporter:
         self.log.append({"source": self.source, **entry})
 
     def _poll(self, check: Callable[[], tuple[Any, bool]]) -> tuple[Any, bool, int]:
-        """Call ``check`` until it reports a match or the read-back window is over.
-
-        Returns (last value, matched, number of reads). It always reads at least once and
-        never reports a match that ``check`` did not report: "not visible yet" is not success.
-        """
-        deadline = self._clock() + self.readback_window_s
-        polls = 0
-        while True:
-            value, ok = check()
-            polls += 1
-            if ok or self._clock() >= deadline:
-                return value, ok, polls
-            self._sleep(self.poll_interval_s)
+        return poll_until(check, self.readback_window_s, self.poll_interval_s, self._clock,
+                          self._sleep)
 
     def _unknown(self, outcome: ImportOutcome, label: str, capability: str, params: dict,
                  status: str, note: str) -> str:

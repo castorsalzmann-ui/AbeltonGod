@@ -111,15 +111,30 @@ class CapabilityRegistry:
             raise UnknownCapabilityError(f"unknown capability {capability_id!r}") from None
 
 
+class UnregisteredCapabilityError(CapabilityNotTestedError):
+    """The capability has no registry entry yet and the caller did not opt in explicitly."""
+
+    def __init__(self, capability_id: str, reason: str) -> None:
+        super().__init__(capability_id, "unregistered", reason)
+
+
 class CapabilityGate:
     """Decides whether a capability may be called.
 
     ``allow_untested`` is meant only for manual check scripts (Phase 02 ``bridge_check.py``).
     Every id in it must exist in the registry and must not be ``unsupported``; this is checked
     when the gate is built, so a typo fails loudly instead of silently allowing nothing.
+
+    ``allow_unregistered`` (#140) is the same kind of explicit check-script opt-in for
+    capabilities that have **no registry entry yet** (they get one, with the user's evidence,
+    in a later contract-change PR). No registry status can ever unlock them, so production
+    code cannot reach them by accident. An id that is in the registry is refused here: once a
+    contract-change PR registers it, the caller must use ``allow_untested`` (or nothing, if it
+    is ``tested``) instead, and fails loudly until it does.
     """
 
-    def __init__(self, registry: CapabilityRegistry, allow_untested: Iterable[str] = ()) -> None:
+    def __init__(self, registry: CapabilityRegistry, allow_untested: Iterable[str] = (),
+                 allow_unregistered: Iterable[str] = ()) -> None:
         self.registry = registry
         allowed = frozenset(allow_untested)
         for cap_id in sorted(allowed):
@@ -128,8 +143,33 @@ class CapabilityGate:
                 raise CapabilityNotTestedError(
                     cap_id, cap.status, "unsupported capabilities cannot be overridden"
                 )
+        unregistered = frozenset(allow_unregistered)
+        registered_now = sorted(c for c in unregistered if c in registry)
+        if registered_now:
+            raise CapabilityRegistryError(
+                f"{registered_now} are in the registry now: use allow_untested, not "
+                "allow_unregistered"
+            )
         self.allow_untested = allowed
+        self.allow_unregistered = unregistered
         self.overrides_used: list[str] = []
+
+    def check_unregistered(self, capability_id: str) -> Capability | None:
+        """Gate for a capability that has no registry entry yet (#140).
+
+        Registered ids go through :meth:`check`. An unregistered id passes only if it was
+        named in ``allow_unregistered``; the use is logged and recorded in ``overrides_used``.
+        """
+        if capability_id in self.registry:
+            return self.check(capability_id)
+        if capability_id in self.allow_unregistered:
+            logger.warning("capability %r (no registry entry) called through an explicit "
+                           "check-script opt-in", capability_id)
+            self.overrides_used.append(capability_id)
+            return None
+        raise UnregisteredCapabilityError(
+            capability_id, "no registry entry yet; only a check script that names it in "
+                           "allow_unregistered may call it")
 
     def check(self, capability_id: str) -> Capability:
         """Return the capability if it may be called; raise otherwise."""
