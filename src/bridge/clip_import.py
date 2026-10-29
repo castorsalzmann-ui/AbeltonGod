@@ -3,9 +3,9 @@
 Path A of the phase spec: ``ClipSlot.create_audio_clip(path)`` through the AbeltonGod
 extension of AbletonOSC (``scripts/install_abletonosc_extension.py``). Every step here goes
 through :class:`bridge.osc_client.AbletonBridge`, so the capability gate applies:
-``clip_slot.create_audio_clip`` is ``unknown`` and ``song.create_audio_track`` is
-``supported`` until the user's Live run gives evidence, so only a check script with an
-explicit override can run this.
+``clip_slot.create_audio_clip`` is ``tested`` (#50 user runs 2-4); ``song.create_audio_track``
+is ``supported`` (its undo is not verified in Live), so a new-track import still needs a check
+script with an explicit override.
 
 Rules this module enforces (D-006, research note on the bridge):
 

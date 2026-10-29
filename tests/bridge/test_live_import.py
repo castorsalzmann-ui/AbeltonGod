@@ -15,6 +15,7 @@ import sys
 from pathlib import Path
 
 import pytest
+from conftest import registry_with_status
 from fake_abletonosc import FakeAbletonOSC
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -125,8 +126,10 @@ def test_full_run_existing_track_with_undo(fake, tmp_path):
     assert b["song.undo"].startswith("PASS (clip removed")
     assert b["extension"] == "PRESENT"
     assert b["target"] == "track 0 '1-Audio', slot 1"
-    # song.undo is tested in the committed registry (#42), so it needs no override.
-    assert b["capability_overrides_used"] == "clip_slot.create_audio_clip"
+    # song.undo (#42) and clip_slot.create_audio_clip (#50) are tested in the committed
+    # registry, so an existing-track import needs no override.
+    assert b["capability_overrides_used"] == "-"
+    assert b["capability_overrides_reads_only"] == "-"
     assert "Geplante Änderungen" in out and p in out
     assert [e["action"] + ":" + e["status"] for e in log_entries(tmp_path)] == [
         "create_audio_clip:planned", "create_audio_clip:read_back",
@@ -177,8 +180,19 @@ def test_track_number_equal_to_track_count_is_invalid(fake, tmp_path):
     assert writes(fake) == []
 
 
+@pytest.fixture
+def pre50_registry(tmp_path, monkeypatch):
+    """The registry as before the #50 contract-change (create_audio_clip `unknown`), so the
+    override split is still tested now that the committed entry is `tested`."""
+    reg = registry_with_status(tmp_path, {"clip_slot.create_audio_clip": "unknown"})
+    monkeypatch.setattr(live_import.CapabilityRegistry, "from_file", classmethod(
+        lambda cls, *args, **kwargs: reg))
+    return reg
+
+
 @pytest.mark.parametrize("answers", [["n"], ["y", ""], ["y", "0", "n"]])
-def test_no_write_sent_means_no_write_override_reported(fake, tmp_path, answers):
+def test_no_write_sent_means_no_write_override_reported(fake, tmp_path, answers,
+                                                        pre50_registry):
     """Probe and pre-check reads use the import gate, but that is not an import (review #87)."""
     code, out, _ = run(fake, tmp_path, answers)
     b = block(out)
@@ -186,11 +200,29 @@ def test_no_write_sent_means_no_write_override_reported(fake, tmp_path, answers)
     assert b["capability_overrides_reads_only"] == "clip_slot.create_audio_clip"
 
 
-def test_new_track_import_reports_both_write_overrides(fake, tmp_path):
+def test_new_track_import_reports_both_write_overrides(fake, tmp_path, pre50_registry):
     code, out, _ = run(fake, tmp_path, ["y", "n", "y", "y", ""])
     assert code == 0, out
     b = block(out)
     assert b["capability_overrides_used"] == "clip_slot.create_audio_clip, song.create_audio_track"
+    assert b["capability_overrides_reads_only"] == "-"
+
+
+@pytest.mark.parametrize("answers", [["n"], ["y", ""], ["y", "0", "n"]])
+def test_committed_registry_no_write_reports_no_override(fake, tmp_path, answers):
+    """With the committed registry (#50) the probe and pre-check reads need no override."""
+    code, out, _ = run(fake, tmp_path, answers)
+    b = block(out)
+    assert b["capability_overrides_used"] == "-"
+    assert b["capability_overrides_reads_only"] == "-"
+
+
+def test_committed_registry_new_track_reports_only_the_track_override(fake, tmp_path):
+    """song.create_audio_track stays `supported` (#50: its undo is not verified in Live)."""
+    code, out, _ = run(fake, tmp_path, ["y", "n", "y", "y", ""])
+    assert code == 0, out
+    b = block(out)
+    assert b["capability_overrides_used"] == "song.create_audio_track"
     assert b["capability_overrides_reads_only"] == "-"
 
 

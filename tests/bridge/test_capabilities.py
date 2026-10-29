@@ -7,7 +7,7 @@ import re
 from pathlib import Path
 
 import pytest
-from conftest import registry_with
+from conftest import registry_with, registry_with_status
 
 from bridge.capabilities import (
     CAPABILITIES_FILE,
@@ -83,11 +83,21 @@ def test_extension_capabilities_are_registered_with_their_lom_target():
         assert addresses == ("/live/clip_slot/create_audio_clip",)
 
 
-def test_import_capabilities_are_not_tested_yet():
-    """#50 must not unlock anything: Live evidence comes first (D-004)."""
-    status = {c["id"]: c["status"] for c in RAW["capabilities"]}
-    assert status["clip_slot.create_audio_clip"] == "unknown"
-    assert status["song.create_audio_track"] == "supported"
+def test_import_capability_statuses_follow_the_50_evidence():
+    """#50 contract-change: create_audio_clip is `tested` from user runs 2-4 and keeps its
+    limitations; create_audio_track stays `supported` until its undo is run in Live (D-004)."""
+    caps = {c["id"]: c for c in RAW["capabilities"]}
+    clip, track = caps["clip_slot.create_audio_clip"], caps["song.create_audio_track"]
+    assert clip["status"] == "tested"
+    assert clip["evidence"].startswith(
+        "https://github.com/castorsalzmann-ui/AbeltonGod/issues/50#issuecomment-")
+    for limitation in ("undo after user interaction in Live is not reliable",
+                       "cause not established", "the pre-check refused and sent nothing",
+                       "not on a new track with live_import 0.2.0"):
+        assert limitation in clip["notes"], limitation
+    assert track["status"] == "supported"
+    assert "evidence" not in track
+    assert "Missing for 'tested'" in track["notes"]
 
 
 def test_pending_entries_are_not_yet_in_the_registry_and_borrow_a_real_gate():
@@ -111,8 +121,9 @@ def test_pending_entries_are_not_yet_in_the_registry_and_borrow_a_real_gate():
 
 @pytest.mark.parametrize("status", ["unknown", "supported"])
 def test_gate_refuses_not_tested(tmp_path, status):
-    reg = registry_with(tmp_path, set())
-    cap_id = next(c["id"] for c in RAW["capabilities"] if c["status"] == status)
+    # No real entry is `unknown` any more (#50), so the status is set on a copy.
+    cap_id = "clip_slot.create_audio_clip"
+    reg = registry_with_status(tmp_path, {cap_id: status})
     with pytest.raises(CapabilityNotTestedError) as err:
         CapabilityGate(reg).check(cap_id)
     assert err.value.status == status

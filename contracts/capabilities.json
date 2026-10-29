@@ -63,7 +63,7 @@
       "status": "tested",
       "evidence": "https://github.com/castorsalzmann-ui/AbeltonGod/issues/5#issuecomment-6474540867",
       "reversible": true,
-      "notes": "AbletonOSC README (checked 2026-10-28). Covers LOM changes, not file operations. User run 2026-10-28: one undo reverted the last mute write (R4 ok). Only a single undo after a single write was verified; multi-step undo is not. Limitation (user decision, PR #42): script 0.1.0 did not re-read the whole set after undo (bug #39), so an undo that reverted an unrelated action could not be excluded; run was on Live's default 4-track set, R4 = unmuted."
+      "notes": "AbletonOSC README (checked 2026-10-28). Covers LOM changes, not file operations. User run 2026-10-28: one undo reverted the last mute write (R4 ok). Only a single undo after a single write was verified; multi-step undo is not. Limitation (user decision, PR #42): script 0.1.0 did not re-read the whole set after undo (bug #39), so an undo that reverted an unrelated action could not be excluded; run was on Live's default 4-track set, R4 = unmuted. #50 run 4 (2026-10-29, live_import 0.2.0, https://github.com/castorsalzmann-ui/AbeltonGod/issues/50#issuecomment-6495458918): one undo right after clip_slot.create_audio_clip removed the clip, read back with the whole track list; after user interaction in Live (run 2) one undo showed no visible change, cause not established."
     },
     {
       "id": "song.create_audio_track",
@@ -71,15 +71,16 @@
       "target": "/live/song/create_audio_track",
       "status": "supported",
       "reversible": true,
-      "notes": "AbletonOSC README (checked 2026-10-28). Param: index (-1 = end). Needed for Phase 03."
+      "notes": "AbletonOSC README (checked 2026-10-28). Param: index (-1 = end). Needed for Phase 03. Kept 'supported' in #50 because this entry claims reversible=true and its undo was never run on the user's machine: user run 1 (2026-10-29 10:32, Live 12.4.5, live_import 0.1.0, https://github.com/castorsalzmann-ui/AbeltonGod/issues/50#issuecomment-6493629463) created the track and read it back (track_names gained '3-Audio', all 8 slots empty), but song.undo was SKIPPED in that run; runs 2-4 (script 0.2.0) imported onto an existing track. Missing for 'tested': one live_import >= 0.2.0 run with target 'n' (new track), nothing touched in Live, undo answered yes, result block showing song.undo PASS with the track count and all track names back."
     },
     {
       "id": "clip_slot.create_audio_clip",
       "kind": "write",
       "target": "LOM ClipSlot.create_audio_clip(path)",
-      "status": "unknown",
+      "status": "tested",
+      "evidence": "https://github.com/castorsalzmann-ui/AbeltonGod/issues/50#issuecomment-6495458918",
       "reversible": true,
-      "notes": "In the LOM reference; forum reports it works from Live 12.0.5. NOT in the AbletonOSC README (only /live/clip_slot/create_clip for empty MIDI clips) - needs a small handler in our own remote-script extension. See docs/research/2026-10-28_ableton-integration.md."
+      "notes": "Not in the AbletonOSC README (only /live/clip_slot/create_clip for empty MIDI clips); sent as /live/clip_slot/create_audio_clip through the AbeltonGod extension (scripts/install_abletonosc_extension.py, pinned to AbletonOSC commit 0ca68214). User runs 2, 3 and 4 on 2026-10-29 (Live 12.4.5, Windows 11, live_import 0.2.0, existing audio track 0, slot 0, absolute WAV path): clip_slot.create_audio_clip PASS, clip file_path read back equal to the WAV, user hears the kick (runs 2: https://github.com/castorsalzmann-ui/AbeltonGod/issues/50#issuecomment-6495315110, 3 and 4: #issuecomment-6495458918). Live renames a default-named target track after the clip ('1-Audio' -> '1-centre_s1001_v0'). Undo: run 4 (16 s, nothing touched in Live) one song.undo removed the clip and restored the track name, read back. Limitations: undo after user interaction in Live is not reliable - run 2 (39 s between import and undo; the script had asked the user to launch the clip in Live) sent one undo and the read-back showed no change after 3 polls, cause not established; run 3 the set had already been reverted by the user before the script's undo, the pre-check refused and sent nothing (correct, https://github.com/castorsalzmann-ui/AbeltonGod/issues/50#issuecomment-6495491039). Verified only on an existing audio track, Session view, one WAV file; not on a new track with live_import 0.2.0, not in Arrangement, not with other formats."
     },
     {
       "id": "song.export_audio",
