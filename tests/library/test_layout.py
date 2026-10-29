@@ -13,6 +13,7 @@ import ntpath
 import os
 import random
 import string
+import sys
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -608,6 +609,9 @@ class _BrokenWrite:
         self._f.close()
         return False
 
+    def close(self):  # a file object has close(); write_kick's clean-up calls it (#94)
+        self._f.close()
+
     def write(self, _data):
         raise self._exc
 
@@ -829,6 +833,104 @@ def test_interrupt_after_write_with_pair_already_gone_keeps_the_original_error(
     with pytest.raises(KeyboardInterrupt):
         place_kick(FAST, tmp_path, created_at=FIXED_TIME)
     assert list(tmp_path.iterdir()) == []
+
+
+@pytest.mark.parametrize("held", [".wav", ".json"])
+def test_permission_error_during_clean_up_keeps_the_original_error(
+    tmp_path, monkeypatch, held: str
+) -> None:
+    """Review of PR #93, nit 2: on Windows the realistic clean-up error is PermissionError (a
+    virus scanner or Explorer preview holds the fresh file). It must not replace the Ctrl+C,
+    and the other file of the pair must still be removed."""
+    real_unlink = os.unlink
+    refused: list[str] = []
+
+    def held_unlink(path, *args, **kwargs):
+        if str(path).endswith(held):
+            refused.append(Path(path).name)
+            raise PermissionError(13, "held by another process (simulated)")
+        return real_unlink(path, *args, **kwargs)
+
+    seen = _interrupt_after_write(monkeypatch, KeyboardInterrupt())
+    monkeypatch.setattr(layout_mod.os, "unlink", held_unlink)
+    with pytest.raises(KeyboardInterrupt):
+        place_kick(FAST, tmp_path, created_at=FIXED_TIME)
+    monkeypatch.undo()
+    assert refused == [f"kick{held}"]
+    assert len(seen) == 1
+    kicks = "Samples/Drums/Kicks"
+    # Only the held file stays (so its folders stay too); the other one is gone.
+    assert [(rel, kind) for rel, kind, _ in tree(tmp_path)] == [
+        ("Samples", "dir"), ("Samples/Drums", "dir"), (kicks, "dir"),
+        (f"{kicks}/kick{held}", "file"),
+    ]
+
+
+def _sweep_place_kick(project: Path, k: int) -> tuple[tuple | None, str]:
+    """Raise KeyboardInterrupt at the k-th line event inside place_kick, its helpers and
+    write_kick (with its clean-up helper)."""
+    traced = {
+        (layout_mod.__file__, "place_kick"), (layout_mod.__file__, "_make_folders"),
+        (layout_mod.__file__, "_remove_files"), (layout_mod.__file__, "_remove_folders"),
+        (io_mod.__file__, "write_kick"), (io_mod.__file__, "_discard"),
+    }
+    state = {"n": 0, "hit": None}
+
+    def local(frame, event, arg):
+        if event == "line":
+            state["n"] += 1
+            if state["n"] == k:
+                state["hit"] = (frame.f_code.co_name, frame.f_lineno)
+                raise KeyboardInterrupt
+        return local
+
+    def global_trace(frame, event, arg):
+        return local if (frame.f_code.co_filename, frame.f_code.co_name) in traced else None
+
+    sys.settrace(global_trace)
+    try:
+        place_kick(FAST, project, created_at=FIXED_TIME)
+        result = "returned"
+    except KeyboardInterrupt:
+        result = "interrupted"
+    finally:
+        sys.settrace(None)
+    return state["hit"], result
+
+
+@pytest.mark.parametrize("start", ["fresh", "existing-kicks"])
+def test_ctrl_c_at_every_line_of_place_kick_leaves_no_file(tmp_path, start: str) -> None:
+    """#94 + PR #93 nit 3: a Ctrl+C anywhere in place_kick or write_kick, including the
+    ``return`` statements, leaves no file behind and never touches existing ones. The only
+    documented leftover is an empty folder (interrupt between ``os.mkdir`` and recording)."""
+    if sys.gettrace() is not None:
+        pytest.skip("another trace function is active")
+    points = 0
+    problems = []
+    for k in range(1, 2000):
+        project = tmp_path / f"run{k}"
+        project.mkdir()
+        (project / "set.als").write_bytes(b"als")
+        if start == "existing-kicks":
+            kicks = project / "Samples" / "Drums" / "Kicks"
+            kicks.mkdir(parents=True)
+            (kicks / "kick.wav").write_bytes(b"k")
+            (kicks / "kick.json").write_bytes(b"j")
+        before = tree(project)
+        hit, result = _sweep_place_kick(project, k)
+        if hit is None:
+            assert result == "returned"
+            break
+        points += 1
+        after = tree(project)
+        extra = [entry for entry in after if entry not in before]
+        lost = [entry for entry in before if entry not in after]
+        if result != "interrupted" or lost or any(kind != "dir" for _, kind, _ in extra):
+            problems.append((hit, result, extra, lost))
+        if start == "existing-kicks" and extra:  # no folder is created, so none may stay
+            problems.append((hit, result, extra, lost))
+    assert points >= 60, points
+    assert problems == []
 
 
 def test_post_check_failure_removes_new_folders_too(tmp_path, monkeypatch) -> None:

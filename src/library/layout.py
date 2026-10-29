@@ -158,8 +158,14 @@ def place_kick(
     tree is left as it was. Known exceptions, all a few bytecodes wide or outside this call:
 
     - an interrupt between ``os.mkdir`` and recording that folder leaves that empty folder;
-    - an interrupt after ``write_kick`` has finished but before its result is stored here, or
-      after the ``try`` block ends, leaves the finished, valid pair (the caller gets no path);
+    - an interrupt after ``write_kick`` has finished but before its result is stored here
+      leaves the finished, valid pair (the caller gets no path);
+    - the windows ``write_kick`` itself lists (an interrupt between an ``open`` returning and
+      its result being stored leaves a 0-byte file);
+    - removal is by path: if someone else removed or replaced the pair under its names
+      after ``write_kick`` returned and before the clean-up, those files are removed;
+    - a file the clean-up cannot remove (e.g. ``PermissionError`` on Windows while a virus
+      scanner holds it) stays; the original error is still raised;
     - a second Ctrl+C during the clean-up stops the clean-up;
     - two calls on the same project at the same time: if both fail, empty layout folders can
       stay (each call may see the other's folder as existing and not remove it).
@@ -200,12 +206,12 @@ def place_kick(
                 f"{path_chars(longest)} characters, over the limit of {limit} "
                 f"(too many files named {stem!r}); nothing was kept"
             )
+        return wav_path  # inside the try: an interrupt here still removes the pair (#94)
     except BaseException:
         if written is not None:
             _remove_files((written[1], written[0]))  # sidecar first, then the WAV
         _remove_folders(created)  # neither raises OSError: the original error stays
         raise
-    return wav_path
 
 
 def sidecar_path(wav_path: str | os.PathLike[str]) -> Path:
