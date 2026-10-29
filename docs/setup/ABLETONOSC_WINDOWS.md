@@ -179,7 +179,9 @@ Nur geprüft (--check), nichts geändert.
 python scripts/install_abletonosc_extension.py
 ```
 
-Es zeigt die geplante Änderung und fragt `Jetzt installieren? [y/N]` — nur `y` installiert. Erwartet am Ende: `Installiert. Sicherung: ...\clip_slot.py.abeltongod-orig` und `Jetzt Live neu starten.`
+Es zeigt die geplante Änderung und fragt `Live ist geschlossen. Jetzt installieren? [y/N]` — nur `y` installiert. Erwartet am Ende: `Installiert. Sicherung: ...\clip_slot.py.abeltongod-orig` und `Jetzt Live neu starten.`
+
+Gibt es schon eine Sicherung `clip_slot.py.abeltongod-orig`, die nicht Byte für Byte der jetzigen Datei entspricht (z. B. von einem abgebrochenen Lauf oder mit anderen Zeilenenden), meldet das Script `FEHLER: Die vorhandene Sicherung …` und ändert nichts. Dann die Sicherung wegschieben und die Ausgabe in Issue #50 einfügen.
 
 4. **Live starten.** In der Statusleiste sollte wieder „AbletonOSC: Listening for OSC on port 11000“ erscheinen.
 
@@ -249,7 +251,7 @@ Ob Live den Dateipfad genau so zurückmeldet, wie er gesendet wurde (Groß/Klein
 | Test | So geht's | Erwartet |
 | --- | --- | --- |
 | Live geschlossen | Live beenden, Script starten | `FEHLER: AbletonOSC antwortet nicht …`, Exit-Code 2 |
-| Erweiterung fehlt | `--uninstall`, Live neu starten, Script starten | `FEHLER: Die AbeltonGod-Erweiterung fehlt …`, `extension: MISSING`, Exit-Code 5; danach wieder installieren |
+| Erweiterung fehlt | Live beenden, `python scripts/install_abletonosc_extension.py --uninstall`, mit `y` bestätigen, Live starten, Test-Set öffnen, Script starten | `FEHLER: Die AbeltonGod-Erweiterung fehlt …`, `extension: MISSING`, Exit-Code 5; danach wieder installieren |
 | MIDI-Spur | beim Ziel die Nummer der MIDI-Spur eingeben, danach bei der wiederholten Frage Enter | `Spur 1 '2-MIDI' ist keine Audiospur.`, die Ziel-Frage kommt erneut (höchstens dreimal); nach Enter `Kein Ziel gewählt. Keine Änderung.`, nichts gesendet, Exit-Code 0 |
 | belegte Zelle | `--slot 0`, wenn Zelle 0 der Audiospur schon einen Clip hat | `Zelle 0 von Spur 0 ist schon belegt …`, Exit-Code 1 |
 

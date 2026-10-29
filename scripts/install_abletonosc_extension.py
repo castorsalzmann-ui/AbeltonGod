@@ -13,8 +13,11 @@ Safety:
   written, and the user is asked to report the hash.
 - Before patching, the original is saved next to it as ``clip_slot.py.abeltongod-orig``
   (temp file + fsync + rename, so it is never half-written). An existing backup is never
-  overwritten (D-006) and is reused only if it hashes as the pinned original; otherwise the
-  install is refused. The patch is written only after the backup reads back as the original.
+  overwritten (D-006) and is reused only if its raw bytes equal the current unpatched file
+  (so ``--uninstall`` restores exactly the user's file, line endings included); otherwise
+  the install is refused. The patch is written only after the backup reads back
+  byte-identical. An unreadable path (a folder, no permission) ends with a message, not a
+  traceback.
 - The new file is written to a temporary file in the same folder and moved over the original
   in one step (``os.replace``); it must compile as Python first.
 - ``--uninstall`` puts the backup back (only if the current file is exactly our patched
@@ -128,16 +131,34 @@ def ask_yes(prompt: str, input_fn: Callable[[str], str]) -> bool:
         return False
 
 
+class UnreadableError(Exception):
+    """A file the script must read exists but cannot be read (directory, no permission)."""
+
+
 def read_or_none(path: Path) -> bytes | None:
+    """File content, None if it does not exist, :class:`UnreadableError` otherwise."""
     try:
         return path.read_bytes()
     except FileNotFoundError:
         return None
+    except OSError as exc:  # IsADirectoryError, PermissionError (Windows: also for folders)
+        raise UnreadableError(f"{path} ({type(exc).__name__}: {exc})") from exc
 
 
 def run(abletonosc_dir: Path, *, uninstall: bool, check_only: bool,
         input_fn: Callable[[str], str], out: TextIO,
         known_original: str = KNOWN_ORIGINAL_SHA256) -> int:
+    try:
+        return _run(abletonosc_dir, uninstall=uninstall, check_only=check_only,
+                    input_fn=input_fn, out=out, known_original=known_original)
+    except UnreadableError as exc:
+        print(f"FEHLER: Datei nicht lesbar: {exc}\nNichts geändert. Bitte prüfen, ob dort "
+              "wirklich eine Datei liegt (kein Ordner) und ob du Leserechte hast.", file=out)
+        return EXIT_REFUSED
+
+
+def _run(abletonosc_dir: Path, *, uninstall: bool, check_only: bool,
+         input_fn: Callable[[str], str], out: TextIO, known_original: str) -> int:
     target = abletonosc_dir / RELATIVE_TARGET
     backup = target.with_name(target.name + BACKUP_SUFFIX)
     print(f"AbeltonGod install_abletonosc_extension {SCRIPT_VERSION}", file=out)
@@ -169,14 +190,20 @@ def run(abletonosc_dir: Path, *, uninstall: bool, check_only: bool,
         if state == STATE_PATCHED:
             print("Die Erweiterung ist schon installiert. Nichts zu tun.", file=out)
             return EXIT_OK
-        # An existing backup is only reused if it is exactly the pinned original; anything
-        # else (e.g. a backup cut short by a full disk) stops the install (review of PR #87).
+        # An existing backup is only reused if its RAW bytes equal the current, unpatched file,
+        # so --uninstall gives back exactly what the user had (also line endings). Anything
+        # else (a backup cut short by a full disk, another version, other line endings) stops
+        # the install (review of PR #87, rounds 1 and 2).
         existing = read_or_none(backup)
-        if existing is not None and classify(existing, known_original) != STATE_ORIGINAL:
-            print(f"FEHLER: Die vorhandene Sicherung {backup.name} ist NICHT das Original "
-                  f"(sha256 {sha256(normalise(existing))}). Das Script ändert nichts und "
-                  "überschreibt die Sicherung nicht.\nBitte die Datei prüfen (z. B. wegschieben) "
-                  "und diese Ausgabe in Issue #50 einfügen.", file=out)
+        if existing is not None and existing != data:
+            same_text = classify(existing, known_original) == STATE_ORIGINAL
+            why = ("ist dasselbe Original, aber nicht byte-gleich (z. B. andere Zeilenenden)"
+                   if same_text else "ist NICHT das Original")
+            print(f"FEHLER: Die vorhandene Sicherung {backup.name} {why} "
+                  f"(sha256 {sha256(existing)}, jetzige Datei sha256 {sha256(data)}). Das "
+                  "Script ändert nichts und überschreibt die Sicherung nicht.\nBitte die "
+                  "Sicherung prüfen (z. B. wegschieben) und diese Ausgabe in Issue #50 "
+                  "einfügen.", file=out)
             return EXIT_REFUSED
         new = patched_text(normalise(data))
         try:
@@ -200,9 +227,9 @@ def run(abletonosc_dir: Path, *, uninstall: bool, check_only: bool,
                 if backup.exists():  # appeared since the check: never overwrite (D-006)
                     raise FileExistsError(f"{backup.name} appeared during the install")
                 atomic_write(backup, data)  # temp file + fsync + rename: never half-written
-            # Patch only on top of a backup that reads back as the original.
+            # Patch only on top of a backup that reads back byte-identical to the file.
             check = read_or_none(backup)
-            if check is None or classify(check, known_original) != STATE_ORIGINAL:
+            if check != data:
                 raise OSError(f"backup {backup.name} does not read back as the original")
             atomic_write(target, new)
         except OSError as exc:

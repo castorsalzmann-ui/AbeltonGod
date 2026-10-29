@@ -139,13 +139,73 @@ def test_foreign_backup_is_neither_overwritten_nor_trusted(osc):
     assert target(osc).read_bytes() == ORIGINAL
 
 
-def test_valid_existing_backup_is_reused_unchanged(osc):
-    crlf = ORIGINAL.replace(b"\n", b"\r\n")  # an equally valid original, other line endings
-    backup_of(osc).write_bytes(crlf)
+CRLF = ORIGINAL.replace(b"\n", b"\r\n")
+
+
+@pytest.mark.parametrize("current", [ORIGINAL, CRLF], ids=["LF", "CRLF"])
+def test_byte_identical_backup_is_reused_and_uninstall_restores_exactly(osc, current):
+    target(osc).write_bytes(current)
+    backup_of(osc).write_bytes(current)
     code, out = run(osc)
     assert code == 0, out
-    assert backup_of(osc).read_bytes() == crlf
+    assert backup_of(osc).read_bytes() == current
     assert "create_audio_clip" in methods_of(target(osc).read_bytes())
+    code, out = run(osc, uninstall=True)
+    assert code == 0, out
+    assert target(osc).read_bytes() == current
+
+
+@pytest.mark.parametrize("current,backup", [(ORIGINAL, CRLF), (CRLF, ORIGINAL)],
+                         ids=["file-LF-backup-CRLF", "file-CRLF-backup-LF"])
+def test_backup_with_other_line_endings_is_refused(osc, current, backup):
+    """Review round 2 of PR #87: a backup that is the same text but other bytes would make
+    --uninstall restore something else than the user's pre-install file."""
+    target(osc).write_bytes(current)
+    backup_of(osc).write_bytes(backup)
+    code, out = run(osc)
+    assert code == inst.EXIT_REFUSED and "nicht byte-gleich" in out
+    assert target(osc).read_bytes() == current and backup_of(osc).read_bytes() == backup
+
+
+@pytest.mark.parametrize("current", [ORIGINAL, CRLF], ids=["LF", "CRLF"])
+def test_fresh_backup_is_byte_identical_to_the_file(osc, current):
+    target(osc).write_bytes(current)
+    assert run(osc)[0] == 0
+    assert backup_of(osc).read_bytes() == current
+    assert run(osc, uninstall=True)[0] == 0
+    assert target(osc).read_bytes() == current
+
+
+@pytest.mark.parametrize("which", ["backup", "target"])
+@pytest.mark.parametrize("mode", ["install", "uninstall", "check"])
+def test_directory_instead_of_file_is_a_clean_error(osc, which, mode):
+    if mode == "uninstall":
+        run(osc)  # installed first
+    path = backup_of(osc) if which == "backup" else target(osc)
+    if path.exists():
+        path.unlink()
+    path.mkdir()
+    code, out = run(osc, uninstall=mode == "uninstall", check=mode == "check")
+    if which == "backup" and mode == "check":
+        assert code == 0  # --check does not read the backup
+        return
+    assert code == inst.EXIT_REFUSED and "Datei nicht lesbar" in out
+    assert path.is_dir()
+
+
+def test_unreadable_backup_is_a_clean_error(osc, monkeypatch):
+    real = Path.read_bytes
+
+    def denied(self):
+        if self.name.endswith(".abeltongod-orig"):
+            raise PermissionError(13, "Access is denied")
+        return real(self)
+
+    backup_of(osc).write_bytes(ORIGINAL)
+    monkeypatch.setattr(Path, "read_bytes", denied)
+    code, out = run(osc)
+    assert code == inst.EXIT_REFUSED and "PermissionError" in out
+    assert target(osc).read_bytes() == ORIGINAL
 
 
 def test_disk_full_while_writing_backup_then_rerun(osc, monkeypatch):
@@ -215,6 +275,20 @@ def test_backup_that_does_not_read_back_blocks_patch(osc, monkeypatch):
         real(path, data[:-5] if path.name.endswith(".abeltongod-orig") else data)
 
     monkeypatch.setattr(inst, "atomic_write", corrupt_backup)
+    code, out = run(osc)
+    assert code == inst.EXIT_ERROR and "does not read back" in out
+    assert target(osc).read_bytes() == ORIGINAL
+
+
+def test_backup_reading_back_with_other_line_endings_blocks_patch(osc, monkeypatch):
+    """Read-back must compare raw bytes: same text with CRLF is not the user's file."""
+    real = inst.atomic_write
+
+    def crlf_backup(path, data):
+        real(path, data.replace(b"\n", b"\r\n")
+             if path.name.endswith(".abeltongod-orig") else data)
+
+    monkeypatch.setattr(inst, "atomic_write", crlf_backup)
     code, out = run(osc)
     assert code == inst.EXIT_ERROR and "does not read back" in out
     assert target(osc).read_bytes() == ORIGINAL
