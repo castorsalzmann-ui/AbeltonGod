@@ -386,16 +386,21 @@ def _random_beats_request(rng: random.Random) -> dict:
 RANDOM_REQUESTS = [_random_beats_request(random.Random(20120 + i)) for i in range(14)]
 
 
-@pytest.mark.parametrize("req", RANDOM_REQUESTS, ids=lambda r: f"seed{r['seed']}")
-def test_derived_decay_fits_and_the_next_grid_value_does_not(req) -> None:
-    """Property over the whole range, checked with the independent reference on the WAV."""
+def check_derived_or_rejected(req: dict) -> bool:
+    """The property below for one request; returns True if (6a) rejected it.
+
+    The rejection branch is exercised deterministically by
+    ``test_rejection_branch_of_the_property_is_exercised`` (none of RANDOM_REQUESTS is
+    rejected, so without it the branch could rot unseen, #164 review)."""
     try:
         p = resolve_kick_params(req)
     except KickParamsError as exc:
-        # Only the (6a) rejection is acceptable here; confirm it with the reference.
-        assert "found no amp_decay_ms of 20 ms or more" in str(exc)
+        # Only the (6a) rejection is acceptable here; confirm it with the reference: the
+        # bisection rejects only when both of its first probes, 2000.0 and 20.0, fail.
+        assert "- amp_decay_ms: neither 2000.0 nor 20.0 ms decays 60 dB" in str(exc)
         assert not ref_fits_wav(render_wav(as_ms_request(req, 20.0)))
-        return
+        assert not ref_fits_wav(render_wav(as_ms_request(req, 2000.0)))
+        return True
     d = p["amp_decay_ms"]
     wav = render_wav(p)
     assert ref_fits_wav(wav), d
@@ -405,6 +410,13 @@ def test_derived_decay_fits_and_the_next_grid_value_does_not(req) -> None:
         nxt = render_wav({**p, "amp_decay_ms": round(d + 0.1, 1)})
         assert not ref_fits_wav(nxt), d
         assert_same_decision(nxt)
+    return False
+
+
+@pytest.mark.parametrize("req", RANDOM_REQUESTS, ids=lambda r: f"seed{r['seed']}")
+def test_derived_decay_fits_and_the_next_grid_value_does_not(req) -> None:
+    """Property over the whole range, checked with the independent reference on the WAV."""
+    check_derived_or_rejected(req)
 
 
 def test_explicit_decay_that_fits_is_kept() -> None:
@@ -533,6 +545,12 @@ def test_non_monotone_case_is_pinned() -> None:
     # The engine's own check agrees with the reference at every probed value.
     for d, expected in pattern.items():
         assert L.fits(as_ms_request(req, d)) == expected, d
+
+
+@pytest.mark.parametrize("req", [NO_FIT, NON_MONOTONE], ids=["no_fit", "non_monotone"])
+def test_rejection_branch_of_the_property_is_exercised(req) -> None:
+    """#164 review: the property's (6a) branch runs on fixed requests that (6a) rejects."""
+    assert check_derived_or_rejected(req) is True
 
 
 def test_long_enough_length_gives_the_grid_maximum() -> None:

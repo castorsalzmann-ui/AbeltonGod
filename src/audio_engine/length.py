@@ -104,7 +104,8 @@ def fits(resolved: dict[str, Any]) -> bool:
 
 def derive_amp_decay(resolved: dict[str, Any]) -> float | None:
     """Step 6a: the bisection result for ``resolved`` (its ``amp_decay_ms`` is ignored), or
-    ``None`` when 20.0 ms does not fit (rejected)."""
+    ``None`` (rejected) only when both of its first probes, 2000.0 ms and 20.0 ms, do not fit;
+    because 'fits' is not monotonic, another grid value may still fit."""
     base = {k: v for k, v in resolved.items() if k != "amp_decay_ms"}
     return _derive_cached(_key(base))
 
