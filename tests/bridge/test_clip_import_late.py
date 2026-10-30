@@ -283,6 +283,35 @@ def test_ctrl_c_during_the_read_back_after_a_timeout_is_unknown(ibridge, audio_s
     assert log_lines(log)[-1]["status"] == "timeout"
 
 
+@pytest.mark.parametrize("address", [CREATE_TRACK, CREATE_CLIP])
+def test_ctrl_c_while_reading_the_late_reply_is_unknown(ibridge, audio_set, log, tmp_path,
+                                                        address):
+    """Review #177 nit 1: Ctrl+C right after the read-back matched, while the late echoes
+    are looked up. Never a raw KeyboardInterrupt with the outcome left 'not unknown'."""
+    audio_set.drop_next_marker_after.add(address)
+    real = ibridge.late_reply
+    calls = {"n": 0}
+
+    def interrupted_once(request_id):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise KeyboardInterrupt
+        return real(request_id)
+
+    ibridge.late_reply = interrupted_once
+    imp = ClipImporter(ibridge, log, timeout_s=TEST_TIMEOUT_S)
+    try:
+        run_new_track(imp, wav_file(tmp_path / "k.wav"))
+    except ImportInterrupted as exc:
+        assert "read-back interrupted" in str(exc)
+    except KeyboardInterrupt:  # caught so pytest reports a failure, not an abort
+        pytest.fail("a raw Ctrl+C escaped the settlement")
+    else:
+        pytest.fail("no ImportInterrupted")
+    assert calls["n"] >= 1
+    assert_stopped_without_undo(imp, audio_set, address, outcome="interrupted")
+
+
 def test_an_undo_that_times_out_is_never_settled(ibridge, audio_set, log, tmp_path):
     audio_set.stall_after[UNDO] = 2 * TEST_TIMEOUT_S
     imp = ClipImporter(ibridge, log, timeout_s=TEST_TIMEOUT_S)

@@ -22,8 +22,7 @@ Steps:
    in Live between import and undo conflicts with "touch nothing in Live" (#50 runs 2 and 3).
    Yes: undo now, without listening. Undo is sent only after a read-back shows the set as
    the import left it; each undo is read back. Never after an unsettled timeout or Ctrl+C.
-   A refused or
-   unconfirmed undo prints how to remove the import by hand.
+   A refused or unconfirmed undo prints how to remove the import by hand.
 8. No: the clip stays; asks whether the kick plays (the user's answer is recorded as such)
    and prints how to remove the import by hand later.
 9. Prints a result block to paste into issue #50.

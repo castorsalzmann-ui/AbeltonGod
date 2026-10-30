@@ -385,8 +385,12 @@ class ClipImporter:
                       readback=readback, late_reply=self._late_json(exc), **extra,
                       note=f"timed out; {note}; outcome unknown; no undo will be sent")
 
+        # Unknown until a read-back settles it: an exception anywhere below (also a Ctrl+C
+        # outside the try) leaves the flag set, so undo stays refused (review #177 nit 1).
+        outcome.outcome_unknown = True
         try:
             value, ok, polls = self._poll(lambda: check(long_s))
+            late = self._late_json(exc)
         except KeyboardInterrupt as err:
             outcome.steps[-1] = Step(label, "interrupted", "outcome unknown")
             stop("read-back failed: KeyboardInterrupt",
@@ -398,7 +402,6 @@ class ClipImporter:
                                 f"{type(err).__name__}: {err}") from err
         state, file_path = value if isinstance(value, tuple) else (value, None)
         extra = {} if file_path is None else {"file_path": file_path}
-        late = self._late_json(exc)
         if late is not None and late["errors"]:
             outcome.steps[-1].detail = f"outcome unknown; late /live/error: {late['errors'][0]}"
             stop(state.as_json(), f"late /live/error: {late['errors'][0]}", **extra)
@@ -416,6 +419,7 @@ class ClipImporter:
         outcome.steps[-1] = Step(label, "confirmed",
                                  f"late: no confirmation within {self.timeout_s:g} s; read-back "
                                  f"matched ({polls} read(s)); {echo}")
+        outcome.outcome_unknown = False  # settled: exactly the intended change, no late error
         return value, polls, late
 
     def _readback(self, outcome: ImportOutcome, label: str, capability: str, params: dict,
