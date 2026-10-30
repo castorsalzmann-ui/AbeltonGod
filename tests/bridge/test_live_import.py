@@ -489,6 +489,35 @@ def test_ctrl_c_after_run_keeps_the_importers_record(fake, tmp_path, monkeypatch
     assert b["error"] == "interrupted by user (Ctrl+C) after the import flow"
 
 
+def test_second_ctrl_c_in_the_inner_handler_keeps_the_importers_record(fake, tmp_path,
+                                                                      monkeypatch):
+    """After an import (no undo), Ctrl+C at "Spielt der Kick?" and a second Ctrl+C while the
+    inner handler builds its text: the outer handler must still say the import was done,
+    never "nothing changed" (PR #173 review, finding 1)."""
+    real_tail = live_import.interrupted_tail
+    calls = []
+
+    def tail_interrupted_once(report):
+        calls.append(True)
+        if len(calls) == 1:
+            raise KeyboardInterrupt
+        return real_tail(report)
+
+    monkeypatch.setattr(live_import, "interrupted_tail", tail_interrupted_once)
+    code, out, prompts = run_catching_escape(fake, tmp_path, ["y", "0", "y", "",
+                                                              KeyboardInterrupt])
+    assert "Spielt der Kick" in prompts[-1]
+    assert len(calls) == 2, out
+    assert code == 130, out
+    assert "nichts in Live geändert" not in out
+    assert "ABGEBROCHEN mit Strg+C. Der Import war schon fertig; der Clip bleibt im Set." in out
+    assert "  - Clip: in Spur 0 '1-Audio' die Zelle 1 anklicken, Entf drücken." in out
+    b = block(out)
+    assert b["clip_slot.create_audio_clip"] == "PASS"
+    assert b["error"] == "interrupted by user (Ctrl+C) outside a write"
+    assert UNDO not in [a for a, _ in writes(fake)]
+
+
 def test_second_undo_differs_prints_removal_for_the_track(fake, tmp_path):
     """New track; Live does not record the track creation as an undo step (fake), so undo 1
     removes the clip and undo 2 changes nothing. FAIL, no third undo, removal steps say the
