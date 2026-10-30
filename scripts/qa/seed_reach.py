@@ -57,6 +57,7 @@ def probe(selection: list[str], fresh: int, run: bool = False, *, run_only: list
     # basetemp inside the tree, like the default ``.pytest_tmp`` (tests/library/test_project.py
     # relies on tmp_path lying inside the checkout); own folder per process, removed after.
     basetemp = root / ".pytest_tmp" / f"seed_probe-{fresh}-{os.getpid()}"
+    basetemp.parent.mkdir(parents=True, exist_ok=True)  # pytest creates only the last level
     with tempfile.TemporaryDirectory() as tmp:
         out = Path(tmp) / "probe"
         env = {

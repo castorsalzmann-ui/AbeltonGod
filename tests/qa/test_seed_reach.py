@@ -163,6 +163,10 @@ def test_routed_body():
 
 def test_bypassed_body():
     __import__("numpy").random.default_rng(40).random()
+
+
+def test_tmp_path_works(tmp_path):
+    assert tmp_path.is_dir()  # the probe's basetemp parent did not exist in this tree
 '''
 
 
