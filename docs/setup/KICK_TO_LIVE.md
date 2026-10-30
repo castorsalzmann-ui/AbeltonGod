@@ -4,7 +4,7 @@ Noch **nicht auf deinem Rechner geprüft.** Ein Befehl macht drei Schritte:
 
 1. erzeugt einen Kick aus einem Preset (wie `python -m audio_engine.kick --preset …`, gleicher Dateiname `<preset>_s<seed>_v0.wav`),
 2. legt WAV + Sidecar (`.json`) in `<Projektordner>\Samples\Drums\Kicks\` ab. Eine vorhandene Datei wird **nie** überschrieben; ein zweiter Lauf schreibt `…_v0_002.wav`,
-3. importiert genau diese Datei in Live, mit demselben Ablauf wie `scripts/live_import.py` 0.3.0 (Abschnitt 7.2 in `ABLETONOSC_WINDOWS.md`): Test-Set-Frage, Ziel, Plan, Bestätigung, Zurücklesen, Undo-Frage **vor** dem Anhören.
+3. importiert genau diese Datei in Live, mit demselben Ablauf wie `scripts/live_import.py` 0.4.0 (Abschnitt 7.2 in `ABLETONOSC_WINDOWS.md`): Test-Set-Frage, Ziel, Plan, Bestätigung, Zurücklesen, Undo-Frage **vor** dem Anhören.
 
 Voraussetzung: die AbeltonGod-Erweiterung ist installiert (`ABLETONOSC_WINDOWS.md`, Abschnitt 7.1) und Live hat das **Test-Set** offen.
 
@@ -34,7 +34,7 @@ Weitere Optionen: `--seed <Zahl>`, `--set FELD=WERT` (mehrfach, wie beim Kick-CL
 Zuerst (vor jeder Frage):
 
 ```text
-AbeltonGod kick_to_live 0.1.0 (Import wie live_import 0.3.0)
+AbeltonGod kick_to_live 0.1.0 (Import wie live_import 0.4.0)
 
 Kick: Preset dense, Seed 1001
 Schreibe WAV + Sidecar nach:
@@ -55,7 +55,7 @@ Im Ergebnis-Block (in **Issue #129** einfügen) stehen zusätzlich zu den `live_
 | `in Live (track <n>, slot <z>)` | Clip ist im Set (kein Undo) |
 | `removed by undo (read back)` | Clip per Undo entfernt, zurückgelesen |
 | `removed by undo (read back; track names not restored)` | wie oben, aber ein Spurname ist nicht wie vorher |
-| `unknown (see the messages above)` | Zeitüberschreitung, Verbindung nach der Bestätigung verloren, *Strg + C* während des Imports oder des Undo, verweigertes oder ungeklärtes Undo: **erst in Live nachsehen** |
+| `unknown (see the messages above)` | Zeitüberschreitung, die das Zurücklesen nicht klären konnte (siehe „Späte Bestätigung“ in `ABLETONOSC_WINDOWS.md` Abschnitt 7.2), Verbindung nach der Bestätigung verloren, *Strg + C* während des Imports oder des Undo, verweigertes oder ungeklärtes Undo: **erst in Live nachsehen** |
 
 ## Fehler vor Live
 
