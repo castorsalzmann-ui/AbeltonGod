@@ -26,16 +26,16 @@ SCHEMA_FILE = ROOT / "contracts" / "arrangement-plan.schema.json"
 SCHEMA = json.loads(SCHEMA_FILE.read_text(encoding="utf-8"))
 VALIDATOR = Draft202012Validator(SCHEMA)
 
-# Entry mode per section type (B1 step / B2 continue). Must-resolve 2 of #146: the outro enters
-# with a step (default start min(previous end, 0.55), T5 allows the jump down). The alternative
-# (outro continues, no 0.55 cap) is the one-line change "outro": "continue".
+# Entry mode per section type (B1 step / B2 continue). Must-resolve 2 of #146, user decision
+# 2026-10-30 ("Fließend weiter"): the outro continues from the previous section's end value, no
+# step down at its start; it decays inside the section.
 ENTRY_MODE = {
     "groove": "step",
     "break": "step",
     "breakdown": "step",
     "build": "continue",
     "drop": "step",
-    "outro": "step",
+    "outro": "continue",
 }
 B3_MARGIN = 0.05  # B3: a build ends at max(its start value, next section's start - 0.05)
 TOL = 1e-9
@@ -146,7 +146,7 @@ DEFAULT_SETTINGS = {
     "second_drop": "stronger",
     "change_grid": 8,
     "pre_drop_gap": 4,
-    "fills": "section_change",
+    "fills": "off",
 }
 
 
@@ -166,18 +166,19 @@ def _plan(sections: list[tuple[str, int, int]], nodes: list[tuple[int, float]], 
 INTRO_32 = [(0, 0.30), (8, 0.30), (8, 0.35), (16, 0.35), (16, 0.40), (24, 0.40), (24, 0.45)]
 
 
-def _outro_32(start: int, arriving: float) -> list[tuple[int, float]]:
-    # v0 = min(previous end, 0.55) = 0.55 after every drop here; one step down per 8 bars
-    s = start
-    return [(s, arriving), (s, 0.55), (s + 8, 0.55), (s + 8, 0.45), (s + 16, 0.45),
-            (s + 16, 0.35), (s + 24, 0.35), (s + 24, 0.25), (s + 32, 0.25)]
+def _outro_32(start: int, phrases: tuple[float, float, float, float]) -> list[tuple[int, float]]:
+    # continue entry (user decision 2026-10-30): one node at the start, no step; then one step
+    # down per 8-bar phrase, values evenly spaced from the previous end to 0.25 (note section 4)
+    s, (a, b, c, d) = start, phrases
+    return [(s, a), (s + 8, a), (s + 8, b), (s + 16, b), (s + 16, c), (s + 24, c), (s + 24, d),
+            (s + 32, d)]
 
 
 T1 = _plan(
     [("intro", 1, 32), ("groove", 33, 32), ("breakdown", 65, 16), ("build", 81, 16),
      ("drop", 97, 32), ("outro", 129, 32)],
     [*INTRO_32, (32, 0.45), (32, 0.60), (64, 0.70), (64, 0.30), (72, 0.20), (80, 0.35),
-     (96, 0.85), (96, 0.90), *_outro_32(128, 0.95)],
+     (96, 0.85), (96, 0.90), *_outro_32(128, (0.95, 0.95 - 0.70 / 3, 0.25 + 0.70 / 3, 0.25))],
     160,
 )
 T2 = _plan(
@@ -185,14 +186,15 @@ T2 = _plan(
      ("breakdown", 113, 32), ("build", 145, 16), ("drop", 161, 32), ("outro", 193, 32)],
     [*INTRO_32, (32, 0.45), (32, 0.60), (64, 0.70), (64, 0.45), (72, 0.45), (80, 0.85),
      (80, 0.90), (112, 0.95), (112, 0.30), (128, 0.20), (144, 0.35), (160, 0.90), (160, 0.95),
-     *_outro_32(192, 1.00)],
+     *_outro_32(192, (1.00, 0.75, 0.50, 0.25))],
     224,
 )
 T3 = _plan(
     [("intro", 1, 32), ("groove", 33, 32), ("build", 65, 16), ("drop", 81, 32),
      ("breakdown", 113, 32), ("build", 145, 16), ("drop", 161, 32), ("outro", 193, 32)],
     [*INTRO_32, (32, 0.45), (32, 0.60), (64, 0.70), (80, 0.85), (80, 0.90), (112, 0.95),
-     (112, 0.30), (128, 0.20), (144, 0.35), (160, 0.90), (160, 0.95), *_outro_32(192, 1.00)],
+     (112, 0.30), (128, 0.20), (144, 0.35), (160, 0.90), (160, 0.95),
+     *_outro_32(192, (1.00, 0.75, 0.50, 0.25))],
     224,
 )
 TEMPLATES = {"T1": T1, "T2": T2, "T3": T3}
@@ -249,8 +251,9 @@ def test_template_curve_reads_as_designed() -> None:
     assert energy_at(nodes, 76) == pytest.approx((0.65, 0.65))      # build 0.45 -> 0.85
     assert energy_at(nodes, 80) == (0.85, 0.90)                      # build end | drop
     assert energy_at(nodes, 120) == pytest.approx((0.25, 0.25))     # breakdown 0.30 -> 0.20
-    assert energy_at(nodes, 192) == (1.00, 0.55)                     # drop 2 end | outro
-    assert energy_at(nodes, 204) == (0.45, 0.45)                     # outro step held
+    assert energy_at(nodes, 192) == (1.00, 1.00)                     # outro continues
+    assert energy_at(nodes, 200) == (1.00, 0.75)                     # first decay step
+    assert energy_at(nodes, 212) == (0.50, 0.50)                     # outro step held
     assert energy_at(nodes, 224) == (0.25, 0.25)
 
 
@@ -266,7 +269,8 @@ ALLOWED = {
     "breakdown_length": [16, 32, 64],
     "breakdown_rumble": ["off", "on"],
     "second_drop": ["stronger", "equal", "ask"],
-    "change_grid": [4, 8, 16],
+    # change_grid is any whole bar count >= 1 (user decision 2026-10-30); these are samples
+    "change_grid": [1, 3, 4, 8, 12, 16, 64, 1024],
     "pre_drop_gap": [0, 1, 2, 4],
     "fills": ["off", "section_change", "every_8"],
 }
@@ -279,18 +283,28 @@ def test_settings_are_the_eleven_of_the_note_all_required() -> None:
     assert SETTINGS["additionalProperties"] is False
 
 
-@pytest.mark.parametrize("key", ALLOWED)
+@pytest.mark.parametrize("key", [k for k in ALLOWED if k != "change_grid"])
 def test_setting_allowed_values_and_default(key: str) -> None:
     prop = SETTINGS["properties"][key]
     assert prop["enum"] == ALLOWED[key]
     assert prop["default"] == DEFAULT_SETTINGS[key]
 
 
+def test_change_grid_is_any_whole_bar_count_default_8() -> None:
+    prop = SETTINGS["properties"]["change_grid"]
+    assert prop["default"] == 8 == DEFAULT_SETTINGS["change_grid"]
+    assert "enum" not in prop
+    for n in (1, 2, 3, 5, 7, 8, 9, 13, 100, 10**6):
+        doc = t2()
+        doc["settings"]["change_grid"] = n
+        assert plan_problems(doc) == [], n
+
+
 def test_every_setting_combination_leaves_the_templates_valid() -> None:
-    """A setting never invalidates a stored plan (D-024): a seeded sample of the 69,984
+    """A setting never invalidates a stored plan (D-024): a seeded sample of the 186,624
     combinations on T1-T3, plus change_grid 16 and 4 with T2's 8-bar break and build."""
     combos = list(itertools.product(*ALLOWED.values()))
-    assert len(combos) == 69984
+    assert len(combos) == 186624
     rng = random.Random(146)
     sample = rng.sample(combos, 80) + [
         tuple(16 if k == "change_grid" else DEFAULT_SETTINGS[k] for k in ALLOWED),
@@ -304,7 +318,8 @@ def test_every_setting_combination_leaves_the_templates_valid() -> None:
 
 
 @pytest.mark.parametrize(("key", "bad"), [
-    ("change_grid", 12), ("change_grid", 32), ("change_grid", "8"), ("pre_drop_gap", 3),
+    ("change_grid", 0), ("change_grid", -8), ("change_grid", 2.5), ("change_grid", "8"),
+    ("change_grid", None), ("change_grid", True), ("pre_drop_gap", 3),
     ("pre_drop_gap", "1 bar"), ("fills", "on"), ("fills", True), ("intro_length", 48),
     ("breakdown_count", 0), ("breakdown_count", 3), ("second_drop", "weaker"),
     ("build_kick", "out_last_4"), ("intro_outro_bass", None), ("breakdown_rumble", False),
@@ -413,7 +428,7 @@ def _insert(index, node):
 
 
 # index of nodes in T2: 0 (0) 1-2 (8) 3-4 (16) 5-6 (24) 7-8 (32) 9-10 (64) 11 (72) 12-13 (80)
-# 14-15 (112) 16 (128) 17 (144) 18-19 (160) 20-21 (192) 22-23 (200) ... 28 (224)
+# 14-15 (112) 16 (128) 17 (144) 18-19 (160) 20 (192) 21-22 (200) ... 27 (224)
 RULE_INVALID = {
     "gap between sections": (_set(["sections", 2, "start_bar"], 73), {"tiling"}),
     "overlap": (_set(["sections", 3, "start_bar"], 65), {"tiling"}),
@@ -434,8 +449,8 @@ RULE_INVALID = {
                                {"three_at_pos"}),
     "first node not at 0": (_set(["energy_nodes", 0, "pos"], 1), {"first_node_pos"}),
     "no node at 0": (lambda d: d["energy_nodes"].pop(0), {"first_node_pos"}),
-    "last node not at total": (_set(["energy_nodes", 28, "pos"], 223), {"last_node_pos"}),
-    "node beyond total": (_set(["energy_nodes", 28, "pos"], 225), {"last_node_pos"}),
+    "last node not at total": (_set(["energy_nodes", 27, "pos"], 223), {"last_node_pos"}),
+    "node beyond total": (_set(["energy_nodes", 27, "pos"], 225), {"last_node_pos"}),
     "pair at 0": (_insert(1, {"pos": 0, "value": 0.4, "drawn": True}), {"pair_at_edge"}),
     "pair at total": (lambda d: d["energy_nodes"].append({"pos": 224, "value": 0.1, "drawn": True}),
                       {"pair_at_edge"}),
@@ -472,7 +487,7 @@ def test_stable_sort_keeps_the_plan_and_value_sort_changes_the_curve() -> None:
     by_value = sorted(nodes, key=lambda n: (n["pos"], n["value"]))
     assert by_value != nodes
     assert energy_at(by_value, 64) == (0.45, 0.70)          # break would enter at 0.70
-    assert energy_at(by_value, 192) == (0.55, 1.00)         # outro would enter at 1.00
+    assert energy_at(by_value, 112) == (0.30, 0.95)         # breakdown would enter at 0.95
 
 
 def test_b2_undrawn_jump_into_a_build_fails_and_drawn_passes() -> None:
@@ -489,21 +504,28 @@ def test_b2_undrawn_jump_into_a_build_fails_and_drawn_passes() -> None:
 
 
 def test_b2_step_sections_may_jump_undrawn() -> None:
-    """groove, break, breakdown, drop and outro enter with a step: T2 has undrawn jumps there."""
-    jumps = {p for p in (32, 64, 80, 112, 160, 192)
-             if len(_at(T2["energy_nodes"], p)) == 2}
-    assert jumps == {32, 64, 80, 112, 160, 192}
+    """groove, break, breakdown and drop enter with a step: T2 has undrawn jumps there."""
+    jumps = {p for p in (32, 64, 80, 112, 160) if len(_at(T2["energy_nodes"], p)) == 2}
+    assert jumps == {32, 64, 80, 112, 160}
     assert all(not n["drawn"] for n in T2["energy_nodes"])
     assert plan_problems(T2) == []
 
 
-def test_outro_entry_mode_is_step_and_continue_is_one_line_away() -> None:
-    """Must-resolve 2: V6 tests the chosen rule. With outro = continue the default outro start
-    min(previous end, 0.55) after a drop would be an undrawn jump."""
-    assert ENTRY_MODE["outro"] == "step"
+def test_outro_continues_from_the_previous_end() -> None:
+    """Must-resolve 2, user decision 2026-10-30 ("Fließend weiter"): no undrawn step down at
+    the outro's start (V6). The research note's old default (1.00 | 0.55 after drop 2) is
+    rejected; the user may still draw that jump."""
+    assert ENTRY_MODE["outro"] == "continue"
     assert ENTRY_MODE["build"] == "continue"
-    assert codes(T2, entry_mode={**ENTRY_MODE, "outro": "continue"}) == {"b2_jump"}
-    assert codes(T1, entry_mode={**ENTRY_MODE, "outro": "continue"}) == {"b2_jump"}
+    for plan, start, end in ((T1, 128, 0.95), (T2, 192, 1.00), (T3, 192, 1.00)):
+        assert _at(plan["energy_nodes"], start) == [{"pos": start, "value": end, "drawn": False}]
+    old = t2()
+    _insert(21, {"pos": 192, "value": 0.55, "drawn": False})(old)   # 1.00 | 0.55
+    assert codes(old) == {"b2_jump"}
+    for which in (20, 21):
+        drawn = copy.deepcopy(old)
+        drawn["energy_nodes"][which]["drawn"] = True
+        assert plan_problems(drawn) == [], which
 
 
 def test_b3_build_end_follows_the_drop_unless_drawn() -> None:

@@ -158,13 +158,13 @@ v0.1 (#146, D-024). One plan per track, shared by the planner window, the plan g
 **Curve semantics.** Linear interpolation between consecutive nodes. A step is a **step pair**: two nodes at one `pos`. The first is the value arriving from the left, the second the value leaving to the right. Array order is binding: a sort must be stable by `pos` and must never reorder a pair. Most reorderings break no rule (a jump into a `step` section is legal either way), but they change the curve, so keeping the order is a duty of every reader and writer. A pair with equal values is allowed.
 
 **Boundary rules** (apply only to nodes with `drawn: false`; a drawn node is never changed by settings, templates or recomputed defaults):
-- Entry mode per type: `build` = `continue`; `groove`, `break`, `breakdown`, `drop`, `outro` = `step`. The intro has none (it is first).
+- Entry mode per type: `build`, `outro` = `continue`; `groove`, `break`, `breakdown`, `drop` = `step`. The intro has none (it is first).
 - **B2** At the start of a `continue` section, an undrawn step pair must not jump (`b2_jump`). If either node of the pair is drawn, the jump stands.
 - **B3** If the node arriving at a build's end is undrawn, its value is max(value leaving the build's start, value leaving the build's end − 0.05), within 1e-9 (`b3_build_end`). So when the user moves the drop's first node, the build end follows.
 
-**Grid (#146 Must-resolve 1).** Sections always sit on the 8-bar phrase grid (`phrase_bars`), whatever `change_grid` says. `change_grid` (4, 8, 16) only sets where elements may switch on or off inside sections (T1); every section start is a change point too. So T2's 8-bar break and build are valid at every `change_grid`, and changing the setting never moves a section or a node: there is no re-snap. This replaces S7 of the research note ("lengths and starts snap to `change_grid`"). A plan that is valid under one setting value is valid under all of them; a test checks this on T1–T3.
+**Grid (#146 Must-resolve 1).** Sections always sit on the 8-bar phrase grid (`phrase_bars`), whatever `change_grid` says. `change_grid` (any whole number of bars ≥ 1, default 8; user decision 2026-10-30: „frei einstellbar aber default 8 takte“) only sets where elements may switch on or off inside sections (T1); every section start is a change point too. So T2's 8-bar break and build are valid at every `change_grid`, and changing the setting never moves a section or a node, drawn or not: there is no re-snap. This replaces S7 of the research note ("lengths and starts snap to `change_grid`"). A plan that is valid under one setting value is valid under all of them; a test checks this on T1–T3.
 
-**Outro entry (#146 Must-resolve 2).** The outro enters with a `step`. Its default start is min(previous end, 0.55); T5 allows a jump down into the outro. This replaces B2's `continue` for the outro in the research note. The alternative (outro `continue`, no 0.55 cap, step down inside the first phrase) is a one-line change of the entry-mode table, plus new outro default values in the templates.
+**Outro entry (#146 Must-resolve 2).** The outro enters with `continue` (user decision 2026-10-30: „Fließend weiter“): it starts at the previous section's end value, with no step down at its start, then decays inside the section. Default shape: one step down per 8-bar phrase, values evenly spaced from the previous end to 0.25 (for 32 bars after a drop ending at 1.00: 1.00, 0.75, 0.50, 0.25). This drops the note's start value min(previous end, 0.55) and keeps B2. A user-drawn jump into the outro stays allowed.
 
 **Third node (#146 Must-resolve 3).** A third node at a `pos` that already holds a step pair is invalid, drawn or not; the format never merges or replaces it. The planner window turns a click on a pair into an edit of the pair's arriving or leaving node (whichever side was hit) and never creates a third node.
 
@@ -180,14 +180,14 @@ v0.1 (#146, D-024). One plan per track, shared by the planner window, the plan g
 | `breakdown_length` | 16, 32, 64 (bars) | 32 | _Interpretation_ inside C4/C5's range |
 | `breakdown_rumble` | `off`, `on` | `off` | C5 |
 | `second_drop` | `stronger`, `equal`, `ask` | `stronger` | _Interpretation_ (no source) |
-| `change_grid` | 4, 8, 16 (bars) | 8 | C2 (measured), C1; open user question D2 (16) |
+| `change_grid` | any integer ≥ 1 (bars) | 8 | C2 (measured), C1; user decision 2026-10-30 |
 | `pre_drop_gap` | 0, 1, 2, 4 (beats; 0 = off, 4 = 1 bar) | 4 | C5 (psytrance source) |
-| `fills` | `off`, `section_change`, `every_8` | `section_change` | convention (T4, _Interpretation_); see below |
+| `fills` | `off`, `section_change`, `every_8` | `off` | user decision 2026-10-30 („Keine“); see below |
 
 Length settings apply when the user places a section; a template keeps its own lengths (T1 has a 16-bar breakdown with `breakdown_length` 32).
 
-**Fills (#146 Must-resolve 4).** C8 supports only "do not repeat the same fill", not a density. So variation is a fixed rule, not a setting: consecutive fills never repeat identically. Density is the setting (`off`, `section_change`, `every_8`, from D5 of the musical-transfer note). The default `section_change` is the note's T4 and is marked as convention.
+**Fills (#146 Must-resolve 4).** C8 supports only "do not repeat the same fill", not a density. So variation is a fixed rule, not a setting: consecutive fills never repeat identically. Density is the setting (`off`, `section_change`, `every_8`, from D5 of the musical-transfer note). The default is `off` (user decision 2026-10-30: „Keine“): the generator places no fills; fills come only where the user sets them. User-placed fills need an events field, which v0.1 does not have yet (see "Not in v0.1").
 
-**Not in v0.1** (each a later additive contract change): derived `events[]` (riser, impact, downlifter, fill, pre-drop gap) and per-phrase element states, both generator output; sub-bar node positions; a per-type number ("Drop 2"), which the UI derives from the order; the `build_kick` option "kick out for the last N bars" (D3 of the musical-transfer note).
+**Not in v0.1** (each a later additive contract change): user-placed fills; derived `events[]` (riser, impact, downlifter, fill, pre-drop gap) and per-phrase element states, both generator output; sub-bar node positions; a per-type number ("Drop 2"), which the UI derives from the order; the `build_kick` option "kick out for the last N bars" (D3 of the musical-transfer note).
 
 **Templates.** T1 Kurz (160 bars), T2 Techno and T3 Trance (224 bars each), with the default nodes of the note's section 4, are written out literally in the test file and are valid plans.

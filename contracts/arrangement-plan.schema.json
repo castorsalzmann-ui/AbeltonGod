@@ -84,9 +84,9 @@
         "breakdown_length": { "enum": [16, 32, 64], "default": 32, "description": "Bars, used when the user places a breakdown." },
         "breakdown_rumble": { "enum": ["off", "on"], "default": "off" },
         "second_drop": { "enum": ["stronger", "equal", "ask"], "default": "stronger" },
-        "change_grid": { "enum": [4, 8, 16], "default": 8, "description": "Bars between points where elements may switch on or off (T1). Section starts are always change points. Does not move sections (they follow phrase_bars) or nodes." },
+        "change_grid": { "type": "integer", "minimum": 1, "default": 8, "description": "Bars between points where elements may switch on or off (T1); any whole number of bars (user decision 2026-10-30). Section starts are always change points. Does not move sections (they follow phrase_bars) or nodes, drawn or not." },
         "pre_drop_gap": { "enum": [0, 1, 2, 4], "default": 4, "description": "Beats of silence (drums and bass) before a drop's bar 1. 0 = off, 4 = 1 bar." },
-        "fills": { "enum": ["off", "section_change", "every_8"], "default": "section_change", "description": "Where fill bars go: none, one before each change between drum-led sections (T4), or every 8 bars. Consecutive fills never repeat identically (C8, a rule, not a setting)." }
+        "fills": { "enum": ["off", "section_change", "every_8"], "default": "off", "description": "Where generated fill bars go: none (default, user decision 2026-10-30: fills only where the user sets them), one before each change between drum-led sections (T4), or every 8 bars. Consecutive fills never repeat identically (C8, a rule, not a setting)." }
       }
     }
   }
