@@ -10,11 +10,14 @@ float rounding of the -60 dB line, which the comparison allows explicitly.
 
 from __future__ import annotations
 
+import ast
 import io
 import json
 import math
 import random
+import re
 import wave
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -447,12 +450,12 @@ def test_no_fitting_decay_is_rejected_with_the_contract_wording() -> None:
     with pytest.raises(KickParamsError) as exc:
         resolve_kick_params(NO_FIT)
     text = str(exc.value)
-    assert (
-        "the contract's bisection (rule 6a) found no amp_decay_ms of 20 ms or more that "
-        "decays 60 dB within length_beats at this bpm"
-    ) in text
-    # Truthful (PR #130 review): it claims only that 20.0 ms does not fit.
-    assert "20.0 ms does not fit" in text and "a larger explicit amp_decay_ms may" in text
+    assert "- amp_decay_ms: neither 2000.0 nor 20.0 ms decays 60 dB within length_beats at " \
+        "this bpm (length_beats 0.25 at 187.5 BPM (80 ms, " in text
+    assert "), so the bisection of rule (6a) finds no amp_decay_ms. " in text
+    # Truthful (PR #130 review, #164): it claims only what the bisection probed.
+    assert "a larger explicit amp_decay_ms may still fit; otherwise" in text
+    assert "found no amp_decay_ms of 20 ms or more" not in text
 
 
 def test_explicit_decay_when_nothing_fits_uses_the_6a_wording() -> None:
@@ -460,14 +463,52 @@ def test_explicit_decay_when_nothing_fits_uses_the_6a_wording() -> None:
     with pytest.raises(KickParamsError) as exc:
         resolve_kick_params({**NO_FIT, "amp_decay_ms": 300})
     text = str(exc.value)
-    assert "amp_decay_ms 300: the contract's bisection (rule 6a) found no amp_decay_ms" in text
+    assert "amp_decay_ms 300: neither 2000.0 nor 20.0 ms decays 60 dB" in text
+    assert "finds no amp_decay_ms" in text
     assert "derives" not in text
+
+
+ISSUE_REF = re.compile(r"#\d+")
+
+
+def test_minus_60_db_errors_carry_no_issue_number() -> None:
+    """#164: generate_kick returns these errors to Claude; issue numbers are not for it."""
+    req = {**V03, "length_beats": 1, "bpm": 128, "drive": 0.2}
+    too_long = round(resolve_kick_params(req)["amp_decay_ms"] + 0.1, 1)
+    cases = (NO_FIT, {**NO_FIT, "amp_decay_ms": 300}, {**req, "amp_decay_ms": too_long})
+    for case in cases:
+        with pytest.raises(KickParamsError) as exc:
+            resolve_kick_params(case)
+        assert "60 dB" in str(exc.value)
+        assert not ISSUE_REF.search(str(exc.value)), str(exc.value)
+
+
+def test_engine_strings_carry_no_issue_number() -> None:
+    """#164, static half: every string literal of the engine that is not a docstring or a
+    comment (so every piece an error text can be built from) is free of ``#<digits>``."""
+    root = Path(L.__file__).resolve().parent
+    found = []
+    for path in sorted(root.rglob("*.py")):
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        docs = {
+            id(node.body[0].value) for node in ast.walk(tree)
+            if isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef))
+            and node.body and isinstance(node.body[0], ast.Expr)
+            and isinstance(node.body[0].value, ast.Constant)
+        }
+        found += [
+            f"{path.name}:{node.lineno}: {node.value!r}" for node in ast.walk(tree)
+            if isinstance(node, ast.Constant) and isinstance(node.value, str)
+            and id(node) not in docs and ISSUE_REF.search(node.value)
+        ]
+    assert len(list(root.rglob("*.py"))) > 5  # the scan saw the engine, not an empty folder
+    assert found == []
 
 
 # PR #130 review, case 8 (reviewer seed 4242): 'fits' is not monotonic here. 20.0 … 23.0 ms
 # do not fit, 23.1 ms does (and up to about 57.5 ms). The contract's bisection probes 2000.0
 # and 20.0, both do not fit, so (6a) rejects although explicit values fit. Today's
-# documented behaviour, pinned until #131 decides the rule; cause not established.
+# documented behaviour, kept by user decision on #131 (2026-10-29); cause not established.
 NON_MONOTONE = {
     "schema_version": "0.3", "seed": 8, "bpm": 143.57900286590456,
     "length_beats": 0.2716507875933293, "amp_attack_ms": 17.932543080219805,
@@ -486,7 +527,7 @@ def test_non_monotone_case_is_pinned() -> None:
                        57.0: True, 60.0: False, 2000.0: False}
     with pytest.raises(KickParamsError) as exc:
         resolve_kick_params(req)
-    assert "20.0 ms does not fit" in str(exc.value)
+    assert "neither 2000.0 nor 20.0 ms decays 60 dB" in str(exc.value)
     assert "a larger explicit amp_decay_ms may" in str(exc.value)
     assert resolve_kick_params({**req, "amp_decay_ms": 25.0})["amp_decay_ms"] == 25.0
     # The engine's own check agrees with the reference at every probed value.
