@@ -14,8 +14,10 @@ first), following ``docs/research/2026-10-29_live-midi-arrangement-devices.md`` 
 
 Every write follows the rules of :mod:`bridge.clip_import` (D-006): an action-log entry before
 and after, a read-back that must show exactly the intended change (polled for a bounded
-window), and an unknown outcome (timeout, Ctrl+C, read-back that never matched) stops the run
-and rules out any undo.
+window), and an unknown outcome (Ctrl+C, read-back that never matched) stops the run and rules
+out any undo. A write whose confirmation timed out is read back (more time per read, same
+window); only a read-back showing exactly the intended change settles it (#140 run 1: Live had
+created the track, the confirmation was late or lost). Undo timeouts are never settled.
 
 Undo (only if the user asks right after the writes, with nothing done in Live in between,
 #50 runs 2 and 3): one ``/live/song/undo`` at a time, each only after a read-back shows the set
@@ -265,14 +267,20 @@ class ArrangementWriter:
         return json.dumps(readback, ensure_ascii=False)
 
     def _send(self, outcome: ArrangementOutcome, label: str, capability: str, params: dict,
-              before: ArrangementState, send: Callable[[], None]) -> None:
-        """Log the plan, send, record the outcome. Raises ImportAborted on any failure."""
+              before: ArrangementState, send: Callable[[], None],
+              resolve_timeout: bool = False) -> BridgeTimeoutError | None:
+        """Log the plan, send, record the outcome. Raises ImportAborted on any failure.
+
+        With ``resolve_timeout`` a timeout is returned (step recorded as ``timeout``) for the
+        caller to settle by read-back; otherwise it is an unknown outcome at once."""
         self._log(action=label, capability=capability, params=params, status="planned",
                   before=before.as_json())
         try:
             send()
         except BridgeTimeoutError as exc:
             outcome.steps.append(Step(label, "timeout", "outcome unknown"))
+            if resolve_timeout:
+                return exc
             rb = self._unknown(outcome, label, capability, params, "timeout", "timed out")
             raise ImportAborted(f"{label} timed out; outcome unknown; read-back {rb}") from exc
         except KeyboardInterrupt as exc:
@@ -285,6 +293,75 @@ class ArrangementWriter:
                       error=f"{type(exc).__name__}: {exc}")
             raise ImportAborted(f"{label}: {type(exc).__name__}: {exc}") from exc
         outcome.steps.append(Step(label, "confirmed"))
+        return None
+
+    def _resolve_timeout(self, outcome: ArrangementOutcome, label: str, capability: str,
+                         params: dict, exc: BridgeTimeoutError,
+                         expect: Callable[[ArrangementState], bool]) -> ArrangementState:
+        """Settle a timed-out forward write by read-back (#140 run 1), or stop as unknown.
+
+        Every read-back is bracketed like any request, and AbletonOSC processes datagrams in
+        arrival order (research note 2026-10-28, fact 7; loopback keeps the order). So a read
+        that is answered at all was processed after the write: the write is applied by then,
+        or its datagram never reached Live. A read that shows exactly the intended change
+        (the same ``expect`` as after a confirmed write) therefore settles the outcome. A late
+        ``/live/error`` of the write, a read that fails or never matches in the window: the
+        outcome stays unknown, the run stops, no undo. Reads get more time than the write
+        (``READBACK_AFTER_TIMEOUT_FACTOR``), since Live may still be busy.
+        """
+        long_s = self.timeout_s * READBACK_AFTER_TIMEOUT_FACTOR
+
+        def check() -> tuple[ArrangementState, bool]:
+            state = self._read(outcome, timeout_s=long_s)
+            return state, expect(state)
+
+        def stop(readback: Any, note: str) -> None:
+            outcome.outcome_unknown = True
+            self._log(action=label, capability=capability, params=params, status="timeout",
+                      readback=readback, late_reply=late_json(),
+                      note=f"timed out; {note}; outcome unknown; no undo will be sent")
+
+        def late_json() -> dict[str, Any] | None:
+            late = self.bridge.late_reply(exc.request_id)
+            return None if late is None else {
+                "start_seen": late.start_seen, "end_seen": late.end_seen,
+                "errors": list(late.errors), "end_after_s": late.end_after_s}
+
+        try:
+            state, ok, polls = poll_until(check, self.readback_window_s, self.poll_interval_s,
+                                          self._clock, self._sleep)
+        except KeyboardInterrupt as err:
+            outcome.steps[-1] = Step(label, "interrupted", "outcome unknown")
+            stop("read-back interrupted", "Ctrl+C during the read-back after the timeout")
+            raise ImportInterrupted(f"{label} timed out, read-back interrupted") from err
+        except BridgeError as err:
+            stop(f"read-back failed: {type(err).__name__}", "read-back after the timeout failed")
+            raise ImportAborted(f"{label} timed out; outcome unknown; read-back failed: "
+                                f"{type(err).__name__}: {err}") from err
+        late = late_json()
+        if late is not None and late["errors"]:
+            outcome.results[capability] = "FAIL (AbletonOSC error after the timeout)"
+            outcome.steps[-1].detail = f"outcome unknown; late /live/error: {late['errors'][0]}"
+            stop(state.as_json(), f"late /live/error: {late['errors'][0]}")
+            raise ImportAborted(f"{label} timed out, then AbletonOSC reported an error: "
+                                f"{late['errors'][0]}; outcome unknown") from exc
+        if not ok:
+            stop(state.as_json(), f"read-back after {polls} read(s) does not show the change")
+            raise ImportAborted(f"{label} timed out; outcome unknown; read-back "
+                                f"{json.dumps(state.as_json(), ensure_ascii=False)}") from exc
+        if late is None or not late["end_seen"]:
+            echo = "end echo not seen"
+        else:
+            echo = f"end echo after {late['end_after_s']:.2f} s"
+        detail = (f"late: no confirmation within {self.timeout_s:g} s; read-back matched "
+                  f"({polls} read(s)); {echo}")
+        outcome.steps[-1] = Step(label, "confirmed", detail)
+        self._log(action=label, capability=capability, params=params, status="read_back",
+                  after=state.as_json(), ok=True, polls=polls, late_reply=late,
+                  note="confirmation timed out; settled by read-back")
+        outcome.results[capability] = "PASS (late: read-back after timeout)"
+        outcome.snapshots.append((f"after {label}", state))
+        return state
 
     def _poll_readback(self, outcome: ArrangementOutcome, label: str, capability: str,
                        params: dict, check: Callable[[], tuple[Any, bool]]
@@ -306,9 +383,13 @@ class ArrangementWriter:
     def _write(self, outcome: ArrangementOutcome, label: str, capability: str, params: dict,
                send: Callable[[], None],
                expect: Callable[[ArrangementState], bool]) -> ArrangementState:
-        """Send one write and poll until ``expect`` holds for the read-back."""
+        """Send one write and poll until ``expect`` holds for the read-back. A timed-out send
+        is settled by :meth:`_resolve_timeout` (same ``expect``) or stops as unknown."""
         before = outcome.last
-        self._send(outcome, label, capability, params, before, send)
+        timed_out = self._send(outcome, label, capability, params, before, send,
+                               resolve_timeout=True)
+        if timed_out is not None:
+            return self._resolve_timeout(outcome, label, capability, params, timed_out, expect)
 
         def check() -> tuple[ArrangementState, bool]:
             state = self._read(outcome)

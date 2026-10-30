@@ -16,7 +16,12 @@ write -> read -> undo flows. Fault switches:
 - ``hold()`` / ``release()``: keep processing in order but hold every outgoing datagram until
   release, like Live's GUI thread being blocked by a dialog;
 - ``extra_before``: unrelated messages sent before each reply (like ``/live/startup``);
-- ``raw_reply``: hand-made bytes instead of the normal reply for an address.
+- ``raw_reply``: hand-made bytes instead of the normal reply for an address;
+- ``stall_after``: after an address was handled without an error, process and answer nothing
+  for that many seconds (Live's GUI thread busy after a call; incoming datagrams queue up,
+  #140; a failing call such as the extension probe does not stall);
+- ``drop_next_marker_after``: after an address (also a failing call), drop the next marker
+  echo (the request's end marker: a lost reply datagram, #140).
 """
 
 from __future__ import annotations
@@ -53,6 +58,9 @@ class FakeAbletonOSC:
         self.drop: set[str] = set()
         self.extra_before: list[tuple[str, tuple]] = []
         self.raw_reply: dict[str, bytes] = {}
+        self.stall_after: dict[str, float] = {}
+        self.drop_next_marker_after: set[str] = set()
+        self._drop_next_marker = False
 
         self.version: tuple = (12, 3)
         self.tempo = 136.0
@@ -360,29 +368,42 @@ class FakeAbletonOSC:
                 return
             msg = OscMessage(data)
             address, params = msg.address, tuple(msg.params)
-            with self._lock:
-                self.received.append((address, params))
-                handlers = self._handlers()
-                if address not in handlers:
-                    self._send(host, "/live/error", (f"Unknown OSC address: {address}",))
-                    continue
-                try:
-                    rv = handlers[address](params)
-                except Exception as exc:
-                    self._send(host, "/live/error", (f"Error handling OSC message: {exc}",))
-                    continue
-                if is_marker(address, params):
-                    if address not in self.drop:
-                        self._send(host, address, rv)
-                    continue
-                if address in self.drop:
-                    continue
-                for extra in self.extra_before:
-                    self._send(host, *extra)
-                if address in self.raw_reply:
-                    self._emit(self.raw_reply[address], host)
-                elif rv is not None:
+            handled = self._process(host, address, params)
+            stall = self.stall_after.get(address, 0.0)
+            if stall > 0 and handled:  # a failed call (e.g. a probe) did not touch the song
+                time.sleep(stall)  # busy: nothing is read, processed or answered meanwhile
+
+    def _process(self, host: str, address: str, params: tuple) -> bool:
+        """Handle one message; False if the handler is missing or raised."""
+        with self._lock:
+            self.received.append((address, params))
+            handlers = self._handlers()
+            if address not in handlers:
+                self._send(host, "/live/error", (f"Unknown OSC address: {address}",))
+                return False
+            try:
+                rv = handlers[address](params)
+            except Exception as exc:
+                self._send(host, "/live/error", (f"Error handling OSC message: {exc}",))
+                return False
+            finally:
+                if address in self.drop_next_marker_after:
+                    self._drop_next_marker = True
+            if is_marker(address, params):
+                if self._drop_next_marker:
+                    self._drop_next_marker = False
+                elif address not in self.drop:
                     self._send(host, address, rv)
+                return True
+            if address in self.drop:
+                return True
+            for extra in self.extra_before:
+                self._send(host, *extra)
+            if address in self.raw_reply:
+                self._emit(self.raw_reply[address], host)
+            elif rv is not None:
+                self._send(host, address, rv)
+            return True
 
     def payload(self) -> list[tuple[str, tuple]]:
         """Received messages without the client's bracketing markers."""
