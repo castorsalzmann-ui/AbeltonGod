@@ -423,6 +423,72 @@ def test_ctrl_c_during_undo_prints_removal(fake, tmp_path, monkeypatch):
     assert UNDO not in [a for a, _ in writes(fake)]
 
 
+def _interrupt(*_a, **_k):
+    raise KeyboardInterrupt
+
+
+def run_catching_escape(fake, tmp_path, answers):
+    """``run`` that turns an escaped KeyboardInterrupt into a test failure: escaping, it
+    would stop the whole pytest session (exit 2) instead of failing this test."""
+    try:
+        return run(fake, tmp_path, answers)
+    except KeyboardInterrupt:
+        pytest.fail("KeyboardInterrupt escaped live_import.main (no result block)")
+
+
+@pytest.mark.parametrize("where", ["validate_wav_path", "connect"])
+def test_ctrl_c_before_run_gives_result_block_and_130(fake, tmp_path, monkeypatch, where):
+    """#135: Ctrl+C while checking the file or connecting used to escape main() with a
+    traceback and no result block. Now: same text and exit code as a Ctrl+C at the first
+    prompt, a result block, nothing sent to Live."""
+    if where == "connect":
+        monkeypatch.setattr(live_import.AbletonBridge, "connect", _interrupt)
+    else:
+        monkeypatch.setattr(live_import, "validate_wav_path", _interrupt)
+    code, out, prompts = run_catching_escape(fake, tmp_path, ["y", "0", "y", "y"])
+    assert code == live_import.EXIT_INTERRUPTED == 130, out
+    assert "\nABGEBROCHEN mit Strg+C. Es wurde nichts in Live geändert.\n" in out
+    assert prompts == []
+    assert fake.received == []  # not even a ping
+    b = block(out)
+    assert b["error"] == "interrupted by user (Ctrl+C) before connecting"
+    assert b["clip_slot.create_audio_clip"] == "SKIPPED"
+    assert b["plan_confirmed"] == "no"
+    assert not (tmp_path / "actions.jsonl").exists()
+
+
+def test_ctrl_c_before_run_closes_a_connected_bridge(fake, tmp_path, monkeypatch):
+    """Ctrl+C right after connect returned (in run's first call, the ping): the bridge is
+    closed and run's own handler reports it (already green before #135; guards the change)."""
+    closed = []
+    orig_close = live_import.AbletonBridge.close
+
+    def close(self):
+        closed.append(True)
+        orig_close(self)
+
+    monkeypatch.setattr(live_import.AbletonBridge, "close", close)
+    monkeypatch.setattr(live_import.AbletonBridge, "ping", _interrupt)
+    code, out, _ = run_catching_escape(fake, tmp_path, ["y"])
+    assert code == 130 and closed == [True]
+    assert "\nABGEBROCHEN mit Strg+C. Es wurde nichts in Live geändert.\n" in out
+    assert block(out)["error"] == "interrupted by user (Ctrl+C) outside a write"
+
+
+def test_ctrl_c_after_run_keeps_the_importers_record(fake, tmp_path, monkeypatch):
+    """A Ctrl+C after run() returned (here: in split_overrides) is caught by the outer
+    handler, which must not claim "nothing changed" after an import (#135)."""
+    monkeypatch.setattr(live_import, "split_overrides", _interrupt)
+    code, out, _ = run_catching_escape(fake, tmp_path, ["y", "0", "y", "", "y"])
+    assert code == 130, out
+    assert "nichts in Live geändert" not in out
+    assert "ABGEBROCHEN mit Strg+C. Der Import war schon fertig; der Clip bleibt im Set." in out
+    assert "  - Clip: in Spur 0 '1-Audio' die Zelle 1 anklicken, Entf drücken." in out
+    b = block(out)
+    assert b["clip_slot.create_audio_clip"] == "PASS"
+    assert b["error"] == "interrupted by user (Ctrl+C) after the import flow"
+
+
 def test_second_undo_differs_prints_removal_for_the_track(fake, tmp_path):
     """New track; Live does not record the track creation as an undo step (fake), so undo 1
     removes the clip and undo 2 changes nothing. FAIL, no third undo, removal steps say the
