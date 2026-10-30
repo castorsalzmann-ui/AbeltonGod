@@ -1,0 +1,93 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/castorsalzmann-ui/AbeltonGod/contracts/arrangement-plan.schema.json",
+  "title": "Arrangement plan",
+  "description": "v0.1 (#146, D-024). One track plan shared by the planner window, the plan generator and the Live builder: bar grid, sections, energy nodes and the planner settings. Not a Claude tool input. Rules JSON Schema cannot express (sections tile the track, node order, step pairs, boundary rules) are part of this contract: docs/INTERFACES.md 'Arrangement plan'.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "bpm", "time_signature", "phrase_bars", "total_bars", "sections", "energy_nodes", "settings"],
+  "properties": {
+    "schema_version": { "const": "0.1" },
+    "bpm": {
+      "type": "number",
+      "minimum": 20,
+      "maximum": 999,
+      "description": "Track tempo. The range is Live's tempo range, not a taste range; the 136-146 BPM window is an editor default."
+    },
+    "time_signature": { "const": "4/4", "description": "Fixed in v0.1. 1 bar = 4 beats." },
+    "phrase_bars": {
+      "const": 8,
+      "description": "Section grid in bars. Every section starts at bar phrase_bars*k + 1 and is a multiple of phrase_bars long, whatever change_grid says."
+    },
+    "total_bars": {
+      "type": "integer",
+      "minimum": 32,
+      "maximum": 1024,
+      "multipleOf": 8,
+      "description": "Track length in bars. Must equal the end of the last section. 32 = shortest intro + outro; 1024 is a sanity bound."
+    },
+    "sections": {
+      "type": "array",
+      "minItems": 2,
+      "items": { "$ref": "#/$defs/section" },
+      "description": "In track order, without gaps or overlaps: the first starts at bar 1, each next one at the previous start + length, the last ends at total_bars. First is intro, last is outro, neither appears elsewhere."
+    },
+    "energy_nodes": {
+      "type": "array",
+      "minItems": 2,
+      "items": { "$ref": "#/$defs/energy_node" },
+      "description": "Energy curve. Array order is binding: pos never decreases. The first node is at pos 0, the last at pos total_bars. Linear interpolation between consecutive nodes. At most two nodes share a pos (a step pair): the first is the value arriving from the left, the second the value leaving to the right. No step pair at pos 0 or total_bars."
+    },
+    "settings": { "$ref": "#/$defs/settings" }
+  },
+  "$defs": {
+    "section": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "start_bar", "length_bars"],
+      "properties": {
+        "type": { "enum": ["intro", "groove", "break", "breakdown", "build", "drop", "outro"] },
+        "start_bar": { "type": "integer", "minimum": 1, "description": "1-based first bar. Covers pos start_bar-1 ... start_bar-1+length_bars." },
+        "length_bars": { "type": "integer", "minimum": 8, "multipleOf": 8 }
+      },
+      "allOf": [
+        { "if": { "required": ["type"], "properties": { "type": { "const": "intro" } } }, "then": { "properties": { "length_bars": { "enum": [16, 32, 64] } } } },
+        { "if": { "required": ["type"], "properties": { "type": { "const": "groove" } } }, "then": { "properties": { "length_bars": { "enum": [16, 32, 48, 64] } } } },
+        { "if": { "required": ["type"], "properties": { "type": { "const": "break" } } }, "then": { "properties": { "length_bars": { "enum": [8, 16] } } } },
+        { "if": { "required": ["type"], "properties": { "type": { "const": "breakdown" } } }, "then": { "properties": { "length_bars": { "enum": [16, 32, 64] } } } },
+        { "if": { "required": ["type"], "properties": { "type": { "const": "build" } } }, "then": { "properties": { "length_bars": { "enum": [8, 16, 32] } } } },
+        { "if": { "required": ["type"], "properties": { "type": { "const": "drop" } } }, "then": { "properties": { "length_bars": { "enum": [16, 32, 64] } } } },
+        { "if": { "required": ["type"], "properties": { "type": { "const": "outro" } } }, "then": { "properties": { "length_bars": { "enum": [16, 32, 64] } } } }
+      ]
+    },
+    "energy_node": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["pos", "value", "drawn"],
+      "properties": {
+        "pos": { "type": "integer", "minimum": 0, "description": "Bars from the track start: 0 = start of bar 1, total_bars = end of the last bar. Whole bars in v0.1." },
+        "value": { "type": "number", "minimum": 0, "maximum": 1 },
+        "drawn": { "type": "boolean", "description": "true = the user placed or moved this node. Settings, templates and re-computed defaults never change a drawn node (D-024); boundary rules B2/B3 apply to nodes with drawn false only." }
+      }
+    },
+    "settings": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Planner settings (D-024; defaults and sources: docs/research/2026-10-29_arrangement-planner-sections-energy.md section 8). Every key is stored, so a later default change never changes an existing plan. A setting changes defaults and rule parameters only; it never moves a section or a drawn node.",
+      "required": ["build_kick", "intro_length", "outro_length", "intro_outro_bass", "breakdown_count", "breakdown_length", "breakdown_rumble", "second_drop", "change_grid", "pre_drop_gap", "fills"],
+      "properties": {
+        "build_kick": { "enum": ["filtered_in_build", "at_drop"], "default": "filtered_in_build" },
+        "intro_length": { "enum": [16, 32, 64], "default": 32, "description": "Bars, used when the user places an intro. A template keeps its own lengths." },
+        "outro_length": { "enum": [16, 32, 64], "default": 32, "description": "Bars, used when the user places an outro." },
+        "intro_outro_bass": { "enum": ["on", "outside_mix_zone", "off"], "default": "on" },
+        "breakdown_count": { "enum": [1, 2], "default": 1 },
+        "breakdown_length": { "enum": [16, 32, 64], "default": 32, "description": "Bars, used when the user places a breakdown." },
+        "breakdown_rumble": { "enum": ["off", "on"], "default": "off" },
+        "second_drop": { "enum": ["stronger", "equal", "ask"], "default": "stronger" },
+        "change_grid": { "type": "integer", "minimum": 1, "default": 8, "description": "Bars between points where elements may switch on or off (T1); any whole number of bars (user decision 2026-10-30). Section starts are always change points. Does not move sections (they follow phrase_bars) or nodes, drawn or not." },
+        "pre_drop_gap": { "enum": [0, 1, 2, 4], "default": 4, "description": "Beats of silence (drums and bass) before a drop's bar 1. 0 = off, 4 = 1 bar." },
+        "fills": { "enum": ["off", "section_change", "every_8"], "default": "off", "description": "Where generated fill bars go: none (default, user decision 2026-10-30: fills only where the user sets them), one before each change between drum-led sections (T4), or every 8 bars. Consecutive fills never repeat identically (C8, a rule, not a setting)." }
+      }
+    }
+  }
+}
