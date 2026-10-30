@@ -113,7 +113,10 @@ def test_session_options_close_the_tool_surface(make_guard, events, clients):
     assert "ANTHROPIC_API_KEY" not in opts.env
     assert opts.agents is None and opts.plugins == []
     assert opts.model == "claude-opus-5-5"
-    assert opts.system_prompt == DEFAULT_SYSTEM_PROMPT
+    # base prompt + the registered tools by name (#163)
+    assert opts.system_prompt == (
+        DEFAULT_SYSTEM_PROMPT + "\n\nTools available in this session: echo. Nothing else is "
+        "available yet; do not offer anything these tools cannot do.")
     assert opts.max_turns == 5  # TEST_POLICY max_model_calls, nothing used yet
     assert 0 < opts.max_budget_usd <= 1.0
     [matcher] = opts.hooks["PreToolUse"]
@@ -684,7 +687,7 @@ def test_slow_loop_never_reaches_the_cli_hook_timeout(slow, make_guard, events, 
     closed_while_waiting: list = []
 
     class SlowApprover:
-        def confirm(self, tool, arguments):
+        def confirm(self, tool, arguments, plan):
             time.sleep(2.0)  # the user takes a while
             closed_while_waiting.append(factory.cli.closed)  # the watchdog acted already
             clock.t += 2.0
@@ -718,6 +721,9 @@ def test_slow_loop_never_reaches_the_cli_hook_timeout(slow, make_guard, events, 
     assert cli.closed and cli.events("mcp_call") == []
     # the session was already closed at request timeout + grace, while the loop still waited
     assert closed_while_waiting == [True]
+    if slow == "approval":
+        # #81 (c), fixed in #148: a yes after the request deadline runs nothing
+        assert ran == []
 
 
 def test_violation_during_tool_run_answers_no_hook(make_guard, events, clients):

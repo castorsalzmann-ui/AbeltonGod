@@ -350,6 +350,36 @@ def test_write_failure_on_second_file_leaves_first_patched_and_rerun_completes(o
     assert clip(osc).read_bytes() == CLIP_SLOT and track(osc).read_bytes() == TRACK
 
 
+@pytest.mark.parametrize("which", ["clip_slot.py", "track.py"])
+def test_backup_appearing_after_the_check_is_never_overwritten(osc, which):
+    # #158 (D-006): the backup is created while the user answers the prompt, i.e. after the
+    # all-or-nothing check and before the first write. It must survive byte-for-byte.
+    late = backup(osc / "abletonosc" / which)
+    foreign = b"appeared while the prompt was open\r\n"
+
+    def input_fn(prompt):
+        late.write_bytes(foreign)
+        return "y"
+
+    out = io.StringIO()
+    code = inst.run(osc, uninstall=False, check_only=False, input_fn=input_fn, out=out,
+                    specs=specs())
+    text = out.getvalue()
+    assert code == inst.EXIT_ERROR == 2, text
+    assert f"FEHLER beim Schreiben von {which}" in text and "appeared during the install" in text
+    assert late.read_bytes() == foreign
+    assert no_tmp(osc)
+    if which == "clip_slot.py":  # first file: nothing written anywhere
+        assert clip(osc).read_bytes() == CLIP_SLOT
+        assert track(osc).read_bytes() == TRACK and not backup(track(osc)).exists()
+        assert "Nichts installiert." in text
+    else:  # second file: the first one stays fully patched with its valid backup
+        assert track(osc).read_bytes() == TRACK
+        assert b"create_audio_clip" in clip(osc).read_bytes()
+        assert backup(clip(osc)).read_bytes() == CLIP_SLOT
+        assert "Schon installiert in diesem Lauf: clip_slot.py" in text
+
+
 def test_ctrl_c_between_the_two_files_leaves_a_consistent_state(osc, monkeypatch):
     real = inst.atomic_write
 

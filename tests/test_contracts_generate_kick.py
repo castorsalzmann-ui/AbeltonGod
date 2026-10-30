@@ -355,8 +355,8 @@ def test_quoted_error_texts_are_the_engines() -> None:
     from audio_engine.params import KickParamsError, resolve_kick_params
 
     rule = V03_PROPS["length_beats"]["description"]
-    no_fit = _quoted(rule, "the contract's bisection")
-    assert no_fit.endswith(": 20.0 ms does not fit")
+    no_fit = _quoted(rule, "neither 2000.0 nor 20.0 ms")
+    assert no_fit.endswith(", so the bisection of rule (6a) finds no amp_decay_ms")
     head, tail = no_fit.split(" (...)")
     with pytest.raises(KickParamsError) as exc:
         resolve_kick_params(NO_FIT)
@@ -379,6 +379,19 @@ def test_quoted_error_texts_are_the_engines() -> None:
     message = str(exc.value)
     assert first.replace("<value>", "2000") in message
     assert second.replace("<derived>", str(derived)) in message
+
+
+def test_interfaces_quotes_the_engines_no_fit_text() -> None:
+    """docs/INTERFACES.md quotes the (6a) rejection; it must be the engine's text (#164)."""
+    from audio_engine.params import KickParamsError, resolve_kick_params
+
+    doc = (ROOT / "docs" / "INTERFACES.md").read_text(encoding="utf-8")
+    quoted = _quoted(doc.replace("`", "'"), "amp_decay_ms: neither")
+    head, tail = quoted.split(" (…)")
+    tail = tail.removesuffix(" …")
+    with pytest.raises(KickParamsError) as exc:
+        resolve_kick_params(NO_FIT)
+    assert f"- {head} (" in str(exc.value) and tail in str(exc.value)
 
 
 def test_bisection_wording_claims_no_monotonicity() -> None:
