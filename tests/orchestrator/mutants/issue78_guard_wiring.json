@@ -4,24 +4,24 @@
     {
       "id": "B1_LOOP_CALLS_HANDLER_DIRECTLY",
       "file": "src/orchestrator/loop.py",
-      "old": "                results.append(self.toolbox.run(req, call, self.approver))\n",
-      "new": "                self.toolbox._tools[call.name].handler(dict(call.arguments)) if call.name in self.toolbox._tools else None\n                results.append(self.toolbox.run(req, call, self.approver))\n",
+      "old": "                results.append(self.toolbox.run(\n",
+      "new": "                self.toolbox._tools[call.name].handler(dict(call.arguments)) if call.name in self.toolbox._tools and self.toolbox._tools[call.name].prepare is None else None\n                results.append(self.toolbox.run(\n",
       "tests": ["tests/orchestrator"],
       "note": "guard bypass: handler runs before the guard sees the call"
     },
     {
       "id": "B2_TOOLBOX_SKIPS_GUARD_FOR_VALID_CALLS",
       "file": "src/orchestrator/tools.py",
-      "old": "        name = call.name if isinstance(call.name, str) and call.name else \"<unnamed>\"\n        permit",
-      "new": "        name = call.name if isinstance(call.name, str) and call.name else \"<unnamed>\"\n        if tool is not None and not validation_errors(tool, call.arguments):\n            out = tool.handler(copy.deepcopy(dict(call.arguments)))\n            return ToolResult(call.id, tool.name, False, out.content)\n        permit",
+      "old": "        over_budget = declared_files > files_left\n        permit",
+      "new": "        over_budget = declared_files > files_left\n        if tool is not None and tool.prepare is None and not validation_errors(tool, call.arguments):\n            out = tool.handler(copy.deepcopy(dict(call.arguments)))\n            return ToolResult(call.id, tool.name, False, out.content)\n        permit",
       "tests": ["tests/orchestrator"],
       "note": "guard bypass: valid calls never reach before_tool/after_tool"
     },
     {
       "id": "B3_FIRST_MODEL_CALL_UNGUARDED",
       "file": "src/orchestrator/loop.py",
-      "old": "            response = self._call_model(req, messages)\n",
-      "new": "            response = self.model.complete(ModelRequest(self.system_prompt, tuple(messages), self.toolbox.specs(), 1000, 90.0, {\"max_turns\": 1, \"max_budget_usd\": 1.0})) if len(messages) == 1 else self._call_model(req, messages)\n",
+      "old": "            response = self._call_model(req, messages, system)\n",
+      "new": "            response = self.model.complete(ModelRequest(system, tuple(messages), self.toolbox.specs(), 1000, 90.0, {\"max_turns\": 1, \"max_budget_usd\": 1.0})) if len(messages) == 1 else self._call_model(req, messages, system)\n",
       "tests": ["tests/orchestrator"],
       "note": "guard bypass: the first model call skips before/after_model_call"
     },
@@ -36,7 +36,7 @@
     {
       "id": "B5_TOOL_RESERVES_NO_FILES",
       "file": "src/orchestrator/tools.py",
-      "old": "            writes_files=tool.max_files_written if tool else 0,\n",
+      "old": "            writes_files=0 if over_budget else declared_files,\n",
       "new": "            writes_files=0,\n",
       "tests": ["tests/orchestrator"],
       "note": "file budget no longer reserved before the handler"
@@ -74,15 +74,15 @@
     {
       "id": "A2_TRUTHY_APPROVAL",
       "file": "src/orchestrator/tools.py",
-      "old": "approver.confirm(tool, copy.deepcopy(arguments)) is True",
-      "new": "bool(approver.confirm(tool, copy.deepcopy(arguments)))",
+      "old": "                    approved = approver.confirm(\n                        tool, copy.deepcopy(arguments), copy.deepcopy(plan)\n                    ) is True\n",
+      "new": "                    approved = bool(approver.confirm(\n                        tool, copy.deepcopy(arguments), copy.deepcopy(plan)\n                    ))\n",
       "tests": ["tests/orchestrator"]
     },
     {
       "id": "A3_LIVE_TOOL_MAY_BE_ROUTINE",
       "file": "src/orchestrator/tools.py",
-      "old": "        if (self.max_live_writes > 0 or self.capabilities) and self.approval",
-      "new": "        if (self.capabilities) and self.approval",
+      "old": "        if self.max_live_writes > 0 and self.approval is not Approval.CONFIRM:\n",
+      "new": "        if False:\n",
       "tests": ["tests/orchestrator"]
     },
     {
@@ -109,8 +109,8 @@
     {
       "id": "C1_CAPABILITY_GATE_SKIPPED",
       "file": "src/orchestrator/tools.py",
-      "old": "                    self._gate.check(cap_id)\n",
-      "new": "                    pass\n",
+      "old": "                    cap = self._gate.check(cap_id)\n",
+      "new": "                    cap = type(\"Cap\", (), {\"kind\": \"read\"})()\n",
       "tests": ["tests/orchestrator"]
     },
     {
@@ -177,9 +177,18 @@
     {
       "id": "D2_OVERRUN_NOT_STOPPED",
       "file": "src/orchestrator/tools.py",
-      "old": "            req.stop_request(Limit.UNDECLARED_WRITE, f\"{tool.name} {overrun}\")\n",
-      "new": "            pass\n",
-      "tests": ["tests/orchestrator"]
+      "old": "            req.stop_request(Limit.UNDECLARED_WRITE, f\"{tool.name} {overrun}\")\n        return ToolResult(call.id, tool.name, False, copy.deepcopy(output.content))\n",
+      "new": "            pass\n        return ToolResult(call.id, tool.name, False, copy.deepcopy(output.content))\n",
+      "tests": ["tests/orchestrator"],
+      "note": "#148: the success path; the ToolError path is D4"
+    },
+    {
+      "id": "D4_OVERRUN_ON_TOOL_ERROR_NOT_STOPPED",
+      "file": "src/orchestrator/tools.py",
+      "old": "                req.stop_request(Limit.UNDECLARED_WRITE, f\"{tool.name} {overrun}\")\n            return _error(call, \"tool_error\"",
+      "new": "                pass\n            return _error(call, \"tool_error\"",
+      "tests": ["tests/orchestrator"],
+      "note": "#148"
     },
     {
       "id": "D3_OVERRUN_OFF_BY_ONE",
@@ -249,15 +258,16 @@
     {
       "id": "T1_FAILED_TOOL_COUNTS_NO_FILES",
       "file": "src/orchestrator/tools.py",
-      "old": "            req.after_tool(permit, ok=False)  # counts the declared maximum of writes\n",
+      "old": "            req.after_tool(\n                permit, files_written=exc.files_written, live_writes=exc.live_writes, ok=False\n            )\n",
       "new": "            req.after_tool(permit, files_written=0, live_writes=0, ok=False)\n",
+      "note": "#148: a ToolError without counts must count the declared maximum",
       "tests": ["tests/orchestrator"]
     },
     {
       "id": "T2_FAILED_TOOL_MARKED_OK",
       "file": "src/orchestrator/tools.py",
-      "old": "            req.after_tool(permit, ok=False)  # counts the declared maximum of writes\n",
-      "new": "            req.after_tool(permit)\n",
+      "old": "            req.after_tool(\n                permit, files_written=exc.files_written, live_writes=exc.live_writes, ok=False\n            )\n",
+      "new": "            req.after_tool(permit, files_written=exc.files_written, live_writes=exc.live_writes)\n",
       "tests": ["tests/orchestrator"]
     },
     {

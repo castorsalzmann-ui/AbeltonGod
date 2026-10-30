@@ -42,6 +42,7 @@ import socket
 import threading
 import time
 from collections.abc import Callable, Iterable, Sequence
+from dataclasses import dataclass, field
 
 from pythonosc.osc_bundle import OscBundle
 from pythonosc.osc_message import OscMessage
@@ -196,7 +197,47 @@ class BridgeTimeoutError(BridgeUnavailableError):
     For a write, the outcome is **unknown**: the message may still be queued in Live (for
     example behind a dialog) and be applied later. Read the state back before acting on the
     assumption that nothing happened — in particular before sending an undo.
+
+    ``request_id`` (set by :class:`OscTransport`) names the timed-out request for
+    :meth:`OscTransport.late_reply`.
     """
+
+    request_id: str | None = None
+
+
+@dataclass(frozen=True)
+class LateReply:
+    """What later requests saw of a timed-out request's own reply (#140).
+
+    After a timeout the request's echoes may still arrive; the next requests discard them as
+    stale, and record them here. ``end_after_s``: seconds from the send to the moment the
+    client read the end-marker echo (an upper bound when it was read while draining).
+    A missing echo does not show that the request was not processed (the datagram may be
+    lost); an echo does not show that Live's state changed as intended.
+    """
+
+    start_seen: bool
+    end_seen: bool
+    errors: tuple[str, ...]
+    end_after_s: float | None
+
+
+@dataclass
+class _Pending:
+    start: str
+    end: str
+    sent_at: float
+    started: bool
+    finished: bool = False  # the end echo was seen
+    closed: bool = False  # nothing more can belong to this request
+    errors: list[str] = field(default_factory=list)
+    end_after_s: float | None = None
+
+    def snapshot(self) -> LateReply:
+        return LateReply(self.started, self.finished, tuple(self.errors), self.end_after_s)
+
+
+LATE_TRACKED = 8  # timed-out requests whose late echoes are recorded (oldest dropped)
 
 
 class LiveNotReachableError(BridgeUnavailableError):
@@ -271,6 +312,7 @@ class OscTransport:
         self._lock = threading.Lock()
         self._counter = itertools.count()
         self._nonce_prefix = f"abg-{os.getpid()}-{secrets.token_hex(4)}"
+        self._pending: dict[str, _Pending] = {}  # timed-out requests by end nonce, oldest first
 
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         try:
@@ -327,6 +369,17 @@ class OscTransport:
         """Marker round trip only. Raises a :class:`BridgeUnavailableError` on failure."""
         self._exchange([], timeout_s)
 
+    def late_reply(self, request_id: str | None) -> LateReply | None:
+        """What later requests have seen of the timed-out request ``request_id`` so far.
+
+        ``None`` if the id is unknown (never timed out, or one of more than ``LATE_TRACKED``
+        newer timeouts pushed it out). Only requests sent after the timeout read the socket,
+        so call this after at least one later request.
+        """
+        with self._lock:
+            pending = self._pending.get(request_id) if request_id is not None else None
+            return pending.snapshot() if pending is not None else None
+
     # -- internals ---------------------------------------------------------------------------
 
     def _exchange(self, payload: list[Message], timeout_s: float | None) -> list[Message]:
@@ -341,26 +394,66 @@ class OscTransport:
             for address, params in payload:
                 self._send(address, params)
             self._send(MARKER_ADDRESS, (end,))
+            sent_at = self._clock()
 
             started = False
             between: list[Message] = []
-            while True:
-                for msg_address, args in self._receive(deadline):
-                    if msg_address == MARKER_ADDRESS and len(args) == 2:
-                        if args[1] == start:
-                            started = True
+            try:
+                while True:
+                    for msg_address, args in self._receive(deadline):
+                        if msg_address == MARKER_ADDRESS and len(args) == 2:
+                            if args[1] == start:
+                                started = True
+                                self._close_pending()
+                                continue
+                            if args[1] == end:
+                                if not started:
+                                    raise BridgeProtocolError(
+                                        "end marker arrived before start marker")
+                                return between
+                        if not started:
+                            logger.debug("discarding stale OSC message %s %r", msg_address, args)
+                            self._note_stale(msg_address, args)
                             continue
-                        if args[1] == end:
-                            if not started:
-                                raise BridgeProtocolError("end marker arrived before start marker")
-                            return between
-                    if not started:
-                        logger.debug("discarding stale OSC message %s %r", msg_address, args)
-                        continue
-                    if msg_address == ERROR_ADDRESS:
-                        detail = args[0] if args else "<no message>"
-                        raise AbletonOSCError(f"AbletonOSC reported an error: {detail}")
-                    between.append((msg_address, args))
+                        if msg_address == ERROR_ADDRESS:
+                            detail = args[0] if args else "<no message>"
+                            raise AbletonOSCError(f"AbletonOSC reported an error: {detail}")
+                        between.append((msg_address, args))
+            except BridgeTimeoutError as exc:
+                self._pending[end] = _Pending(start, end, sent_at, started)
+                while len(self._pending) > LATE_TRACKED:
+                    del self._pending[next(iter(self._pending))]
+                exc.request_id = end
+                raise
+
+    def _note_stale(self, address: str, args: tuple) -> None:
+        """Attribute a stale message to a timed-out request.
+
+        Loopback keeps the order (research note 2026-10-28, assumptions), so a message between
+        a request's two marker echoes belongs to that request, and once the start echo of any
+        later request has been seen, an earlier request's window is over (its end echo is
+        lost); nothing after that is attributed to it.
+        """
+        if address == MARKER_ADDRESS and len(args) == 2:
+            later = False
+            for p in reversed(self._pending.values()):  # newest first
+                if later:
+                    p.closed = True
+                elif args[1] == p.start:
+                    p.started, later = True, True
+                elif args[1] == p.end and not p.closed:
+                    p.finished = p.closed = True
+                    p.end_after_s = self._clock() - p.sent_at
+            return
+        if address == ERROR_ADDRESS:
+            for p in self._pending.values():
+                if p.started and not p.closed:
+                    p.errors.append(str(args[0]) if args else "<no message>")
+
+    def _close_pending(self) -> None:
+        """The current request's start echo arrived: every earlier window is over."""
+        for p in self._pending.values():
+            p.closed = True
 
     def _nonce(self) -> str:
         return f"{self._nonce_prefix}-{next(self._counter)}"
@@ -429,11 +522,14 @@ class OscTransport:
         try:
             while True:
                 try:
-                    self._sock.recvfrom(65536)
+                    data, _ = self._sock.recvfrom(65536)
                 except (BlockingIOError, InterruptedError):
                     return
                 except ConnectionResetError:
                     continue
+                if self._pending:  # late echoes of a timed-out request are recorded
+                    for address, args in self._decode(data):
+                        self._note_stale(address, args)
         finally:
             self._sock.setblocking(True)
 
@@ -723,6 +819,10 @@ class AbletonBridge:
         if cap_id in EXTENSION_ADDRESSES:
             return EXTENSION_ADDRESSES[cap_id][0][0]
         return ADDRESSES[cap_id][0]
+
+    def late_reply(self, request_id: str | None) -> LateReply | None:
+        """See :meth:`OscTransport.late_reply` (no network I/O, not capability-gated)."""
+        return self._transport.late_reply(request_id)
 
     def create_midi_track(self, index: int = -1, *, timeout_s: float | None = None) -> None:
         """LOM ``Song.create_midi_track(index)``; -1 appends at the end. No reply."""

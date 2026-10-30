@@ -150,8 +150,10 @@ def drawable_fields() -> tuple[str, ...]:
     """Every ``properties`` field except ``schema_version``, in schema order.
 
     Fields in ``allOf`` branches (the v0.3 fields ``tail_note``, ``length_beats``, ...) are not
-    drawn, by any profile including :data:`ALL`: they need ``schema_version`` "0.3", which the
-    engine refuses until it renders them (#137).
+    drawn, by any profile including :data:`ALL`: they need ``schema_version`` "0.3", and every
+    draw carries :data:`DRAWN_SCHEMA_VERSION` ("0.2"), which the contract rejects them under.
+    The engine renders "0.3" (PR #130); drawing it would change every default draw, a decision
+    for the owning role in an issue.
     """
     return tuple(n for n, s in FIELDS.items() if n != "schema_version" and "const" not in s)
 

@@ -42,10 +42,18 @@ from pathlib import Path
 import pytest
 
 SRC = Path(__file__).resolve().parents[2] / "src"
-GUARDED = {"complete", "handler"}
+# ``prepare`` (#148): a confirm tool's read-only plan step runs tool code too, so it gets the
+# same rule as ``handler``.
+GUARDED = {"complete", "handler", "prepare"}
 ALLOWED_SITES = {
     ("orchestrator/loop.py", "Orchestrator._call_model", "self.model.complete"),
     ("orchestrator/tools.py", "Toolbox.run", "tool.handler"),
+    ("orchestrator/tools.py", "Toolbox.run", "tool.prepare"),
+}
+# Reads that only compare with None (``x.prepare is not None``), allowed in these functions.
+NONE_TESTS = {
+    ("orchestrator/tools.py", "Tool.__post_init__", "self.prepare"),
+    ("orchestrator/tools.py", "Toolbox.run", "tool.prepare"),
 }
 DYNAMIC_ATTR_FUNCS = {"getattr", "setattr", "hasattr", "delattr"}
 FORBIDDEN_NAMES = {"attrgetter", "methodcaller", "vars", "__getattribute__", "getattr_static"}
@@ -92,8 +100,16 @@ def violations(modules: list[tuple[str, ast.Module]]) -> list[str]:
                     site = (rel, owner.get(id(node), "<module>"), ast.unparse(node))
                     parent = parents.get(id(node))
                     is_call = isinstance(parent, ast.Call) and parent.func is node
+                    none_test = (
+                        isinstance(parent, ast.Compare) and parent.left is node
+                        and len(parent.ops) == 1 and isinstance(parent.ops[0], ast.Is | ast.IsNot)
+                        and isinstance(parent.comparators[0], ast.Constant)
+                        and parent.comparators[0].value is None
+                    )
                     if site in ALLOWED_SITES and is_call:
                         seen_sites.append(site)
+                    elif site in NONE_TESTS and none_test:
+                        pass
                     else:
                         found.append(f"{where} {ast.unparse(node)} outside the guarded site")
                 if node.attr == "__dict__" or node.attr in DYNAMIC_NAMES:
@@ -167,13 +183,22 @@ def test_model_call_sits_between_its_guard_steps():
 def test_toolbox_calls_before_tool_first():
     fn = _function("orchestrator/tools.py", "Toolbox.run")
     before = _first(fn, "before_tool")
-    for attr in ("handler", "confirm", "after_tool"):
+    for attr in ("handler", "prepare", "confirm", "after_tool", "_after_yes"):
         assert before < _first(fn, attr), attr
     validation = [c.lineno for c in ast.walk(fn)
                   if isinstance(c, ast.Call) and isinstance(c.func, ast.Name)
                   and c.func.id == "validation_errors"]
     assert validation and before < min(validation)
+    # #148: validation -> plan -> yes -> re-checks after the yes -> handler
+    assert min(validation) < _first(fn, "prepare") < _first(fn, "confirm")
+    assert _first(fn, "confirm") < _first(fn, "_after_yes") < _first(fn, "handler")
     assert len(_call_lines(fn, "after_tool")) >= 5  # every return path settles the call
+
+
+def test_checks_after_the_yes_start_with_the_deadline():
+    fn = _function("orchestrator/tools.py", "Toolbox._after_yes")
+    assert _call_lines(fn, "check_deadline"), "deadline re-check after the confirmation"
+    assert len(_call_lines(fn, "after_tool")) >= 3  # each refusal settles the call
 
 
 def test_orchestrator_runs_tools_only_through_the_toolbox():
@@ -214,6 +239,11 @@ def _with_extra(rel: str, source: str) -> list[tuple[str, ast.Module]]:
         "def q(m, r):\n    match m:\n        case object(complete=f):\n            return f(r)\n",
         "import inspect\ndef q(m, r):\n    return inspect.getattr_static(m, 'complete')(m, r)\n",
         "from inspect import getattr_static\n",
+        # #148: the plan step of a confirm tool is guarded like the handler
+        "def q(tool, a):\n    return tool.prepare(a)\n",
+        "def q(tool, a):\n    p = tool.prepare\n    return p(a)\n",
+        "def q(tool):\n    return tool.prepare is not None\n",  # not an allowed None test site
+        "def q(t, a):\n    return getattr(t, 'prepare')(a)\n",
     ],
 )
 def test_each_dodge_in_a_new_module_is_caught(source):

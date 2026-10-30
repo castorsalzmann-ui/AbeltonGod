@@ -18,7 +18,9 @@ Steps:
 5. Writes (``bridge.arrangement_check.ArrangementWriter``): song position to the clip start
    (if not there), new MIDI track at the end, empty MIDI clip in the Arrangement, one note per
    beat (C1), a locator at the clip start, its name. Action-log entry before and after every
-   write; each write is read back before the next one.
+   write; each write is read back before the next one. A write whose confirmation times out
+   is settled only by a read-back that shows exactly the intended change (0.2.0, #140 run 1);
+   otherwise its outcome is unknown and the run stops without undo.
 6. Asks right away whether to undo everything (default No), *before* the user looks at or
    touches anything in Live (#50 runs 2 and 3). Yes: one undo at a time, each read back, the
    chain stops at the first surprise. No: everything stays; asks whether Live shows it and
@@ -81,7 +83,7 @@ from bridge.osc_client import (
     ReceivePortInUseError,
 )
 
-SCRIPT_VERSION = "0.1.0"
+SCRIPT_VERSION = "0.2.0"  # 0.2.0: a timed-out write is settled by read-back (#140 run 1)
 
 # The `unknown` capabilities this script may call through the check-script override (#140),
 # written out: a capability added to the registry later is NOT opted in automatically.
