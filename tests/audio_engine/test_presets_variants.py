@@ -12,12 +12,12 @@ import hashlib
 import itertools
 import json
 import math
-import random
 from datetime import UTC, datetime
 
 import numpy as np
 import pytest
 from jsonschema import Draft202012Validator
+from support import kick_params as kp
 from test_kick import (
     FUNDAMENTAL_TOLERANCE,
     FUNDAMENTAL_TOLERANCE_SHORT,
@@ -433,7 +433,7 @@ def _random_bases() -> list[dict]:
     """
     out = []
     for k in range(N_BASES):
-        rng = random.Random(30_000 + k)
+        rng = kp.rng(30_000 + k)
         p = random_params(rng)
         if k % 2 == 0:
             limit = max_settled_pitch_decay_ms(p)
@@ -602,7 +602,7 @@ def test_offsets_of_different_fields_are_uncorrelated() -> None:
 
 
 def test_random_variant_renders_are_deterministic_and_clean() -> None:
-    rng = random.Random(4242)
+    rng = kp.rng(4242)
     for _, _, v in rng.sample(ALL, 25):
         w1, audio, r = render_kick_wav(v)
         assert render_kick_wav(dict(v))[0] == w1

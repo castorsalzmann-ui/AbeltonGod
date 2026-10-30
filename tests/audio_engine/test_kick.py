@@ -155,7 +155,7 @@ def test_quantised_file_peak_never_exceeds_ceiling(p: dict) -> None:
     assert peak >= ceiling * full_scale - 1  # and uses the headroom (within 1 LSB)
 
 
-@pytest.mark.parametrize("seed", range(50))
+@pytest.mark.parametrize("seed", [kp.kick_seed(s) for s in range(50)])
 def test_first_sample_is_zero_for_any_seed(seed: int) -> None:
     audio, _ = render_kick({**BASE, "seed": seed, "click_level": 1.0, "drive": 1.0})
     assert audio[0] == 0.0
