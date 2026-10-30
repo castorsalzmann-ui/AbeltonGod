@@ -325,6 +325,59 @@ def test_ctrl_c_during_the_read_back_after_a_timeout_is_unknown(fake, tmp_path, 
         "create_midi_track: interrupted (outcome unknown)"
 
 
+def test_ctrl_c_while_reading_the_late_reply_is_unknown(fake, tmp_path, monkeypatch):
+    """Review #177 nit 1: Ctrl+C right after the read-back matched, while the late echoes
+    are looked up: unknown, interrupted, no undo."""
+    fake.drop_next_marker_after.add(CREATE_TRACK)
+    real = script.AbletonBridge.late_reply
+    calls = {"n": 0}
+
+    def interrupted_once(self, request_id):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise KeyboardInterrupt
+        return real(self, request_id)
+
+    monkeypatch.setattr(script.AbletonBridge, "late_reply", interrupted_once)
+    code, out, prompts = run(fake, tmp_path, ["y", "y", "y"])
+    assert calls["n"] >= 1
+    assert code == script.EXIT_INTERRUPTED, out
+    assert (UNDO, ()) not in writes(fake) and len(prompts) == 2
+    assert step_line(out, "create_midi_track") == \
+        "create_midi_track: interrupted (outcome unknown)"
+    assert writes(fake)[-1] == (CREATE_TRACK, (-1,))  # nothing sent after it
+
+
+def test_writer_stays_unknown_on_ctrl_c_while_reading_the_late_reply(bridge, fake, tmp_path,
+                                                                    monkeypatch):
+    fake.drop_next_marker_after.add(CREATE_TRACK)
+    real = bridge.late_reply
+    calls = {"n": 0}
+
+    def interrupted_once(request_id):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise KeyboardInterrupt
+        return real(request_id)
+
+    bridge.late_reply = interrupted_once
+    writer = arr.ArrangementWriter(bridge, ActionLog(tmp_path / "a.jsonl"),
+                                   timeout_s=TEST_TIMEOUT_S)
+    before = arr.read_arrangement_state(bridge, len(fake.tracks))
+    try:
+        writer.run(arr.make_plan(5, 1, "X"), before)
+    except arr.ImportInterrupted:
+        pass
+    except KeyboardInterrupt:  # caught so pytest reports a failure, not an abort
+        pytest.fail("a raw Ctrl+C escaped the settlement")
+    else:
+        pytest.fail("no ImportInterrupted")
+    assert writer.last_outcome.outcome_unknown is True
+    with pytest.raises(arr.ImportAborted, match="unknown outcome"):
+        writer.undo_all(writer.last_outcome)
+    assert (UNDO, ()) not in writes(fake)
+
+
 def test_an_undo_that_times_out_is_never_settled(fake, tmp_path):
     """Undo timeouts keep the old rule: the chain stops, no further undo."""
     fake.stall_after[UNDO] = 2 * RUN_TIMEOUT_S
