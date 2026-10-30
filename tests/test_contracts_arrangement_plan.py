@@ -211,6 +211,17 @@ def test_schema_is_valid_2020_12_with_its_own_id() -> None:
     assert SCHEMA["properties"]["schema_version"] == {"const": "0.1"}
 
 
+def test_plan_is_not_a_tool_input_and_could_not_be_sent_strict() -> None:
+    """Claude does not send plans (INTERFACES.md). The one strict checker confirms the schema
+    is outside the strict subset, so it must never be registered as a tool unchanged."""
+    from test_contracts import TOOL_SCHEMAS, strict_subset_problems
+
+    assert SCHEMA_FILE.name not in TOOL_SCHEMAS.values()
+    problems = strict_subset_problems(SCHEMA)
+    for keyword in ("'minimum'", "'multipleOf'", "'$ref'", "'$defs'"):
+        assert any(keyword in p for p in problems), keyword
+
+
 @pytest.mark.parametrize("name", TEMPLATES)
 def test_templates_are_valid_plans(name: str) -> None:
     assert plan_problems(TEMPLATES[name]) == []
@@ -369,6 +380,17 @@ SCHEMA_INVALID = {
 }
 
 
+@pytest.mark.parametrize("index", range(9))
+def test_each_section_type_takes_exactly_its_lengths(index: int) -> None:
+    """Every length 4..128 in steps of 4 on every T2 section: the schema accepts exactly the
+    lengths of the note's table (another length then only breaks the tiling)."""
+    kind = T2["sections"][index]["type"]
+    for n in range(4, 129, 4):
+        doc = t2()
+        doc["sections"][index]["length_bars"] = n
+        assert ("schema" in codes(doc)) == (n not in LENGTHS[kind]), (kind, n)
+
+
 @pytest.mark.parametrize("change", SCHEMA_INVALID.values(), ids=SCHEMA_INVALID)
 def test_schema_invalid_instances(change) -> None:
     doc = t2()
@@ -400,7 +422,9 @@ RULE_INVALID = {
     "last not outro": (_set(["sections", 8, "type"], "drop"), {"last_not_outro"}),
     "intro inside": (_set(["sections", 1, "type"], "intro"), {"intro_outro_inside"}),
     "outro inside": (_set(["sections", 5, "type"], "outro"), {"intro_outro_inside"}),
+    "outro second to last": (_set(["sections", 7, "type"], "outro"), {"intro_outro_inside"}),
     "nodes out of order": (_swap(16, 17), {"node_order"}),
+    "node one bar back": (_insert(11, {"pos": 63, "value": 0.5, "drawn": True}), {"node_order"}),
     "three nodes at a pair": (_insert(13, {"pos": 80, "value": 0.88, "drawn": True}),
                               {"three_at_pos"}),
     "three nodes, two drawn": (_insert(10, {"pos": 64, "value": 0.5, "drawn": True}),
