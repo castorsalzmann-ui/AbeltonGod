@@ -160,7 +160,7 @@ def test_full_run_existing_track_with_undo(fake, tmp_path, project):
     assert b["song.undo"] == "PASS (clip removed; read back)"
     assert b["kick_in_live"] == "removed by undo (read back)"
     assert b["preset"] == "dense" and b["seed"] == "1001" and b["custom_values"] == "-"
-    assert b["live_import_version"] == "0.3.0" and b["kick_to_live_version"] == "0.1.0"
+    assert b["live_import_version"] == "0.4.0" and b["kick_to_live_version"] == "0.1.0"
     assert b["project"] == str(project)
     assert "Issue #129" in out
     # The files stay after the undo; the script says so and where they are.
@@ -706,7 +706,7 @@ def test_timed_out_import_is_unknown_and_never_undone(fake, tmp_path, project):
         fake._held = []
         fake.released.clear()
         fake.release_after(0.45)
-        orig(p)
+        # the clip is never created: the read-back cannot settle the timeout (#166)
 
     fake._create_audio_clip = blocked
     code, out, prompts = run(fake, tmp_path, project, ["y", "0", "y", "y", "y"])

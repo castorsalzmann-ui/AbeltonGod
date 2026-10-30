@@ -116,9 +116,7 @@ class FakeAbletonOSC:
             "/live/song/undo": self._undo,
             "/live/song/get/num_scenes": lambda p: (self.num_scenes,),
             "/live/song/create_audio_track": self._create_audio_track,
-            "/live/track/get/has_audio_input": lambda p: (int(p[0]),
-                                                          bool(self.tracks[int(p[0])].get(
-                                                              "audio", False))),
+            "/live/track/get/has_audio_input": self._get_has_audio_input,
             "/live/clip_slot/get/has_clip": lambda p: (int(p[0]), int(p[1]),
                                                        self._slots(int(p[0]))[int(p[1])]
                                                        is not None),
@@ -240,6 +238,10 @@ class FakeAbletonOSC:
         track = self.tracks[idx]  # IndexError for a bad track index, as in AbletonOSC
         slots = track.setdefault("slots", [None] * self.num_scenes)
         return slots
+
+    def _get_has_audio_input(self, p: tuple) -> tuple:
+        idx = int(p[0])
+        return (idx, bool(self.tracks[idx].get("audio", False)))
 
     def _create_audio_track(self, p: tuple) -> None:
         index = int(p[0])

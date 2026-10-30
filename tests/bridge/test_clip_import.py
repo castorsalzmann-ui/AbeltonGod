@@ -398,7 +398,10 @@ def test_live_refuses_clip_is_error_and_logged(ibridge, audio_set, log, tmp_path
     assert log_lines(log)[-1]["status"] == "error"
 
 
-def test_timed_out_write_is_read_back_and_blocks_undo(ibridge, audio_set, log, tmp_path):
+def test_timed_out_write_that_reads_back_as_intended_is_settled(ibridge, audio_set, log,
+                                                                tmp_path):
+    """#166: Live applied the clip but its replies were held past the timeout. Until #166
+    this stopped as unknown; now the read-back (3x timeout) settles it and undo is allowed."""
     p = wav_file(tmp_path / "k.wav")
     before = expected_state(audio_set, 0)
     imp = ClipImporter(ibridge, log, timeout_s=TEST_TIMEOUT_S)
@@ -410,14 +413,43 @@ def test_timed_out_write_is_read_back_and_blocks_undo(ibridge, audio_set, log, t
         return orig(*a, **k)
 
     ibridge.create_audio_clip = held_clip
-    with pytest.raises(ImportAborted, match="timed out"):
-        imp.run(path=p, track_index=0, slot_index=0, num_slots=4, expected_before=before)
+    out = imp.run(path=p, track_index=0, slot_index=0, num_slots=4, expected_before=before)
+    assert out.done and not out.outcome_unknown
+    assert out.steps[-1].outcome == "confirmed"
+    assert out.steps[-1].detail.startswith(
+        f"late: no confirmation within {TEST_TIMEOUT_S:g} s; read-back matched (1 read(s)); "
+        "end echo after ")
+    entry = log_lines(log)[-1]
+    assert entry["status"] == "read_back" and entry["ok"] is True
+    assert entry["after"]["has_clip"] == [1, 0, 0, 0] and entry["late_reply"]["end_seen"]
+    assert imp.undo_step(out, expect_now=out.after, expect_after=before, label="undo_clip")
+    assert audio_set.tracks[0]["slots"] == [None] * 4
+
+
+def test_timed_out_write_that_never_happened_is_unknown_and_blocks_undo(ibridge, audio_set,
+                                                                       log, tmp_path):
+    """The old intent of this test: a timed-out write whose effect is not read back stays
+    unknown, and no undo is ever sent."""
+    before = expected_state(audio_set, 0)
+    imp = ClipImporter(ibridge, log, timeout_s=TEST_TIMEOUT_S, readback_window_s=SHORT_WINDOW_S)
+    audio_set._create_audio_clip = lambda p: None  # the datagram never had an effect
+    orig = ibridge.create_audio_clip
+
+    def held_clip(*a, **k):
+        audio_set.hold()
+        audio_set.release_after(TEST_TIMEOUT_S * 1.5)
+        return orig(*a, **k)
+
+    ibridge.create_audio_clip = held_clip
+    with pytest.raises(ImportAborted, match="timed out; outcome unknown; read-back"):
+        imp.run(path=wav_file(tmp_path / "k.wav"), track_index=0, slot_index=0, num_slots=4,
+                expected_before=before)
     out = imp.last_outcome
-    assert out.outcome_unknown
-    timeout_entry = log_lines(log)[-1]
-    assert timeout_entry["status"] == "timeout"
-    # The read-back (3x timeout) sees the late-applied clip.
-    assert timeout_entry["readback"]["has_clip"] == [1, 0, 0, 0]
+    assert out.outcome_unknown and not out.done
+    assert out.steps[-1].outcome == "timeout"
+    entry = log_lines(log)[-1]
+    assert entry["status"] == "timeout" and "does not show the change" in entry["note"]
+    assert entry["readback"]["has_clip"] == [0, 0, 0, 0]
     with pytest.raises(ImportAborted, match="unknown outcome"):
         imp.undo_step(out, expect_now=before, expect_after=before, label="undo_clip")
     assert UNDO not in writes(audio_set)
@@ -427,7 +459,7 @@ def test_readback_after_timeout_waits_longer_than_one_timeout(ibridge, audio_set
                                                              tmp_path):
     """Replies are held until 2.5 timeouts after the write: the write times out after one
     timeout, and only a read-back with more than one timeout of patience (3x) sees the
-    late-applied clip. With a 1x read-back it would fail instead (review of PR #87)."""
+    late-applied clip and settles it. With a 1x read-back it would fail (review of PR #87)."""
     before = expected_state(audio_set, 0)
     imp = ClipImporter(ibridge, log, timeout_s=TEST_TIMEOUT_S)
     orig = ibridge.create_audio_clip
@@ -438,11 +470,11 @@ def test_readback_after_timeout_waits_longer_than_one_timeout(ibridge, audio_set
         return orig(*a, **k)
 
     ibridge.create_audio_clip = held
-    with pytest.raises(ImportAborted, match="timed out"):
-        imp.run(path=wav_file(tmp_path / "k.wav"), track_index=0, slot_index=0,
-                num_slots=4, expected_before=before)
-    assert log_lines(log)[-1]["readback"] == {"track_names": ["1-Audio", "2-MIDI", "3-Audio"],
-                                             "has_clip": [1, 0, 0, 0]}
+    out = imp.run(path=wav_file(tmp_path / "k.wav"), track_index=0, slot_index=0,
+                  num_slots=4, expected_before=before)
+    assert out.done
+    assert log_lines(log)[-1]["after"] == {"track_names": ["1-Audio", "2-MIDI", "3-Audio"],
+                                           "has_clip": [1, 0, 0, 0]}
 
 
 def test_second_ctrl_c_during_recovery_readback_is_contained(ibridge, audio_set, log,
