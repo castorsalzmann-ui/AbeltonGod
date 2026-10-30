@@ -24,6 +24,14 @@ plain JSON, not through the engine's own schema loader).
   writing a generator. All test seeds in the repo are below ``2**32``, so the shifted
   streams never coincide with a default one. ``n = 0`` (the default) changes nothing.
   Expect parametrize ids that contain a drawn value (e.g. ``seed<kick seed>``) to change.
+  A kick ``seed`` *value* used directly (not as an RNG seed) goes through :func:`kick_seed`
+  instead: it stays inside the contract's seed range (#119).
+- **Bounds (#119).** Numbers and integers are drawn only over a bounded range: a field without
+  ``minimum``/``exclusiveMinimum`` or ``maximum``/``exclusiveMaximum`` is refused with a
+  ValueError when a profile containing it is defined (``ALL`` at import), never drawn from an
+  invented range. ``exclusiveMinimum``/``exclusiveMaximum`` are honoured: integers move the
+  bound inwards, numbers redraw a value that lands on an open bound (fields with only closed
+  bounds draw exactly as before, so the default sets keep their bytes).
 
 Works with ``random.Random`` and ``numpy.random.Generator``; numpy results are converted to
 plain ``int``/``float`` (the render cache only keys plain values).
@@ -32,6 +40,7 @@ plain ``int``/``float`` (the render cache only keys plain values).
 from __future__ import annotations
 
 import json
+import math
 import random
 import string
 from collections.abc import Mapping
@@ -107,6 +116,26 @@ def np_rng(base: int) -> np.random.Generator:
     return np.random.default_rng(seed(base))
 
 
+# Odd step (2**32 / golden ratio), so ``n * step`` is a multiple of 2**32 only for n = 0 (mod
+# 2**32): every fresh value moves every kick seed, and the shift is a permutation of the range.
+KICK_SEED_STEP = 0x9E3779B1
+
+
+def kick_seed(value: int) -> int:
+    """A kick ``seed`` value (not an RNG seed) under the current ``--fresh-seeds`` value.
+
+    ``value`` itself at fresh 0. Otherwise shifted by ``n * KICK_SEED_STEP`` and wrapped into
+    the contract's ``seed`` range, so it stays a valid kick seed (``seed(value)`` would leave
+    the range: the contract maximum is 2**32 - 1).
+    """
+    lo, hi = FIELDS["seed"]["minimum"], FIELDS["seed"]["maximum"]
+    if not lo <= value <= hi:
+        raise ValueError(f"kick seed {value} outside the contract range {lo}..{hi}")
+    if _fresh == 0:
+        return value
+    return lo + (value - lo + _fresh * KICK_SEED_STEP) % (hi - lo + 1)
+
+
 @dataclass(frozen=True)
 class Profile:
     """What one property generator draws.
@@ -129,10 +158,20 @@ class Profile:
         unknown = set(self.fields) - set(FIELDS)
         if unknown:
             raise ValueError(f"{self.name}: not in the kick-params schema: {sorted(unknown)}")
+        for name in self.fields:
+            if FIELDS[name].get("type") in ("number", "integer") and "enum" not in FIELDS[name]:
+                bounds(name)  # refuses an unbounded field here, not at the first draw
+            if FIELDS[name].get("type") == "string" and "maxLength" not in FIELDS[name]:
+                raise ValueError(f"kick-params field {name!r}: string without maxLength")
         for name, (lo, hi) in self.ranges.items():
-            c_lo, c_hi = number_range(name)
-            if not c_lo <= lo <= hi <= c_hi:
+            c_lo, c_hi, lo_open, hi_open = bounds(name)
+            low_ok = c_lo < lo if lo_open else c_lo <= lo
+            high_ok = hi < c_hi if hi_open else hi <= c_hi
+            if not (low_ok and lo <= hi and high_ok):
                 raise ValueError(f"{self.name}: {name} {lo}..{hi} outside {c_lo}..{c_hi}")
+        for name in self.zero_spike:
+            if bounds(name)[2]:
+                raise ValueError(f"{self.name}: {name} has an open minimum, no zero spike")
         for low, high in UPPER_BOUND_BY.items():
             if low in self.fields and high in self.fields:
                 if self.fields.index(high) > self.fields.index(low):
@@ -141,9 +180,49 @@ class Profile:
             raise ValueError(f"{self.name}: keys must be a permutation of fields")
 
 
+def spec_bounds(name: str, spec: Mapping[str, Any]) -> tuple[float, float, bool, bool]:
+    """``(lo, hi, lo_open, hi_open)`` of a number or integer field, or ValueError.
+
+    The stricter of ``minimum`` and ``exclusiveMinimum`` wins (same for the maximum). Integer
+    bounds are moved inwards to the nearest allowed integer, so they are always closed.
+    Refused: a missing side, a boolean ``exclusive*`` (draft-4 form, not this contract's
+    draft 2020-12), and an empty range.
+    """
+    for key in ("minimum", "maximum", "exclusiveMinimum", "exclusiveMaximum"):
+        if key in spec and (isinstance(spec[key], bool) or not isinstance(spec[key], int | float)):
+            raise ValueError(f"kick-params field {name!r}: {key} must be a number, got "
+                             f"{spec[key]!r}")
+    sides = []
+    for closed, open_, pick in (("minimum", "exclusiveMinimum", max),
+                                ("maximum", "exclusiveMaximum", min)):
+        if closed not in spec and open_ not in spec:
+            raise ValueError(
+                f"kick-params field {name!r} has no {closed} or {open_}: the generator draws "
+                "only bounded ranges (give the field a bound in the contract)")
+        if closed in spec and open_ in spec:
+            bound = pick(spec[closed], spec[open_])
+            is_open = bound == spec[open_]  # equal values: the open bound is the stricter
+        else:
+            is_open = open_ in spec
+            bound = spec[open_] if is_open else spec[closed]
+        sides.append((bound, is_open))
+    (lo, lo_open), (hi, hi_open) = sides
+    if spec.get("type") == "integer":
+        lo = math.floor(lo) + 1 if lo_open else math.ceil(lo)
+        hi = math.ceil(hi) - 1 if hi_open else math.floor(hi)
+        lo_open = hi_open = False
+    if lo > hi or (lo == hi and (lo_open or hi_open)):
+        raise ValueError(f"kick-params field {name!r}: empty range {spec}")
+    return lo, hi, lo_open, hi_open
+
+
+def bounds(name: str) -> tuple[float, float, bool, bool]:
+    return spec_bounds(name, FIELDS[name])
+
+
 def number_range(name: str) -> tuple[float, float]:
-    spec = FIELDS[name]
-    return spec["minimum"], spec["maximum"]
+    lo, hi, _, _ = bounds(name)
+    return lo, hi
 
 
 def drawable_fields() -> tuple[str, ...]:
@@ -237,21 +316,38 @@ class _Source:
         return v.item() if isinstance(v, np.generic) else v
 
 
+MAX_REDRAWS = 1000
+
+
+def _open_uniform(src: _Source, name: str, lo: float, hi: float, lo_open: bool,
+                  hi_open: bool) -> float:
+    """Uniform over the interval; a value on an open bound is drawn again (closed bounds:
+    exactly one draw, as before #119)."""
+    for _ in range(MAX_REDRAWS):
+        v = src.uniform(lo, hi)
+        if not ((lo_open and v <= lo) or (hi_open and v >= hi)):
+            return v
+    raise RuntimeError(f"{name}: {MAX_REDRAWS} draws on an open bound of {lo}..{hi}")
+
+
 def _draw_field(src: _Source, name: str, p: dict, profile: Profile) -> Any:
     spec = FIELDS[name]
     if "enum" in spec:
         return src.choice(list(spec["enum"]))
     kind = spec.get("type")
     if kind == "integer":
-        return src.integer(spec["minimum"], spec["maximum"])
+        lo, hi, _, _ = bounds(name)
+        return src.integer(lo, hi)
     if kind == "number":
-        lo, hi = profile.ranges.get(name, number_range(name))
+        c_lo, c_hi, lo_open, hi_open = bounds(name)
+        lo, hi = profile.ranges.get(name, (c_lo, c_hi))
+        lo_open, hi_open = lo_open and lo == c_lo, hi_open and hi == c_hi
         bound = UPPER_BOUND_BY.get(name)
-        if bound in p:
-            hi = min(hi, p[bound])
+        if bound in p and p[bound] < hi:
+            hi, hi_open = p[bound], False  # the cross-field rule is <=, a closed bound
         if name in profile.zero_spike:
             return src.choice([float(lo), src.uniform(lo, hi)])
-        return src.uniform(lo, hi)
+        return _open_uniform(src, name, lo, hi, lo_open, hi_open)
     if kind == "string":
         n = src.integer(spec.get("minLength", 0), spec["maxLength"])
         return "".join(src.choice(list(STRING_ALPHABET)) for _ in range(n))

@@ -9,7 +9,6 @@ from __future__ import annotations
 import io
 import json
 import os
-import random
 import struct
 import wave
 from datetime import UTC, datetime, timedelta, timezone
@@ -19,6 +18,7 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+from support import kick_params as kp
 
 from audio_engine.io import encode_wav, render_kick_wav, write_kick
 from audio_engine.kick import render_kick
@@ -56,7 +56,7 @@ def parse_riff(data: bytes) -> dict:
 @pytest.mark.parametrize("bits", [16, 24])
 @pytest.mark.parametrize("n", [0, 1, 2, 3, 4, 3841, 3842])
 def test_wav_chunks_are_word_aligned_for_any_sample_count(bits: int, n: int) -> None:
-    rng = np.random.default_rng(n)
+    rng = kp.np_rng(n)
     audio = rng.uniform(-1, 1, n)
     data = encode_wav(audio, 48000, bits)
     riff = parse_riff(data)
@@ -82,7 +82,7 @@ def test_odd_length_kick_from_the_review_is_padded() -> None:
 def test_even_sample_counts_keep_the_previous_bytes() -> None:
     """For even sizes the header must stay what the stdlib ``wave`` writer produced before #12,
     so existing renders keep their hashes."""
-    rng = np.random.default_rng(5)
+    rng = kp.np_rng(5)
     for bits in (16, 24):
         for n in (2, 480, 3842):
             audio = rng.uniform(-1, 1, n)
@@ -97,7 +97,7 @@ def test_even_sample_counts_keep_the_previous_bytes() -> None:
 
 
 def test_random_kicks_are_always_word_aligned() -> None:
-    rng = random.Random(1212)
+    rng = kp.rng(1212)
     for _ in range(40):
         p = {
             **BASE,

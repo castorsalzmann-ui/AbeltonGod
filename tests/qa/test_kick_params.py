@@ -9,6 +9,8 @@
 - **Coverage against the contract.** Ranges are read here from the schema JSON and checked
   per field; a field added to the schema gets its own case automatically.
 - **Fresh seeds.** ``--fresh-seeds`` must reach the generator in a real pytest process.
+  Whether it reaches every call site is checked by behaviour in ``tests/qa/test_seed_reach.py``
+  (#119; it replaced the text check of #105).
 """
 
 from __future__ import annotations
@@ -230,21 +232,120 @@ def test_negative_fresh_seeds_is_a_usage_error() -> None:
     assert "--fresh-seeds must be >= 0" in run.stdout + run.stderr
 
 
-# --- call sites --------------------------------------------------------------------------------
+def test_kick_seed_is_the_value_at_fresh_0_and_a_shifted_contract_seed_otherwise() -> None:
+    old = kp.fresh_seeds()
+    hi = SCHEMA["properties"]["seed"]["maximum"]
+    values = [0, 1, 49, 2**31, hi - 1, hi]
+    try:
+        kp.set_fresh_seeds(0)
+        assert [kp.kick_seed(v) for v in values] == values
+        seen = {}
+        for n in (1, 2, 3, 2**20 + 7):
+            kp.set_fresh_seeds(n)
+            got = [kp.kick_seed(v) for v in values]
+            # Written out: (v + n * 0x9E3779B1) mod 2**32 (contract seed range 0 .. 2**32 - 1).
+            assert got == [(v + n * 2654435761) % 2**32 for v in values]
+            assert all(type(g) is int and 0 <= g <= hi for g in got)
+            assert all(g != v for g, v in zip(got, values, strict=True))
+            assert len(set(got)) == len(got)
+            seen[n] = got
+        assert len({tuple(g) for g in seen.values()}) == len(seen)
+        for bad in (-1, hi + 1):
+            with pytest.raises(ValueError, match="outside the contract range"):
+                kp.kick_seed(bad)
+    finally:
+        kp.set_fresh_seeds(old)
 
-CALL_SITE_MODULES = [
-    "test_kick.py", "test_shaping.py", "test_drive_continuity.py",
-    "test_contract_semantics.py", "test_drive_aliasing.py",
-]
+
+# --- bounds: unbounded fields refused, exclusive bounds honoured (#119) -----------------------
 
 
-@pytest.mark.parametrize("module", CALL_SITE_MODULES)
-def test_former_copies_seed_only_through_the_shared_generator(module: str) -> None:
-    """Every random stream in these modules comes from kp.rng / kp.np_rng, so --fresh-seeds
-    reaches all of them."""
-    text = (ROOT / "tests" / "audio_engine" / module).read_text(encoding="utf-8")
-    assert "kick_params as kp" in text
-    assert not re.findall(r"random\.Random\(|default_rng\(|random\.seed\(", text), module
+@pytest.mark.parametrize(("spec", "expected"), [
+    ({"type": "number", "minimum": 0, "maximum": 1}, (0, 1, False, False)),
+    ({"type": "number", "exclusiveMinimum": 0, "maximum": 1}, (0, 1, True, False)),
+    ({"type": "number", "minimum": 0, "exclusiveMaximum": 1}, (0, 1, False, True)),
+    ({"type": "number", "minimum": 0.5, "exclusiveMinimum": 0, "maximum": 1}, (0.5, 1, False,
+                                                                              False)),
+    ({"type": "number", "minimum": 0, "exclusiveMinimum": 0.5, "maximum": 1}, (0.5, 1, True,
+                                                                              False)),
+    ({"type": "number", "minimum": 0, "exclusiveMinimum": 0, "maximum": 1}, (0, 1, True, False)),
+    ({"type": "number", "minimum": 0, "maximum": 1, "exclusiveMaximum": 0.5}, (0, 0.5, False,
+                                                                              True)),
+    ({"type": "integer", "exclusiveMinimum": 2, "exclusiveMaximum": 6}, (3, 5, False, False)),
+    ({"type": "integer", "exclusiveMinimum": 2.5, "maximum": 6.5}, (3, 6, False, False)),
+    ({"type": "integer", "minimum": 2.5, "exclusiveMaximum": 6.0}, (3, 5, False, False)),
+])
+def test_spec_bounds(spec: dict, expected: tuple) -> None:
+    assert kp.spec_bounds("x", spec) == expected
+
+
+@pytest.mark.parametrize(("spec", "match"), [
+    ({"type": "number", "maximum": 1}, "no minimum or exclusiveMinimum"),
+    ({"type": "number", "minimum": 0}, "no maximum or exclusiveMaximum"),
+    ({"type": "integer"}, "no minimum or exclusiveMinimum"),
+    ({"type": "number", "minimum": 0, "exclusiveMaximum": True}, "must be a number"),
+    ({"type": "number", "minimum": 0, "maximum": "1"}, "must be a number"),
+    ({"type": "number", "exclusiveMinimum": 1, "maximum": 1}, "empty range"),
+    ({"type": "number", "minimum": 2, "maximum": 1}, "empty range"),
+    ({"type": "integer", "exclusiveMinimum": 2, "exclusiveMaximum": 3}, "empty range"),
+])
+def test_spec_bounds_refuses(spec: dict, match: str) -> None:
+    with pytest.raises(ValueError, match=match):
+        kp.spec_bounds("x", spec)
+
+
+def test_profile_with_an_unbounded_number_field_is_refused_at_definition(monkeypatch) -> None:
+    """Before #119 this was a KeyError at the first draw."""
+    monkeypatch.setitem(kp.FIELDS, "x_unbounded", {"type": "number", "minimum": 0})
+    with pytest.raises(ValueError, match="'x_unbounded' has no maximum"):
+        kp.Profile("x", ("x_unbounded",))
+    monkeypatch.setitem(kp.FIELDS, "x_name", {"type": "string"})
+    with pytest.raises(ValueError, match="string without maxLength"):
+        kp.Profile("x", ("x_name",))
+
+
+class _Scripted(random.Random):
+    """uniform() returns the scripted values in order (to land exactly on a bound)."""
+
+    def __init__(self, values: list[float]) -> None:
+        super().__init__(0)
+        self.values = list(values)
+
+    def uniform(self, a: float, b: float) -> float:
+        return self.values.pop(0)
+
+
+def test_open_bounds_redraw_a_value_on_the_bound(monkeypatch) -> None:
+    monkeypatch.setitem(kp.FIELDS, "x_open", {"type": "number", "exclusiveMinimum": 0,
+                                              "exclusiveMaximum": 1})
+    profile = kp.Profile("x", ("x_open",))
+    assert kp.draw(_Scripted([0.0, 1.0, 0.25]), profile)["x_open"] == 0.25
+    assert kp.draw(_Scripted([0.75]), profile)["x_open"] == 0.75
+    with pytest.raises(RuntimeError, match="1000 draws"):
+        kp.draw(_Scripted([0.0] * 1000), profile)
+    # Closed bounds keep exactly one draw: the value on the bound is returned.
+    monkeypatch.setitem(kp.FIELDS, "x_closed", {"type": "number", "minimum": 0, "maximum": 1})
+    assert kp.draw(_Scripted([0.0]), kp.Profile("y", ("x_closed",)))["x_closed"] == 0.0
+    # A profile range inside an open bound is closed at its own ends.
+    narrowed = kp.Profile("z", ("x_open",), ranges={"x_open": (0.5, 0.75)})
+    assert kp.draw(_Scripted([0.5]), narrowed)["x_open"] == 0.5
+    with pytest.raises(ValueError, match="outside"):
+        kp.Profile("w", ("x_open",), ranges={"x_open": (0.0, 0.5)})
+    with pytest.raises(ValueError, match="open minimum"):
+        kp.Profile("v", ("x_open",), zero_spike=("x_open",))
+
+
+def test_open_bounds_over_many_real_draws(monkeypatch) -> None:
+    monkeypatch.setitem(kp.FIELDS, "x_int", {"type": "integer", "exclusiveMinimum": 2,
+                                             "exclusiveMaximum": 6})
+    monkeypatch.setitem(kp.FIELDS, "x_num", {"type": "number", "exclusiveMinimum": -1,
+                                             "maximum": 1})
+    profile = kp.Profile("x", ("x_int", "x_num"))
+    for make in (kp.rng, kp.np_rng):
+        draws = [kp.draw(make(950_000 + i), profile) for i in range(2000)]
+        assert {d["x_int"] for d in draws} == {3, 4, 5}
+        nums = [d["x_num"] for d in draws]
+        assert -1 < min(nums) < -0.99 and 0.99 < max(nums) <= 1
 
 
 # Generator function per module and the profile it must use (QA report #69, 3.5).
