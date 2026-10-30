@@ -722,12 +722,13 @@ class AbletonBridge:
             raise BridgeProtocolError(f"num_scenes reply must be one int >= 0, got {reply!r}")
         return reply[0]
 
-    def get_track_has_audio_input(self, track_index: int) -> bool:
+    def get_track_has_audio_input(self, track_index: int, *,
+                                  timeout_s: float | None = None) -> bool:
         """LOM ``Track.has_audio_input``: "1 for audio tracks"."""
         _require_int(track_index, "track_index", minimum=0)
         self.gate.check("track.has_audio_input.get")
         reply = self._query(ADDRESSES["track.has_audio_input.get"][0], (track_index,),
-                            expect_prefix=(track_index,))
+                            expect_prefix=(track_index,), timeout_s=timeout_s)
         return self._bool_reply(reply, "has_audio_input")
 
     def get_clip_slot_has_clip(self, track_index: int, slot_index: int, *,
@@ -740,7 +741,8 @@ class AbletonBridge:
                             timeout_s=timeout_s)
         return self._bool_reply(reply, "has_clip")
 
-    def get_clip_file_path(self, track_index: int, slot_index: int) -> str:
+    def get_clip_file_path(self, track_index: int, slot_index: int, *,
+                           timeout_s: float | None = None) -> str:
         """LOM ``Clip.file_path`` of the clip in this slot ("only available for audio clips").
 
         An empty slot makes AbletonOSC's handler fail (``clip.py`` line 55 resolves
@@ -750,7 +752,8 @@ class AbletonBridge:
         _require_int(slot_index, "slot_index", minimum=0)
         self.gate.check("clip.file_path.get")
         reply = self._query(ADDRESSES["clip.file_path.get"][0],
-                            (track_index, slot_index), expect_prefix=(track_index, slot_index))
+                            (track_index, slot_index), expect_prefix=(track_index, slot_index),
+                            timeout_s=timeout_s)
         if len(reply) != 1 or not isinstance(reply[0], str):
             raise BridgeProtocolError(f"file_path reply must be one string, got {reply!r}")
         return reply[0]

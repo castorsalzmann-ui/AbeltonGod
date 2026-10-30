@@ -22,8 +22,16 @@ Rules this module enforces (D-006, research note on the bridge):
   ``READBACK_POLL_INTERVAL_S``) until it matches or ``READBACK_WINDOW_S`` is over. A clip that
   shows up only a moment later is possible but has not been observed (in run 1 it was visible
   at the first read). The window is bounded and fail-safe: no match means unknown, no undo.
-- A write whose outcome is unknown (timeout, Ctrl+C, failed read-back, or a read-back that
-  never matched within the window) is logged, and no undo is ever sent after it.
+- A timed-out ``create_audio_track`` / ``create_audio_clip`` is settled by read-back (#166,
+  same rule as ``arrangement_check`` since #140): reads with 3x the timeout, polled within the
+  same window, must show exactly what a confirmed write must show (a new empty audio track at
+  the end; the new clip with this file in the empty slot). Both checks need a change against
+  the state read before the write, so a set that already looked like that cannot match. The
+  step then reads ``confirmed (late: ...)``. A late ``/live/error`` of the write, a read that
+  fails or never matches, or Ctrl+C keep the outcome unknown. Undo timeouts are never settled.
+- A write whose outcome is unknown (timeout not settled, Ctrl+C, failed read-back, or a
+  read-back that never matched within the window) is logged, and no undo is ever sent after
+  it.
 - Undo is sent only after a read-back shows the set exactly as this import last read it back
   (the target track's name included), and its effect is read back too: track count, all other
   names, the target's slots, and a target name that is one of the two this import saw (before
@@ -246,6 +254,11 @@ def poll_until(check: Callable[[], tuple[Any, bool]], window_s: float, interval_
         sleep(interval_s)
 
 
+def _kw(timeout_s: float | None) -> dict[str, float]:
+    """``timeout_s`` as a keyword only when set (the normal read path passes nothing)."""
+    return {} if timeout_s is None else {"timeout_s": timeout_s}
+
+
 def target_name(state: SlotState, track_index: int) -> str | None:
     """The target track's name in ``state``; None if the track does not exist there."""
     return state.track_names[track_index] if track_index < len(state.track_names) else None
@@ -298,14 +311,20 @@ class ClipImporter:
         return json.dumps(readback, ensure_ascii=False)
 
     def _send(self, outcome: ImportOutcome, label: str, capability: str, params: dict,
-              before: SlotState, send: Callable[[], None]) -> None:
-        """Log the plan, send, record the outcome. Raises ImportAborted on any failure."""
+              before: SlotState, send: Callable[[], None],
+              resolve_timeout: bool = False) -> BridgeTimeoutError | None:
+        """Log the plan, send, record the outcome. Raises ImportAborted on any failure.
+
+        With ``resolve_timeout`` a timeout is returned (step recorded as ``timeout``) for the
+        caller to settle by read-back; otherwise it is an unknown outcome at once."""
         self._log(action=label, capability=capability, params=params, status="planned",
                   before=before.as_json())
         try:
             send()
         except BridgeTimeoutError as exc:
             outcome.steps.append(Step(label, "timeout", "outcome unknown"))
+            if resolve_timeout:
+                return exc
             rb = self._unknown(outcome, label, capability, params, "timeout", "timed out")
             raise ImportAborted(f"{label} timed out; outcome unknown; read-back {rb}") from exc
         except KeyboardInterrupt as exc:
@@ -318,6 +337,90 @@ class ClipImporter:
                       error=f"{type(exc).__name__}: {exc}")
             raise ImportAborted(f"{label}: {type(exc).__name__}: {exc}") from exc
         outcome.steps.append(Step(label, "confirmed"))
+        return None
+
+    def _write(self, outcome: ImportOutcome, label: str, capability: str, params: dict,
+               before: SlotState, send: Callable[[], None],
+               check: Callable[[float | None], tuple[Any, bool]]
+               ) -> tuple[Any, bool, int, dict[str, Any]]:
+        """Send one forward write and poll ``check`` (called with a read timeout, None = the
+        bridge default). Returns (last value, matched, reads, extra log fields). A timed-out
+        send is settled by :meth:`_resolve_timeout` with the same ``check`` or raises."""
+        timed_out = self._send(outcome, label, capability, params, before, send,
+                               resolve_timeout=True)
+        if timed_out is not None:
+            value, polls, late = self._resolve_timeout(outcome, label, capability, params,
+                                                       timed_out, check)
+            return value, True, polls, {"late_reply": late,
+                                        "note": "confirmation timed out; settled by read-back"}
+        value, ok, polls = self._readback(outcome, label, capability, params,
+                                          lambda: self._poll(lambda: check(None)))
+        return value, ok, polls, {}
+
+    def _late_json(self, exc: BridgeTimeoutError) -> dict[str, Any] | None:
+        late = self.bridge.late_reply(exc.request_id)
+        return None if late is None else {
+            "start_seen": late.start_seen, "end_seen": late.end_seen,
+            "errors": list(late.errors), "end_after_s": late.end_after_s}
+
+    def _resolve_timeout(self, outcome: ImportOutcome, label: str, capability: str,
+                         params: dict, exc: BridgeTimeoutError,
+                         check: Callable[[float | None], tuple[Any, bool]]
+                         ) -> tuple[Any, int, dict[str, Any] | None]:
+        """Settle a timed-out forward write by read-back (#166), or stop as unknown.
+
+        Same argument as ``ArrangementWriter._resolve_timeout`` (#140): every read is
+        bracketed by its own markers and AbletonOSC handles datagrams in arrival order, so a
+        read that is answered at all was handled after the write (applied by then, or never
+        received). A read showing exactly what ``check`` requires after a confirmed write
+        settles the outcome. A late ``/live/error`` of the write, a read that fails or never
+        matches in the window, or Ctrl+C: unknown, ImportAborted, no undo. Returns (value,
+        reads, late-reply record).
+        """
+        long_s = self.timeout_s * READBACK_AFTER_TIMEOUT_FACTOR
+
+        def stop(readback: Any, note: str, **extra: Any) -> None:
+            outcome.outcome_unknown = True
+            self._log(action=label, capability=capability, params=params, status="timeout",
+                      readback=readback, late_reply=self._late_json(exc), **extra,
+                      note=f"timed out; {note}; outcome unknown; no undo will be sent")
+
+        # Unknown until a read-back settles it: an exception anywhere below (also a Ctrl+C
+        # outside the try) leaves the flag set, so undo stays refused (review #177 nit 1).
+        outcome.outcome_unknown = True
+        try:
+            value, ok, polls = self._poll(lambda: check(long_s))
+            late = self._late_json(exc)
+        except KeyboardInterrupt as err:
+            outcome.steps[-1] = Step(label, "interrupted", "outcome unknown")
+            stop("read-back failed: KeyboardInterrupt",
+                 "Ctrl+C during the read-back after the timeout")
+            raise ImportInterrupted(f"{label} timed out, read-back interrupted") from err
+        except BridgeError as err:
+            stop(f"read-back failed: {type(err).__name__}", "read-back after the timeout failed")
+            raise ImportAborted(f"{label} timed out; outcome unknown; read-back failed: "
+                                f"{type(err).__name__}: {err}") from err
+        state, file_path = value if isinstance(value, tuple) else (value, None)
+        extra = {} if file_path is None else {"file_path": file_path}
+        if late is not None and late["errors"]:
+            outcome.steps[-1].detail = f"outcome unknown; late /live/error: {late['errors'][0]}"
+            stop(state.as_json(), f"late /live/error: {late['errors'][0]}", **extra)
+            raise ImportAborted(f"{label} timed out, then AbletonOSC reported an error: "
+                                f"{late['errors'][0]}; outcome unknown") from exc
+        if not ok:
+            stop(state.as_json(), f"read-back after {polls} read(s) does not show the change",
+                 **extra)
+            raise ImportAborted(f"{label} timed out; outcome unknown; read-back "
+                                f"{json.dumps(state.as_json(), ensure_ascii=False)}") from exc
+        if late is None or not late["end_seen"]:
+            echo = "end echo not seen"
+        else:
+            echo = f"end echo after {late['end_after_s']:.2f} s"
+        outcome.steps[-1] = Step(label, "confirmed",
+                                 f"late: no confirmation within {self.timeout_s:g} s; read-back "
+                                 f"matched ({polls} read(s)); {echo}")
+        outcome.outcome_unknown = False  # settled: exactly the intended change, no late error
+        return value, polls, late
 
     def _readback(self, outcome: ImportOutcome, label: str, capability: str, params: dict,
                   fn: Callable[[], Any]) -> Any:
@@ -365,24 +468,24 @@ class ClipImporter:
         clip_before = before
         if create_track:
             params = {"index": -1}
-            self._send(outcome, "create_audio_track", "song.create_audio_track", params,
-                       before, lambda: self.bridge.create_audio_track(-1))
 
-            def check_track() -> tuple[SlotState, bool]:
-                state = read_state(self.bridge, target, num_slots)
+            def check_track(timeout_s: float | None) -> tuple[SlotState, bool]:
+                # A change against ``before`` is required (one more track), so a set that
+                # already looked like this cannot match after a timeout either.
+                state = read_state(self.bridge, target, num_slots, timeout_s=timeout_s)
                 ok = (len(state.track_names) == len(before.track_names) + 1
                       and state.track_names[:-1] == before.track_names
                       and len(state.has_clip) == num_slots and not any(state.has_clip)
-                      and self.bridge.get_track_has_audio_input(target))
+                      and self.bridge.get_track_has_audio_input(target, **_kw(timeout_s)))
                 return state, ok
 
-            after_track, ok, polls = self._readback(
-                outcome, "create_audio_track", "song.create_audio_track", params,
-                lambda: self._poll(check_track))
+            after_track, ok, polls, extra = self._write(
+                outcome, "create_audio_track", "song.create_audio_track", params, before,
+                lambda: self.bridge.create_audio_track(-1), check_track)
             outcome.after_track = after_track
             self._log(action="create_audio_track", capability="song.create_audio_track",
                       params=params, status="read_back", after=after_track.as_json(), ok=ok,
-                      polls=polls)
+                      polls=polls, **extra)
             if not ok:
                 # Confirmed but never seen as intended: what Live did is unknown (no undo).
                 outcome.outcome_unknown = True
@@ -391,14 +494,15 @@ class ClipImporter:
             clip_before = after_track
 
         params = {"track_index": target, "slot_index": slot_index, "path": path}
-        self._send(outcome, "create_audio_clip", "clip_slot.create_audio_clip", params,
-                   clip_before, lambda: self.bridge.create_audio_clip(target, slot_index, path))
         expected = list(clip_before.has_clip)
         expected[slot_index] = True
         errors: list[str] = []
 
-        def check_clip() -> tuple[tuple[SlotState, str | None], bool]:
-            state = read_state(self.bridge, target, num_slots)
+        def check_clip(timeout_s: float | None
+                       ) -> tuple[tuple[SlotState, str | None], bool]:
+            # The slot is empty in ``clip_before`` (run() refuses a full slot; check_track
+            # requires an empty new track) and must hold this file now: a change.
+            state = read_state(self.bridge, target, num_slots, timeout_s=timeout_s)
             fp = None
             # Live renames a default-named target track after the clip (#50 run 1, action
             # log: "3-Audio" -> "3-centre_s1001_v0"), so its name is not compared here.
@@ -406,7 +510,7 @@ class ClipImporter:
                                                         state.has_clip), target)
                     and state.has_clip[slot_index]):
                 try:
-                    fp = self.bridge.get_clip_file_path(target, slot_index)
+                    fp = self.bridge.get_clip_file_path(target, slot_index, **_kw(timeout_s))
                 except (AbletonOSCError, BridgeProtocolError) as exc:  # not readable yet
                     errors.append(f"{type(exc).__name__}: {exc}")
             ok = (same_except_track_name(state, SlotState(clip_before.track_names,
@@ -414,9 +518,9 @@ class ClipImporter:
                   and fp is not None and same_file_path(fp, path))
             return (state, fp), ok
 
-        (after, file_path), done, polls = self._readback(
-            outcome, "create_audio_clip", "clip_slot.create_audio_clip", params,
-            lambda: self._poll(check_clip))
+        (after, file_path), done, polls, extra = self._write(
+            outcome, "create_audio_clip", "clip_slot.create_audio_clip", params, clip_before,
+            lambda: self.bridge.create_audio_clip(target, slot_index, path), check_clip)
         outcome.after, outcome.file_path_read, outcome.done = after, file_path, done
         name_before = clip_before.track_names[target]
         name_after = target_name(after, target)
@@ -425,7 +529,7 @@ class ClipImporter:
                   params=params, status="read_back", after=after.as_json(),
                   file_path=file_path, ok=done, polls=polls,
                   target_track_name={"before": name_before, "after": name_after},
-                  file_path_errors=errors[-3:])
+                  file_path_errors=errors[-3:], **extra)
         if not done:
             # The write was confirmed but its effect was never seen: unknown, so no undo.
             outcome.outcome_unknown = True

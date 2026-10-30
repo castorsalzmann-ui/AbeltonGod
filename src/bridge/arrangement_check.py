@@ -327,9 +327,13 @@ class ArrangementWriter:
                 "start_seen": late.start_seen, "end_seen": late.end_seen,
                 "errors": list(late.errors), "end_after_s": late.end_after_s}
 
+        # Unknown until a read-back settles it: an exception anywhere below (also a Ctrl+C
+        # outside the try) leaves the flag set, so undo stays refused (review #177 nit 1).
+        outcome.outcome_unknown = True
         try:
             state, ok, polls = poll_until(check, self.readback_window_s, self.poll_interval_s,
                                           self._clock, self._sleep)
+            late = late_json()
         except KeyboardInterrupt as err:
             outcome.steps[-1] = Step(label, "interrupted", "outcome unknown")
             stop("read-back interrupted", "Ctrl+C during the read-back after the timeout")
@@ -338,7 +342,6 @@ class ArrangementWriter:
             stop(f"read-back failed: {type(err).__name__}", "read-back after the timeout failed")
             raise ImportAborted(f"{label} timed out; outcome unknown; read-back failed: "
                                 f"{type(err).__name__}: {err}") from err
-        late = late_json()
         if late is not None and late["errors"]:
             outcome.results[capability] = "FAIL (AbletonOSC error after the timeout)"
             outcome.steps[-1].detail = f"outcome unknown; late /live/error: {late['errors'][0]}"
@@ -356,6 +359,7 @@ class ArrangementWriter:
         detail = (f"late: no confirmation within {self.timeout_s:g} s; read-back matched "
                   f"({polls} read(s)); {echo}")
         outcome.steps[-1] = Step(label, "confirmed", detail)
+        outcome.outcome_unknown = False  # settled: exactly the intended change, no late error
         self._log(action=label, capability=capability, params=params, status="read_back",
                   after=state.as_json(), ok=True, polls=polls, late_reply=late,
                   note="confirmation timed out; settled by read-back")

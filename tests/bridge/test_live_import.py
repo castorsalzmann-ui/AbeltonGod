@@ -358,6 +358,8 @@ def test_bad_file_stops_before_connecting(fake, tmp_path, bad):
 
 
 def test_timed_out_import_never_undoes(fake, tmp_path):
+    """The write times out and the read-back never shows the clip (#166: a clip that does
+    read back is settled instead, see tests/regressions/test_bug_166_import_late.py)."""
     orig = fake._create_audio_clip
 
     def blocked(p):
@@ -368,7 +370,7 @@ def test_timed_out_import_never_undoes(fake, tmp_path):
         fake._held = []
         fake.released.clear()
         fake.release_after(0.45)
-        orig(p)
+        # the clip is never created (e.g. the datagram had no effect)
 
     fake._create_audio_clip = blocked
     code, out, prompts = run(fake, tmp_path, ["y", "0", "y", "y", "y"])

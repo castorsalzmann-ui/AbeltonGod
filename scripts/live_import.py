@@ -16,12 +16,13 @@ Steps:
    slots are refused before anything is sent.
 5. Prints the planned changes and asks again (default No).
 6. Imports (``bridge.clip_import.ClipImporter``): action-log entry before and after every
-   write, read-back of slots and the clip's file path.
+   write, read-back of slots and the clip's file path. A write whose confirmation timed out
+   counts as done only if a read-back with more time shows exactly the intended change (#166).
 7. Asks right away whether to undo (default No), *before* any listening: playing the clip
    in Live between import and undo conflicts with "touch nothing in Live" (#50 runs 2 and 3).
    Yes: undo now, without listening. Undo is sent only after a read-back shows the set as
-   the import left it; each undo is read back. Never after a timeout or Ctrl+C. A refused or
-   unconfirmed undo prints how to remove the import by hand.
+   the import left it; each undo is read back. Never after an unsettled timeout or Ctrl+C.
+   A refused or unconfirmed undo prints how to remove the import by hand.
 8. No: the clip stays; asks whether the kick plays (the user's answer is recorded as such)
    and prints how to remove the import by hand later.
 9. Prints a result block to paste into issue #50.
@@ -88,7 +89,9 @@ from bridge.osc_client import (
 
 # 0.2.0: read-back polls up to 2 s and tolerates Live renaming the target track (#50 run 1)
 # 0.3.0: undo question before the listening step; manual-removal text (#50 runs 2 and 3)
-SCRIPT_VERSION = "0.3.0"
+# 0.4.0: a timed-out create_audio_track / create_audio_clip is settled by an exact read-back
+#        (#166); the step then reads "confirmed (late: ...)"
+SCRIPT_VERSION = "0.4.0"
 
 ALLOWED = ("app.version", "song.track_names.get", "song.undo", "song.create_audio_track",
            "clip_slot.create_audio_clip",
