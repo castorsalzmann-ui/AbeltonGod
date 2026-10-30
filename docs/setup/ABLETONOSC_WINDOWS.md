@@ -232,7 +232,7 @@ Select-String -Path "$env:USERPROFILE\Documents\Ableton\User Library\Remote Scri
 **Erwartete Ausgabe (gekürzt, Ziel Spur 0, leeres Set, Undo `y`):**
 
 ```text
-AbeltonGod live_import 0.3.0
+AbeltonGod live_import 0.4.0
 
 Verbindung zu AbletonOSC (127.0.0.1:11000) steht.
 
@@ -268,7 +268,9 @@ Ob Live den Dateipfad genau so zurückmeldet, wie er gesendet wurde (Groß/Klein
 | MIDI-Spur | beim Ziel die Nummer der MIDI-Spur eingeben, danach bei der wiederholten Frage Enter | `Spur 1 '2-MIDI' ist keine Audiospur.`, die Ziel-Frage kommt erneut (höchstens dreimal); nach Enter `Kein Ziel gewählt. Keine Änderung.`, nichts gesendet, Exit-Code 0 |
 | belegte Zelle | `--slot 0`, wenn Zelle 0 der Audiospur schon einen Clip hat | `Zelle 0 von Spur 0 ist schon belegt …`, Exit-Code 1 |
 
-**Wenn etwas schiefgeht:** Bei Zeitüberschreitung oder *Strg + C* während eines Schritts sagt das Script `Ergebnis ist UNBEKANNT`, liest einmal zurück, sendet nichts mehr und **kein** Undo. Dann im Set nachsehen und einen eventuell angelegten Clip oder eine Spur von Hand löschen.
+**Späte Bestätigung (ab Script 0.4.0, Issue #166):** wie beim Arrangement-Check (Abschnitt 8). Kommt die Bestätigung für die neue Spur oder den Clip nicht innerhalb der Zeit (1 Sekunde), liest das Script das Set mit mehr Zeit zurück. Zeigt es genau die geplante Änderung (neue leere Audiospur am Ende bzw. der neue Clip mit genau dieser Datei in der vorher leeren Zelle), geht es weiter. Unter `steps` steht dann z. B. `create_audio_clip: confirmed (late: no confirmation within 1 s; read-back matched (1 read(s)); end echo after 1.40 s)`, und `clip_slot.create_audio_clip: PASS` wie sonst. Das ist ein gültiges Ergebnis; das Undo danach ist erlaubt. Die Zahl nach `end echo after` ist eine Obergrenze dafür, wie lange Live gebraucht hat; `end echo not seen` heißt, die Bestätigung kam gar nicht an. Beides bitte mit dem Block einfügen. Für Undo gilt das nicht.
+
+**Wenn etwas schiefgeht:** Bei einer Zeitüberschreitung, die das Zurücklesen nicht klärt (zeigt nicht genau die geplante Änderung, Zurücklesen scheitert, oder AbletonOSC meldet danach noch einen Fehler), oder bei *Strg + C* während eines Schritts sagt das Script `Ergebnis ist UNBEKANNT`, sendet nichts mehr und **kein** Undo. Unter `steps` steht dann `timeout (outcome unknown)` (bei einem späten Fehler mit `late /live/error: …`) bzw. `interrupted (outcome unknown)`. Dann im Set nachsehen und einen eventuell angelegten Clip oder eine Spur von Hand löschen.
 
 **Aktions-Log:** Jede Änderung steht vor und nach dem Senden in `logs\bridge-actions.jsonl` im Projektordner (eine JSON-Zeile pro Eintrag, nicht im Git). Der Pfad steht im Ergebnis-Block unter `action_log`.
 

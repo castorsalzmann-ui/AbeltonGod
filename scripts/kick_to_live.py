@@ -12,7 +12,7 @@ Steps:
 2. Renders it into ``<project>/Samples/Drums/Kicks/`` with :func:`library.place_kick` (WAV +
    sidecar; an existing file is never overwritten, the new one gets ``_002``, ``_003`` ...).
    The project folder must exist; it is not read from Live.
-3. Imports that absolute path with the ``scripts/live_import.py`` 0.3.0 flow (its ``run``):
+3. Imports that absolute path with the ``scripts/live_import.py`` 0.4.0 flow (its ``run``):
    test-set question, target, plan, confirmation, read-back, undo question *before* the
    listening question, manual-removal text. Same capability overrides as ``live_import.py``.
 4. Always says where the WAV is and whether a clip is in Live. The files stay in the project
@@ -224,7 +224,7 @@ def project_problem(raw: str) -> str | None:
     return f"{raw} wurde abgelehnt ({reason}: {detail})."
 
 
-# -- step 3: the live_import 0.3.0 flow --------------------------------------------------------
+# -- step 3: the live_import 0.4.0 flow --------------------------------------------------------
 
 def import_kick(args: argparse.Namespace, kick: Kick, report: live_import.Report,
                 input_fn: Callable[[str], str], out: TextIO) -> int:
