@@ -382,6 +382,12 @@ class GuardedRequest:
     def open(self) -> tuple[str, ...]:
         return tuple(self._open)
 
+    def usage(self) -> dict[str, Any]:
+        """What this request counted so far (model/tool calls, files, Live writes, cost).
+        Read-only; also valid after the request ended."""
+        with self._g._book.lock:
+            return self._usage()
+
     def elapsed_s(self) -> float:
         return self._g._clock() - self._start if self._state != "new" else 0.0
 

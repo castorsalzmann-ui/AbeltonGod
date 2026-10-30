@@ -68,10 +68,14 @@ from __future__ import annotations
 
 import asyncio
 import concurrent.futures
+import contextlib
 import copy
 import dataclasses
 import json
 import math
+import os
+import signal
+import subprocess
 import threading
 import time
 from collections.abc import Callable, Mapping
@@ -101,6 +105,9 @@ from claude_agent_sdk import (
     ResultError as SdkResultError,
 )
 from claude_agent_sdk._errors import MessageParseError  # not re-exported by the package
+from claude_agent_sdk._internal.transport.subprocess_cli import (  # not re-exported either
+    SubprocessCLITransport,
+)
 
 from guard import ModelUsage
 from orchestrator.auth import (
@@ -117,6 +124,7 @@ from orchestrator.model_client import (
     ModelRequest,
     ModelResponse,
     ModelUnavailable,
+    ModelUnreachable,
     ToolCall,
     ToolResult,
     ToolResultMessage,
@@ -170,7 +178,73 @@ SUBSCRIPTION_TOKEN_SOURCES = (
 SUBSCRIPTION_PLAN_PREFIX = "Claude "
 NOT_A_SUBSCRIPTION_PLAN = "Claude API"
 
+# --- #176: Claude unreachable ---------------------------------------------------------------
+# Offline, CLI 2.1.310 retries the API call 10 times with growing pauses (measured on the Linux
+# build with the API address unreachable: retry frames at 0.4, 1.0, 2.1, 4.4, 8.9, 18, 38, 77,
+# 116 and 153 s, error result at ~190 s) and reports each retry as a ``system``/``api_retry``
+# frame with ``error_status: null`` (no HTTP answer). After this many such frames in a row the
+# request ends as "no connection" instead of waiting for the deadline. Not verified on the
+# user's Windows machine (#176).
+OFFLINE_RETRIES = 2
+# Hard limit for starting the CLI and its initialize answer (also bounded by the request
+# deadline). A CLI that has not answered by then is killed.
+CONNECT_TIMEOUT_S = 30.0
+# The synchronous wait in ``complete`` checks for Ctrl+C at least this often. On Windows a
+# blocking lock wait is not woken by Ctrl+C before Python 3.14 (gh-125541).
+WAIT_SLICE_S = 0.2
+# Upper bound for killing the CLI's process tree.
+KILL_WAIT_S = 10.0
+
 TransportFactory = Callable[[ClaudeAgentOptions], Any]
+
+
+async def _no_prompt():
+    """The streaming prompt the SDK itself uses when ``connect`` gets none (never yields)."""
+    return
+    yield  # pragma: no cover - makes this an async generator
+
+
+def _descendants(pid: int) -> list[int]:
+    """All descendants of ``pid`` from /proc (Linux); [] where /proc is missing."""
+    parents: dict[int, list[int]] = {}
+    try:
+        entries = os.listdir("/proc")
+    except OSError:
+        return []
+    for entry in entries:
+        if not entry.isdigit():
+            continue
+        try:
+            with open(f"/proc/{entry}/stat", encoding="ascii", errors="replace") as fh:
+                ppid = int(fh.read().rsplit(")", 1)[1].split()[1])
+        except (OSError, ValueError, IndexError):
+            continue
+        parents.setdefault(ppid, []).append(int(entry))
+    found: list[int] = []
+    todo = [pid]
+    while todo:
+        for child in parents.get(todo.pop(), []):
+            if child not in found:
+                found.append(child)
+                todo.append(child)
+    return found
+
+
+def _kill_tree(pid: int) -> None:
+    """Kill ``pid`` and every process it started. Windows: ``taskkill /T /F`` (the whole
+    tree); elsewhere SIGKILL to the process and the descendants read from /proc first."""
+    if os.name == "nt":
+        subprocess.run(
+            ["taskkill", "/PID", str(pid), "/T", "/F"],
+            stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            timeout=KILL_WAIT_S, check=False,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+        return
+    children = _descendants(pid)
+    for target in (pid, *children):
+        with contextlib.suppress(OSError):
+            os.kill(target, signal.SIGKILL)
 
 
 def per_call_estimate(profile: Any) -> float:
@@ -268,6 +342,9 @@ class _Session:
     unapproved_relay_calls: int = 0
     stream_ended: bool = False  # the CLI's output ended: nobody would answer an interrupt
     watchdog: asyncio.Task | None = None
+    transport: Any = None  # the CLI transport; a SubprocessCLITransport holds the process
+    call_started: float = 0.0  # monotonic start of the current ``complete``
+    offline_retries: int = 0  # api_retry frames without an HTTP status, in a row (#176)
     # True from a tool turn handed to the loop until its results come back: the CLI must be
     # waiting in its hooks then, so a new model message is a call the guard did not permit.
     awaiting_results: bool = False
@@ -299,6 +376,7 @@ class SdkModelClient:
         self._env_file = env_file
         self._cli_path = cli_path
         self._session: _Session | None = None
+        self._closing: set[asyncio.Task] = set()  # session shutdowns still running
         self._loop = asyncio.new_event_loop()
         self._thread = threading.Thread(
             target=self._loop.run_forever, name="claude-agent-sdk", daemon=True
@@ -317,12 +395,29 @@ class SdkModelClient:
             raise ModelUnavailable("the Claude client is closed", request_sent=False)
         wait = max(0.0, float(request.timeout_s)) + self._grace
         fut = asyncio.run_coroutine_threadsafe(self._complete(request), self._loop)
+        until = time.monotonic() + wait
         try:
-            return fut.result(timeout=wait)
+            # Short slices, so Ctrl+C reaches this thread on every platform (#176).
+            while True:
+                left = until - time.monotonic()
+                if left <= 0:
+                    raise concurrent.futures.TimeoutError
+                try:
+                    return fut.result(timeout=min(WAIT_SLICE_S, left))
+                except concurrent.futures.TimeoutError:
+                    if fut.done():
+                        raise ModelUnavailable(  # the call itself raised a TimeoutError
+                            "Claude Code failed: TimeoutError") from None
         except concurrent.futures.TimeoutError:
             fut.cancel()
             self.end_request()
-            raise ModelUnavailable(f"no answer from Claude within {wait:.0f} s") from None
+            raise ModelUnreachable(f"no answer from Claude within {wait:.0f} s",
+                                   waited_s=wait) from None
+        except KeyboardInterrupt:
+            # Ctrl+C: end the session (kills the CLI) before the interrupt goes on.
+            fut.cancel()
+            self.end_request()
+            raise
 
     def tool_call_pending(self, call_id: str) -> bool:
         """True only while the CLI still waits in its PreToolUse hook for exactly this call:
@@ -403,12 +498,13 @@ class SdkModelClient:
     # ----- session ---------------------------------------------------------------------------
 
     async def _complete(self, request: ModelRequest) -> ModelResponse:
-        deadline = time.monotonic() + max(0.0, float(request.timeout_s))
+        started = time.monotonic()
+        deadline = started + max(0.0, float(request.timeout_s))
         messages = request.messages
         try:
             if len(messages) == 1 and isinstance(messages[0], UserMessage):
                 await self._close_session()
-                sess = await self._open_session(request, deadline)
+                sess = await self._open_session(request, deadline, started)
             else:
                 sess = self._session
                 if sess is None or sess.closed:
@@ -417,6 +513,7 @@ class SdkModelClient:
                     )
                 if sess.violation:  # before any hook gets an answer
                     raise ModelProtocolError(sess.violation)
+                sess.call_started = started
                 self._deliver(sess, request)
             return await self._pump(sess, request, deadline)
         except BaseException:
@@ -461,24 +558,34 @@ class SdkModelClient:
             plugins=[],
         )
 
-    async def _open_session(self, request: ModelRequest, deadline: float) -> _Session:
+    async def _open_session(
+        self, request: ModelRequest, deadline: float, started: float
+    ) -> _Session:
         try:
             limits = checked_sdk_limits(request.sdk_limits)
         except Exception as exc:  # SdkLimitError: never start the SDK with "no limit"
             raise ModelUnavailable(f"refused to start Claude: {exc}", request_sent=False) from exc
         allowed = frozenset(TOOL_PREFIX + spec.name for spec in request.tools)
-        sess = _Session(system=request.system, allowed_names=allowed)
+        sess = _Session(system=request.system, allowed_names=allowed, call_started=started)
         options = self._options(request, limits, sess)
         self.last_options = dataclasses.replace(options, env={
             k: ("<redacted>" if k == "ANTHROPIC_API_KEY" else v) for k, v in options.env.items()
         })
-        transport = self._transport_factory(options) if self._transport_factory else None
+        if self._transport_factory:
+            transport = self._transport_factory(options)
+        else:
+            # Built here (the SDK would build the same one, ClaudeSDKClient.connect) so the
+            # CLI process can be killed whatever state the SDK is in (#176).
+            transport = SubprocessCLITransport(prompt=_no_prompt(), options=options)
         client = ClaudeSDKClient(options=options, transport=transport)
         sess.client = client
+        sess.transport = transport
         self._session = sess
         sess.watchdog = asyncio.ensure_future(self._watchdog(sess, deadline + self._grace))
         try:
-            await asyncio.wait_for(client.connect(), timeout=max(0.1, deadline - time.monotonic()))
+            await self._connect(sess, client, deadline)
+        except ModelUnavailable:
+            raise
         except CLINotFoundError as exc:
             raise ModelUnavailable(
                 f"Claude Code CLI not found ({exc})", request_sent=False
@@ -502,6 +609,64 @@ class SdkModelClient:
                 f"could not send the request to Claude ({type(exc).__name__}: {exc})"
             ) from exc
         return sess
+
+    async def _connect(self, sess: _Session, client: Any, deadline: float) -> None:
+        """Start the CLI and wait for its initialize answer, at most ``CONNECT_TIMEOUT_S`` (and
+        never past the request deadline). A CLI that exits or does not answer in time is
+        killed before the SDK's own cleanup runs, so that cleanup cannot wait on it (#176:
+        before, an exited CLI was only noticed at the deadline, and a stuck one got the SDK's
+        graceful close of up to ~20 s on top)."""
+        limit = max(0.1, min(CONNECT_TIMEOUT_S, deadline - time.monotonic()))
+        until = time.monotonic() + limit
+        task = asyncio.ensure_future(client.connect())
+        try:
+            while not task.done():
+                proc = self._process_of(sess)
+                if proc is not None and proc.returncode is not None:
+                    raise ModelUnavailable(
+                        f"Claude Code exited before it answered (exit code {proc.returncode})",
+                        request_sent=False)
+                left = until - time.monotonic()
+                if left <= 0:
+                    raise ModelUnreachable(
+                        f"Claude Code did not start within {limit:.0f} s",
+                        waited_s=time.monotonic() - sess.call_started, request_sent=False)
+                await asyncio.wait({task}, timeout=min(0.1, left))
+            task.result()  # the SDK's own error, mapped by the caller
+        finally:
+            if not task.done():
+                await self._kill_cli(sess)
+                task.cancel()
+                await asyncio.wait({task}, timeout=KILL_WAIT_S)
+            if task.done() and not task.cancelled():
+                task.exception()  # retrieved: no "exception never retrieved" warning
+
+    @staticmethod
+    def _process_of(sess: _Session) -> Any:
+        """The CLI process of a ``SubprocessCLITransport`` (private attribute of the pinned SDK
+        0.2.174); None for any other transport."""
+        if not isinstance(sess.transport, SubprocessCLITransport):
+            return None
+        return getattr(sess.transport, "_process", None)
+
+    async def _kill_cli(self, sess: _Session) -> bool:
+        """Kill the CLI process and its children at once (no interrupt, no stdin EOF grace).
+        True if a running process was killed; False when there is none (fake transport,
+        already exited). A dead process can make no model call, so this is also the safest
+        way to end a session whose hook is waiting."""
+        proc = self._process_of(sess)
+        if proc is None or proc.returncode is not None:
+            return False
+        try:
+            await asyncio.wait_for(asyncio.to_thread(_kill_tree, proc.pid), KILL_WAIT_S)
+        except BaseException:  # noqa: BLE001 - fall back to killing the process alone
+            pass
+        if proc.returncode is None:
+            with contextlib.suppress(Exception):
+                proc.kill()
+        with contextlib.suppress(BaseException):
+            await asyncio.wait_for(proc.wait(), KILL_WAIT_S)
+        return True
 
     async def _forward(self, sess: _Session, client: Any) -> None:
         try:
@@ -530,24 +695,40 @@ class SdkModelClient:
         if self._session is sess and not sess.closed:
             await self._close_session()
 
-    async def _close_session(self) -> None:
+    async def _close_session(self, *, kill: bool = True) -> None:
         """End the session without ever answering a waiting hook: an answer (even a deny)
         lets the CLI go on to its next model call, which the guard did not permit (found by
-        the CI tests of #106). Order: interrupt the turn, then disconnect (which cancels the
-        waiting hook handlers without a reply, closes stdin and stops the process).
+        the CI tests of #106).
 
-        Residual risk (not verified): if the interrupt fails, the SDK's close gives the CLI
-        up to 5 s after stdin EOF before SIGTERM; what the CLI does with a hook that never
-        gets an answer in that window is not documented (V4, #83)."""
+        ``kill=True`` (every end except a finished run, #176): kill the CLI process tree at
+        once, then disconnect. Without a process to kill (a fake transport, or the CLI
+        already exited) the order is: interrupt the turn, then disconnect (which cancels the
+        waiting hook handlers without a reply, closes stdin and stops the process).
+        ``kill=False`` (a run that ended with its result): interrupt and disconnect only.
+
+        The shutdown runs as its own task: a caller that is cancelled meanwhile does not stop
+        it, and every later call waits until all running shutdowns are done.
+
+        Residual risk (not verified) without a kill: if the interrupt fails, the SDK's close
+        gives the CLI up to 5 s after stdin EOF before SIGTERM; what the CLI does with a hook
+        that never gets an answer in that window is not documented (V4, #83)."""
         sess, self._session = self._session, None
-        if sess is None or sess.closed:
-            return
-        sess.closed = True
-        if sess.watchdog is not None and sess.watchdog is not asyncio.current_task():
+        if sess is not None and not sess.closed:
+            sess.closed = True
+            task = asyncio.ensure_future(self._shutdown(sess, kill))
+            self._closing.add(task)
+            task.add_done_callback(self._closing.discard)
+        if self._closing:
+            await asyncio.shield(asyncio.gather(*self._closing, return_exceptions=True))
+
+    async def _shutdown(self, sess: _Session, kill: bool) -> None:
+        current = asyncio.current_task()
+        if sess.watchdog is not None and sess.watchdog is not current:
             sess.watchdog.cancel()
+        killed = await self._kill_cli(sess) if kill else False
         client = sess.client
         if client is not None:
-            if not sess.stream_ended:
+            if not sess.stream_ended and not killed:
                 try:
                     await asyncio.wait_for(client.interrupt(), timeout=3)
                 except BaseException:  # noqa: BLE001 - best effort; disconnect still runs
@@ -758,12 +939,15 @@ class SdkModelClient:
 
     async def _next_event(self, sess: _Session, deadline: float):
         left = deadline - time.monotonic()
-        if left <= 0:
-            raise ModelUnavailable("Claude did not answer within the request timeout")
         try:
+            if left <= 0:
+                raise TimeoutError
             return await asyncio.wait_for(sess.events.get(), timeout=left)
         except TimeoutError:
-            raise ModelUnavailable("Claude did not answer within the request timeout") from None
+            raise ModelUnreachable(
+                "Claude did not answer within the request timeout",
+                waited_s=time.monotonic() - sess.call_started,
+            ) from None
 
     async def _pump(self, sess: _Session, request: ModelRequest, deadline: float):
         new_ids: list[str] = []
@@ -774,7 +958,7 @@ class SdkModelClient:
             if kind == "msg":
                 result = self._on_message(sess, payload, new_ids, request)
                 if result is not None:
-                    await self._close_session()
+                    await self._close_session(kill=False)  # finished run: graceful close
                     return result
             elif kind == "hook":
                 if payload in sess.returned:
@@ -839,12 +1023,15 @@ class SdkModelClient:
         if isinstance(message, SystemMessage):
             if message.subtype == "init":
                 self._check_init(sess, message.data)
+            elif message.subtype == "api_retry":
+                self._on_api_retry(sess, message.data)
             return None
         if isinstance(message, RateLimitEvent):
             if getattr(message.rate_limit_info, "status", None) == "rejected":
                 raise ModelUnavailable("the Claude usage limit is reached (rate limit rejected)")
             return None
         if isinstance(message, SdkAssistantMessage):
+            sess.offline_retries = 0  # the API answered
             if not sess.init_checked:
                 raise ModelProtocolError("Claude answered before the session was checked")
             if message.parent_tool_use_id is not None:
@@ -872,6 +1059,21 @@ class SdkModelClient:
         if isinstance(message, ResultMessage):
             return self._on_result(sess, message)
         return None  # user echoes, stream events, task frames
+
+    @staticmethod
+    def _on_api_retry(sess: _Session, data: Any) -> None:
+        """A retry the CLI reports (#176). Without an HTTP status the API never answered (no
+        connection, DNS, first-byte timeout); ``OFFLINE_RETRIES`` of those in a row end the
+        request instead of the CLI's ~3 minutes of retries. A retry with a status (429, 5xx,
+        overload) is left to the CLI and the request deadline."""
+        status = data.get("error_status") if isinstance(data, Mapping) else None
+        if status is not None:
+            sess.offline_retries = 0
+            return
+        sess.offline_retries += 1
+        if sess.offline_retries >= OFFLINE_RETRIES:
+            raise ModelUnreachable(
+                f"no connection to the Claude API ({sess.offline_retries} attempts failed)")
 
     def _usage(self, sess: _Session, total: Any, tokens: Any = None) -> ModelUsage | None:
         """Usage for the call that ends the run. Token counts only when the whole session was
