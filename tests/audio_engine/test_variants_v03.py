@@ -104,6 +104,26 @@ def test_drawn_decay_that_does_not_fit_falls_back_to_the_limit(monkeypatch) -> N
         assert ref_fits_wav(render_wav(v))
 
 
+def test_variant_without_a_derivable_decay_says_what_the_bisection_proved(monkeypatch) -> None:
+    """#164 review: the VariantError of a variant that (6a) rejects claims only that the
+    bisection's probes 2000.0 and 20.0 fail, and carries no issue number. Forced by a
+    derivation that rejects (a real variant of a fitting base that (6a) rejects is rare)."""
+    import re
+
+    import audio_engine.variants as V
+
+    req = {**V03, "seed": 21, "bpm": 140, "length_beats": 1, "drive": 0.45}
+    monkeypatch.setattr(V, "derive_amp_decay", lambda p: None)
+    with pytest.raises(V.VariantError) as exc:
+        make_variant(req, 1)
+    text = str(exc.value)
+    assert text.startswith("Variant 1 of seed ")
+    assert "neither 2000.0 nor 20.0 ms amp_decay_ms decays 60 dB within length_beats" in text
+    assert "so the bisection of rule (6a) finds no amp_decay_ms" in text
+    assert "found no amp_decay_ms of 20 ms or more" not in text
+    assert not re.search(r"#\d+", text)
+
+
 @pytest.mark.parametrize("i", range(4))
 def test_length_beats_variants_follow_the_pitch_settle_guideline(i) -> None:
     """Base close to its guideline limit, so the variants' limit decides.

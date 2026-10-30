@@ -195,9 +195,9 @@ def _draw_decay_by_rule(
     limit = derive_amp_decay(out)
     if limit is None:
         raise VariantError(
-            f"Variant {index} of seed {seed}: the contract's bisection (rule 6a) found no "
-            "amp_decay_ms of 20 ms or more that decays 60 dB within length_beats for this "
-            "variant (20.0 ms does not fit)."
+            f"Variant {index} of seed {seed}: neither 2000.0 nor 20.0 ms amp_decay_ms decays "
+            "60 dB within length_beats for this variant, so the bisection of rule (6a) finds "
+            "no amp_decay_ms."
         )
     hi = min(hi, _grid_down(limit))
     if hi < lo:
