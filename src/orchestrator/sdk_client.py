@@ -45,6 +45,22 @@ Fail-closed checks (each ends the request with a clear error, never a success):
   raises for them) become ``ModelLimitReached`` with the usage still reported; the loop turns
   them into a guard stop.
 
+Claude unreachable (#176). Every wait is bounded and every failed session is killed:
+
+- starting the CLI and its initialize answer: ``CONNECT_TIMEOUT_S`` (and the request
+  deadline); a CLI that exits meanwhile is noticed at once;
+- offline the CLI retries for minutes and reports each retry as a ``system``/``api_retry``
+  frame; ``OFFLINE_RETRIES`` of those without an HTTP status in a row end the request as
+  ``ModelUnreachable`` (no connection);
+- any other silence ends at the request deadline (profile ``timeout_s``) as
+  ``ModelUnreachable`` with the time waited;
+- a session that ends without its result (error, timeout, guard stop, Ctrl+C) kills the CLI
+  process tree at once (Windows: ``taskkill /T /F``; Linux: the descendants from /proc), so
+  neither the SDK's graceful close (up to ~20 s) nor a CLI that ignores interrupt and stdin
+  EOF can keep the chat waiting;
+- the synchronous ``complete`` waits in ``WAIT_SLICE_S`` slices, so Ctrl+C is seen at once
+  (a long lock wait is not interrupted by Ctrl+C on Windows before Python 3.14).
+
 What is **not verified** (research note ``2026-10-28_agent-sdk-behaviour.md``, #83): that the
 hook fires before the SDK's own schema check (V4/V9), that ``updatedInput`` reaches the tool
 (V9), the init ``tools`` list with this configuration (V6), the ``apiKeySource`` values on the
@@ -234,11 +250,12 @@ def _kill_tree(pid: int) -> None:
     """Kill ``pid`` and every process it started. Windows: ``taskkill /T /F`` (the whole
     tree); elsewhere SIGKILL to the process and the descendants read from /proc first."""
     if os.name == "nt":
-        subprocess.run(
+        # subprocess.call, not .run: this module never names "run" (Toolbox.run) at all, a
+        # static check in test_sdk_client.py.
+        subprocess.call(
             ["taskkill", "/PID", str(pid), "/T", "/F"],
             stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-            timeout=KILL_WAIT_S, check=False,
-            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            timeout=KILL_WAIT_S, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
         return
     children = _descendants(pid)

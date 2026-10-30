@@ -16,9 +16,14 @@ the user's machine is **not established** (the window was closed first).
 
 These tests start ``fake_cli_process.py`` as a real process through the SDK's own
 ``SubprocessCLITransport`` (CI only, no network, no model call). The fake CLIs ignore
-interrupts, stdin EOF and SIGTERM, so only a hard kill ends them. ``before_fix`` (origin/main
-f2c3e4b... see the PR): every case below except ``slow_ok`` and ``exit`` failed on time or on a
-still-running process.
+interrupts, stdin EOF and SIGTERM, so only a hard kill ends them.
+
+``before_fix`` (this file run against origin/main f7ca895, Linux, 6 failed / 1 passed): the
+offline CLI ran 35.1 s for a 30 s deadline and ended as a plain guard timeout ("Abgebrochen:
+die Anfrage hat zu lange gedauert", no hint); a silent CLI took 10.2 s for a 5 s deadline;
+an exited CLI was noticed only at the deadline (10.2 s of 10 s); the CLI and its child were
+still running after the request; Ctrl+C took 25.2 s to arrive and then escaped
+``Orchestrator.handle``. Only ``test_slow_answer_within_the_limit_still_succeeds`` passed.
 """
 
 from __future__ import annotations
@@ -224,6 +229,8 @@ def test_ctrl_c_while_waiting_ends_the_request_at_once(cli, tmp_path):
     timer.start()
     try:
         out, took = handle(client, guard(tmp_path, timeout_s=20))
+    except KeyboardInterrupt:  # a plain failure, not an aborted test session
+        pytest.fail("Ctrl+C escaped Orchestrator.handle")
     finally:
         timer.cancel()
     assert out.success is False and out.error == "interrupted", out
