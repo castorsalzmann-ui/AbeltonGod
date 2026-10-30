@@ -768,8 +768,54 @@ def test_close_twice_returns_at_once(clients):
 def test_guard_timeout_ends_the_request(make_guard, events, clients):
     factory = FakeCLIFactory({"turns": [{"hang": True}]})
     out = run(make_guard(timeout_s=5), make_client(clients, factory), [])
-    assert out.success is False and out.error == "model_unavailable"
+    # #176: no answer at all is "unreachable" (a ModelUnavailable) with the German wait
+    assert out.success is False and out.error == "model_unreachable"
+    assert "keine Antwort nach 5 s" in out.message_de and "Internetverbindung" in out.message_de
     assert factory.cli.closed
+
+
+def retry_frame(attempt, status=None):
+    """``system``/``api_retry`` as CLI 2.1.310 sent it with the API unreachable (#176)."""
+    return {"raw": {"type": "system", "subtype": "api_retry", "attempt": attempt,
+                    "max_retries": 10, "retry_delay_ms": 500, "error_status": status,
+                    "error": "unknown" if status is None else "server_error",
+                    "session_id": "s1", "uuid": f"r{attempt}-{status}"}}
+
+
+def test_retries_without_http_status_end_the_request_as_unreachable(make_guard, events,
+                                                                    clients):
+    factory = FakeCLIFactory({"turns": [retry_frame(1), retry_frame(2), {"hang": True}]})
+    start = time.monotonic()
+    out = run(make_guard(timeout_s=60), make_client(clients, factory), [])
+    assert time.monotonic() - start < 5.0
+    assert out.success is False and out.error == "model_unreachable"
+    assert "keine Verbindung zum Claude-Server" in out.message_de
+    assert "Es wurde nichts geändert" in out.message_de
+    assert factory.cli.closed
+
+
+@pytest.mark.parametrize("turns", [
+    [retry_frame(1)],  # one failed attempt: may be a blip, the CLI retries
+    [retry_frame(1, 529), retry_frame(2, 529), retry_frame(3, 500)],  # the API answered
+    [retry_frame(1), retry_frame(2, 503), retry_frame(3)],  # not in a row
+])
+def test_other_retries_are_left_to_the_cli(turns, make_guard, events, clients):
+    factory = FakeCLIFactory({"turns": [*turns, {"text": "da"}], "total_cost_usd": 0.01})
+    out = run(make_guard(), make_client(clients, factory), [])
+    assert out.success is True and out.reply == "da", out
+
+
+def test_unreachable_after_a_tool_says_what_was_already_done(make_guard, events, clients):
+    """"Nothing was changed" only when the guard counted no file and no Live write."""
+    from orch_helpers import file_tool
+
+    factory = FakeCLIFactory({"turns": [{"tool_uses": [use("t1", {"k": 1},
+                                                           name=PREFIX + "render")]},
+                                        retry_frame(1), retry_frame(2), {"hang": True}]})
+    out = run(make_guard(), make_client(clients, factory), [file_tool(events, files=2)])
+    assert out.success is False and out.error == "model_unreachable", out
+    assert "nichts geändert" not in out.message_de
+    assert "2 Datei(en) geschrieben" in out.message_de
 
 
 def test_missing_cli_keeps_the_engine_working(make_guard, events, clients):

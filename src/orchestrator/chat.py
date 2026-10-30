@@ -5,7 +5,10 @@
     python -m orchestrator.chat --replay FILE.json    # fake model replaying a recording
 
 Each line is one guarded request (profile ``kick_generation``). Empty line, ``exit`` or
-``quit`` (or Ctrl+D / Ctrl+C) ends the chat.
+``quit`` (or Ctrl+D / Ctrl+C at the prompt) ends the chat. Ctrl+C while a request runs ends
+that request (never as a success) and the chat asks for the next line (#176). Claude
+unreachable (no connection, or no answer within the profile's ``timeout_s``): the request
+fails with a German message and the chat goes on.
 
 Tools (#148): with ``--project`` (the Live project folder, the one with the ``.als`` file)
 the copilot gets ``generate_kick``, ``list_tracks`` and ``import_sample``; without it, none.
@@ -87,6 +90,9 @@ def run_chat(
             return EXIT_OK
         if line.strip().lower() in _QUIT:
             return EXIT_OK
+        # #176: while Claude works nothing reads the console, so say so (and how to stop).
+        out.write("(Claude arbeitet ... Strg+C bricht die Anfrage ab.)\n")
+        out.flush()
         outcome = orchestrator.handle(line)
         out.write(outcome.text_for_user + "\n")
 

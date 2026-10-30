@@ -38,11 +38,37 @@ from orchestrator.model_client import (
     ModelRequest,
     ModelResponse,
     ModelUnavailable,
+    ModelUnreachable,
     ToolCall,
     ToolResultMessage,
     UserMessage,
 )
 from orchestrator.tools import Approver, Toolbox
+
+
+def _unreachable_detail_de(exc: ModelUnreachable) -> str:
+    waited = exc.waited_s
+    if isinstance(waited, int | float) and not isinstance(waited, bool) and math.isfinite(
+            waited) and waited > 0:
+        return f"keine Antwort nach {max(1, round(waited))} s"
+    return "keine Verbindung zum Claude-Server"
+
+
+def _changes_de(req: GuardedRequest | None) -> str:
+    """What this request already changed, from the guard's own count (#176). Only "nothing"
+    when the guard counted no file and no Live write."""
+    if req is None:
+        return "Es wurde nichts geändert."
+    usage = req.usage()
+    files, live = usage.get("files_written", 0), usage.get("live_writes", 0)
+    if not files and not live:
+        return "Es wurde nichts geändert."
+    parts = []
+    if files:
+        parts.append(f"{files} Datei(en) geschrieben")
+    if live:
+        parts.append(f"{live} Änderung(en) am Live-Set")
+    return "Bis dahin erledigt: " + ", ".join(parts) + "."
 
 DEFAULT_PROFILE = "kick_generation"
 ANSWER_ITEM = "Antwort"
@@ -60,6 +86,11 @@ WARN_SYSTEM_SUFFIX = (
 _FAILURE_DE = {
     "model_unavailable": "Claude ist gerade nicht erreichbar ({detail}). "
     "Kick-Engine und Ableton-Bridge funktionieren weiter ohne Claude.",
+    # #176: no answer at all. {detail} is German (see _unreachable_detail_de).
+    "model_unreachable": "Claude ist gerade nicht erreichbar ({detail}). Prüf deine "
+    "Internetverbindung. {changes} Kick-Engine und Ableton-Bridge funktionieren weiter ohne "
+    "Claude.",
+    "interrupted": "Abgebrochen (Strg+C). {changes}",
     "model_limit": "Claude hat die Anfrage an einer eigenen Grenze beendet ({detail}).",
     "model_protocol": "Die Antwort von Claude war nicht lesbar ({detail}).",
     "model_client_error": "Interner Fehler im Modell-Client ({detail}).",
@@ -188,6 +219,7 @@ class Orchestrator:
         if estimate_cost_usd is None:
             estimate_cost_usd = getattr(model, "estimate_cost_usd", None)
         self._estimate = estimate_cost_usd or (lambda _request: None)
+        self._unreachable: ModelUnreachable | None = None  # per request, set by _call_model
 
     def handle(self, text: str) -> Outcome:
         """Run one user request to its end. Never raises for model, tool or guard failures."""
@@ -204,34 +236,52 @@ class Orchestrator:
     def _handle(self, text: str) -> Outcome:
         warnings: list[str] = []
         req: GuardedRequest | None = None
+        self._unreachable = None
         try:
             with self.guard.request(self.profile) as req:
                 req.add_open(ANSWER_ITEM)
                 return self._run(req, text, warnings)
         except GuardStop as stop:
+            message = stop.user_message_de
+            error = None
+            if self._unreachable is not None and stop.reason is Limit.TIMEOUT:
+                # No answer until the request's deadline (#176): the guard's timeout stop is
+                # the record; the user is told why and what to check.
+                error = "model_unreachable"
+                message = _FAILURE_DE[error].format(
+                    detail=_unreachable_detail_de(self._unreachable), changes=_changes_de(req))
             return Outcome(
                 success=False,
                 reply="",
-                message_de=stop.user_message_de,
+                message_de=message,
                 done=stop.done,
                 open=stop.open,
                 stop_reason=stop.reason,
+                error=error,
                 warnings=tuple(warnings),
                 usage=dict(stop.usage),
                 result=stop.result,
             )
         except _Abort as abort:
-            done = req.done if req is not None else ()
-            still_open = req.open if req is not None else (ANSWER_ITEM,)
-            return Outcome(
-                success=False,
-                reply=abort.reply,
-                message_de=_FAILURE_DE[abort.error].format(detail=abort.detail),
-                done=done,
-                open=still_open or (ANSWER_ITEM,),
-                error=abort.error,
-                warnings=tuple(warnings),
-            )
+            return self._failed(req, abort.error, abort.detail, warnings, reply=abort.reply)
+        except KeyboardInterrupt:
+            # Ctrl+C while the request runs (#176): the guard has already closed the request
+            # as "error" (the exception left its block); never a success.
+            return self._failed(req, "interrupted", "", warnings)
+
+    def _failed(self, req: GuardedRequest | None, error: str, detail: str,
+                warnings: list[str], reply: str = "") -> Outcome:
+        done = req.done if req is not None else ()
+        still_open = req.open if req is not None else (ANSWER_ITEM,)
+        return Outcome(
+            success=False,
+            reply=reply,
+            message_de=_FAILURE_DE[error].format(detail=detail, changes=_changes_de(req)),
+            done=done,
+            open=still_open or (ANSWER_ITEM,),
+            error=error,
+            warnings=tuple(warnings),
+        )
 
     # ----- internals ------------------------------------------------------------------------
 
@@ -310,7 +360,11 @@ class Orchestrator:
             usage = exc.usage
             if usage is None and not exc.request_sent:
                 usage = ModelUsage(output_tokens=0, cost_usd=0.0)
+            if isinstance(exc, ModelUnreachable):
+                self._unreachable = exc  # read if the guard stops on the deadline below
             req.after_model_call(permit, usage if isinstance(usage, ModelUsage) else None)
+            if isinstance(exc, ModelUnreachable):
+                raise _Abort("model_unreachable", _unreachable_detail_de(exc)) from exc
             raise _Abort("model_unavailable", exc.detail) from exc
         except ModelLimitReached as exc:
             usage = exc.usage if isinstance(exc.usage, ModelUsage) else None

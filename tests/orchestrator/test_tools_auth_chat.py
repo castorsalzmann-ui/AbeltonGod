@@ -365,6 +365,38 @@ def test_chat_without_claude_reports_and_keeps_running(tmp_path):
     assert out.getvalue().count("nicht erreichbar") == 2
 
 
+def test_chat_ctrl_c_during_a_request_ends_it_and_the_chat_goes_on(tmp_path):
+    """#176: Ctrl+C while a request runs fails that request (logged as an error by the guard,
+    never a success) and the chat asks for the next line."""
+    from guard import Guard
+    from orchestrator.model_client import ModelResponse
+
+    class Model:
+        calls = 0
+
+        def complete(self, request):
+            Model.calls += 1
+            if Model.calls == 1:
+                raise KeyboardInterrupt
+            return ModelResponse(text="Wieder da")
+
+    out = io.StringIO()
+    log = tmp_path / "u.jsonl"
+    try:
+        code = main([], read=_reader(["Hallo", "noch mal", "exit"]), out=out,
+                    guard=Guard(log_path=log), model=Model())
+    except KeyboardInterrupt:  # a plain failure, not an aborted test session
+        pytest.fail("Ctrl+C during a request escaped the chat")
+    text = out.getvalue()
+    assert code == 0 and Model.calls == 2
+    assert "Abgebrochen (Strg+C). Es wurde nichts geändert." in text
+    assert "Wieder da" in text
+    assert "Strg+C bricht die Anfrage ab" in text
+    ends = [json.loads(line) for line in log.read_text("utf-8").splitlines()]
+    outcomes = [e["outcome"] for e in ends if e.get("kind") == "request_end"]
+    assert outcomes == ["error", "success"]
+
+
 def test_chat_bad_recording_is_a_setup_error(tmp_path):
     out = io.StringIO()
     assert main(["--replay", str(tmp_path / "missing.json")], read=_reader([]), out=out) == 2

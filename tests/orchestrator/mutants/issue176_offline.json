@@ -1,0 +1,109 @@
+{
+  "description": "#176 fault injection on the 'Claude unreachable' path: retry-frame detection, connect limit, CLI tree kill, Ctrl+C slices, German message. Run: python scripts/qa/mutate.py tests/orchestrator/mutants/issue176_offline.json",
+  "mutants": [
+    {
+      "id": "U1_NO_OFFLINE_DETECTION",
+      "file": "src/orchestrator/sdk_client.py",
+      "old": "OFFLINE_RETRIES = 2\n",
+      "new": "OFFLINE_RETRIES = 99\n",
+      "tests": ["tests/regressions/test_bug_176_offline_hang.py", "tests/orchestrator/test_sdk_client.py"],
+      "note": "retry frames ignored again: the offline CLI waits for the deadline (the #176 state)"
+    },
+    {
+      "id": "U2_API_RETRY_FRAMES_NOT_READ",
+      "file": "src/orchestrator/sdk_client.py",
+      "old": "            elif message.subtype == \"api_retry\":\n                self._on_api_retry(sess, message.data)\n",
+      "new": "",
+      "tests": ["tests/regressions/test_bug_176_offline_hang.py", "tests/orchestrator/test_sdk_client.py"],
+      "note": "the handler exists but is never called"
+    },
+    {
+      "id": "U3_RETRY_WITH_STATUS_COUNTS",
+      "file": "src/orchestrator/sdk_client.py",
+      "old": "        if status is not None:\n            sess.offline_retries = 0\n            return\n",
+      "new": "",
+      "tests": ["tests/orchestrator/test_sdk_client.py"],
+      "pytest_args": ["-k", "retries"],
+      "note": "a 5xx/529 retry (the API answered) must not count as 'no connection'"
+    },
+    {
+      "id": "U4_NEVER_KILL",
+      "file": "src/orchestrator/sdk_client.py",
+      "old": "        killed = await self._kill_cli(sess) if kill else False\n",
+      "new": "        killed = False\n",
+      "tests": ["tests/regressions/test_bug_176_offline_hang.py"],
+      "note": "back to interrupt + the SDK's graceful close: a stuck CLI outlives the request"
+    },
+    {
+      "id": "U5_CHILDREN_NOT_KILLED",
+      "file": "src/orchestrator/sdk_client.py",
+      "old": "    for target in (pid, *children):\n",
+      "new": "    for target in (pid,):\n",
+      "tests": ["tests/regressions/test_bug_176_offline_hang.py"],
+      "pytest_args": ["-k", "children"],
+      "note": "POSIX path only; the Windows taskkill /T path runs in CI windows-latest, not in this runner"
+    },
+    {
+      "id": "U6_ONE_LONG_WAIT",
+      "file": "src/orchestrator/sdk_client.py",
+      "old": "                    return fut.result(timeout=min(WAIT_SLICE_S, left))\n",
+      "new": "                    return fut.result(timeout=left)\n",
+      "tests": ["tests/regressions/test_bug_176_offline_hang.py"],
+      "pytest_args": ["-k", "ctrl_c"],
+      "note": "one long lock wait: Ctrl+C (interrupt_main, like Windows before 3.14) is seen only at the end"
+    },
+    {
+      "id": "U7_CTRL_C_NOT_HANDLED_IN_THE_LOOP",
+      "file": "src/orchestrator/loop.py",
+      "old": "        except KeyboardInterrupt:\n            # Ctrl+C while the request runs",
+      "new": "        except ZeroDivisionError:\n            # Ctrl+C while the request runs",
+      "tests": ["tests/regressions/test_bug_176_offline_hang.py", "tests/orchestrator/test_tools_auth_chat.py"],
+      "note": "Ctrl+C escapes handle(): the chat dies instead of going on"
+    },
+    {
+      "id": "U8_EXITED_CLI_NOT_NOTICED",
+      "file": "src/orchestrator/sdk_client.py",
+      "old": "                if proc is not None and proc.returncode is not None:\n                    raise ModelUnavailable(",
+      "new": "                if False:\n                    raise ModelUnavailable(",
+      "tests": ["tests/regressions/test_bug_176_offline_hang.py"],
+      "pytest_args": ["-k", "exits"],
+      "note": "a CLI that exited is only noticed at the deadline (before the fix: 10 s of 10 s)"
+    },
+    {
+      "id": "U9_NO_CONNECT_LIMIT",
+      "file": "src/orchestrator/sdk_client.py",
+      "old": "                if left <= 0:\n                    raise ModelUnreachable(\n                        f\"Claude Code did not start",
+      "new": "                if left <= -1e9:\n                    raise ModelUnreachable(\n                        f\"Claude Code did not start",
+      "tests": ["tests/regressions/test_bug_176_offline_hang.py"],
+      "pytest_args": ["-k", "never_starts"],
+      "note": "a CLI that never answers initialize is only ended by the watchdog"
+    },
+    {
+      "id": "U10_NOTHING_CHANGED_ALWAYS",
+      "file": "src/orchestrator/loop.py",
+      "old": "    if not files and not live:\n",
+      "new": "    if True:\n",
+      "tests": ["tests/orchestrator/test_sdk_client.py"],
+      "pytest_args": ["-k", "already_done"],
+      "note": "'Es wurde nichts geändert' after a tool wrote files would be false"
+    },
+    {
+      "id": "U11_GUARD_TIMEOUT_HIDES_THE_REASON",
+      "file": "src/orchestrator/loop.py",
+      "old": "            if self._unreachable is not None and stop.reason is Limit.TIMEOUT:\n",
+      "new": "            if False:\n",
+      "tests": ["tests/regressions/test_bug_176_offline_hang.py"],
+      "pytest_args": ["-k", "never_answers"],
+      "note": "no answer until the deadline: the user gets the generic timeout text without the hint"
+    },
+    {
+      "id": "U12_DEADLINE_IS_PLAIN_UNAVAILABLE",
+      "file": "src/orchestrator/sdk_client.py",
+      "old": "            raise ModelUnreachable(\n                \"Claude did not answer within the request timeout\",\n                waited_s=time.monotonic() - sess.call_started,\n            ) from None\n",
+      "new": "            raise ModelUnavailable(\n                \"Claude did not answer within the request timeout\") from None\n",
+      "tests": ["tests/orchestrator/test_sdk_client.py"],
+      "pytest_args": ["-k", "guard_timeout_ends"],
+      "note": "the deadline path loses the 'keine Antwort nach N s' message"
+    }
+  ]
+}
