@@ -513,6 +513,19 @@ def split_overrides(report: Report, used: list[str]) -> None:
     report.overrides_reads_only = sorted(c for c in set(used) if c not in sent)
 
 
+def interrupted_tail(report: Report) -> str:
+    """What a Ctrl+C outside a write says about Live (German), from the importer's record."""
+    done = report.importer.last_outcome if report.importer is not None else None
+    if report.import_result == "PASS" and done is not None:
+        # Ctrl+C at the undo or the listening prompt: UNDO_CHOICE promises this.
+        return ("Der Import war schon fertig; der Clip bleibt im Set"
+                + (", die neue Spur auch" if done.created_track else "")
+                + ".\n" + manual_removal_text(done))
+    if report.plan_confirmed:
+        return "Ob schon etwas gesendet wurde, ist unbekannt. Bitte in Live nachsehen. " + UNDO_HINT
+    return "Es wurde nichts in Live geändert."
+
+
 def parse_args(argv: list[str] | None) -> argparse.Namespace:
     p = argparse.ArgumentParser(description="AbeltonGod: eine WAV als Clip in Live importieren "
                                             "(#50).")
@@ -542,6 +555,7 @@ def main(argv: list[str] | None = None, input_fn: Callable[[str], str] = input,
     print(f"AbeltonGod live_import {SCRIPT_VERSION}\n", file=out)
     code = EXIT_OK
     bridge: AbletonBridge | None = None
+    run_started = False
     log = ActionLog(args.log)
     try:
         report.path = validate_wav_path(args.wav)
@@ -559,6 +573,7 @@ def main(argv: list[str] | None = None, input_fn: Callable[[str], str] = input,
             report.error = f"ReceivePortInUseError: {exc}"
             code = EXIT_PORT_IN_USE
         if bridge is not None:
+            run_started = True
             try:
                 code = run(bridge, report, report.path, args.slot, log, args.timeout,
                            input_fn, out)
@@ -567,18 +582,7 @@ def main(argv: list[str] | None = None, input_fn: Callable[[str], str] = input,
             except KeyboardInterrupt:
                 report.interrupted = True
                 report.error = "interrupted by user (Ctrl+C) outside a write"
-                done = report.importer.last_outcome if report.importer is not None else None
-                if report.import_result == "PASS" and done is not None:
-                    # Ctrl+C at the undo or the listening prompt: UNDO_CHOICE promises this.
-                    tail = ("Der Import war schon fertig; der Clip bleibt im Set"
-                            + (", die neue Spur auch" if done.created_track else "")
-                            + ".\n" + manual_removal_text(done))
-                elif report.plan_confirmed:
-                    tail = ("Ob schon etwas gesendet wurde, ist unbekannt. Bitte in Live "
-                            "nachsehen. " + UNDO_HINT)
-                else:
-                    tail = "Es wurde nichts in Live geändert."
-                print("\nABGEBROCHEN mit Strg+C. " + tail, file=out)
+                print("\nABGEBROCHEN mit Strg+C. " + interrupted_tail(report), file=out)
             except BridgeUnavailableError as exc:
                 print(msg_no_answer(DEFAULT_HOST, send_port) + "\n" + (
                     "Es wurde nichts in Live geändert." if not report.plan_confirmed
@@ -598,6 +602,18 @@ def main(argv: list[str] | None = None, input_fn: Callable[[str], str] = input,
         print(f"FEHLER in der Konfiguration: {exc}", file=out)
         report.error = f"{type(exc).__name__}: {exc}"
         code = EXIT_SETUP_ERROR
+    except KeyboardInterrupt:
+        # Before run(): checking the file or connecting, nothing sent to Live (#135). After
+        # run() started: a Ctrl+C in split_overrides or while a handler above was printing;
+        # say what the importer's record shows, not "nothing changed".
+        report.interrupted = True
+        if not run_started:
+            report.error = "interrupted by user (Ctrl+C) before connecting"
+            print("\nABGEBROCHEN mit Strg+C. Es wurde nichts in Live geändert.", file=out)
+        else:
+            if report.error is None:
+                report.error = "interrupted by user (Ctrl+C) after the import flow"
+            print("\nABGEBROCHEN mit Strg+C. " + interrupted_tail(report), file=out)
     finally:
         if bridge is not None:
             bridge.close()
