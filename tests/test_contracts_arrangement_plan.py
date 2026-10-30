@@ -216,7 +216,10 @@ def test_plan_is_not_a_tool_input_and_could_not_be_sent_strict() -> None:
     is outside the strict subset, so it must never be registered as a tool unchanged."""
     from test_contracts import TOOL_SCHEMAS, strict_subset_problems
 
+    from orchestrator.kick_tools import TOOL_CONTRACTS
+
     assert SCHEMA_FILE.name not in TOOL_SCHEMAS.values()
+    assert SCHEMA_FILE.name not in TOOL_CONTRACTS.values()  # what the wiring registers (#148)
     problems = strict_subset_problems(SCHEMA)
     for keyword in ("'minimum'", "'multipleOf'", "'$ref'", "'$defs'"):
         assert any(keyword in p for p in problems), keyword
