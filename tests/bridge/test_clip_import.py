@@ -24,6 +24,7 @@ from bridge.clip_import import (
     ImportPathError,
     SlotState,
     first_empty_slot,
+    live_number,
     read_state,
     same_file_path,
     validate_wav_path,
@@ -704,3 +705,76 @@ def test_first_empty_slot():
     assert first_empty_slot(SlotState((), (True, False, True))) == 1
     assert first_empty_slot(SlotState((), (True, True))) is None
     assert first_empty_slot(SlotState((), ())) is None
+
+
+# -- #188: abort texts use Live's 1-based numbers (decision of #175) ---------------------------
+
+
+class StubBridge:
+    """Just the three reads ``ClipImporter.run`` makes before it sends anything."""
+
+    def __init__(self, n_tracks: int, audio: bool, full_slot: int | None = None):
+        self.names = ("t",) * n_tracks
+        self.audio = audio
+        self.full_slot = full_slot
+
+    def get_track_has_audio_input(self, track, timeout_s=None):
+        return self.audio
+
+    def get_track_names(self, timeout_s=None):
+        return self.names
+
+    def get_clip_slot_has_clip(self, track, slot, timeout_s=None):
+        return slot == self.full_slot
+
+
+def _run(bridge, log, track, slot, num_slots):
+    imp = ClipImporter(bridge, log, timeout_s=TEST_TIMEOUT_S)
+    expected = read_state(bridge, track, num_slots)
+    with pytest.raises(ImportAborted) as err:
+        imp.run(path="unused.wav", track_index=track, slot_index=slot, num_slots=num_slots,
+                expected_before=expected)
+    return str(err.value)
+
+
+@pytest.mark.parametrize("slot, num, text", [
+    (4, 4, "scene number 5 does not exist (4 scenes)"),
+    (0, 0, "scene number 1 does not exist (0 scenes)"),
+    (-1, 4, "scene number -1 does not exist (4 scenes)"),  # not a Live position: quoted as given
+])
+def test_slot_out_of_range_text_is_one_based(log, slot, num, text):
+    assert _run(StubBridge(3, True), log, 0, slot, num) == text
+
+
+def test_midi_track_text_is_one_based(log):
+    assert _run(StubBridge(3, False), log, 0, 0, 4) == \
+        "track number 1 is not an audio track; nothing sent"
+    assert _run(StubBridge(3, False), log, 2, 0, 4) == \
+        "track number 3 is not an audio track; nothing sent"
+
+
+def test_occupied_slot_text_is_one_based(log):
+    # the example of the issue: 0-based slot 2 of track 1 -> scene 3 of track 2
+    assert _run(StubBridge(3, True, full_slot=2), log, 1, 2, 4) == \
+        "the slot in scene 3 of track 2 is not empty; nothing sent"
+
+
+def test_texts_over_the_whole_index_range(log):
+    rng = random.Random(188)
+    for _ in range(300):  # slot index up to 10^6: refused before any slot is read
+        slot = rng.choice([rng.randrange(0, 10**6 + 1), 10**6])
+        assert _run(StubBridge(2, True), log, 0, slot, slot) == \
+            f"scene number {slot + 1} does not exist ({slot} scenes)"
+    for _ in range(300):  # track index up to 10^6
+        track = rng.choice([rng.randrange(0, 10**6 + 1), 10**6])
+        assert _run(StubBridge(track + 1, False), log, track, 0, 1) == \
+            f"track number {track + 1} is not an audio track; nothing sent"
+    for _ in range(40):  # occupied: every track up to 10^6, every slot up to 3000
+        track, slot = rng.randrange(0, 10**6 + 1), rng.randrange(0, 3000)
+        assert _run(StubBridge(track + 1, True, full_slot=slot), log, track, slot, slot + 1) \
+            == f"the slot in scene {slot + 1} of track {track + 1} is not empty; nothing sent"
+
+
+def test_live_number():
+    assert [live_number(i) for i in (0, 1, 9, 10**6)] == ["1", "2", "10", "1000001"]
+    assert live_number(-1) == "-1"

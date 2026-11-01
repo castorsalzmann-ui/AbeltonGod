@@ -83,6 +83,12 @@ class ActionLogError(OSError):
     """The action log could not be written. Callers must not send the write."""
 
 
+def live_number(index: int) -> str:
+    """A 0-based index as the number Live shows (1-based); a negative index is not a Live
+    position and is quoted as given. Texts that reach the user or the model use this (#175)."""
+    return str(index + 1) if index >= 0 else str(index)
+
+
 class ImportAborted(Exception):
     """A pre-check, write or read-back failed; the message says what happened."""
 
@@ -448,17 +454,19 @@ class ClipImporter:
         """
         self.last_outcome = None
         if not 0 <= slot_index < num_slots:
-            raise ImportAborted(f"slot {slot_index} does not exist ({num_slots} scenes)")
+            raise ImportAborted(f"scene number {live_number(slot_index)} does not exist "
+                                f"({num_slots} scenes)")
         create_track = track_index is None
         if not create_track and not self.bridge.get_track_has_audio_input(track_index):
-            raise ImportAborted(f"track {track_index} is not an audio track; nothing sent")
+            raise ImportAborted(f"track number {live_number(track_index)} is not an audio "
+                                "track; nothing sent")
         before = read_state(self.bridge, track_index, num_slots)
         if before != expected_before:
             raise ImportAborted("the set changed between the plan and the confirmation; "
                                 "nothing sent")
         if not create_track and before.has_clip[slot_index]:
-            raise ImportAborted(f"slot {slot_index} of track {track_index} is not empty; "
-                                "nothing sent")
+            raise ImportAborted(f"the slot in scene {live_number(slot_index)} of track "
+                                f"{live_number(track_index)} is not empty; nothing sent")
         target = len(before.track_names) if create_track else track_index
         outcome = ImportOutcome(track_index=target, slot_index=slot_index, path=path,
                                 created_track=create_track, num_slots=num_slots,
