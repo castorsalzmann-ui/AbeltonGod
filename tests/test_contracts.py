@@ -304,11 +304,29 @@ def test_kick_params_resolved_form_is_valid_over_the_whole_range() -> None:
             assert math.isclose(beats, request["length_beats"], rel_tol=1e-12)
 
 
+def test_kick_params_root_description_is_short_and_model_facing() -> None:
+    """#169: the model reads the root description of the schema sent for generate_kick; it must
+    be guidance (<= 300 characters), the history lives in $comment, which the tool builder drops."""
+    from orchestrator.kick_tools import contract_input_schema
+
+    schema = load("kick-params.schema.json")
+    text = schema["description"]
+    assert 0 < len(text) <= 300, len(text)
+    for needle in ("schema_version", "seed", "never clamped"):
+        assert needle in text, needle
+    for history in ("issue #", "PR #", "v0.2", "v0.3", "follow-ups"):
+        assert history not in text, history
+    assert "v0.3 (issue #104" in schema["$comment"]  # the history is kept, not deleted
+    sent = contract_input_schema("kick-params.schema.json")
+    assert sent["description"] == text
+    assert "$comment" not in sent
+
+
 def test_kick_params_v03_rules_are_written_exactly() -> None:
     """The resolved form and the -60 dB rule are contract text the engine (#120) implements;
     pin every number and choice so a silent edit shows up here."""
     schema = load("kick-params.schema.json")
-    root = schema["description"]
+    root = schema["$comment"]
     for phrase in (
         "tail_note is replaced by the derived pitch_end_hz",
         "length_beats by the derived length_ms",
