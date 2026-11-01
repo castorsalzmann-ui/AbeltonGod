@@ -12,7 +12,9 @@ Errors a client may raise:
 - ``ModelUnavailable``: the model could not be reached or refused the call (network, auth,
   rate limit, adapter missing). ``request_sent=False`` says the request provably never reached
   the model (e.g. connection refused), so it cost nothing; the default ``True`` is the
-  conservative assumption.
+  conservative assumption. Its subclass ``ModelUnreachable`` means "no answer at all" (no
+  connection, or nothing within the time limit, #176); the chat tells the user to check the
+  internet connection.
 - ``ModelProtocolError``: the model answered, but the answer cannot be read.
 - ``ModelLimitReached``: the backend's own limit ended the run (for the Claude Agent SDK: a
   ``ResultMessage`` with subtype ``error_max_turns`` / ``error_max_budget_usd`` followed by a
@@ -45,6 +47,23 @@ class ModelUnavailable(ModelError):
         self.detail = detail
         self.request_sent = request_sent
         self.usage = usage  # what the backend still reported (e.g. cost of a failed run)
+
+
+class ModelUnreachable(ModelUnavailable):
+    """No answer at all (#176): no connection to the API, or nothing within the time limit.
+    ``waited_s`` is how long the client waited for an answer (``None``: it gave up early
+    because the backend reported that it has no connection)."""
+
+    def __init__(
+        self,
+        detail: str,
+        *,
+        waited_s: float | None = None,
+        request_sent: bool = True,
+        usage: ModelUsage | None = None,
+    ) -> None:
+        super().__init__(detail, request_sent=request_sent, usage=usage)
+        self.waited_s = waited_s
 
 
 class ModelProtocolError(ModelError):
@@ -169,6 +188,7 @@ __all__ = [
     "ModelRequest",
     "ModelResponse",
     "ModelUnavailable",
+    "ModelUnreachable",
     "ToolCall",
     "ToolResult",
     "ToolResultMessage",
