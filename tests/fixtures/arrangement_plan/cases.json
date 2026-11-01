@@ -1,0 +1,1228 @@
+{
+ "comment": "Cases for the arrangement plan format. Apply 'patch' (RFC 6902 add/remove/replace; '-' appends) to the base plan, then check it: a valid plan has expect [], else expect is the sorted set of rule codes (plan_problems 'code:' prefixes). A value {\"$number\": \"nan\"|\"inf\"|\"-inf\"} stands for that float (JSON cannot hold it).",
+ "base": "T2.json",
+ "cases": [
+  {
+   "name": "missing energy_nodes",
+   "expect": [
+    "schema"
+   ],
+   "patch": [
+    {
+     "op": "remove",
+     "path": "/energy_nodes"
+    }
+   ]
+  },
+  {
+   "name": "missing settings",
+   "expect": [
+    "schema"
+   ],
+   "patch": [
+    {
+     "op": "remove",
+     "path": "/settings"
+    }
+   ]
+  },
+  {
+   "name": "extra root key",
+   "expect": [
+    "schema"
+   ],
+   "patch": [
+    {
+     "op": "add",
+     "path": "/events",
+     "value": []
+    }
+   ]
+  },
+  {
+   "name": "schema_version 0.2",
+   "expect": [
+    "schema"
+   ],
+   "patch": [
+    {
+     "op": "replace",
+     "path": "/schema_version",
+     "value": "0.2"
+    }
+   ]
+  },
+  {
+   "name": "time signature 3/4",
+   "expect": [
+    "schema"
+   ],
+   "patch": [
+    {
+     "op": "replace",
+     "path": "/time_signature",
+     "value": "3/4"
+    }
+   ]
+  },
+  {
+   "name": "phrase_bars 16",
+   "expect": [
+    "schema"
+   ],
+   "patch": [
+    {
+     "op": "replace",
+     "path": "/phrase_bars",
+     "value": 16
+    }
+   ]
+  },
+  {
+   "name": "bpm 19",
+   "expect": [
+    "schema"
+   ],
+   "patch": [
+    {
+     "op": "replace",
+     "path": "/bpm",
+     "value": 19
+    }
+   ]
+  },
+  {
+   "name": "bpm 1000",
+   "expect": [
+    "schema"
+   ],
+   "patch": [
+    {
+     "op": "replace",
+     "path": "/bpm",
+     "value": 1000
+    }
+   ]
+  },
+  {
+   "name": "bpm inf",
+   "expect": [
+    "schema"
+   ],
+   "patch": [
+    {
+     "op": "replace",
+     "path": "/bpm",
+     "value": {
+      "$number": "inf"
+     }
+    }
+   ],
+   "note": "JSON has no Infinity; the loader turns {\"$number\": \"inf\"} into float inf"
+  },
+  {
+   "name": "bpm string",
+   "expect": [
+    "schema"
+   ],
+   "patch": [
+    {
+     "op": "replace",
+     "path": "/bpm",
+     "value": "140"
+    }
+   ]
+  },
+  {
+   "name": "total not multiple of 8",
+   "expect": [
+    "schema"
+   ],
+   "patch": [
+    {
+     "op": "replace",
+     "path": "/total_bars",
+     "value": 260
+    }
+   ]
+  },
+  {
+   "name": "total 24",
+   "expect": [
+    "schema"
+   ],
+   "patch": [
+    {
+     "op": "replace",
+     "path": "/total_bars",
+     "value": 24
+    }
+   ]
+  },
+  {
+   "name": "total 1032",
+   "expect": [
+    "schema"
+   ],
+   "patch": [
+    {
+     "op": "replace",
+     "path": "/total_bars",
+     "value": 1032
+    }
+   ]
+  },
+  {
+   "name": "total float",
+   "expect": [
+    "schema"
+   ],
+   "patch": [
+    {
+     "op": "replace",
+     "path": "/total_bars",
+     "value": 256.5
+    }
+   ]
+  },
+  {
+   "name": "unknown section type",
+   "expect": [
+    "schema"
+   ],
+   "patch": [
+    {
+     "op": "replace",
+     "path": "/sections/2/type",
+     "value": "peak"
+    }
+   ]
+  },
+  {
+   "name": "section extra key",
+   "expect": [
+    "schema"
+   ],
+   "patch": [
+    {
+     "op": "add",
+     "path": "/sections/2/index",
+     "value": 1
+    }
+   ]
+  },
+  {
+   "name": "section missing start",
+   "expect": [
+    "schema"
+   ],
+   "patch": [
+    {
+     "op": "remove",
+     "path": "/sections/2/start_bar"
+    }
+   ]
+  },
+  {
+   "name": "start_bar 0",
+   "expect": [
+    "schema"
+   ],
+   "patch": [
+    {
+     "op": "replace",
+     "path": "/sections/0/start_bar",
+     "value": 0
+    }
+   ]
+  },
+  {
+   "name": "length 12",
+   "expect": [
+    "schema"
+   ],
+   "patch": [
+    {
+     "op": "replace",
+     "path": "/sections/2/length_bars",
+     "value": 12
+    }
+   ]
+  },
+  {
+   "name": "break 32 (not allowed)",
+   "expect": [
+    "schema"
+   ],
+   "patch": [
+    {
+     "op": "replace",
+     "path": "/sections/2/length_bars",
+     "value": 32
+    }
+   ]
+  },
+  {
+   "name": "groove 8 (not allowed)",
+   "expect": [
+    "schema"
+   ],
+   "patch": [
+    {
+     "op": "replace",
+     "path": "/sections/1/length_bars",
+     "value": 8
+    }
+   ]
+  },
+  {
+   "name": "build 64 (not allowed)",
+   "expect": [
+    "schema"
+   ],
+   "patch": [
+    {
+     "op": "replace",
+     "path": "/sections/3/length_bars",
+     "value": 64
+    }
+   ]
+  },
+  {
+   "name": "intro 8 (not allowed)",
+   "expect": [
+    "schema"
+   ],
+   "patch": [
+    {
+     "op": "replace",
+     "path": "/sections/0/length_bars",
+     "value": 8
+    }
+   ]
+  },
+  {
+   "name": "outro 48 (not allowed)",
+   "expect": [
+    "schema"
+   ],
+   "patch": [
+    {
+     "op": "replace",
+     "path": "/sections/8/length_bars",
+     "value": 48
+    }
+   ]
+  },
+  {
+   "name": "one section",
+   "expect": [
+    "schema"
+   ],
+   "patch": [
+    {
+     "op": "replace",
+     "path": "/sections",
+     "value": [
+      {
+       "type": "intro",
+       "start_bar": 1,
+       "length_bars": 32
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "name": "one node",
+   "expect": [
+    "schema"
+   ],
+   "patch": [
+    {
+     "op": "replace",
+     "path": "/energy_nodes",
+     "value": [
+      {
+       "pos": 0,
+       "value": 0.3,
+       "drawn": false
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "name": "value 1.01",
+   "expect": [
+    "schema"
+   ],
+   "patch": [
+    {
+     "op": "replace",
+     "path": "/energy_nodes/3/value",
+     "value": 1.01
+    }
+   ]
+  },
+  {
+   "name": "value -0.01",
+   "expect": [
+    "schema"
+   ],
+   "patch": [
+    {
+     "op": "replace",
+     "path": "/energy_nodes/3/value",
+     "value": -0.01
+    }
+   ]
+  },
+  {
+   "name": "value bool",
+   "expect": [
+    "schema"
+   ],
+   "patch": [
+    {
+     "op": "replace",
+     "path": "/energy_nodes/3/value",
+     "value": true
+    }
+   ]
+  },
+  {
+   "name": "pos 2.5",
+   "expect": [
+    "schema"
+   ],
+   "patch": [
+    {
+     "op": "replace",
+     "path": "/energy_nodes/3/pos",
+     "value": 2.5
+    }
+   ]
+  },
+  {
+   "name": "pos -1",
+   "expect": [
+    "schema"
+   ],
+   "patch": [
+    {
+     "op": "replace",
+     "path": "/energy_nodes/0/pos",
+     "value": -1
+    }
+   ]
+  },
+  {
+   "name": "drawn missing",
+   "expect": [
+    "schema"
+   ],
+   "patch": [
+    {
+     "op": "remove",
+     "path": "/energy_nodes/3/drawn"
+    }
+   ]
+  },
+  {
+   "name": "drawn as int",
+   "expect": [
+    "schema"
+   ],
+   "patch": [
+    {
+     "op": "replace",
+     "path": "/energy_nodes/3/drawn",
+     "value": 1
+    }
+   ]
+  },
+  {
+   "name": "node extra key",
+   "expect": [
+    "schema"
+   ],
+   "patch": [
+    {
+     "op": "add",
+     "path": "/energy_nodes/3/curve",
+     "value": "exp"
+    }
+   ]
+  },
+  {
+   "name": "change_grid 65 (above the bound)",
+   "expect": [
+    "schema"
+   ],
+   "patch": [
+    {
+     "op": "replace",
+     "path": "/settings/change_grid",
+     "value": 65
+    }
+   ]
+  },
+  {
+   "name": "change_grid 0",
+   "expect": [
+    "schema"
+   ],
+   "patch": [
+    {
+     "op": "replace",
+     "path": "/settings/change_grid",
+     "value": 0
+    }
+   ]
+  },
+  {
+   "name": "gap between sections",
+   "expect": [
+    "tiling"
+   ],
+   "patch": [
+    {
+     "op": "replace",
+     "path": "/sections/2/start_bar",
+     "value": 73
+    }
+   ]
+  },
+  {
+   "name": "overlap",
+   "expect": [
+    "tiling"
+   ],
+   "patch": [
+    {
+     "op": "replace",
+     "path": "/sections/3/start_bar",
+     "value": 65
+    }
+   ]
+  },
+  {
+   "name": "sections shorter than total",
+   "expect": [
+    "total_bars"
+   ],
+   "patch": [
+    {
+     "op": "replace",
+     "path": "/sections/8/length_bars",
+     "value": 32
+    }
+   ]
+  },
+  {
+   "name": "total longer than sections",
+   "expect": [
+    "total_bars"
+   ],
+   "patch": [
+    {
+     "op": "replace",
+     "path": "/total_bars",
+     "value": 264
+    },
+    {
+     "op": "replace",
+     "path": "/energy_nodes/35/pos",
+     "value": 264
+    }
+   ]
+  },
+  {
+   "name": "first not intro",
+   "expect": [
+    "first_not_intro"
+   ],
+   "patch": [
+    {
+     "op": "replace",
+     "path": "/sections/0/type",
+     "value": "groove"
+    }
+   ]
+  },
+  {
+   "name": "last not outro",
+   "expect": [
+    "last_not_outro"
+   ],
+   "patch": [
+    {
+     "op": "replace",
+     "path": "/sections/8/type",
+     "value": "drop"
+    }
+   ]
+  },
+  {
+   "name": "intro inside",
+   "expect": [
+    "intro_outro_inside"
+   ],
+   "patch": [
+    {
+     "op": "replace",
+     "path": "/sections/1/type",
+     "value": "intro"
+    }
+   ]
+  },
+  {
+   "name": "outro inside",
+   "expect": [
+    "intro_outro_inside"
+   ],
+   "patch": [
+    {
+     "op": "replace",
+     "path": "/sections/5/type",
+     "value": "outro"
+    }
+   ]
+  },
+  {
+   "name": "outro second to last",
+   "expect": [
+    "intro_outro_inside"
+   ],
+   "patch": [
+    {
+     "op": "replace",
+     "path": "/sections/7/type",
+     "value": "outro"
+    }
+   ]
+  },
+  {
+   "name": "nodes out of order",
+   "expect": [
+    "node_order"
+   ],
+   "patch": [
+    {
+     "op": "replace",
+     "path": "/energy_nodes/16",
+     "value": {
+      "pos": 144,
+      "value": 0.35,
+      "drawn": false
+     }
+    },
+    {
+     "op": "replace",
+     "path": "/energy_nodes/17",
+     "value": {
+      "pos": 128,
+      "value": 0.2,
+      "drawn": false
+     }
+    }
+   ]
+  },
+  {
+   "name": "node one bar back",
+   "expect": [
+    "node_order"
+   ],
+   "patch": [
+    {
+     "op": "add",
+     "path": "/energy_nodes/11",
+     "value": {
+      "pos": 63,
+      "value": 0.5,
+      "drawn": true
+     }
+    }
+   ]
+  },
+  {
+   "name": "third node at a pair, index 12, drawn false",
+   "expect": [
+    "three_at_pos"
+   ],
+   "patch": [
+    {
+     "op": "add",
+     "path": "/energy_nodes/12",
+     "value": {
+      "pos": 80,
+      "value": 0.87,
+      "drawn": false
+     }
+    }
+   ]
+  },
+  {
+   "name": "third node at a pair, index 13, drawn false",
+   "expect": [
+    "three_at_pos"
+   ],
+   "patch": [
+    {
+     "op": "add",
+     "path": "/energy_nodes/13",
+     "value": {
+      "pos": 80,
+      "value": 0.87,
+      "drawn": false
+     }
+    }
+   ]
+  },
+  {
+   "name": "third node at a pair, index 14, drawn false",
+   "expect": [
+    "three_at_pos"
+   ],
+   "patch": [
+    {
+     "op": "add",
+     "path": "/energy_nodes/14",
+     "value": {
+      "pos": 80,
+      "value": 0.87,
+      "drawn": false
+     }
+    }
+   ]
+  },
+  {
+   "name": "third node at a pair, index 12, drawn true",
+   "expect": [
+    "three_at_pos"
+   ],
+   "patch": [
+    {
+     "op": "add",
+     "path": "/energy_nodes/12",
+     "value": {
+      "pos": 80,
+      "value": 0.87,
+      "drawn": true
+     }
+    }
+   ]
+  },
+  {
+   "name": "third node at a pair, index 13, drawn true",
+   "expect": [
+    "three_at_pos"
+   ],
+   "patch": [
+    {
+     "op": "add",
+     "path": "/energy_nodes/13",
+     "value": {
+      "pos": 80,
+      "value": 0.87,
+      "drawn": true
+     }
+    }
+   ]
+  },
+  {
+   "name": "third node at a pair, index 14, drawn true",
+   "expect": [
+    "three_at_pos"
+   ],
+   "patch": [
+    {
+     "op": "add",
+     "path": "/energy_nodes/14",
+     "value": {
+      "pos": 80,
+      "value": 0.87,
+      "drawn": true
+     }
+    }
+   ]
+  },
+  {
+   "name": "three nodes, two drawn",
+   "expect": [
+    "three_at_pos"
+   ],
+   "patch": [
+    {
+     "op": "add",
+     "path": "/energy_nodes/10",
+     "value": {
+      "pos": 64,
+      "value": 0.5,
+      "drawn": true
+     }
+    }
+   ]
+  },
+  {
+   "name": "first node not at 0",
+   "expect": [
+    "first_node_pos"
+   ],
+   "patch": [
+    {
+     "op": "replace",
+     "path": "/energy_nodes/0/pos",
+     "value": 1
+    }
+   ]
+  },
+  {
+   "name": "no node at 0",
+   "expect": [
+    "first_node_pos"
+   ],
+   "patch": [
+    {
+     "op": "remove",
+     "path": "/energy_nodes/0"
+    }
+   ]
+  },
+  {
+   "name": "last node not at total",
+   "expect": [
+    "last_node_pos"
+   ],
+   "patch": [
+    {
+     "op": "replace",
+     "path": "/energy_nodes/35/pos",
+     "value": 255
+    }
+   ]
+  },
+  {
+   "name": "node beyond total",
+   "expect": [
+    "last_node_pos"
+   ],
+   "patch": [
+    {
+     "op": "replace",
+     "path": "/energy_nodes/35/pos",
+     "value": 257
+    }
+   ]
+  },
+  {
+   "name": "pair at 0",
+   "expect": [
+    "pair_at_edge"
+   ],
+   "patch": [
+    {
+     "op": "add",
+     "path": "/energy_nodes/1",
+     "value": {
+      "pos": 0,
+      "value": 0.4,
+      "drawn": true
+     }
+    }
+   ]
+  },
+  {
+   "name": "pair at total",
+   "expect": [
+    "pair_at_edge"
+   ],
+   "patch": [
+    {
+     "op": "add",
+     "path": "/energy_nodes/-",
+     "value": {
+      "pos": 256,
+      "value": 0.1,
+      "drawn": true
+     }
+    }
+   ]
+  },
+  {
+   "name": "bpm nan",
+   "expect": [
+    "nonfinite"
+   ],
+   "patch": [
+    {
+     "op": "replace",
+     "path": "/bpm",
+     "value": {
+      "$number": "nan"
+     }
+    }
+   ]
+  },
+  {
+   "name": "value nan",
+   "expect": [
+    "nonfinite"
+   ],
+   "patch": [
+    {
+     "op": "replace",
+     "path": "/energy_nodes/3/value",
+     "value": {
+      "$number": "nan"
+     }
+    }
+   ]
+  },
+  {
+   "name": "undrawn jump into a build (B2)",
+   "expect": [
+    "b2_jump"
+   ],
+   "patch": [
+    {
+     "op": "add",
+     "path": "/energy_nodes/12",
+     "value": {
+      "pos": 72,
+      "value": 0.5,
+      "drawn": false
+     }
+    }
+   ]
+  },
+  {
+   "name": "drawn jump into a build, node 11 drawn",
+   "expect": [],
+   "patch": [
+    {
+     "op": "add",
+     "path": "/energy_nodes/12",
+     "value": {
+      "pos": 72,
+      "value": 0.5,
+      "drawn": false
+     }
+    },
+    {
+     "op": "replace",
+     "path": "/energy_nodes/11/drawn",
+     "value": true
+    }
+   ]
+  },
+  {
+   "name": "drawn jump into a build, node 12 drawn",
+   "expect": [],
+   "patch": [
+    {
+     "op": "add",
+     "path": "/energy_nodes/12",
+     "value": {
+      "pos": 72,
+      "value": 0.5,
+      "drawn": false
+     }
+    },
+    {
+     "op": "replace",
+     "path": "/energy_nodes/12/drawn",
+     "value": true
+    }
+   ]
+  },
+  {
+   "name": "pair without a jump into a build",
+   "expect": [],
+   "patch": [
+    {
+     "op": "add",
+     "path": "/energy_nodes/12",
+     "value": {
+      "pos": 72,
+      "value": 0.45,
+      "drawn": false
+     }
+    }
+   ]
+  },
+  {
+   "name": "old outro default 1.00 | 0.55 (undrawn jump)",
+   "expect": [
+    "b2_jump"
+   ],
+   "patch": [
+    {
+     "op": "add",
+     "path": "/energy_nodes/21",
+     "value": {
+      "pos": 192,
+      "value": 0.55,
+      "drawn": false
+     }
+    }
+   ]
+  },
+  {
+   "name": "user-drawn jump into the outro, node 20 drawn",
+   "expect": [],
+   "patch": [
+    {
+     "op": "add",
+     "path": "/energy_nodes/21",
+     "value": {
+      "pos": 192,
+      "value": 0.55,
+      "drawn": false
+     }
+    },
+    {
+     "op": "replace",
+     "path": "/energy_nodes/20/drawn",
+     "value": true
+    }
+   ]
+  },
+  {
+   "name": "user-drawn jump into the outro, node 21 drawn",
+   "expect": [],
+   "patch": [
+    {
+     "op": "add",
+     "path": "/energy_nodes/21",
+     "value": {
+      "pos": 192,
+      "value": 0.55,
+      "drawn": false
+     }
+    },
+    {
+     "op": "replace",
+     "path": "/energy_nodes/21/drawn",
+     "value": true
+    }
+   ]
+  },
+  {
+   "name": "jump 1e-10 into the outro stays within the tolerance",
+   "expect": [],
+   "patch": [
+    {
+     "op": "add",
+     "path": "/energy_nodes/21",
+     "value": {
+      "pos": 192,
+      "value": 0.9999999999,
+      "drawn": false
+     }
+    }
+   ]
+  },
+  {
+   "name": "jump 1e-6 into the outro",
+   "expect": [
+    "b2_jump"
+   ],
+   "patch": [
+    {
+     "op": "add",
+     "path": "/energy_nodes/21",
+     "value": {
+      "pos": 192,
+      "value": 0.999999,
+      "drawn": false
+     }
+    }
+   ]
+  },
+  {
+   "name": "drop starts lower, build end not following",
+   "expect": [
+    "b3_build_end"
+   ],
+   "patch": [
+    {
+     "op": "replace",
+     "path": "/energy_nodes/13/value",
+     "value": 0.8
+    }
+   ]
+  },
+  {
+   "name": "drop starts lower, build end follows (0.75)",
+   "expect": [],
+   "patch": [
+    {
+     "op": "replace",
+     "path": "/energy_nodes/13/value",
+     "value": 0.8
+    },
+    {
+     "op": "replace",
+     "path": "/energy_nodes/12/value",
+     "value": 0.75
+    }
+   ]
+  },
+  {
+   "name": "drop below the build start: build end = build start",
+   "expect": [],
+   "patch": [
+    {
+     "op": "replace",
+     "path": "/energy_nodes/13/value",
+     "value": 0.3
+    },
+    {
+     "op": "replace",
+     "path": "/energy_nodes/12/value",
+     "value": 0.45
+    }
+   ]
+  },
+  {
+   "name": "build end drawn: never overridden",
+   "expect": [],
+   "patch": [
+    {
+     "op": "replace",
+     "path": "/energy_nodes/13/value",
+     "value": 0.3
+    },
+    {
+     "op": "replace",
+     "path": "/energy_nodes/12/value",
+     "value": 0.99
+    },
+    {
+     "op": "replace",
+     "path": "/energy_nodes/12/drawn",
+     "value": true
+    }
+   ]
+  },
+  {
+   "name": "build end 1e-6 off",
+   "expect": [
+    "b3_build_end"
+   ],
+   "patch": [
+    {
+     "op": "replace",
+     "path": "/energy_nodes/12/value",
+     "value": 0.850001
+    }
+   ]
+  },
+  {
+   "name": "build end 1e-10 off",
+   "expect": [],
+   "patch": [
+    {
+     "op": "replace",
+     "path": "/energy_nodes/12/value",
+     "value": 0.8500000001
+    }
+   ]
+  },
+  {
+   "name": "pair at the build end swapped",
+   "expect": [
+    "b3_build_end"
+   ],
+   "patch": [
+    {
+     "op": "replace",
+     "path": "/energy_nodes/12",
+     "value": {
+      "pos": 80,
+      "value": 0.9,
+      "drawn": false
+     }
+    },
+    {
+     "op": "replace",
+     "path": "/energy_nodes/13",
+     "value": {
+      "pos": 80,
+      "value": 0.85,
+      "drawn": false
+     }
+    }
+   ]
+  },
+  {
+   "name": "pair at 64 swapped (the curve changes, no rule breaks)",
+   "expect": [],
+   "patch": [
+    {
+     "op": "replace",
+     "path": "/energy_nodes/9",
+     "value": {
+      "pos": 64,
+      "value": 0.45,
+      "drawn": false
+     }
+    },
+    {
+     "op": "replace",
+     "path": "/energy_nodes/10",
+     "value": {
+      "pos": 64,
+      "value": 0.7,
+      "drawn": false
+     }
+    }
+   ]
+  },
+  {
+   "name": "single undrawn node at the build end: 0.85 (a ramp)",
+   "expect": [
+    "b3_build_end"
+   ],
+   "patch": [
+    {
+     "op": "remove",
+     "path": "/energy_nodes/13"
+    }
+   ],
+   "note": "B3: arriving and leaving node are the same node, so v = max(start, v - 0.05) holds only for v = start"
+  },
+  {
+   "name": "single undrawn node at the build end: = build start (flat build)",
+   "expect": [],
+   "patch": [
+    {
+     "op": "remove",
+     "path": "/energy_nodes/13"
+    },
+    {
+     "op": "replace",
+     "path": "/energy_nodes/12/value",
+     "value": 0.45
+    }
+   ]
+  },
+  {
+   "name": "single drawn node at the build end: any value",
+   "expect": [],
+   "patch": [
+    {
+     "op": "remove",
+     "path": "/energy_nodes/13"
+    },
+    {
+     "op": "replace",
+     "path": "/energy_nodes/12/drawn",
+     "value": true
+    }
+   ]
+  }
+ ]
+}
