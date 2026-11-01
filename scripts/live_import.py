@@ -544,24 +544,23 @@ def parse_args(argv: list[str] | None) -> argparse.Namespace:
     return p.parse_args(argv)
 
 
-def main(argv: list[str] | None = None, input_fn: Callable[[str], str] = input,
-         out: TextIO | None = None) -> int:
-    out = out if out is not None else sys.stdout
-    if hasattr(out, "reconfigure"):
-        try:
-            out.reconfigure(errors="backslashreplace")
-        except (AttributeError, ValueError):
-            pass
-    args = parse_args(argv)
-    logging.getLogger("abeltongod").addHandler(logging.NullHandler())
-    report = Report(started_at=now_iso())
-    print(f"AbeltonGod live_import {SCRIPT_VERSION}\n", file=out)
+def import_wav(args: argparse.Namespace, report: Report, wav: str | Path,
+               input_fn: Callable[[str], str], out: TextIO, *,
+               library_root: str | Path | None = None,
+               interrupted_fn: Callable[[Report], str] | None = None) -> int:
+    """Everything of ``main`` between the banner and the result block: check the file, connect,
+    :func:`run`, map every error to a message, ``report.error`` and an exit code, close the
+    bridge. Shared with ``scripts/kick_to_live.py`` (#136), which passes ``library_root`` (the
+    WAV must lie in the project's kick folder) and its own Ctrl+C text ``interrupted_fn``
+    (default :func:`interrupted_tail`). Uses ``args.log``, ``args.slot``, ``args.timeout`` and
+    the optional ``args.send_port`` / ``args.receive_port``."""
+    interrupted_fn = interrupted_fn if interrupted_fn is not None else interrupted_tail
     code = EXIT_OK
     bridge: AbletonBridge | None = None
     run_started = False
     log = ActionLog(args.log)
     try:
-        report.path = validate_wav_path(args.wav)
+        report.path = validate_wav_path(wav, library_root=library_root)
         report.action_log = str(log.path)
         send_port = (args.send_port if args.send_port is not None
                      else env_port("ABLETON_OSC_SEND_PORT", DEFAULT_SEND_PORT))
@@ -585,7 +584,7 @@ def main(argv: list[str] | None = None, input_fn: Callable[[str], str] = input,
             except KeyboardInterrupt:
                 report.interrupted = True
                 report.error = "interrupted by user (Ctrl+C) outside a write"
-                print("\nABGEBROCHEN mit Strg+C. " + interrupted_tail(report), file=out)
+                print("\nABGEBROCHEN mit Strg+C. " + interrupted_fn(report), file=out)
             except BridgeUnavailableError as exc:
                 print(msg_no_answer(DEFAULT_HOST, send_port) + "\n" + (
                     "Es wurde nichts in Live geändert." if not report.plan_confirmed
@@ -616,12 +615,28 @@ def main(argv: list[str] | None = None, input_fn: Callable[[str], str] = input,
         else:
             if report.error is None:
                 report.error = "interrupted by user (Ctrl+C) after the import flow"
-            print("\nABGEBROCHEN mit Strg+C. " + interrupted_tail(report), file=out)
+            print("\nABGEBROCHEN mit Strg+C. " + interrupted_fn(report), file=out)
     finally:
         if bridge is not None:
             bridge.close()
     if report.interrupted:
         code = EXIT_INTERRUPTED
+    return code
+
+
+def main(argv: list[str] | None = None, input_fn: Callable[[str], str] = input,
+         out: TextIO | None = None) -> int:
+    out = out if out is not None else sys.stdout
+    if hasattr(out, "reconfigure"):
+        try:
+            out.reconfigure(errors="backslashreplace")
+        except (AttributeError, ValueError):
+            pass
+    args = parse_args(argv)
+    logging.getLogger("abeltongod").addHandler(logging.NullHandler())
+    report = Report(started_at=now_iso())
+    print(f"AbeltonGod live_import {SCRIPT_VERSION}\n", file=out)
+    code = import_wav(args, report, args.wav, input_fn, out)
     report.finished_at = now_iso()
     print("\nBitte den folgenden Block komplett in Issue #50 einfügen:\n", file=out)
     print(render_result_block(report), file=out)
