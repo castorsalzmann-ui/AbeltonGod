@@ -5,7 +5,11 @@
     python -m orchestrator.chat --replay FILE.json    # fake model replaying a recording
 
 Each line is one guarded request (profile ``kick_generation``). Empty line, ``exit`` or
-``quit`` (or Ctrl+D / Ctrl+C) ends the chat.
+``quit`` (or Ctrl+D / Ctrl+C at the prompt) ends the chat. Ctrl+C while a request runs ends
+that request (never as a success) and the chat asks for the next line (#176); at the
+"Ausführen? [j/N]" question Ctrl+C means "no" and the request goes on. Claude
+unreachable (no connection, or no answer within the profile's ``timeout_s``): the request
+fails with a German message and the chat goes on.
 
 Tools (#148): with ``--project`` (the Live project folder, the one with the ``.als`` file)
 the copilot gets ``generate_kick``, ``list_tracks`` and ``import_sample``; without it, none.
@@ -19,6 +23,7 @@ project folder, capability registry unreadable).
 from __future__ import annotations
 
 import argparse
+import logging
 import sys
 from collections.abc import Callable
 from pathlib import Path
@@ -34,6 +39,7 @@ from orchestrator.model_client import ModelClient
 from orchestrator.project import ProjectCheckUnavailable
 from orchestrator.tools import CONFIRM_WINDOW_S, Plan, Tool, Toolbox, ToolDefinitionError
 
+SDK_LOGGER = "claude_agent_sdk"
 EXIT_OK = 0
 EXIT_SETUP = 2
 _YES = {"j", "ja", "y", "yes"}
@@ -87,6 +93,11 @@ def run_chat(
             return EXIT_OK
         if line.strip().lower() in _QUIT:
             return EXIT_OK
+        # #176: while Claude works nothing reads the console, so say so (and how to stop).
+        # At a "Ausführen? [j/N]" question Ctrl+C means "no" (TerminalApprover), not "abort".
+        out.write("(Claude arbeitet ... Strg+C bricht die Anfrage ab. Bei der Frage "
+                  "\"Ausführen?\" heißt Strg+C: nein.)\n")
+        out.flush()
         outcome = orchestrator.handle(line)
         out.write(outcome.text_for_user + "\n")
 
@@ -146,9 +157,16 @@ def main(
                   "import_sample).\n")
     else:
         out.write(f"Kicks gehen nach: {session.kick_folder}\n")
+    # #176 review P3: a killed CLI makes the SDK log "Fatal error in message reader: ... exit
+    # code -9" at ERROR level. The chat configures no logging, so Python would print that
+    # English line to the console before our German message. The outcome carries the facts.
+    sdk_log = logging.getLogger(SDK_LOGGER)
+    sdk_level = sdk_log.level
+    sdk_log.setLevel(logging.CRITICAL)
     try:
         return run_chat(orchestrator, read, out)
     finally:
+        sdk_log.setLevel(sdk_level)
         close = getattr(model, "close", None)
         if callable(close):
             close()
