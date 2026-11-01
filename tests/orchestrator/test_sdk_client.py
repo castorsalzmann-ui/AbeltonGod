@@ -182,7 +182,7 @@ def test_tool_call_runs_once_through_the_guard(make_guard, events, clients):
     assert calls == [{"n": 3}]
     [mcp] = cli.events("mcp_call")
     assert mcp[2] == {"n": 3} and mcp[3] is False
-    assert json.loads(mcp[4].split("\n")[0]) == {"echo": {"n": 3}}  # no guard note: level still ok (#174)
+    assert json.loads(mcp[4].split("\n")[0]) == {"echo": {"n": 3}}  # no guard note (#174)
     assert cli.events("hook") == [("hook", ECHO, "allow", "t1")]
     assert cli.model_calls == 2 == model_permits(events)
     k = events.kinds()
