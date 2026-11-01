@@ -352,13 +352,67 @@ def test_concurrent_request_limit(make_guard):
 # --- conservative counting ----------------------------------------------------------------
 
 
-def test_missing_usage_counts_the_reserved_amount(make_guard):
-    guard = make_guard()
+def _request_end(path):
+    rows = [json.loads(line) for line in path.read_text("utf-8").splitlines()]
+    [end] = [r for r in rows if r["kind"] == "request_end"]
+    return end
+
+
+def test_missing_usage_counts_the_reserved_amount(tmp_path, make_guard):
+    log = tmp_path / "u.jsonl"
+    guard = make_guard(log_path=log)
     with guard.request("p") as req:
         permit = req.before_model_call(estimated_cost_usd=0.4)
         req.after_model_call(permit, None)
         assert guard.session_spent_usd == pytest.approx(0.4)
-        assert Limit.OUTPUT_TOKENS in req.warnings  # unknown tokens count as 1000
+        # Unknown tokens are booked at the cap (1000) in the total, but are no evidence of a
+        # long answer: they must not raise the output-token warning (#174).
+        assert Limit.OUTPUT_TOKENS not in req.warnings
+        assert req.level is Level.OK
+    end = _request_end(log)
+    assert end["output_tokens"] == 1000  # conservative total stays
+    assert end["output_tokens_measured"] == 0
+    assert end["model_calls_without_token_usage"] == 1
+
+
+def test_unknown_tokens_never_warn_however_many_calls_issue_174(make_guard):
+    """Property: any number of calls without token usage (the shape of every SDK tool turn)
+    keeps the output-token warning off; the counted total grows by the cap per call."""
+    rng = random.Random(1740)
+    for _ in range(40):
+        cap = rng.randint(64, 5000)
+        pol = policy(p__max_output_tokens=cap, p__max_model_calls=60, p__max_budget_usd=1000.0,
+                     g__session_budget_usd=1000.0, g__daily_budget_usd=1000.0)
+        n = rng.randint(1, 12)
+        with make_guard(pol).request("p") as req:
+            for _ in range(n):
+                permit = req.before_model_call(estimated_cost_usd=0)
+                req.after_model_call(permit, ModelUsage(output_tokens=None, cost_usd=0.0))
+                assert Limit.OUTPUT_TOKENS not in req.warnings, (cap, n)
+            assert req._usage()["output_tokens"] == n * cap
+
+
+def test_measured_tokens_warn_exactly_from_the_fraction_issue_174(make_guard):
+    """Measured values keep the 0.8 threshold (limit 1000): 799 ok, 800 warn, also after
+    unknown calls; unknown calls do not lower or raise it."""
+    rng = random.Random(1741)
+    for _ in range(60):
+        measured = rng.randint(0, 1000)
+        unknown_before = rng.randint(0, 3)
+        with make_guard().request("p") as req:
+            for _ in range(unknown_before):
+                req.after_model_call(req.before_model_call(estimated_cost_usd=0), None)
+            model_call(req, tokens=measured)
+            warned = Limit.OUTPUT_TOKENS in req.warnings
+            assert warned == (measured >= 800), (measured, unknown_before)
+
+
+def test_largest_measured_call_drives_the_warning_not_the_sum(make_guard):
+    with make_guard().request("p") as req:
+        for _ in range(4):
+            model_call(req, tokens=500)  # sum 2000 > limit, each call 50 %
+        assert Limit.OUTPUT_TOKENS not in req.warnings
+        assert req._usage()["output_tokens_measured"] == 2000
 
 
 @pytest.mark.parametrize("bad", [float("nan"), float("inf"), -0.1, True, "0.1"])

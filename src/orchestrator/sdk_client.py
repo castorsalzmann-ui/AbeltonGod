@@ -59,9 +59,10 @@ under the subscription). Intermediate turns report no usage, so the guard counts
 reservation; the final turn reports ``total - already counted`` (never below 0), so the
 guard's total is at least the SDK's. ``estimate_cost_usd`` gives the loop a per-call
 reservation (profile budget / profile model calls) instead of "all money left".
-Output tokens are only known when the run was a single model call; otherwise the guard counts
-each call at its cap, so a multi-turn request reaches the guard's warn level after its first
-tool turn (known limit, not a measured value).
+Output tokens are only known when the run was a single model call (the result's ``usage`` is
+one total for the whole run and cannot be split per call). For the other calls the guard books
+the cap in its conservative total but does not let it drive the ``max_output_tokens`` warning
+(#174): before that, every multi-turn request warned after its first tool turn.
 """
 
 from __future__ import annotations

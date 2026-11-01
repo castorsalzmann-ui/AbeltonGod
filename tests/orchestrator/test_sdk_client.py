@@ -182,7 +182,7 @@ def test_tool_call_runs_once_through_the_guard(make_guard, events, clients):
     assert calls == [{"n": 3}]
     [mcp] = cli.events("mcp_call")
     assert mcp[2] == {"n": 3} and mcp[3] is False
-    assert json.loads(mcp[4].split("\n")[0]) == {"echo": {"n": 3}}  # + guard note (warn)
+    assert json.loads(mcp[4].split("\n")[0]) == {"echo": {"n": 3}}  # no guard note: level still ok (#174)
     assert cli.events("hook") == [("hook", ECHO, "allow", "t1")]
     assert cli.model_calls == 2 == model_permits(events)
     k = events.kinds()
@@ -841,12 +841,25 @@ def test_single_call_reports_exact_tokens(make_guard, events, clients):
     assert out.success is False and out.stop_reason is Limit.OUTPUT_TOKENS  # 1200 > 1000
 
 
-def test_guard_warning_reaches_the_model_with_the_tool_result(make_guard, events, clients):
+def test_tool_turn_without_usage_does_not_warn_about_output_tokens(make_guard, events, clients):
+    """#174: tool turns report no usage; the guard booked them at the cap and the request
+    warned 'max_output_tokens' after its first tool turn. Now no note and no warning."""
     factory = FakeCLIFactory({"turns": [{"tool_uses": [use("t1", {"n": 1})]}, {"text": "ok"}]})
-    run(make_guard(), make_client(clients, factory), [echo_tool(events)])
+    guard = make_guard()
+    out = run(guard, make_client(clients, factory), [echo_tool(events)])
     [mcp] = factory.cli.events("mcp_call")
-    # unknown per-call tokens count at the cap -> warn level -> the note goes along
-    assert "Resource guard" in mcp[4]
+    assert "Resource guard" not in mcp[4]
+    assert out.success and out.warnings == ()
+
+
+def test_guard_warning_for_a_real_limit_still_reaches_the_model(make_guard, events, clients):
+    """The note still goes along when a real limit is near: 4 of 5 model calls (TEST_POLICY)."""
+    turns = [{"id": f"m{i}", "tool_uses": [use(f"t{i}", {"n": i})]} for i in range(4)]
+    turns.append({"id": "last", "text": "ok"})
+    factory = FakeCLIFactory({"turns": turns})
+    run(make_guard(), make_client(clients, factory), [echo_tool(events)])
+    notes = ["Resource guard" in m[4] for m in factory.cli.events("mcp_call")]
+    assert notes == [False, False, False, True]
 
 
 # --- hook and relay units --------------------------------------------------------------------

@@ -301,7 +301,12 @@ class GuardedRequest:
         self._done: list[str] = []
         self._open: list[str] = []
         self._output_tokens_total = 0
+        # Only calls whose token usage was reported count towards the warning (#174): a call
+        # with unknown usage is booked at its cap in ``_output_tokens_total`` (conservative
+        # total) but says nothing about how long the answer was.
         self._max_call_tokens = 0
+        self._tokens_measured_total = 0
+        self._calls_without_tokens = 0
         self._stopped: GuardStop | None = None
         self._state = "new"  # new -> running -> finished/closed
         self._start = 0.0
@@ -624,7 +629,11 @@ class GuardedRequest:
             g._book.settle(counter, res.cost, counted)
         counted_tokens = tokens if tokens is not None else res.max_output_tokens
         self._output_tokens_total += counted_tokens
-        self._max_call_tokens = max(self._max_call_tokens, counted_tokens)
+        if tokens is not None:
+            self._tokens_measured_total += tokens
+            self._max_call_tokens = max(self._max_call_tokens, tokens)
+        else:
+            self._calls_without_tokens += 1
         entry = {
             "kind": "model",
             "estimated_cost_usd": res.cost,
@@ -767,7 +776,9 @@ class GuardedRequest:
             "tool_calls": int(self._tool_calls.used),
             "files_written": int(self._files.used),
             "live_writes": int(self._live.used),
-            "output_tokens": self._output_tokens_total,
+            "output_tokens": self._output_tokens_total,  # counted: unknown calls at their cap
+            "output_tokens_measured": self._tokens_measured_total,
+            "model_calls_without_token_usage": self._calls_without_tokens,
             "cost_usd": self._cost.used,
             "elapsed_s": round(self.elapsed_s(), 3),
         }
