@@ -510,7 +510,7 @@ def test_no_empty_slot_is_refused(tmp_path, make_guard, fake):
     session, box, guard = _ready(tmp_path, make_guard, fake)
     result = run(guard, box, "import_sample", {"sample_id": "kick-1", "track_index": 0},
                  Approver(True))
-    assert result.is_error and "no empty slot" in result.content["message"]
+    assert result.is_error and "track 1 has no empty slot" in result.content["message"]
     assert writes_sent(fake) == []
 
 
