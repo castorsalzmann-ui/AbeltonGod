@@ -321,7 +321,7 @@ def test_offset_rounding_is_written_and_matches_the_engine() -> None:
 def test_length_snap_and_recovery_are_written_and_match_the_engine() -> None:
     from audio_engine.params import resolve_kick_params
 
-    root = CANON["description"]
+    root = CANON["$comment"]
     for phrase in (
         "a result at most 1e-9 ms below 80 or above 2000 is stored as exactly 80.0 or 2000.0",
         "2.14 beats at 64.2 BPM compute as 2000.0000000000002 ms",
