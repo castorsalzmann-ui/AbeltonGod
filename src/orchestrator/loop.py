@@ -54,9 +54,13 @@ def _unreachable_detail_de(exc: ModelUnreachable) -> str:
     return "keine Verbindung zum Claude-Server"
 
 
-def _changes_de(req: GuardedRequest | None) -> str:
+def _changes_de(req: GuardedRequest | None, *, upper_bound: bool = False) -> str:
     """What this request already changed, from the guard's own count (#176). Only "nothing"
-    when the guard counted no file and no Live write."""
+    when the guard counted no file and no Live write.
+
+    ``upper_bound``: the request was cut off from outside (Ctrl+C), possibly inside a tool.
+    The guard then counts that tool at its declared maximum, so the numbers may be too high
+    and the text says "at most" instead of "done" (round-1 review of #181, P5)."""
     if req is None:
         return "Es wurde nichts geändert."
     usage = req.usage()
@@ -68,7 +72,9 @@ def _changes_de(req: GuardedRequest | None) -> str:
         parts.append(f"{files} Datei(en) geschrieben")
     if live:
         parts.append(f"{live} Änderung(en) am Live-Set")
-    return "Bis dahin erledigt: " + ", ".join(parts) + "."
+    lead = "Möglicherweise schon geändert: höchstens " if upper_bound else "Bis dahin erledigt: "
+    return lead + ", ".join(parts) + "."
+
 
 DEFAULT_PROFILE = "kick_generation"
 ANSWER_ITEM = "Antwort"
@@ -230,7 +236,10 @@ class Orchestrator:
             if callable(end):
                 try:
                     end()
-                except Exception:  # noqa: BLE001 - closing a session must not hide the outcome
+                except (Exception, KeyboardInterrupt):  # noqa: BLE001
+                    # Closing a session must not hide the outcome. A second Ctrl+C while the
+                    # session closes (up to ~28 s after a finished run) must not end the chat
+                    # either (#176, review P4); the client's shutdown task goes on by itself.
                     pass
 
     def _handle(self, text: str) -> Outcome:
@@ -273,10 +282,11 @@ class Orchestrator:
                 warnings: list[str], reply: str = "") -> Outcome:
         done = req.done if req is not None else ()
         still_open = req.open if req is not None else (ANSWER_ITEM,)
+        changes = _changes_de(req, upper_bound=error == "interrupted")
         return Outcome(
             success=False,
             reply=reply,
-            message_de=_FAILURE_DE[error].format(detail=detail, changes=_changes_de(req)),
+            message_de=_FAILURE_DE[error].format(detail=detail, changes=changes),
             done=done,
             open=still_open or (ANSWER_ITEM,),
             error=error,

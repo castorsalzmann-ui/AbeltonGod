@@ -4,7 +4,7 @@
     {
       "id": "U1_NO_OFFLINE_DETECTION",
       "file": "src/orchestrator/sdk_client.py",
-      "old": "OFFLINE_RETRIES = 2\n",
+      "old": "OFFLINE_RETRIES = 4\n",
       "new": "OFFLINE_RETRIES = 99\n",
       "tests": ["tests/regressions/test_bug_176_offline_hang.py", "tests/orchestrator/test_sdk_client.py"],
       "note": "retry frames ignored again: the offline CLI waits for the deadline (the #176 state)"
@@ -104,6 +104,92 @@
       "tests": ["tests/orchestrator/test_sdk_client.py"],
       "pytest_args": ["-k", "guard_timeout_ends"],
       "note": "the deadline path loses the 'keine Antwort nach N s' message"
+    },
+    {
+      "id": "R5_NO_RESET_ON_ASSISTANT",
+      "file": "src/orchestrator/sdk_client.py",
+      "old": "            sess.offline_retries = 0  # the API answered\n",
+      "new": "            pass\n",
+      "tests": ["tests/orchestrator/test_sdk_client.py"],
+      "pytest_args": ["-k", "in_a_row"],
+      "note": "review round 1: the 'in a row' rule across a successful model call (P2)"
+    },
+    {
+      "id": "R8_SUCCESS_IS_KILLED_TOO",
+      "file": "src/orchestrator/sdk_client.py",
+      "old": "self._close_session(kill=False)",
+      "new": "self._close_session(kill=True)",
+      "tests": ["tests/orchestrator/test_sdk_client.py"],
+      "pytest_args": ["-k", "finished_run_closes"],
+      "note": "review round 1: kill only on failure (P6)"
+    },
+    {
+      "id": "R9_LIVE_WRITES_IGNORED_IN_SENTENCE",
+      "file": "src/orchestrator/loop.py",
+      "old": "    if not files and not live:\n",
+      "new": "    if not files:\n",
+      "tests": ["tests/orchestrator/test_unreachable_changes.py"],
+      "note": "review round 1 (P1): 'nichts geändert' after a Live write"
+    },
+    {
+      "id": "R11_CTRL_C_IGNORES_COUNT",
+      "file": "src/orchestrator/loop.py",
+      "old": "        changes = _changes_de(req, upper_bound=error == \"interrupted\")\n",
+      "new": "        changes = _changes_de(None if error == \"interrupted\" else req,\n                              upper_bound=error == \"interrupted\")\n",
+      "tests": ["tests/orchestrator/test_unreachable_changes.py"],
+      "note": "review round 1 (P1): the Ctrl+C path ignores the guard's count"
+    },
+    {
+      "id": "R12_GUARD_TIMEOUT_PATH_IGNORES_COUNT",
+      "file": "src/orchestrator/loop.py",
+      "old": "changes=_changes_de(req))",
+      "new": "changes=_changes_de(None))",
+      "tests": ["tests/orchestrator/test_unreachable_changes.py"],
+      "note": "review round 1 (P1): the guard-timeout branch ignores the guard's count"
+    },
+    {
+      "id": "R14_NO_AT_MOST_WORDING",
+      "file": "src/orchestrator/loop.py",
+      "old": "upper_bound=error == \"interrupted\")",
+      "new": "upper_bound=False)",
+      "tests": ["tests/orchestrator/test_unreachable_changes.py"],
+      "note": "P5: a possibly settled-at-maximum count is worded as done"
+    },
+    {
+      "id": "R15_NO_RESPONSE_FRAMES_COUNTED",
+      "file": "src/orchestrator/sdk_client.py",
+      "old": "        if isinstance(data, Mapping) and data.get(\"no_response\"):\n            return\n",
+      "new": "",
+      "tests": ["tests/orchestrator/test_sdk_client.py"],
+      "pytest_args": ["-k", "left_to_the_cli"],
+      "note": "P2: a reachable server that sent nothing in time is not 'no connection'"
+    },
+    {
+      "id": "R16_THRESHOLD_3",
+      "file": "src/orchestrator/sdk_client.py",
+      "old": "OFFLINE_RETRIES = 4\n",
+      "new": "OFFLINE_RETRIES = 3\n",
+      "tests": ["tests/orchestrator/test_sdk_client.py"],
+      "pytest_args": ["-k", "retries"],
+      "note": "P2: threshold 4 (a short drop is ridden out)"
+    },
+    {
+      "id": "R17_SECOND_CTRL_C_ESCAPES",
+      "file": "src/orchestrator/loop.py",
+      "old": "except (Exception, KeyboardInterrupt):  # noqa: BLE001\n",
+      "new": "except Exception:  # noqa: BLE001\n",
+      "tests": ["tests/orchestrator/test_unreachable_changes.py"],
+      "pytest_args": ["-k", "second_ctrl_c"],
+      "note": "P4: a second Ctrl+C during the session close ends the chat"
+    },
+    {
+      "id": "R18_SDK_LOG_NOT_SILENCED",
+      "file": "src/orchestrator/chat.py",
+      "old": "    sdk_log.setLevel(logging.CRITICAL)\n",
+      "new": "    pass\n",
+      "tests": ["tests/orchestrator/test_unreachable_changes.py"],
+      "pytest_args": ["-k", "sdk_error_log"],
+      "note": "P3: English 'Fatal error in message reader' line in the console"
     }
   ]
 }

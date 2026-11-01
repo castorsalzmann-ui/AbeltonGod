@@ -50,8 +50,8 @@ Claude unreachable (#176). Every wait is bounded and every failed session is kil
 - starting the CLI and its initialize answer: ``CONNECT_TIMEOUT_S`` (and the request
   deadline); a CLI that exits meanwhile is noticed at once;
 - offline the CLI retries for minutes and reports each retry as a ``system``/``api_retry``
-  frame; ``OFFLINE_RETRIES`` of those without an HTTP status in a row end the request as
-  ``ModelUnreachable`` (no connection);
+  frame; ``OFFLINE_RETRIES`` of those without an HTTP status (and without ``no_response``)
+  in a row end the request as ``ModelUnreachable`` (no connection);
 - any other silence ends at the request deadline (profile ``timeout_s``) as
   ``ModelUnreachable`` with the time waited;
 - a session that ends without its result (error, timeout, guard stop, Ctrl+C) kills the CLI
@@ -196,12 +196,20 @@ NOT_A_SUBSCRIPTION_PLAN = "Claude API"
 
 # --- #176: Claude unreachable ---------------------------------------------------------------
 # Offline, CLI 2.1.310 retries the API call 10 times with growing pauses (measured on the Linux
-# build with the API address unreachable: retry frames at 0.4, 1.0, 2.1, 4.4, 8.9, 18, 38, 77,
-# 116 and 153 s, error result at ~190 s) and reports each retry as a ``system``/``api_retry``
-# frame with ``error_status: null`` (no HTTP answer). After this many such frames in a row the
-# request ends as "no connection" instead of waiting for the deadline. Not verified on the
+# build with the API address unreachable, in seconds after the request was sent, i.e. after
+# ``status: requesting``: retry frames at 0.4, 1.0, 2.1, 4.4, 8.9, 18, 38, 77, 116 and 153,
+# error result at ~190) and reports each retry as a ``system``/``api_retry`` frame with
+# ``error_status: null`` (no HTTP answer) and no ``no_response`` detail. After this many such
+# frames in a row the request ends as "no connection" instead of waiting for the deadline.
+#
+# Known limit (round-1 review of #181): a network drop of a few seconds (WLAN roaming, VPN
+# reconnect) looks the same for the first retries, so a threshold of 4 (about 3.5 s of
+# offline time after the request) is the compromise: a shorter drop is ridden out by the CLI,
+# a real outage costs about 3.5 s more. A frame with ``no_response`` (the server was reached
+# but sent nothing in time) is not counted. A proxy or captive portal that answers 502/503
+# sends frames with a status and falls back to the request deadline. Not verified on the
 # user's Windows machine (#176).
-OFFLINE_RETRIES = 2
+OFFLINE_RETRIES = 4
 # Hard limit for starting the CLI and its initialize answer (also bounded by the request
 # deadline). A CLI that has not answered by then is killed.
 CONNECT_TIMEOUT_S = 30.0
@@ -1079,13 +1087,19 @@ class SdkModelClient:
 
     @staticmethod
     def _on_api_retry(sess: _Session, data: Any) -> None:
-        """A retry the CLI reports (#176). Without an HTTP status the API never answered (no
-        connection, DNS, first-byte timeout); ``OFFLINE_RETRIES`` of those in a row end the
-        request instead of the CLI's ~3 minutes of retries. A retry with a status (429, 5xx,
-        overload) is left to the CLI and the request deadline."""
+        """A retry the CLI reports (#176). Without an HTTP status and without a ``no_response``
+        detail the connection itself failed (connection refused, DNS); ``OFFLINE_RETRIES`` of
+        those in a row end the request instead of the CLI's ~3 minutes of retries. A retry
+        with a status (429, 5xx, overload) resets the count and is left to the CLI and the
+        request deadline; a ``no_response`` frame (reachable server that sent nothing in time;
+        whether that also happens offline is not established) is not counted and does not
+        reset it. A short network drop of a few seconds can still end a request as "no
+        connection" (see ``OFFLINE_RETRIES``)."""
         status = data.get("error_status") if isinstance(data, Mapping) else None
         if status is not None:
             sess.offline_retries = 0
+            return
+        if isinstance(data, Mapping) and data.get("no_response"):
             return
         sess.offline_retries += 1
         if sess.offline_retries >= OFFLINE_RETRIES:
