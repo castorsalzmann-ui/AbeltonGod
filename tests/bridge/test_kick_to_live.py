@@ -367,7 +367,7 @@ def test_ctrl_c_while_connecting(fake, tmp_path, project, monkeypatch):
     def interrupted(*a, **k):
         raise KeyboardInterrupt
 
-    monkeypatch.setattr(k2l.AbletonBridge, "connect", interrupted)
+    monkeypatch.setattr(k2l.live_import.AbletonBridge, "connect", interrupted)
     try:
         code, out, _ = run(fake, tmp_path, project, ["y"])
     except KeyboardInterrupt:  # would end the whole pytest session
@@ -401,7 +401,7 @@ def test_ctrl_c_during_undo(fake, tmp_path, project, monkeypatch):
     def interrupted_undo(self):
         raise KeyboardInterrupt
 
-    monkeypatch.setattr(k2l.AbletonBridge, "undo", interrupted_undo)
+    monkeypatch.setattr(k2l.live_import.AbletonBridge, "undo", interrupted_undo)
     code, out, _ = run(fake, tmp_path, project, ["y", "0", "y", "y"])
     assert code == 130, out
     assert block(out)["kick_in_live"] == "unknown (see the messages above)"
@@ -445,6 +445,7 @@ def refused_project(fake, tmp_path, raw: str, cwd: Path, monkeypatch):
     assert "Es wurde nichts geschrieben und nichts in Live geändert." in out
     b = block(out)
     assert b["kick_written"] == "no (project folder refused)" and b["kick_wav"] == "-"
+    assert b["error"] == "kick not written: project folder refused"  # was "-" (#136 nit)
     return out
 
 
@@ -533,6 +534,7 @@ def test_write_failure(fake, tmp_path, project, monkeypatch):
     assert code == k2l.EXIT_WRITE_FAILED
     assert files(project) == ["My Project.als"] and fake.received == []
     assert "No space left on device" in block(out)["kick_written"]
+    assert block(out)["error"].startswith("kick not written: OSError: ")
 
 
 def test_only_a_file_in_the_project_kick_folder_goes_to_live(fake, tmp_path, project,
@@ -606,7 +608,7 @@ def test_ctrl_c_between_render_and_import(fake, tmp_path, project, monkeypatch):
     def interrupted(*a, **k):
         raise KeyboardInterrupt
 
-    monkeypatch.setattr(k2l, "ActionLog", interrupted)
+    monkeypatch.setattr(k2l.live_import, "ActionLog", interrupted)
     code, out, _ = run(fake, tmp_path, project, ["y"])
     assert code == 130 and fake.received == []
     wav = kick_dir(project) / "dense_s1001_v0.wav"
@@ -685,13 +687,13 @@ def test_connection_lost_after_the_plan_was_confirmed(fake, tmp_path, project):
 
 def test_bridge_is_closed_once(fake, tmp_path, project, monkeypatch):
     closed = []
-    real_close = k2l.AbletonBridge.close
+    real_close = k2l.live_import.AbletonBridge.close
 
     def close(self):
         closed.append(self)
         real_close(self)
 
-    monkeypatch.setattr(k2l.AbletonBridge, "close", close)
+    monkeypatch.setattr(k2l.live_import.AbletonBridge, "close", close)
     code, out, _ = run(fake, tmp_path, project, ["y", "0", "y", "y"])
     assert code == 0, out
     assert len(closed) == 1

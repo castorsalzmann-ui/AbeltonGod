@@ -23,9 +23,8 @@ Steps:
 Why a separate script and not a mode of ``live_import.py``: ``live_import.py`` takes an
 existing WAV as its one positional argument and its result block is the #50 evidence format;
 a render mode would make both conditional. This script reuses its ``run`` and helpers and
-changes nothing in it. The outer error handling of
-``live_import.main`` is repeated here (``import_kick``) because ``main`` does not return its
-report; keep the two in step until #136 merges them into one function.
+changes nothing in it. The outer error handling (connect, errors, Ctrl+C) is the one function
+``live_import.import_wav``, shared by both scripts (#136).
 
 Step 2 refuses ``--project`` unless it is an existing absolute folder with a ``.als`` file
 directly in it, not Live's ``Backup`` folder and not inside the AbeltonGod checkout.
@@ -50,23 +49,12 @@ from typing import TextIO
 from audio_engine import ENGINE_VERSION
 from audio_engine import cli as kick_cli
 from audio_engine.presets import UnknownPresetError
-from bridge.capabilities import CapabilityError, CapabilityRegistry
 from bridge.clip_import import (
     DEFAULT_ACTION_LOG,
     REPO_ROOT,
-    ActionLog,
-    ImportPathError,
-    validate_wav_path,
 )
 from bridge.osc_client import (
-    DEFAULT_HOST,
-    DEFAULT_RECEIVE_PORT,
-    DEFAULT_SEND_PORT,
     DEFAULT_TIMEOUT_S,
-    AbletonBridge,
-    BridgeError,
-    BridgeUnavailableError,
-    ReceivePortInUseError,
 )
 from library import (
     ProjectReason,
@@ -228,80 +216,12 @@ def project_problem(raw: str) -> str | None:
 
 def import_kick(args: argparse.Namespace, kick: Kick, report: live_import.Report,
                 input_fn: Callable[[str], str], out: TextIO) -> int:
-    """``live_import.main`` without argument parsing and result block. Differences: the WAV
-    must lie in the project's kick folder (``library_root``); Ctrl+C texts come from
-    :func:`interrupted_text`; Ctrl+C while connecting or after ``run()`` is caught (#135 is
-    the same gap in ``live_import.main``). De-duplication: issue #136."""
+    """The shared import flow (:func:`live_import.import_wav`, #136) for the rendered kick:
+    the WAV must lie in the project's kick folder (``library_root``) and Ctrl+C texts come
+    from :func:`interrupted_text`."""
     assert kick.wav is not None
-    code = EXIT_OK
-    bridge: AbletonBridge | None = None
-    run_started = False
-    log = ActionLog(args.log)
-    try:
-        report.path = validate_wav_path(kick.wav, library_root=kick.folder)
-        report.action_log = str(log.path)
-        send_port = (args.send_port if args.send_port is not None
-                     else live_import.env_port("ABLETON_OSC_SEND_PORT", DEFAULT_SEND_PORT))
-        receive_port = (args.receive_port if args.receive_port is not None
-                        else live_import.env_port("ABLETON_OSC_RECEIVE_PORT",
-                                                  DEFAULT_RECEIVE_PORT))
-        try:
-            bridge = AbletonBridge.connect(
-                DEFAULT_HOST, send_port, receive_port, timeout_s=args.timeout,
-                registry=CapabilityRegistry.from_file(), allow_untested=live_import.ALLOWED)
-        except ReceivePortInUseError as exc:
-            print(live_import.MSG_PORT_IN_USE.format(port=receive_port, host=DEFAULT_HOST),
-                  file=out)
-            report.error = f"ReceivePortInUseError: {exc}"
-            code = EXIT_PORT_IN_USE
-        if bridge is not None:
-            run_started = True
-            try:
-                code = live_import.run(bridge, report, report.path, args.slot, log,
-                                       args.timeout, input_fn, out)
-            except live_import.Stop as stop:
-                code, report.error = stop.code, stop.error
-            except KeyboardInterrupt:
-                report.interrupted = True
-                report.error = "interrupted by user (Ctrl+C) outside a write"
-                print("\nABGEBROCHEN mit Strg+C. " + interrupted_text(report), file=out)
-            except BridgeUnavailableError as exc:
-                print(live_import.msg_no_answer(DEFAULT_HOST, send_port) + "\n" + (
-                    "Es wurde nichts in Live geändert." if not report.plan_confirmed
-                    else "Bitte in Live nachsehen, was schon ausgeführt wurde."), file=out)
-                report.error = f"{type(exc).__name__}: {exc}"
-                code = EXIT_NO_CONNECTION
-            except BridgeError as exc:
-                print(f"FEHLER: unerwartete Antwort von AbletonOSC: {exc}", file=out)
-                report.error = f"{type(exc).__name__}: {exc}"
-                code = EXIT_CHECK_FAILED
-            live_import.split_overrides(report, bridge.gate.overrides_used)
-    except ImportPathError as exc:
-        print(f"FEHLER mit der Datei: {exc}\nEs wurde nichts in Live geändert.", file=out)
-        report.error = f"ImportPathError: {exc}"
-        code = EXIT_SETUP_ERROR
-    except (CapabilityError, ValueError) as exc:
-        print(f"FEHLER in der Konfiguration: {exc}", file=out)
-        report.error = f"{type(exc).__name__}: {exc}"
-        code = EXIT_SETUP_ERROR
-    except KeyboardInterrupt:
-        # Before run(): checking the file or connecting. After run() started: a Ctrl+C in
-        # split_overrides or a second Ctrl+C while a handler above was printing (PR #134
-        # review, problem 2): say what the importer's record shows, not "nothing changed".
-        report.interrupted = True
-        if not run_started:
-            report.error = "interrupted by user (Ctrl+C) before connecting"
-            print("\nABGEBROCHEN mit Strg+C. Es wurde nichts in Live geändert.", file=out)
-        else:
-            if report.error is None:
-                report.error = "interrupted by user (Ctrl+C) after the import flow"
-            print("\nABGEBROCHEN mit Strg+C. " + interrupted_text(report), file=out)
-    finally:
-        if bridge is not None:
-            bridge.close()
-    if report.interrupted:
-        code = EXIT_INTERRUPTED
-    return code
+    return live_import.import_wav(args, report, kick.wav, input_fn, out,
+                                  library_root=kick.folder, interrupted_fn=interrupted_text)
 
 
 # -- step 4 and 5: where things are ------------------------------------------------------------
@@ -432,6 +352,9 @@ def main(argv: list[str] | None = None, input_fn: Callable[[str], str] = input,
     code: int | None = None
     try:
         code = make_kick(args, kick, out)
+        if code not in (None, EXIT_INTERRUPTED):  # refused or not written: say why (#136 nit)
+            why = kick.written[4:-1] if kick.written.startswith("no (") else kick.written
+            report.error = f"kick not written: {why}"
         if code is None:
             code = import_kick(args, kick, report, input_fn, out)
             print(summary_text(kick, clip_in_live(report)), file=out)
