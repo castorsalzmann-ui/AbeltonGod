@@ -32,6 +32,7 @@ import math
 
 import numpy as np
 import pytest
+from support import kick_params as kp
 
 from audio_engine import kick as K
 
@@ -118,7 +119,7 @@ def _random_params(rng: np.random.Generator) -> dict:
     }
 
 
-RANDOM_CASES = [_random_params(np.random.default_rng(12000 + i)) for i in range(16)]
+RANDOM_CASES = [_random_params(kp.np_rng(12000 + i)) for i in range(16)]
 
 
 def test_curated_worst_case_is_bounded(monkeypatch) -> None:
