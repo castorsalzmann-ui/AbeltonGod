@@ -405,9 +405,9 @@ def test_list_tracks_reads_only(tmp_path, make_guard, fake):
     result = run(guard, toolbox(session), "list_tracks", {})
     assert result.is_error is False
     assert result.content["tracks"] == [
-        {"index": 0, "name": "1-Kick", "is_audio_track": True},
-        {"index": 1, "name": "2-Bass", "is_audio_track": False},
-        {"index": 2, "name": "3-Audio", "is_audio_track": True}]
+        {"index": 0, "number": 1, "name": "1-Kick", "is_audio_track": True},
+        {"index": 1, "number": 2, "name": "2-Bass", "is_audio_track": False},
+        {"index": 2, "number": 3, "name": "3-Audio", "is_audio_track": True}]
     assert result.content["scene_count"] == 4
     assert "not been observed" in result.content["note"]
     assert writes_sent(fake) == []
@@ -446,8 +446,8 @@ def test_import_happy_path(tmp_path, make_guard, fake):
     assert writes_sent(fake) == [("/live/clip_slot/create_audio_clip", (0, 0, path))]
     [(name, args, summary)] = approver.asked
     assert summary == {"sample_id": "kick-2", "file": session.entry("kick-2").file,
-                       "track_index": 0, "track_name": "1-Kick", "slot_index": 0,
-                       "scene_count": 4}
+                       "track_index": 0, "track_number": 1, "track_name": "1-Kick",
+                       "slot_index": 0, "scene_number": 1, "scene_count": 4}
     assert result.content["imported"]["file_path_read"] == path
     entry = tool_log(guard)[-1]
     assert entry["tool"] == "import_sample" and entry["live_writes"] == 1 and entry["ok"]
@@ -510,7 +510,7 @@ def test_no_empty_slot_is_refused(tmp_path, make_guard, fake):
     session, box, guard = _ready(tmp_path, make_guard, fake)
     result = run(guard, box, "import_sample", {"sample_id": "kick-1", "track_index": 0},
                  Approver(True))
-    assert result.is_error and "no empty slot" in result.content["message"]
+    assert result.is_error and "track 1 has no empty slot" in result.content["message"]
     assert writes_sent(fake) == []
 
 

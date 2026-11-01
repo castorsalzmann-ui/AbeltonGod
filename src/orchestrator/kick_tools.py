@@ -104,7 +104,9 @@ IMPORT_CAPS = (
 )
 AUDIO_FLAG_NOTE = (
     "is_audio_track is Live's has_audio_input. A false value has not been observed on this "
-    "machine yet; import_sample checks it again itself and refuses a track that is not audio."
+    "machine yet; import_sample checks it again itself and refuses a track that is not audio. "
+    "index is for the track_index argument only (0-based); number is what Live and the user "
+    "call the track (1-based): show the user number and name, never index."
 )
 
 GENERATE_DESCRIPTION = (
@@ -140,6 +142,13 @@ def _whole_int(value: Any) -> int | None:
     if isinstance(value, float) and math.isfinite(value) and value.is_integer():
         return int(value)
     return None
+
+
+def _live_number(index: Any) -> str:
+    """A 0-based index as Live's 1-based number for user-facing text; anything that is not a
+    whole number >= 0 is shown as given (it is the model's wrong value, quoted back)."""
+    whole = _whole_int(index)
+    return str(whole + 1) if whole is not None and whole >= 0 else repr(index)
 
 
 @dataclass(frozen=True)
@@ -366,7 +375,7 @@ class KickSession:
         try:
             names = bridge.get_track_names()
             scenes = bridge.get_num_scenes()
-            tracks = [{"index": i, "name": name,
+            tracks = [{"index": i, "number": i + 1, "name": name,
                        "is_audio_track": bridge.get_track_has_audio_input(i)}
                       for i, name in enumerate(names)]
         except (BridgeError, CapabilityError) as exc:
@@ -417,11 +426,12 @@ class KickSession:
         try:
             names = bridge.get_track_names()
             if track is None or not 0 <= track < len(names):
-                raise ToolError(f"track_index {arguments['track_index']!r} does not exist "
-                                f"({len(names)} tracks, 0 to {len(names) - 1})",
+                raise ToolError(f"track number {_live_number(arguments['track_index'])} does "
+                                f"not exist (Live has {len(names)} tracks, numbered 1 to "
+                                f"{len(names)}; track_index = number - 1)",
                                 details={"live": "unchanged"})
             if not bridge.get_track_has_audio_input(track):
-                raise ToolError(f"track {track} ({names[track]!r}) is not an audio track; "
+                raise ToolError(f"track {track + 1} ({names[track]!r}) is not an audio track; "
                                 "v1 imports into existing audio tracks only",
                                 details={"live": "unchanged"})
             scenes = bridge.get_num_scenes()
@@ -433,18 +443,21 @@ class KickSession:
             bridge.close()
         if slot_arg is not None:
             if slot is None or not 0 <= slot < scenes:
-                raise ToolError(f"slot_index {slot_arg!r} does not exist ({scenes} scenes)",
-                                details={"live": "unchanged"})
+                raise ToolError(f"scene number {_live_number(slot_arg)} does not exist "
+                                f"(Live has {scenes} scenes, numbered 1 to {scenes}; "
+                                "slot_index = number - 1)", details={"live": "unchanged"})
             if state.has_clip[slot]:
-                raise ToolError(f"slot {slot} of track {track} already holds a clip; it is "
-                                "never overwritten", details={"live": "unchanged"})
+                raise ToolError(f"the slot in scene {slot + 1} of track {track + 1} already "
+                                "holds a clip; it is never overwritten",
+                                details={"live": "unchanged"})
         else:
             slot = first_empty_slot(state)
             if slot is None:
-                raise ToolError(f"track {track} has no empty slot ({scenes} scenes)",
+                raise ToolError(f"track {track + 1} has no empty slot ({scenes} scenes)",
                                 details={"live": "unchanged"})
         summary = {"sample_id": entry.sample_id, "file": entry.file, "track_index": track,
-                   "track_name": names[track], "slot_index": slot, "scene_count": scenes}
+                   "track_number": track + 1, "track_name": names[track], "slot_index": slot,
+                   "scene_number": slot + 1, "scene_count": scenes}
         return Plan(summary, ImportPlan(entry, track, slot, scenes, state, names[track]))
 
     def _import(self, arguments: dict[str, Any], plan: Plan) -> ToolOutput:
@@ -479,6 +492,7 @@ class KickSession:
         return ToolOutput({"imported": {
             "sample_id": entry.sample_id, "file": entry.file,
             "track_index": outcome.track_index, "slot_index": outcome.slot_index,
+            "track_number": outcome.track_index + 1, "scene_number": outcome.slot_index + 1,
             "track_name_before": outcome.target_name_before,
             "track_name_after": outcome.target_name_after,
             "file_path_read": outcome.file_path_read,
