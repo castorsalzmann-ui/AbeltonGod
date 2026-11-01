@@ -18,6 +18,7 @@ from pathlib import Path
 
 import pytest
 from jsonschema.exceptions import ValidationError
+from support import kick_params as kp
 
 import audio_engine.io as io_mod
 from audio_engine import ENGINE_NAME, ENGINE_VERSION
@@ -317,7 +318,7 @@ def test_random_tampered_sidecars_are_rejected(sidecar_meta, tmp_path, monkeypat
     one value per JSON kind). The whole ``tmp_path`` is the snapshot root for every seed."""
     seen = set()
     for seed in SEEDS:
-        doc, label = _random_tamper(sidecar_meta, random.Random(seed))
+        doc, label = _random_tamper(sidecar_meta, kp.rng(seed))
         seen.add(label.split(" ", 1)[1])
         with monkeypatch.context() as mp:
             try:

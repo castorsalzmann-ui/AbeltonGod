@@ -19,6 +19,7 @@ from pathlib import Path
 
 import pytest
 from jsonschema import Draft202012Validator
+from support import kick_params as kp
 
 import audio_engine.io as io_mod
 import library.layout as layout_mod
@@ -346,7 +347,7 @@ def test_windows_name_rules_agree_with_ntpath_isreserved(case: int) -> None:
     So the comparison covers single components only: no separator, no ``:`` as the second
     character, not ``.``/``..`` (relative steps, refused by us, not reserved for ntpath).
     Those cases are pinned by hand in the tests above."""
-    rng = random.Random(6400 + 1000 + case)
+    rng = kp.rng(6400 + 1000 + case)
     alphabet = "abcK. :" + "".join(c for c in RESERVED_CHARS[:14] if c not in "/\\") + "¹²$"
     names = [rng.choice(RESERVED) + rng.choice(["", ".x", " ", " .y", "."]) for _ in range(50)]
     names += ["".join(rng.choice(alphabet) for _ in range(rng.randint(1, 8))) for _ in range(250)]
@@ -540,7 +541,7 @@ def _random_params(rng: random.Random) -> dict:
 
 @pytest.mark.parametrize("case", range(40))
 def test_random_placements_keep_every_rule(tmp_path, case: int) -> None:
-    rng = random.Random(6400 + case)
+    rng = kp.rng(6400 + case)
     parts = [_random_component(rng) for _ in range(rng.randint(1, 4))]
     sep = rng.choice(["/", "\\"])
     project = tmp_path / "proj"
@@ -589,7 +590,7 @@ def test_random_placements_keep_every_rule(tmp_path, case: int) -> None:
 
 @pytest.mark.parametrize("case", range(6))
 def test_random_placements_rerender_byte_identically(tmp_path, case: int) -> None:
-    rng = random.Random(6464 + case)
+    rng = kp.rng(6464 + case)
     wav = place_kick(_random_params(rng), tmp_path, name=_random_name(rng),
                      created_at=FIXED_TIME)
     assert rerender_from_sidecar(wav.with_suffix(".json")) == wav.read_bytes()
