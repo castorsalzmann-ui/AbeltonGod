@@ -10,6 +10,7 @@ Machine-readable contracts live in `contracts/`. This file explains them. Changi
 | `contracts/capabilities.json` (+ `capabilities.schema.json`) | Bridge → orchestrator | v1 — statuses updated in Phase 02 (#42: entry `track.mute.get` added, no format change) and Phase 03 (#50: `clip_slot.create_audio_clip` → `tested`, no format change; #143: `song.create_audio_track` → `tested`, own `tested` entries `track.has_audio_input.get`, `clip_slot.has_clip.get`, `clip.file_path.get`, `song.num_scenes.get` (no borrowed gate any more), no format change; one undo may revert track + clip together; #140: 12 Arrangement-check entries added as `unknown`, no format change) |
 | `contracts/guard-policy.schema.json` → `config/guard-policy.json` | User config → resource guard | v1 — default values are untuned starting points |
 | `contracts/tool-list-tracks.schema.json`, `contracts/tool-import-sample.schema.json` | Claude (tool arguments) → orchestrator | v1 (#81) — input schemas only; not wired yet |
+| `contracts/arrangement-plan.schema.json` | Planner window ↔ plan generator → Live builder | v0.1 (#146, D-024) — format only; no editor, generator or Live writes yet; not a Claude tool input |
 
 ## Kick parameters
 
@@ -130,3 +131,74 @@ Rejected alternatives:
   - the tool builder's output passes the strict checker with no root allowance (see "Strict subset");
   - the shared project-folder check exists in `src/library/` (#149);
   - the four reads have their own registry entries (#143) — **met** by #153: all four are `tested`.
+
+## Arrangement plan (`arrangement-plan.schema.json`)
+
+v0.1 (#146, D-024). One plan per track, shared by the planner window, the plan generator and the Live builder. Defaults and their sources: `docs/research/2026-10-29_arrangement-planner-sections-energy.md` (sections 3, 4, 6, 8). This is the format only: no editor, no generator and no Live writes exist yet.
+
+**Not a Claude tool input.** Claude does not send whole plans. Chat edits ("the second drop should be harder", B7) will go through a narrow edit tool with its own strict schema (a later contract change). Reasons: the strict subset has no `minimum`, `multipleOf`, `if`/`then` or `$ref`, so a strict plan schema would lose nearly every rule below; and the strict optional-parameter budget is already 24 of 24 (see "Tool inputs"). So this schema is free to use the full 2020-12 vocabulary. It is not in `TOOL_SCHEMAS` and must not be registered as a tool.
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `schema_version` | `"0.1"` | |
+| `bpm` | number 20–999 | Live's tempo range, not a taste range. 136–146 is an editor default. |
+| `time_signature` | `"4/4"` | Fixed in v0.1. 1 bar = 4 beats. |
+| `phrase_bars` | `8` | The section grid (see "Grid" below). |
+| `total_bars` | integer, multiple of 8, 32–1024 | Must equal the end of the last section. 32 = shortest intro + outro; 1024 is a sanity bound. |
+| `sections[]` | `{type, start_bar, length_bars}` | `type` ∈ `intro, groove, break, breakdown, build, drop, outro`. `start_bar` is 1-based. Allowed lengths per type: intro / breakdown / drop / outro 16, 32, 64; groove 16, 32, 48, 64; break 8, 16; build 8, 16, 32. |
+| `energy_nodes[]` | `{pos, value, drawn}` | `pos`: whole bars from the track start (0 = start of bar 1, `total_bars` = end of the last bar). `value`: 0–1. `drawn`: `true` when the user placed or moved the node. |
+| `settings` | object, all 11 keys required | See "Settings". |
+
+**One checker, no second implementation.** The rules JSON Schema cannot express live in `src/orchestrator/arrangement_plan.py` (`plan_problems`, `energy_at`, `ENTRY_MODE`, `B3_MARGIN`, `TOL`). The planner window, the plan generator and the Live builder import it; `tests/test_contracts_arrangement_plan.py` imports it too and writes no checker of its own. The positive and negative instances are data, not code: `tests/fixtures/arrangement_plan/` holds the templates `T1.json`, `T2.json`, `T3.json` and `cases.json` (a base plan, RFC 6902 `add`/`remove`/`replace` patches, and the expected rule codes; `{"$number": "nan"}` stands for a float JSON cannot hold). A reader in another language runs the same cases. Writers emit JSON integers for every integer field; JSON Schema 2020-12 also accepts a whole-number float (`8.0`), so the checker does too.
+
+**Rules beyond the schema** (part of this contract; checked by `plan_problems`, codes in brackets):
+- Sections tile the track: the first starts at bar 1, each next one at the previous `start_bar + length_bars`, the last ends at `total_bars` (`tiling`, `total_bars`). With lengths in multiples of 8, every start is at bar 8k + 1 (S1).
+- The first section is `intro`, the last is `outro`, and neither appears anywhere else (`first_not_intro`, `last_not_outro`, `intro_outro_inside`; S3).
+- Nodes: `pos` never decreases in array order (`node_order`). The first node is at 0 and the last at `total_bars` (`first_node_pos`, `last_node_pos`). At most two nodes share a `pos` (`three_at_pos`), and never at 0 or `total_bars` (`pair_at_edge`).
+- `bpm` and every `value` are finite (`nonfinite`). JSON Schema lets NaN through `minimum`/`maximum`, so a reader must reject NaN and Infinity.
+- Rules that are only editor warnings are **not** format rules: S2 (4–7 min window), S4 (build before a drop), S6 (breakdown count), T5 (step limits), soft value ranges (B6).
+
+**Curve semantics.** Linear interpolation between consecutive nodes. A step is a **step pair**: two nodes at one `pos`. The first is the value arriving from the left, the second the value leaving to the right. Array order is binding: a sort must be stable by `pos` and must never reorder a pair. Most reorderings break no rule (a jump into a `step` section is legal either way), but they change the curve, so keeping the order is a duty of every reader and writer. A pair with equal values is allowed.
+
+**Boundary rules** (apply only to nodes with `drawn: false`; a drawn node is never changed by settings, templates or recomputed defaults):
+- Entry mode per type: `build`, `outro` = `continue`; `groove`, `break`, `breakdown`, `drop` = `step`. The intro has none (it is first).
+- **B2** At the start of a `continue` section, an undrawn step pair must not jump (`b2_jump`). If either node of the pair is drawn, the jump stands.
+- **B3** If the node arriving at a build's end is undrawn, its value is max(value leaving the build's start, value leaving the build's end − 0.05), within 1e-9 (`b3_build_end`). So when the user moves the drop's first node, the build end follows. **Consequence for a single end node:** without a step pair at the build's end, the arriving and the leaving node are the same node, so its value `v` must satisfy `v = max(start, v − 0.05)`, which holds only for `v = start`: an undrawn build that ends in one node is **flat**. A generator that wants a ramp writes a step pair at the end (build end | drop start), as the templates do, or marks the end node `drawn`.
+
+**Grid (#146 Must-resolve 1).** Sections always sit on the 8-bar phrase grid (`phrase_bars`), whatever `change_grid` says. `change_grid` (a whole number of bars from 1 to 64, default 8; user decision 2026-10-30: „frei einstellbar aber default 8 takte“) only sets where elements may switch on or off inside sections (T1). Changing the setting never moves a section or a node, drawn or not: there is no re-snap. This replaces S7 of the research note ("lengths and starts snap to `change_grid`").
+- **Origin (user decision 2026-11-01, „Ab Abschnittsbeginn“):** the grid counts from the start of each section. Every section start is a change point; inside a section the points are start, start + g, start + 2g, … A section of 16 bars at bar 33 with `change_grid` 12 has change points at bar 33 and bar 45, not at bar 37 or 49. The end of the track is not a change point. `change_points(plan)` in the checker module returns them (positions in whole bars, `pos`).
+- **Upper bound 64:** the longest section is 64 bars; any larger value would leave only the section starts, the same as 64. So the schema refuses values above 64 instead of storing meaningless numbers. A value at least as long as a section (grid 12 in an 8-bar break) leaves only that section's start.
+- **`fills = every_8` is independent of `change_grid`:** it counts 8-bar phrases of a section, and every section start is on the phrase grid.
+- T2's 8-bar break and build are valid at every `change_grid`, and `plan_problems` does not read the setting (the schema checks its range). What a generator does with the setting (keeping sections and drawn nodes still for every value) is checked on generated plans: V6 of the planner note and V2 of the musical-transfer note belong to the generator issue (A6/A10), not to this format.
+
+**Outro entry (#146 Must-resolve 2).** The outro enters with `continue` (user decision 2026-10-30: „Fließend weiter“): it starts at the previous section's end value, with no step down at its start, then decays inside the section. This drops the note's start value min(previous end, 0.55) and keeps B2. A user-drawn jump into the outro stays allowed.
+- **At most one element per 8-bar boundary (user decision 2026-11-01, „Max. 1 Element pro Grenze“)** applies to the default outro, and to the default intro (note section 5.1, C7). It is a template rule, not a validity rule: a plan the user drew with more changes is still valid. `default_outro(start_value, min_length)` builds the default.
+- **The default walk** (_Interpretation_, built on the thresholds of note section 5.1, which are a proposal): each 8-bar phrase holds one value; the first phrase keeps the previous end value; every later phrase takes the lower bound of the next element interval below (…0.80, 0.75, 0.70, 0.65, 0.55, 0.40, 0.30; the interval of 0.25 ends the walk at 0.25). An element is on at energy ≥ its threshold, so exactly one element goes at each boundary. Kick (always on) and bass (set by `intro_outro_bass`) are not counted. The walk replaces the first draft's evenly spaced steps (1.00 / 0.75 / 0.50 / 0.25 change 2, 4 and 2 elements).
+- **The outro gets longer when needed:** the length is the smallest of 16, 32, 64 bars with one phrase per interval of the walk (and at least `min_length`). From a full drop (0.90 and above) the walk needs nine phrases; the format's longest outro has eight, so the walk stops at the interval of 0.30 and the outro ends at 0.30 instead of 0.25. Consequence for the templates: T1 outro 64 bars (192 bars in total), T2 and T3 256 bars. The note's S2 window (4 to 7 minutes) is an editor warning and does not apply to the format.
+- **Soft range:** the note's soft range for the outro is 0.10–0.55. The default walk starts at the previous end value (up to 1.00) and stays above 0.55 for its first five phrases, so the editor's soft-range warning would fire on its own default. This is a decision for the planner window issue (exempt the default outro's walk from the warning, or show the warning); the format does not clamp. The last 16 bars (mix zone) stay at or below the cap 0.50.
+
+**Third node (#146 Must-resolve 3).** A third node at a `pos` that already holds a step pair is invalid, drawn or not; the format never merges or replaces it. The planner window turns a click on a pair into an edit of the pair's arriving or leaving node (whichever side was hit) and never creates a third node.
+
+**Settings** (`settings`, all required, so a later default change never changes a stored plan; a setting changes defaults and rule parameters only, never a section or a drawn node):
+
+| Key | Allowed | Default | Basis of the default |
+| --- | --- | --- | --- |
+| `build_kick` | `filtered_in_build`, `at_drop` | `filtered_in_build` | C5 (psytrance source) |
+| `intro_length` | 16, 32, 64 (bars) | 32 | C1, C3 |
+| `outro_length` | 16, 32, 64 (bars) | 32 | C1, C3 |
+| `intro_outro_bass` | `on`, `outside_mix_zone`, `off` | `on` | C3, C5; open user question D1 (`2026-10-29_bandit-wheel-musical-transfer.md`) |
+| `breakdown_count` | 1, 2 | 1 | C5, C7; max 2 is _Interpretation_ |
+| `breakdown_length` | 16, 32, 64 (bars) | 32 | _Interpretation_ inside C4/C5's range |
+| `breakdown_rumble` | `off`, `on` | `off` | C5 |
+| `second_drop` | `stronger`, `equal`, `ask` | `stronger` | _Interpretation_ (no source) |
+| `change_grid` | integer 1–64 (bars), counted from each section's start | 8 | C2 (measured), C1; user decision 2026-10-30 |
+| `pre_drop_gap` | 0, 1, 2, 4 (beats; 0 = off, 4 = 1 bar) | 4 | C5 (psytrance source) |
+| `fills` | `off`, `section_change`, `every_8` | `off` | user decision 2026-10-30 („Keine“); see below |
+
+Length settings apply when the user places a section; a template keeps its own lengths (T1 has a 16-bar breakdown with `breakdown_length` 32).
+
+**Fills (#146 Must-resolve 4).** C8 supports only "do not repeat the same fill", not a density. So variation is a fixed rule, not a setting: consecutive fills never repeat identically. Density is the setting (`off`, `section_change`, `every_8`, from D5 of the musical-transfer note). The default is `off` (user decision 2026-10-30: „Keine“): the generator places no fills; fills come only where the user sets them. User-placed fills need an events field, which v0.1 does not have yet (see "Not in v0.1").
+
+**Not in v0.1** (each a later additive contract change): user-placed fills; derived `events[]` (riser, impact, downlifter, fill, pre-drop gap) and per-phrase element states, both generator output; sub-bar node positions; a per-type number ("Drop 2"), which the UI derives from the order; the `build_kick` option "kick out for the last N bars" (D3 of the musical-transfer note).
+
+**Templates.** T1 Kurz (192 bars), T2 Techno and T3 Trance (256 bars each; 160 and 224 in the note before the outro rule above) are JSON files in `tests/fixtures/arrangement_plan/` with the default nodes of the note's section 4 and the outro walk. They are valid plans.
