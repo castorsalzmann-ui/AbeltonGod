@@ -5,7 +5,9 @@ two parallel processes with the probe plugin ``tests/support/seed_probe.py``, an
 
 - **Seedings.** Every RNG seeding made by test code (module level, parametrize, and the test
   bodies that were run), keyed by source line and phase. A key whose fresh-N seeds share a
-  value with its fresh-0 seeds is *unshifted*: that stream ignores ``--fresh-seeds``. Phases
+  value with its fresh-0 seeds is *unshifted*: that stream ignores ``--fresh-seeds``. So is a
+  ``random`` / ``numpy`` seeding whose values are not exactly ``seed_0 + N * 2**32`` (what
+  ``support.kick_params.seed`` does), e.g. one taken from ``time_ns()``. Phases
   are matched by test function and parametrize index, because drawn values in test ids
   change the node ids.
 - **Parametrize values.** Every parametrized item, paired by test function and index; the
@@ -133,9 +135,36 @@ def seed_table(probe_doc: dict) -> dict[tuple[str, str], list]:
     return dict(table)
 
 
+def kind_table(probe_doc: dict) -> dict[tuple[str, str], set[str]]:
+    keys = _phase_key(probe_doc)
+    table: dict[tuple[str, str], set[str]] = defaultdict(set)
+    for s in probe_doc["seeds"]:
+        table[(s["where"], keys.get(s["phase"], s["phase"]))].add(s["kind"])
+    return dict(table)
+
+
+SHIFT = 2**32  # what ``support.kick_params.seed`` adds per fresh-seeds step
+
+
+def _off_shift(sa: list, sb: list, kinds: set[str], fresh: int) -> list:
+    """Seeds of a ``random`` / ``numpy`` key that are not exactly ``seed_0 + fresh * 2**32``.
+
+    A seed that is not reproducible (``time_ns()``, ``urandom``) differs between the two
+    probes too, so "differs" alone would count it as shifted; the exact relation does not.
+    Compared as sorted lists (a constant shift keeps the order, xdist may reorder records).
+    Only when both sides hold the same number of integer seeds; otherwise no verdict."""
+    if not kinds <= {"random", "numpy"} or len(sa) != len(sb):
+        return []
+    if not all(type(s) is int for s in sa + sb):
+        return []
+    return [y for x, y in zip(sorted(sa), sorted(sb), strict=True) if y != x + fresh * SHIFT]
+
+
 def compare_seeds(a: dict, b: dict) -> dict[str, dict]:
-    """Per seeding key: ``unshifted`` (shared seed values), ``only_in`` and ``unseeded``."""
+    """Per seeding key: ``unshifted`` (shared seed values, or for ``random`` / ``numpy``
+    seedings values that are not exactly ``seed_0 + N * 2**32``), ``only_in`` and ``unseeded``."""
     ta, tb = seed_table(a), seed_table(b)
+    ka, kb = kind_table(a), kind_table(b)
     out: dict[str, dict] = {}
     for key in sorted(set(ta) | set(tb)):
         sa, sb = ta.get(key, []), tb.get(key, [])
@@ -143,8 +172,12 @@ def compare_seeds(a: dict, b: dict) -> dict[str, dict]:
         if key not in ta or key not in tb:
             entry["only_in"] = "fresh 0" if key in ta else "fresh N"
         common = {s for s in sa if s is not None} & {s for s in sb if s is not None}
+        off = _off_shift(sa, sb, ka.get(key, set()) | kb.get(key, set()), b.get("fresh", 1))
         if common:
             entry["unshifted"] = sorted(common, key=repr)[:5]
+        elif off:
+            entry["unshifted"] = sorted(off, key=repr)[:5]
+            entry["off_shift"] = True
         if None in sa or None in sb:
             entry["unseeded"] = True
         out[f"{key[0]} @ {key[1]}"] = entry

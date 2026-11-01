@@ -14,7 +14,10 @@ spelling and every file it did not list. Here two real pytest processes, at
   (module level, parametrize, test body) must be reported, its routed twin must not.
 
 Boundary: a body seeding in a test not listed in :data:`BODY_SITES` is not seen here; the
-whole-suite audit ``python scripts/qa/seed_reach.py --run tests`` sees those.
+whole-suite audit ``python scripts/qa/seed_reach.py --run tests`` sees those. A seeding by
+``Generator(PCG64(x))`` or ``RandomState(x)`` is not seen by the probe itself: it is caught only
+when the site has no other seeding. A ``random`` / ``numpy`` seed must equal
+``seed_0 + N * 2**32``, so a non-reproducible seed (``time_ns()``, ``urandom``) fails too.
 """
 
 from __future__ import annotations
@@ -115,6 +118,24 @@ def test_every_body_site_was_run_and_seeded(probes) -> None:
 def test_every_random_parametrize_value_changes(probes) -> None:
     stuck = seed_reach.stuck(seed_reach.compare_params(*probes), RANDOM_PARAMS)
     assert not stuck, stuck
+
+
+def _doc(fresh: int, seeds: list[int], kind: str = "random") -> dict:
+    return {"fresh": fresh, "params": [], "skipped": [], "seeds": [
+        {"where": "tests/t.py:1", "phase": "collect", "kind": kind, "seed": s} for s in seeds]}
+
+
+@pytest.mark.parametrize(("seeds_n", "kind", "flagged"), [
+    ([5 + 2**32, 9 + 2**32], "random", False),        # exactly what kp.seed does
+    ([9 + 2**32, 5 + 2**32], "numpy", False),         # order does not matter
+    ([5 + 2**32, 9 + 2**32 + 1], "random", True),     # one seed off the shift
+    ([123456789012345, 987654321098765], "random", True),   # time_ns-like, differs every run
+    ([5 + 2 * 2**32, 9 + 2 * 2**32], "random", True),  # wrong multiple
+    ([5, 9], "random", True),                         # not shifted at all
+])
+def test_seed_relation_is_exact(seeds_n, kind, flagged) -> None:
+    seeds = seed_reach.compare_seeds(_doc(0, [5, 9], kind), _doc(1, seeds_n, kind))
+    assert bool(seed_reach.unshifted(seeds)) is flagged, seeds
 
 
 # --- the comparison catches a planted bypass ---------------------------------------------------

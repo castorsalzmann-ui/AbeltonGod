@@ -18,8 +18,9 @@ without xdist):
 Seen: ``random.Random(x)`` / ``.seed(x)`` (also ``SystemRandom`` subclasses, any spelling of
 the class), module-level ``random.seed(x)``, ``numpy.random.default_rng(x)`` and
 ``numpy.random.seed(x)``. Not seen: ``numpy.random.RandomState(x)``, ``Generator(PCG64(x))``
-and bit generators built directly (none in ``tests/`` at #119), and names bound with
-``from numpy.random import default_rng`` before the plugin is configured.
+and bit generators built directly (none in ``tests/`` at #119; caught only when the site has
+no other seeding, because the missing record then shows up as "site not seeded"), and names
+bound with ``from numpy.random import default_rng`` before the plugin is configured.
 
 ``SEED_PROBE_RUN`` (optional, comma-separated node-id prefixes): after the parametrize values
 are recorded, only matching items are kept, so a collect + run of a few tests sees the

@@ -186,11 +186,16 @@ def spec_bounds(name: str, spec: Mapping[str, Any]) -> tuple[float, float, bool,
     The stricter of ``minimum`` and ``exclusiveMinimum`` wins (same for the maximum). Integer
     bounds are moved inwards to the nearest allowed integer, so they are always closed.
     Refused: a missing side, a boolean ``exclusive*`` (draft-4 form, not this contract's
-    draft 2020-12), and an empty range.
+    draft 2020-12), a non-finite bound (``Infinity`` / ``NaN``, which ``json`` accepts), and
+    an empty range.
     """
     for key in ("minimum", "maximum", "exclusiveMinimum", "exclusiveMaximum"):
         if key in spec and (isinstance(spec[key], bool) or not isinstance(spec[key], int | float)):
             raise ValueError(f"kick-params field {name!r}: {key} must be a number, got "
+                             f"{spec[key]!r}")
+        if isinstance(spec.get(key), float) and not math.isfinite(spec[key]):
+            # json accepts Infinity / NaN: a draw would give nan or raise OverflowError.
+            raise ValueError(f"kick-params field {name!r}: {key} must be finite, got "
                              f"{spec[key]!r}")
     sides = []
     for closed, open_, pick in (("minimum", "exclusiveMinimum", max),

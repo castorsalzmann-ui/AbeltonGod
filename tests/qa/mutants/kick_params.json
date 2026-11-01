@@ -155,6 +155,16 @@
     {"id": "PROBE_NO_NUMPY", "file": "tests/support/seed_probe.py",
      "old": "    np.random.default_rng = default_rng\n", "new": "    pass\n",
      "tests": ["tests/qa/test_seed_reach.py"], "expected": "killed",
-     "note": "#119: numpy streams not seen"}
+     "note": "#119: numpy streams not seen"},
+    {"id": "RV_TIME_SEED", "file": "tests/library/test_layout.py",
+     "old": "    rng = kp.rng(6400 + case)\n",
+     "new": "    rng = random.Random(__import__(\"time\").time_ns())\n",
+     "tests": ["tests/qa/test_seed_reach.py"], "expected": "killed",
+     "note": "#119: review round 1, problem 1: a seed that differs on every run is not a shift"},
+    {"id": "SPEC_BOUNDS_NONFINITE", "file": "tests/support/kick_params.py",
+     "old": "        if isinstance(spec.get(key), float) and not math.isfinite(spec[key]):\n",
+     "new": "        if False:\n",
+     "tests": ["tests/qa/test_kick_params.py"], "expected": "killed",
+     "note": "#119: review round 1, nit 3: Infinity / NaN bounds must be refused"}
   ]
 }
