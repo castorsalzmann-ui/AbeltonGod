@@ -29,6 +29,7 @@ from guard import (
     RequestResult,
     warning_message_de,
 )
+from orchestrator.memory import ChatMemory
 from orchestrator.model_client import (
     AssistantMessage,
     Message,
@@ -49,8 +50,22 @@ ANSWER_ITEM = "Antwort"
 
 DEFAULT_SYSTEM_PROMPT = (
     "You are the AbeltonGod copilot for Ableton Live 12. You only choose tools and their "
-    "parameters; local code generates audio and talks to Live. Answer in the user's language "
-    "(German or English). Use only the tools you are given."
+    "parameters; local code generates audio and talks to Live. Always answer in the language "
+    "of the user's latest message and keep it for the whole chat: German in, German out "
+    "(\"Importiere den Kick\" gets a German answer); English in, English out. Tool "
+    "results and tool names are in English, your answer to the user is not. Use only the "
+    "tools you are given. Earlier turns of this chat are listed below when there are any: "
+    "use them to understand short follow-up answers (a track name, a number, \"ja\") and do "
+    "not ask again for what the user already said."
+)
+NUMBERING_SENTENCE = (
+    "Numbering: Live and the user count tracks and scenes from 1. The tool arguments "
+    "track_index and slot_index and the tool field index count from 0 (index = number - 1). "
+    "Tell the user only the 1-based numbers (use the \"number\" fields) and the track names; "
+    "never write an index, a \"track_index\" or a 0-based number in an answer or question to "
+    "the user. A number the user types (\"Spur 3\", \"3\") is a Live number: pass number - 1. "
+    "A track name beginning with a digit (\"3-Audio\") is a name, not a number; match names "
+    "against the track names read from Live."
 )
 WARN_SYSTEM_SUFFIX = (
     "\n\nResource guard: this request is close to its limits. Start no new sub-tasks and "
@@ -80,8 +95,11 @@ def tools_sentence(names: tuple[str, ...]) -> str:
     if not names:
         return ("You have no tools in this session. Nothing can be generated or changed; "
                 "do not offer it.")
-    return (f"Tools available in this session: {', '.join(names)}. Nothing else is "
+    base = (f"Tools available in this session: {', '.join(names)}. Nothing else is "
             "available yet; do not offer anything these tools cannot do.")
+    if "import_sample" in names or "list_tracks" in names:
+        base += "\n" + NUMBERING_SENTENCE
+    return base
 
 
 class SdkLimitError(RuntimeError):
@@ -172,6 +190,7 @@ class Orchestrator:
         system_prompt: str = DEFAULT_SYSTEM_PROMPT,
         estimate_cost_usd: Callable[[ModelRequest], float | None] | None = None,
         context: Callable[[], str] | None = None,
+        memory: ChatMemory | None = None,
     ) -> None:
         guard.policy.profile(profile)  # unknown profile fails here, not on the first request
         self.guard = guard
@@ -184,6 +203,8 @@ class Orchestrator:
         # chat session made, so a later request can import one by its sample_id). Fixed for
         # the whole request: the SDK session keeps the system prompt of its first call.
         self.context = context
+        # The last few exchanges of this chat, handed to the model in the system prompt (#175).
+        self.memory = memory if memory is not None else ChatMemory()
         # None = the guard reserves all money still available (most conservative).
         if estimate_cost_usd is None:
             estimate_cost_usd = getattr(model, "estimate_cost_usd", None)
@@ -192,7 +213,9 @@ class Orchestrator:
     def handle(self, text: str) -> Outcome:
         """Run one user request to its end. Never raises for model, tool or guard failures."""
         try:
-            return self._handle(text)
+            outcome = self._handle(text)
+            self.memory.remember(text, self._said(outcome))
+            return outcome
         finally:
             end = getattr(self.model, "end_request", None)
             if callable(end):
@@ -200,6 +223,15 @@ class Orchestrator:
                     end()
                 except Exception:  # noqa: BLE001 - closing a session must not hide the outcome
                     pass
+
+    @staticmethod
+    def _said(outcome: Outcome) -> str:
+        """What the user was told, for the memory: the reply, plus the German failure text of a
+        request that did not succeed (a declined import must not look like a done one)."""
+        parts = [outcome.reply]
+        if not outcome.success:
+            parts.append(outcome.message_de)
+        return " ".join(p for p in parts if p)
 
     def _handle(self, text: str) -> Outcome:
         warnings: list[str] = []
@@ -239,6 +271,9 @@ class Orchestrator:
         """System prompt for one request: the base text, the registered tools by name (#163:
         the model offered features that do not exist), then the session context."""
         system = f"{self.system_prompt}\n\n{tools_sentence(self.toolbox.names)}"
+        history = self.memory.render()
+        if history:
+            system = f"{system}\n\n{history}"
         if self.context is None:
             return system
         try:
@@ -377,6 +412,7 @@ __all__ = [
     "ANSWER_ITEM",
     "DEFAULT_PROFILE",
     "DEFAULT_SYSTEM_PROMPT",
+    "NUMBERING_SENTENCE",
     "Orchestrator",
     "Outcome",
     "SdkLimitError",
