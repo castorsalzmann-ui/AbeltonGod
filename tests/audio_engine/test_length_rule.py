@@ -22,6 +22,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 from jsonschema import Draft202012Validator
+from support import kick_params as kp
 
 from audio_engine import kick as K
 from audio_engine import length as L
@@ -180,7 +181,7 @@ def test_shown_beat_range_is_accepted_and_just_outside_is_not(no_rule, i) -> Non
     """Seeded over the bpm range: both ends of the range an error shows (formula of the
     parametrized test above) are accepted; 0.001 beats outside the true range is rejected.
     Where the request is outside, the shown range is read back from the message itself."""
-    rng = random.Random(160130 + i)
+    rng = kp.rng(160130 + i)
     bpm = rng.choice([60, 200, rng.uniform(60, 200), round(rng.uniform(60, 200), 1)])
     b_lo = math.ceil(max(0.25, 80 * bpm / 60000) * 1e4) / 1e4
     b_hi = math.floor(min(4.0, 2000 * bpm / 60000) * 1e4) / 1e4
@@ -322,7 +323,7 @@ def test_rule_reads_the_quantised_samples(monkeypatch) -> None:
 def test_bisection_follows_the_contract_on_any_predicate(monkeypatch, seed) -> None:
     """Including non-monotonic predicates: the engine probes and returns what the written
     algorithm does, and the result always fits."""
-    rng = random.Random(9120 + seed)
+    rng = kp.rng(9120 + seed)
     table = {}
 
     def predicate(k: int) -> bool:
@@ -383,7 +384,7 @@ def _random_beats_request(rng: random.Random) -> dict:
     return req
 
 
-RANDOM_REQUESTS = [_random_beats_request(random.Random(20120 + i)) for i in range(14)]
+RANDOM_REQUESTS = [_random_beats_request(kp.rng(20120 + i)) for i in range(14)]
 
 
 def check_derived_or_rejected(req: dict) -> bool:
