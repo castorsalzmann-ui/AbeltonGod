@@ -48,7 +48,7 @@ def _clap_sidecar(directory: Path, engine_version: str = "0.1.0") -> Path:
 def test_registry_and_contract_agree() -> None:
     schema = json.loads(METADATA_SCHEMA_FILE.read_text(encoding="utf-8"))
     assert tuple(schema["properties"]["category"]["enum"]) == CONTRACT_CATEGORIES
-    assert registered_categories() == ("kick", "clap")
+    assert registered_categories() == ("kick", "clap", "hat")
     assert get_category("kick").engine == {"name": ENGINE_NAME, "version": ENGINE_VERSION}
 
 

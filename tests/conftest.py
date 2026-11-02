@@ -73,13 +73,18 @@ def pytest_runtest_call(item):
     if module is None or not render_cache.should_cache(_test_key(item), item.fixturenames):
         return (yield)
     import audio_engine.io as io_mod
+    import audio_engine.kick as kick_mod
 
-    targets = [(m, m.render_kick) for m in (module, io_mod) if hasattr(m, "render_kick")]
+    # ``kick_mod`` too (#278): ``render_kick_wav`` -> category lambda looks the engine up there.
+    mods = list(dict.fromkeys(m for m in (module, io_mod, kick_mod) if hasattr(m, "render_kick")))
+    targets = [(m, m.render_kick) for m in mods]
+    render_cache._real_engine = kick_mod.render_kick
     for m, _ in targets:
         m.render_kick = render_cache.cached_render_kick
     try:
         return (yield)
     finally:
+        render_cache._real_engine = None
         for m, original in targets:
             m.render_kick = original
 

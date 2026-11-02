@@ -24,6 +24,7 @@ import hashlib
 import json
 import sys
 
+import jsonschema
 import pytest
 
 import audio_engine
@@ -223,7 +224,6 @@ def test_same_version_rerenders_identically(sidecar) -> None:
         {"version": "0.1"},
         {"version": "0.1.0 "},
         {"version": ""},
-        {"name": "other-engine"},
     ],
     ids=lambda e: repr(e),
 )
@@ -235,6 +235,16 @@ def test_other_engine_is_refused(sidecar, engine) -> None:
     assert exc.value.current_engine == {"name": "abeltongod-audio-engine", "version": "0.1.0"}
     assert exc.value.sidecar_engine["version"] == {"version": "0.1.0", **engine}["version"]
     assert "allow_engine_mismatch" in str(exc.value)
+
+
+@pytest.mark.parametrize("name", ["other-engine", "abeltongod-audio-engine-clap"])
+def test_kick_sidecar_with_another_engine_name_fails_the_schema(sidecar, name) -> None:
+    """#262: the contract pins the kick engine name, so this is refused before the engine
+    comparison (and allow_engine_mismatch does not rescue it); only the version can mismatch."""
+    _with_engine(sidecar, name=name)
+    for opt_in in (False, True):
+        with pytest.raises(jsonschema.ValidationError):
+            rerender_from_sidecar(sidecar, allow_engine_mismatch=opt_in)
 
 
 def test_opt_in_renders_with_the_current_engine(sidecar) -> None:

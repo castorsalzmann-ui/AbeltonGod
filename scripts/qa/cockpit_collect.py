@@ -95,8 +95,14 @@ def phase_title(txt: str) -> str:
 def expand_phase_refs(text: str) -> list[str]:
     refs: list[str] = []
     for a, b in re.findall(r"\b(0\d)\s*[–-]\s*(0\d[ab]?)\b", text):
-        for n in range(int(a), int(b[:2]) + 1):
-            refs.append("04a" if n == 4 else f"{n:02d}")
+        end = int(b[:2])
+        for n in range(int(a), end + 1):
+            if n != 4:
+                refs.append(f"{n:02d}")
+            elif end > 4 or b == "04":
+                refs += ["04a", "04b"]  # a range across 04 covers both halves (#127)
+            else:
+                refs += ["04a", "04b"] if b == "04b" else ["04a"]  # end point keeps its letter
     text = re.sub(r"\b0\d\s*[–-]\s*0\d[ab]?\b", " ", text)
     refs += [m.lower() for m in re.findall(r"\b(0\d[abAB]?)\b", text)]
     return sorted(set(refs), key=lambda x: (x[:2], x))
@@ -361,7 +367,13 @@ def collect_issues(repo: Path) -> tuple[list[dict], list[dict]]:
         title = i["title"]
         pm = re.search(r"[Pp]hase[ -](\d\d[ab]?)", title)
         lab_phase = next((lb.split(":")[1] for lb in labels if lb.startswith("phase:")), None)
-        phase = phase_key(pm.group(1) if pm else lab_phase)
+        # Label first, title only as fallback (#127). The old coarse label `phase:04` does not
+        # say 04a or 04b, so there (and only there) a 04a/04b title refines it.
+        title_ph = phase_key(pm.group(1)) if pm else None
+        if lab_phase == "04" and title_ph in ("04a", "04b"):
+            phase = title_ph
+        else:
+            phase = phase_key(lab_phase or title_ph)
         if phase == "04" or (phase is None and lab_phase == "04"):
             phase = "04a"
         status_lab = next((lb.split(":")[1] for lb in labels if lb.startswith("status:")), None)
