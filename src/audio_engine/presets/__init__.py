@@ -58,6 +58,15 @@ HAT_DESCRIPTIONS = {
 }
 
 
+RIM_DESCRIPTIONS = {
+    "rim": "The contract defaults written out (two damped partials, short noise click).",
+    "tight": "Shorter decays of both partials (starter set, placeholder values).",
+    "long": "Longer decays of both partials (starter set, placeholder values).",
+    "high": "Higher lower partial (starter set, placeholder values).",
+    "clave": "Single partial near 2500 Hz, no upper partial (level2 0), starter set.",
+}
+
+
 class UnknownPresetError(KeyError):
     """No preset with this name. The message lists the valid names."""
 
@@ -72,6 +81,8 @@ def _folder(category: str) -> Path:
         return PRESETS_DIR / "clap"
     if category == "hat":
         return PRESETS_DIR / "hat"
+    if category == "rim":
+        return PRESETS_DIR / "rim"
     raise ValueError(f"no presets for category {category!r}")
 
 
@@ -91,5 +102,7 @@ def load_preset(name: str, category: str = "kick") -> dict[str, Any]:
 
 
 def describe(name: str, category: str = "kick") -> str:
-    table = {"clap": CLAP_DESCRIPTIONS, "hat": HAT_DESCRIPTIONS}.get(category, DESCRIPTIONS)
+    table = {
+        "clap": CLAP_DESCRIPTIONS, "hat": HAT_DESCRIPTIONS, "rim": RIM_DESCRIPTIONS,
+    }.get(category, DESCRIPTIONS)
     return table.get(name, "")

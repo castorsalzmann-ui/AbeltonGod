@@ -1,0 +1,7 @@
+{
+  "schema_version": "0.1",
+  "preset": "high",
+  "seed": 1,
+  "f1_hz": 900,
+  "hp_hz": 500
+}

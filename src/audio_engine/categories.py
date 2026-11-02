@@ -3,7 +3,7 @@
 ``sample-metadata.schema.json`` v0.2 names two categories, ``kick`` and ``clap``. Each category
 carries its own engine name and version, so a byte change in one never invalidates the sidecars
 of another. Only categories that have a renderer are *registered* here: kick, clap
-(#231) and hat (#270). A category the contract names but that is not registered raises
+(#231), hat (#270) and rim (#321). A category the contract names but that is not registered raises
 :class:`CategoryUnavailable` before any parameter of that category is looked at.
 """
 
@@ -15,7 +15,7 @@ from typing import Any
 
 import numpy as np
 
-from . import ENGINE_NAME, ENGINE_VERSION, analysis, clap, hat, kick
+from . import ENGINE_NAME, ENGINE_VERSION, analysis, clap, hat, kick, rim
 from .params import resolve_kick_params
 
 # Categories named by contracts/sample-metadata.schema.json (a test compares with the file).
@@ -75,6 +75,16 @@ _REGISTRY: dict[str, Category] = {
         default_stem="hat",
         resolve=hat.resolve_hat_params,
         render=lambda params: hat.render_hat(params),
+        analyse=lambda audio, sr: analysis.analyse_nonpitched(audio, sr),
+    ),
+    "rim": Category(
+        name="rim",
+        engine_name=rim.RIM_NAME,
+        engine_version=rim.RIM_VERSION,
+        metadata_schema_version="0.2",
+        default_stem="rim",
+        resolve=rim.resolve_rim_params,
+        render=lambda params: rim.render_rim(params),
         analyse=lambda audio, sr: analysis.analyse_nonpitched(audio, sr),
     ),
 }
