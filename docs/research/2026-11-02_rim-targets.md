@@ -13,7 +13,7 @@ Decision already taken by the lead: rim shot is a **separate** `rim-params`, not
 1. A rim shot (808-style) is, per the researcher note, **two or three damped sinusoids with no noise path** (S5, S6, S7). Its measurable core is therefore small: **lower partial frequency, partial ratio, the two decays, high-pass edge, brightness, total length, and the attack click** (eight quantities, section 1). It has far fewer unknowns than the snare, but also **almost no sourced numbers**.
 2. **No taste range exists.** No published numeric target for a techno/trance rim, and no user reference rims. Section 2 lists the few sourced points (one hobby page for 455 / 1667 Hz, the artifact's constants) and marks the rest "none".
 3. **The sourced numbers are weak:** 455 Hz and 1667 Hz (S6) come from one hobby page that nobody re-opened; the Roland service manual was never opened; the ModularGrid 909 rim listing (S8) has a copy-paste error and is low confidence; the SOS article and the DAFx-14 paper give **no** rim numbers (S3, S5).
-4. **Existing analysis cannot yet measure the rim well.** Main has whole-file helpers and the hat helpers from #251 (`welch_flatness`, `hf_share`, `lf_leak_db`, `peak_count`, `t60_line_fit_ms`, `early_late_centroid_ratio`). The rim's decays are tens of ms, shorter than the hat helpers' windows (4 ms RMS, 20 ms early window, fit range -10..-40 dB needs at least 3 points). **Missing:** a two-peak finder tuned to a short sparse spectrum, per-partial decay, an early-window onset measure (section 4).
+4. **Existing analysis cannot yet measure the rim well.** Main has whole-file helpers and the hat helpers from #251 (`welch_flatness`, `hf_share`, `lf_leak_db`, `peak_count`, `t60_line_fit_ms`, `early_late_centroid_ratio`). The rim's decays are tens of ms, which is short against the hat helpers' windows (4 ms RMS smoothing, 20 ms early window, 6 ms fade guard); whether that breaks them is only partly checked (P4: a synthetic probe gave numbers, not `None`). **Missing:** a two-peak finder tuned to a short sparse spectrum, per-partial decay, an early-window onset measure (section 4).
 5. A **`rim-params` v0.1 field list** is proposed in section 5 (PROPOSAL only; researcher note 2.4 is the base, with decisions for the lead).
 6. A **listening-test skeleton** (6 items, 16 blind files, about 12 minutes) is in section 6. It cannot run before a rim voice exists and the ranges are re-measured on it.
 
@@ -73,16 +73,24 @@ From the kick learnings (all apply): Hann over a whole one-shot mutes the onset 
 Rim-specific, all **derived** (none confirmed by a measurement):
 
 - **P1 A short sound has a coarse spectrum.** A 30 ms window has 33 Hz bins; with `decay1_ms` of 5-15 ms the line is also broadened by its own decay (line width on the order of 1/(pi x tau), derived). Peak positions are fine; peak levels and decay come out of the band envelope, not the FFT width. Cross-check R1 with zero crossings on a short segment (applicability to a 20-30 ms segment not checked).
-- **P2 `t60_ms` is mostly a fade-guard problem.** `FADE_GUARD_MS` is 6 ms in `analysis.py` and `ENV_RMS_MS` is 1 ms (the main-branch values, read from the file); the snare note names 5 ms as the rule. For a 10-40 ms decay a 5 ms RMS window is a large part of the decay itself, and `t60_ms` must reach -60 dB before the last 6 ms of the file. Report `None` honestly, prefer -20/-40 dB times for decay comparisons, and do not set `length_ms` so short that the fade eats the tail.
+- **P2 `t60_ms` is mostly a fade-guard problem.** `FADE_GUARD_MS` is 6 ms in `analysis.py` and `ENV_RMS_MS` is 1 ms (the main-branch values, read from the file); `t60_line_fit_ms` smooths with 4 ms (`FIT_ENV_MS`); the 5 ms figure is the snare note's rule (from the kick learnings), not a value in the code. For a 10-40 ms decay a 4-5 ms smoothing window is a large part of the decay itself (derived), and `t60_ms` must reach -60 dB before the last 6 ms of the file. Report `None` honestly, prefer -20/-40 dB times for decay comparisons, and do not set `length_ms` so short that the fade eats the tail.
 - **P3 The two-peak finder is sensitive to the click and the high-pass.** A noise click raises the floor and can win the second peak; check with `click_level` 0 as the positive control. A high-pass near `f1_hz` suppresses the lower partial (the skirt eats it); this is a parameter interaction, not an analysis bug.
-- **P4 Hat helper windows do not fit a rim.** `early_late_centroid_ratio` uses the first 20 ms over 60-100 % of the line-fit `t60` (a window the length of the whole rim), and `t60_line_fit_ms` needs a -10..-40 dB range with at least 3 envelope points at 4 ms hop. For a rim with a decay under about 30 ms these return `None` or a meaningless number (derived from the signatures, not run).
+- **P4 Hat helper windows do not fit a rim.** `early_late_centroid_ratio` uses the first 20 ms over 60-100 % of the line-fit `t60` (a window the length of the whole rim), and `t60_line_fit_ms` fits the -10..-40 dB range of a per-sample envelope smoothed with a 4 ms window (the envelope is per sample, so the point count is not the limit). The 4 ms smoothing and the 6 ms guard are the real limits for a 10-40 ms decay. That they make the helpers return `None` is **not established**. One probe (scratchpad `rimprobe.py`, not in the repo; synthetic sum of 455 Hz and 1667 Hz (0.6) sines with exponential decay to -60 dB at the nominal time, 48 kHz, 200 ms file, 5 ms end fade) gave:
+
+  | nominal -60 dB time | `t60_line_fit_ms` | `early_late_centroid_ratio` | `t60_ms(rms_envelope)` |
+  | --- | --- | --- | --- |
+  | 10 ms | 10.04 | 1.038 | 10.042 |
+  | 20 ms | 19.96 | 0.767 | 19.958 |
+  | 40 ms | 39.877 | 0.969 | 38.979 |
+
+  The decay times track the nominal value on this idealised signal. The centroid ratio is not a decay measure and moves with the window placement; its meaning for a rim is unchecked. Real renders, other partial levels and short `length_ms` were not probed.
 - **P5 `peak_count` is built for 4-20 kHz.** It is the wrong band for `f1_hz` 300-3500 Hz and is not a rim measure.
 - **P6 Partial aliasing.** A partial or its click above 0.45 x `sample_rate` aliases; this is a contract rule, and an independent 4x render is the check (as in the other categories).
 - **P7 Clave overlap.** With `f2_ratio` off and `f1_hz` near 2500 Hz the voice is the clave special case (researcher note 2.4); a measurement tuned to two peaks will return one. Decide per preset which case it is.
 
 ## 4. Which analysis helpers measure what, and what is missing
 
-State of the code: `origin/main` e1e265a. #251 hat helpers are **on main** (function signatures read, not run on a rim).
+State of the code: `origin/main` e7d7522. #251 hat helpers are **on main** (signatures read; one synthetic probe, see P4).
 
 | Quantity | Existing helper | Status | Gap |
 | --- | --- | --- | --- |
@@ -90,8 +98,8 @@ State of the code: `origin/main` e1e265a. #251 hat helpers are **on main** (func
 | R6 HF share at another split | `hf_share(audio, sr, split_hz)` | on main | none |
 | R5 low-frequency leak | `lf_leak_db(audio, sr, hp_hz)` | on main; whole file; energy under `hp_hz / 2` | counts all energy under half the corner, including `f1_hz` if `f1_hz` < `hp_hz / 2`; use only when `hp_hz` is well below `f1_hz` |
 | R6 brightness/flatness in a band | `welch_flatness` | on main | a rim is sparse (lines), not noise-like; flatness is not a rim target (derived), not needed |
-| R8 tail with less bias | `t60_line_fit_ms` | on main | 4 ms hop, -10..-40 dB; too coarse for decays under about 30 ms (P4) |
-| Early/late brightness | `early_late_centroid_ratio` | on main | window too long for a rim (P4) |
+| R8 tail with less bias | `t60_line_fit_ms` | on main | 4 ms smoothing, -10..-40 dB fit; matched the nominal time on a synthetic 10/20/40 ms decay (P4), not checked on real renders |
+| Early/late brightness | `early_late_centroid_ratio` | on main | late window is 60-100 % of the whole rim; meaning for a rim unchecked (P4) |
 | R1 lower partial | `zero_crossing_frequency`, `tail_window` | on main, kick-oriented (tail of the last 100 ms) | a **first-30-ms peak finder** does not exist |
 | R2 partial ratio | none | missing | two strongest peaks in 300-6000 Hz, window sized by the sample, click-robust (P3) |
 | R3 level ratio | none | missing | level of each line over the first 30 ms |
@@ -180,14 +188,15 @@ Blind-named files: M0 2, M1 3, M2 3, M3 3, M4 2, M5 3 = **16**. Unique renders: 
 - S7 (syntherjack) gives the circuit structure and no frequencies; S5 (DAFx-14) confirms the bridged-T mechanism and gives no rim numbers; S8 (ModularGrid) is a vendor listing with a copy-paste error.
 - `level2`, decays, `hp_hz`, resonator Q, click level and time, the size of any rim pitch bend, a real rim's length: no number found.
 - Whether the damped-sine closed form matches the machine: not established (researcher note 1.2 item 3).
-- No measurement of any kind was made for this note: no model run, no engine, no render, no reference audio. Helper behaviour on a rim (P2, P4) is inferred from the code read, not from running it.
+- No measurement of any real audio was made for this note: no engine, no render, no reference audio. The only run is the synthetic probe in P4 (idealised damped sines); other helper behaviour on a rim is inferred from the code read.
 - Not covered: stereo, a note-name input, layering design beyond the M5 question, how common a rim is in techno/trance (no source opened).
 - Open for the user (from the researcher note, still the blockers): can you supply 2-3 rims you like (audio only, never names as targets); do you want a rim before bass at all.
 
 ## 8. Commands run
 
 ```
-cd /home/claude/abeltongod && git fetch origin && git worktree add -b phase-06/rim-targets /home/claude/wtrim origin/main   # base e1e265a
+cd /home/claude/abeltongod && git fetch origin && git worktree add -b phase-06/rim-targets /home/claude/wtrim origin/main   # created at e1e265a, merged origin/main e7d7522 before the final push
+python -I rimprobe.py (scratchpad, PYTHONPATH src)                            # P4 synthetic probe: t60_line_fit_ms, early_late_centroid_ratio, t60_ms
 grep -n "^def " src/audio_engine/analysis.py                                  # helper list incl. hat helpers on main
 sed -n 216,400p src/audio_engine/analysis.py                                  # helper docstrings (read, not run)
 grep -n "^ENV_RMS_MS\|^RISE_" src/audio_engine/analysis.py                    # ENV_RMS_MS = 1.0
