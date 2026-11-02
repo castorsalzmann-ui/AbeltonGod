@@ -119,8 +119,9 @@ def write_kick(
 
     - an interrupt during or right after an ``open``, before its result is stored, leaves that
       0-byte file (the call cannot know it created it). Measured in the review of PR #205
-      with real interrupts: a 0-byte remainder occurred in both modes (13.7 % with ``"x"``
-      and an encoding, 10.3 % with ``"xb"``), so the mode is not established as the cause;
+      with an interrupt raised by SIGALRM (the script is not in the repo): a 0-byte remainder
+      occurred in both modes (13.7 % with ``"x"`` and an encoding,
+      10.3 % with ``"xb"``), so the mode is not established as the cause;
     - the last bytecodes of the ``return`` are outside the handler: an exception injected there
       by a trace function leaves the complete pair. Whether a real Ctrl+C can land there is
       not established;
