@@ -2,13 +2,13 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/castorsalzmann-ui/AbeltonGod/contracts/clap-params.schema.json",
   "title": "Clap synthesis parameters",
-  "description": "Synthesis parameters for one deterministic clap sample (v0.1, proposal, #229). Only schema_version and seed are required; an omitted field takes the default named in its description. Out-of-range values are rejected, never clamped. Time t is measured from the first burst (sample n_off with offset_ms). Voice: seeded white noise, band-passed (RBJ band-pass, constant 0 dB peak) before the envelope, then `bursts` short exponential bursts spaced `burst_spacing_ms` apart, then one longer tail; high-passed after the envelope. Ranges and defaults are a proposal from docs/research/2026-10-29_bandit-wheel-synthesis-transfer.md 4.1 and docs/research/2026-11-02_next-category-proposal.md; the audio-engineer measures them and may adjust them in the engine PR (a contract-change then). Snare and rim are not part of v0.1; they would be added later as a `voice` field or as their own contract.",
+  "description": "Synthesis parameters for one deterministic clap sample (v0.2: v0.1 plus the optional extreme-sound fields, #280; v0.1 proposal #229). Only schema_version and seed are required; an omitted field takes the default named in its description. Out-of-range values are rejected, never clamped. Time t is measured from the first burst (sample n_off with offset_ms). Voice: seeded white noise, band-passed (RBJ band-pass, constant 0 dB peak) before the envelope, then `bursts` short exponential bursts spaced `burst_spacing_ms` apart, then one longer tail; high-passed after the envelope. Ranges and defaults are a proposal from docs/research/2026-10-29_bandit-wheel-synthesis-transfer.md 4.1 and docs/research/2026-11-02_next-category-proposal.md; the audio-engineer measures them and may adjust them in the engine PR (a contract-change then). Snare and rim are not part of v0.1 or v0.2; they would be added later as a `voice` field or as their own contract. v0.2 fields (fold, crush, rate_div, ring_hz, ring_mix, comb_hz, comb_fb, gate_ms, tail_reverse) are allowed only with schema_version 0.2; they sit in the allOf branch for 0.2 and the root uses unevaluatedProperties so a 0.1 document carrying one is rejected (the root properties stay the v0.1 set, as the orchestrator tool builder and the engine's default filling read them); each has an off value (0 / 1 / false) that skips its stage, so a 0.2 document with every new field off renders the bytes of its 0.1 twin. Out-of-range values are rejected, never clamped. Signal order: noise, band-pass, envelope, [crush, rate_div, ring, comb], hp_hz high-pass, room, fold, drive, [gate_ms, tail_reverse], fade-out, mean removal, ceiling. t60_ms is not a target for extreme presets (relative to the peak; distortion lifts the tail).",
   "$comment": "Shared field names keep the meaning they have in kick-params (seed, variants, bpm, sample_rate, bit_depth, length_ms, drive, polarity, offset_ms, peak_ceiling_dbfs, preset). tests/test_contracts.py pins that the shared definitions are identical where they are copies. The file length is not derived: a clap shorter than its tail is cut off and gets the same 5 ms fade-out as the kick. The longest burst onset is (bursts - 1) * burst_spacing_ms = 5 * 30 = 150 ms, below the minimum length_ms of 200, so no cross-field rule is needed. Engine identity for sidecars: engine.name 'abeltongod-audio-engine-clap' with the clap engine's own version (sample-metadata.schema.json, D-025).",
   "type": "object",
-  "additionalProperties": false,
+  "unevaluatedProperties": false,
   "required": ["schema_version", "seed"],
   "properties": {
-    "schema_version": { "const": "0.1" },
+    "schema_version": { "enum": ["0.1", "0.2"], "description": "0.1: the fields up to preset. 0.2: may also carry the v0.2 fields (fold ... tail_reverse); every 0.1 document stays valid and renders unchanged." },
     "seed": { "type": "integer", "minimum": 0, "maximum": 4294967295, "description": "Seeds the noise (one sub-stream per layer). Same parameters and seed give a byte-identical WAV." },
     "variants": { "type": "integer", "minimum": 1, "maximum": 8, "default": 1 },
     "bpm": { "type": "number", "minimum": 60, "maximum": 200, "description": "Context for naming/metadata only." },
@@ -31,5 +31,23 @@
     "offset_ms": { "type": "number", "minimum": 0, "maximum": 12, "default": 0, "description": "Silence before the first burst, rounded to whole samples (as in kick-params)." },
     "peak_ceiling_dbfs": { "type": "number", "minimum": -12, "maximum": -0.1, "default": -0.3, "description": "Peak ceiling of the quantised file." },
     "preset": { "type": "string", "maxLength": 64, "description": "Name of the preset these values came from, if any." }
-  }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "schema_version": { "const": "0.2" } }, "required": ["schema_version"] },
+      "then": {
+        "properties": {
+          "fold": { "type": "number", "minimum": 0, "maximum": 1, "description": "v0.2. Sine wave folding after room, before drive, on the peak-normalised signal: sin(k * pi * u / 2) with k = 1 + 15 * fold (smooth curve only; no triangle fold). Oversampled like drive. Default (filled by the engine for 0.2 only): 0 = stage skipped." },
+          "crush": { "type": "number", "minimum": 0, "maximum": 1, "description": "v0.2. Bit reduction before the hp_hz high-pass: bits = 12 - 9 * crush (12 down to 3), round-to-nearest, no dither. The aliasing is the effect, not an error. Default (filled by the engine for 0.2 only): 0 = stage skipped." },
+          "rate_div": { "type": "integer", "minimum": 1, "maximum": 16, "description": "v0.2. Sample-and-hold rate reduction by this factor, before the hp_hz high-pass (the products at high factors fall below its corner). Default (filled by the engine for 0.2 only): 1 = stage skipped." },
+          "ring_hz": { "type": "number", "minimum": 20, "maximum": 3000, "description": "v0.2. Carrier of the ring modulator, Hz, before the hp_hz high-pass. No effect at ring_mix 0. Default (filled by the engine for 0.2 only): 440 (inactive while ring_mix is 0)." },
+          "ring_mix": { "type": "number", "minimum": 0, "maximum": 1, "description": "v0.2. Dry/ring-modulated mix. Default (filled by the engine for 0.2 only): 0 = stage skipped (ring_hz ignored)." },
+          "comb_hz": { "type": "number", "minimum": 100, "maximum": 4000, "description": "v0.2. Feedback comb tuned to this frequency (delay = round(sample_rate / comb_hz) samples), before the hp_hz high-pass. No effect at comb_fb 0. Default (filled by the engine for 0.2 only): 800 (inactive while comb_fb is 0)." },
+          "comb_fb": { "type": "number", "minimum": 0, "maximum": 0.95, "description": "v0.2. Feedback of the comb, always below 1 (stable). Default (filled by the engine for 0.2 only): 0 = stage skipped (comb_hz ignored)." },
+          "gate_ms": { "anyOf": [ { "const": 0 }, { "type": "number", "minimum": 5, "maximum": 500 } ], "description": "v0.2. Hard gate length after drive: the sound is cut this many ms after the first burst, with a 1 ms fade. 0 = off (stage skipped); otherwise 5 ... 500. Default (filled by the engine for 0.2 only): 0." },
+          "tail_reverse": { "type": "boolean", "description": "v0.2. Reverse the tail segment (from the end of the burst region) in time, after drive and before the fade-out. The loudest part then sits at the end of the file, so a short length_ms cuts the swell. Default (filled by the engine for 0.2 only): false = stage skipped." }
+        }
+      }
+    }
+  ]
 }
