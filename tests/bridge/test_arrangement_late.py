@@ -13,7 +13,7 @@ import threading
 import time
 
 import pytest
-from conftest import TEST_TIMEOUT_S
+from bridge_helpers import TEST_TIMEOUT_S
 from fake_abletonosc import MARKER, build
 from test_arrangement_check import (
     ADD_NOTES,
