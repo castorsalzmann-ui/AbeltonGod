@@ -217,6 +217,61 @@ def test_window_and_backend_check_apply_to_confirm_tools_only(make_guard, events
         assert result.content["error"] == "too_late"
 
 
+def _window_case(make_guard, events, elapsed):
+    ticks = FakeClock()
+    yes = Yes()
+    tool = _confirm_tool(lambda a: Plan({"ok": 1}), events)
+    result = run(make_guard(), Toolbox([tool], clock=ticks), {"n": 1}, yes,
+                 turn_started=ticks.t - elapsed)
+    return result, yes
+
+
+@pytest.mark.parametrize("elapsed", [0.0, 19.9, 20.0, 20.001, 20.1, 21.0, 600.0, 1e9])
+def test_user_is_asked_only_while_the_confirmation_window_fits(make_guard, events, elapsed):
+    """#170: the window is checked before the question, not only after the yes. 20.0 s
+    exactly still fits (the check is `<=`, as after the yes)."""
+    result, yes = _window_case(make_guard, events, elapsed)
+    fits = elapsed <= CONFIRM_WINDOW_S
+    assert bool(yes.plans) == fits
+    assert (("handler", "t") in events.items) == fits
+    if fits:
+        assert result.content == {"plan": {"ok": 1}}
+    else:
+        assert result.content["error"] == "too_late"
+        assert "nobody was asked" in result.content["message"]
+        assert "nothing was sent to Live" in result.content["message"]
+
+
+def test_window_before_the_question_over_random_elapsed_times(make_guard, events):
+    import random
+
+    rng = random.Random(170)
+    for _ in range(60):
+        elapsed = rng.choice([rng.uniform(0, 40), 20.0 + rng.choice([-1, 1]) * 1e-6])
+        events.items.clear()
+        result, yes = _window_case(make_guard, events, elapsed)
+        assert bool(yes.plans) == (elapsed <= CONFIRM_WINDOW_S), elapsed
+        assert result.is_error == (elapsed > CONFIRM_WINDOW_S), elapsed
+
+
+def test_window_used_up_by_a_nan_clock_asks_nobody(make_guard, events):
+    ticks = FakeClock()
+    yes = Yes()
+    tool = _confirm_tool(lambda a: Plan({}), events)
+    result = run(make_guard(), Toolbox([tool], clock=ticks), {"n": 1}, yes,
+                 turn_started=float("nan"))
+    assert result.content["error"] == "too_late" and yes.plans == []
+
+
+def test_late_refusal_before_the_question_is_settled_in_the_guard(make_guard, events):
+    guard = make_guard()
+    ticks = FakeClock()
+    tool = _confirm_tool(lambda a: Plan({}), events)
+    run(guard, Toolbox([tool], clock=ticks), {"n": 1}, Yes(), turn_started=ticks.t - 99)
+    last = log_tools(guard)[-1]
+    assert last["live_writes"] == 0 and last["ok"] is False
+
+
 @pytest.mark.parametrize("answer", [False, None, "yes", RuntimeError("x")])
 def test_confirm_tool_not_presented_is_refused_before_anything(make_guard, events, answer):
     asked_presented = []
@@ -296,6 +351,78 @@ def test_tool_call_pending_is_false_after_a_violation(make_guard, clients):
     Orchestrator(make_guard(), client, Toolbox([Tool("t", "", OBJ, handler)]),
                  profile="p").handle("x")
     assert seen == [False]
+
+
+def _presented_probe(make_guard, clients, setup, wait_s=0.2):
+    """Ask ``tool_call_presented`` for t1, which the CLI really presented, from inside t1's
+    own handler, after ``setup(client)`` changed the session."""
+    factory = FakeCLIFactory({"turns": [
+        {"tool_uses": [{"id": "t1", "name": PREFIX + "t", "input": {"n": 1}}]},
+        {"text": "x"}]})
+    client = make_client(clients, factory)
+    seen = []
+
+    def handler(args):
+        setup(client)
+        seen.append(client.tool_call_presented("t1", wait_s))
+        return ToolOutput({})
+
+    Orchestrator(make_guard(), client, Toolbox([Tool("t", "", OBJ, handler)]),
+                 profile="p").handle("x")
+    return seen
+
+
+def test_tool_call_presented_is_true_for_a_presented_call(make_guard, clients):
+    assert _presented_probe(make_guard, clients, lambda c: None) == [True]
+
+
+@pytest.mark.parametrize("attribute", ["violation", "stream_ended", "closed"])
+def test_tool_call_presented_is_false_for_a_violated_or_ended_session(
+        make_guard, clients, attribute):
+    """#170 (mutant Q4): a presented call is no longer presented once the session is violated,
+    its stream ended or it is closed."""
+    def setup(client):
+        setattr(client._session, attribute, "test" if attribute == "violation" else True)
+
+    assert _presented_probe(make_guard, clients, setup) == [False]
+
+
+def test_tool_call_presented_is_false_after_the_hook_was_answered(make_guard, clients):
+    def setup(client):
+        client._session.hooks["t1"].future.set_result({})
+
+    assert _presented_probe(make_guard, clients, setup) == [False]
+
+
+@pytest.mark.parametrize("wait_s", [0.0, 0.3, 0.7])
+def test_tool_call_presented_waits_no_longer_than_asked(make_guard, clients, wait_s):
+    """#170 (mutant Q13: a wait that ignores ``wait_s``): an unpresented call is waited for
+    about ``wait_s`` and not much longer."""
+    import time
+
+    factory = FakeCLIFactory({"turns": [
+        {"tool_uses": [{"id": "t1", "name": PREFIX + "t", "input": {"n": 1}}]},
+        {"text": "x"}]})
+    client = make_client(clients, factory)
+    took = []
+
+    def handler(args):
+        start = time.monotonic()
+        got = client.tool_call_presented("never-presented", wait_s)
+        took.append((got, time.monotonic() - start))
+        return ToolOutput({})
+
+    Orchestrator(make_guard(), client, Toolbox([Tool("t", "", OBJ, handler)]),
+                 profile="p").handle("x")
+    [(got, seconds)] = took
+    assert got is False
+    assert wait_s - 0.05 <= seconds <= wait_s + 0.6, seconds
+
+
+def test_the_toolbox_asks_the_backend_for_at_most_the_pinned_present_wait():
+    from orchestrator.tools import PRESENT_WAIT_S
+
+    assert PRESENT_WAIT_S == 2.0  # the user decision of PR #168; change it on purpose only
 
 
 # --- system prompt per request ----------------------------------------------------------------

@@ -365,9 +365,10 @@ class Toolbox:
                 return _error(
                     call, "not_presented",
                     f"Claude Code had not handed this {name} call to the guard within "
-                    f"{PRESENT_WAIT_S:g} s (it is not the first tool call of its turn). Nobody "
-                    "was asked and nothing was sent to Live. Call it again as the only tool "
-                    "call of your next turn.",
+                    f"{PRESENT_WAIT_S:g} s. Possible causes: it is not the first tool call of "
+                    "its turn; the guard ended the session; the call was cancelled or already "
+                    "answered. Nobody was asked and nothing was sent to Live. Call it again as "
+                    "the only tool call of your next turn.",
                 )
         arguments = copy.deepcopy(dict(call.arguments))
         plan: Plan | None = None
@@ -384,6 +385,11 @@ class Toolbox:
                 req.after_tool(permit, files_written=0, live_writes=0, ok=False)
                 return _error(call, "internal_error", f"{type(exc).__name__} in {tool.name}")
         if tool.approval is Approval.CONFIRM:
+            # The window may already be used up (slow earlier calls of the turn, the present
+            # wait above): do not ask for a yes that would be refused anyway (#170).
+            late = self._window_refusal(req, permit, call, turn_started, asked=False)
+            if late is not None:
+                return late
             approved = False
             if approver is not None:
                 try:
@@ -428,6 +434,29 @@ class Toolbox:
             req.stop_request(Limit.UNDECLARED_WRITE, f"{tool.name} {overrun}")
         return ToolResult(call.id, tool.name, False, copy.deepcopy(output.content))
 
+    def _window_refusal(
+        self, req: GuardedRequest, permit: Any, call: ToolCall, turn_started: float | None,
+        *, asked: bool,
+    ) -> ToolResult | None:
+        """``too_late`` (settled, nothing ran) when more than ``CONFIRM_WINDOW_S`` passed since
+        the model turn; ``None`` when the window still holds or no turn start was given."""
+        if turn_started is None:
+            return None
+        waited = self.clock() - turn_started
+        if waited <= CONFIRM_WINDOW_S:  # False for NaN
+            return None
+        req.after_tool(permit, files_written=0, live_writes=0, ok=False)
+        if asked:
+            what = f"the confirmation came {waited:.0f} s after the request for it"
+        else:
+            what = (f"{waited:.0f} s had already passed since the request for it, so nobody "
+                    "was asked")
+        return _error(
+            call, "too_late",
+            f"{what} (limit {CONFIRM_WINDOW_S:g} s); nothing was run and nothing was sent to "
+            "Live. Ask the user to request it again.",
+        )
+
     def _after_yes(
         self,
         req: GuardedRequest,
@@ -445,16 +474,9 @@ class Toolbox:
             # settle with nothing done; after_tool raises the same (sticky) stop
             req.after_tool(permit, files_written=0, live_writes=0, ok=False)
             raise
-        if turn_started is not None:
-            waited = self.clock() - turn_started
-            if not waited <= CONFIRM_WINDOW_S:  # also catches NaN
-                req.after_tool(permit, files_written=0, live_writes=0, ok=False)
-                return _error(
-                    call, "too_late",
-                    f"the confirmation came {waited:.0f} s after the request for it (limit "
-                    f"{CONFIRM_WINDOW_S:g} s); nothing was run and nothing was sent to Live. "
-                    "Ask the user to request it again.",
-                )
+        late = self._window_refusal(req, permit, call, turn_started, asked=True)
+        if late is not None:
+            return late
         if still_waiting is not None:
             try:
                 alive = still_waiting(call.id) is True
