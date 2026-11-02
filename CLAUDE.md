@@ -124,7 +124,7 @@ An issue may hand a file to another role for that issue only (e.g. a qa-tester i
 
 ## Agents
 
-Flat team (D-017): the lead assigns specialised agents directly; **no agent starts helpers or sub-agents**. At most 10 active at once, only what the current phase needs. **Keep 5-6 agents running at all times (user, 2026-11-02):** when an agent hands back, the lead starts the next task (or a reviewer) in the same turn, so the count never drops to 1-2; if the backlog runs dry, research or doc pre-work for the next categories fills the slots. Each agent works in its own git worktree and writes only to its own files; anything else becomes an issue for the owning role. Definitions in `.claude/agents/`.
+Flat team (D-017): the lead assigns specialised agents directly; **no agent starts helpers or sub-agents**. At most 15 active at once (user, 2026-11-02 14:16: "bis zu 15", all day), only useful parallel work. **Keep 5-6 agents running at all times, up to 15 when there is independent work (user, 2026-11-02):** when an agent hands back, the lead starts the next task (or a reviewer) in the same turn, so the count never drops to 1-2; if the backlog runs dry, research or doc pre-work for the next categories fills the slots. Each agent works in its own git worktree and writes only to its own files; anything else becomes an issue for the owning role. Definitions in `.claude/agents/`.
 
 - `audio-engineer` — kick engine, DSP, presets, variants, analysis, WAV/sidecars (`src/audio_engine/`, `src/library/`).
 - `bridge-engineer` — AbletonOSC, capability registry, import into Live (`src/bridge/`, `scripts/` except `scripts/qa/`, `docs/setup/`).
