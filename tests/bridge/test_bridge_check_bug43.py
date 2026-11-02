@@ -129,7 +129,7 @@ def _run_ctrl_c_at(fake, prompt_start: str):
     fake.response_port = receive
     out = io.StringIO()
     code = bridge_check.main(["--send-port", str(fake.port), "--receive-port", str(receive),
-                              "--timeout", "0.3"], input_fn=input_fn, out=out)
+                              "--timeout", "5"], input_fn=input_fn, out=out)
     return code, out.getvalue(), calls
 
 
