@@ -10,6 +10,21 @@ from bridge.capabilities import CAPABILITIES_FILE, CapabilityGate, CapabilityReg
 from bridge.osc_client import ADDRESSES, AbletonBridge, OscTransport
 
 TEST_TIMEOUT_S = 0.25
+# Tests that expect an ANSWER get a generous deadline: under heavy CPU load (25 busy processes
+# on 2 cores) a 0.25 s deadline expired and the test failed with BridgeTimeoutError (#180).
+REPLY_TIMEOUT_S = 5.0
+# Tests that expect the TIMEOUT keep the short one. A new test that drops or stalls a reply
+# and fails because it now waits 5 s: add its name (or its module) here.
+SHORT_TIMEOUT_MODULES = {"test_clip_import_late.py", "test_arrangement_late.py"}
+SHORT_TIMEOUT_TESTS = {
+    "test_missing_markers_time_out_after_the_timeout",
+    "test_timed_out_write_that_reads_back_as_intended_is_settled",
+    "test_timed_out_write_that_never_happened_is_unknown_and_blocks_undo",
+    "test_timed_out_write_with_failed_readback",
+    "test_late_read_reply_does_not_answer_the_next_read",
+    "test_error_of_a_timed_out_request_is_not_raised_on_the_next",
+    "test_write_that_fails_after_a_timed_out_write_is_not_confirmed",
+}
 
 
 def registry_with(tmp_path: Path, tested: set[str]) -> CapabilityRegistry:
@@ -56,8 +71,11 @@ def fake():
 
 
 @pytest.fixture
-def transport(fake):
-    t = OscTransport(send_port=fake.port, receive_port=0, timeout_s=TEST_TIMEOUT_S)
+def transport(fake, request):
+    expects_timeout = (request.node.path.name in SHORT_TIMEOUT_MODULES
+                       or request.node.originalname in SHORT_TIMEOUT_TESTS)
+    t = OscTransport(send_port=fake.port, receive_port=0,
+                     timeout_s=TEST_TIMEOUT_S if expects_timeout else REPLY_TIMEOUT_S)
     fake.response_port = t.receive_port
     yield t
     t.close()

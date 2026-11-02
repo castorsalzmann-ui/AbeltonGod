@@ -22,7 +22,8 @@ from orchestrator.kick_tools import IMPORT_CAPS, LIST_TRACKS_CAPS, KickSession
 from orchestrator.tools import Toolbox
 
 BRIDGE_TESTS = Path(__file__).resolve().parents[1] / "bridge"
-TEST_TIMEOUT_S = 0.25
+TEST_TIMEOUT_S = 0.25  # tests expecting a timeout
+REPLY_TIMEOUT_S = 5.0  # tests expecting an answer (#180)
 # Fast kicks: short, no drive. Values written here, not taken from a preset.
 FAST_KICK = {"schema_version": "0.2", "seed": 4711, "length_ms": 120.0, "amp_decay_ms": 60.0,
              "drive": 0.0, "bpm": 136}
@@ -83,7 +84,7 @@ def audio_set(fake) -> None:
 
 def bridge_factory(fake, registry: CapabilityRegistry, made: list | None = None):
     def connect() -> AbletonBridge:
-        t = OscTransport(send_port=fake.port, receive_port=0, timeout_s=TEST_TIMEOUT_S)
+        t = OscTransport(send_port=fake.port, receive_port=0, timeout_s=REPLY_TIMEOUT_S)
         fake.response_port = t.receive_port
         bridge = AbletonBridge(t, CapabilityGate(registry))
         if made is not None:
