@@ -34,6 +34,7 @@ from .clap import ClapParamsError, resolve_clap_params
 from .io import write_kick
 from .params import KickParamsError, resolve_kick_params
 from .presets import UnknownPresetError, describe, load_preset, preset_names
+from .prompt import PromptError, parse_prompt
 from .variants import make_variants
 
 EXIT_OK = 0
@@ -76,6 +77,10 @@ def build_parser() -> argparse.ArgumentParser:
         help="sound category (default kick)",
     )
     parser.add_argument(
+        "--prompt",
+        help="keyword prompt instead of --preset, e.g. 'sub:1.5, punch:1.2, dunkel, note:Am'",
+    )
+    parser.add_argument(
         "--list-presets", action="store_true", help="list preset names and descriptions"
     )
     return parser
@@ -112,6 +117,8 @@ def plan(args: argparse.Namespace) -> tuple[str, list[dict[str, Any]], list[str]
     Raises :class:`UsageError`, :class:`UnknownPresetError` or ``KickParamsError``; touches
     no file.
     """
+    if getattr(args, "prompt", None) is not None:
+        return _plan_prompt(args)
     if not args.preset:
         raise UsageError("--preset is required (see --list-presets)")
     if not args.out:
@@ -147,6 +154,45 @@ def plan(args: argparse.Namespace) -> tuple[str, list[dict[str, Any]], list[str]
     return args.out, variants, stems, descriptions
 
 
+def _plan_prompt(
+    args: argparse.Namespace,
+) -> tuple[str, list[dict[str, Any]], list[str], list[str]]:
+    """``--prompt`` path (issue 233): keyword prompt instead of preset; the prompt text is the
+    description. Adjustments are kept on ``args.prompt_adjustments`` for the caller to print."""
+    if args.preset or args.overrides:
+        raise UsageError("--prompt cannot be combined with --preset or --set")
+    if getattr(args, "category", "kick") != "kick":
+        raise UsageError("--prompt is a kick vocabulary, not usable with --category clap")
+    if not args.out:
+        raise UsageError("--out is required")
+    try:
+        parsed = parse_prompt(args.prompt)
+    except PromptError as exc:
+        raise UsageError(str(exc)) from exc
+    request = dict(parsed.params)
+    if args.seed is not None:
+        if "seed" in parsed.slots and request["seed"] != args.seed:
+            raise UsageError("--seed conflicts with seed: in the prompt")
+        request["seed"] = args.seed
+    if args.variants != 1:
+        if "variants" in parsed.slots and request["variants"] != args.variants:
+            raise UsageError("--variants conflicts with variants: in the prompt")
+        request["variants"] = args.variants
+    args.prompt_adjustments = [str(a) for a in parsed.adjustments]
+    base = resolve_kick_params(request)
+    variants = make_variants(request, base["variants"])
+    stem = f"prompt_s{base['seed']}"
+    stems = [f"{stem}_v{i}" for i in range(len(variants))]
+    n = len(variants)
+    descriptions = [
+        f"Prompt: {args.prompt.strip()} | variant {i} of {n}, base seed {base['seed']}."[
+            :MAX_DESCRIPTION
+        ]
+        for i in range(n)
+    ]
+    return args.out, variants, stems, descriptions
+
+
 def main(argv: list[str] | None = None, stdout: TextIO | None = None,
          stderr: TextIO | None = None) -> int:
     stdout = stdout or sys.stdout
@@ -176,6 +222,8 @@ def _main(argv: list[str] | None, stdout: TextIO, stderr: TextIO) -> int:
         print(f"error: {exc}", file=stderr)
         return EXIT_USAGE
 
+    for line in getattr(args, "prompt_adjustments", []):
+        print(f"adjusted: {line}", file=stdout)
     for i, (params, stem, description) in enumerate(zip(variants, stems, descriptions,
                                                         strict=True)):
         try:

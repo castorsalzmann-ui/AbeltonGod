@@ -6,7 +6,7 @@ Der Copilot soll Samples erzeugen und verfeinern, Arrangements vorschlagen, beim
 
 **Stand (02.11.2026):** Der Kick-Generator ist abgeschlossen (Hörtest 3, Preset `dense`). Der Kick lässt sich per Terminal-Chat mit Claude erzeugen und in ein Ableton-Projekt importieren, jeweils durch den Ressourcen-Wächter. Ein Arrangement-Planer erzeugt Pläne aus Genre, Tempo und Länge (Layout, Energiekurve, Timeline); ins Live schreiben kann er noch nicht. Als Nächstes: Kick-Prompts mit Schlüsselwörtern, dann Clap und Hats.
 
-**Cockpit:** Roadmap, Forschungsnotizen, offene Aufgaben für den Nutzer und wer gerade arbeitet: [Projekt-Cockpit](https://claude.ai/artifact/VtqRwzLvCEiYaeQb4i7x3u) (Anmeldung nötig). Was nur der Nutzer tun kann, steht in [`docs/WAITING_ON_USER.md`](docs/WAITING_ON_USER.md), die Feature-Tabelle in [`docs/ROADMAP.md`](docs/ROADMAP.md), der ausführliche Stand in [`docs/CURRENT_STATE.md`](docs/CURRENT_STATE.md).
+**Cockpit:** Roadmap, Forschungsnotizen, offene Aufgaben für den Nutzer und wer gerade arbeitet: [Projekt-Cockpit](https://castorsalzmann-ui.github.io/AbeltonGod/) (aktualisiert sich alle 30 Minuten selbst; der Banner oben zeigt das Alter der Daten). Was nur der Nutzer tun kann, steht in [`docs/WAITING_ON_USER.md`](docs/WAITING_ON_USER.md), die Feature-Tabelle in [`docs/ROADMAP.md`](docs/ROADMAP.md), der ausführliche Stand in [`docs/CURRENT_STATE.md`](docs/CURRENT_STATE.md).
 
 ## Architektur in einem Satz
 

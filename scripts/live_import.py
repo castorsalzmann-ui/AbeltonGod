@@ -25,7 +25,7 @@ Steps:
    A refused or unconfirmed undo prints how to remove the import by hand.
 8. No: the clip stays; asks whether the kick plays (the user's answer is recorded as such)
    and prints how to remove the import by hand later.
-9. Prints a result block to paste into issue #50.
+9. Prints a result block to paste into issue #129.
 
 Capability gate: ``clip_slot.create_audio_clip`` is ``tested`` since #50 (user runs 2-4),
 ``song.create_audio_track`` and the four import reads (``song.num_scenes.get``,
@@ -654,7 +654,7 @@ def main(argv: list[str] | None = None, input_fn: Callable[[str], str] = input,
     print(f"AbeltonGod live_import {SCRIPT_VERSION}\n", file=out)
     code = import_wav(args, report, args.wav, input_fn, out)
     report.finished_at = now_iso()
-    print("\nBitte den folgenden Block komplett in Issue #50 einfügen:\n", file=out)
+    print("\nBitte den folgenden Block komplett in Issue #129 einfügen:\n", file=out)
     print(render_result_block(report), file=out)
     return code
 

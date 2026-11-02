@@ -30,6 +30,7 @@ from pathlib import Path
 from typing import Any, TextIO
 
 from bridge.capabilities import CapabilityError
+from bridge.clip_import import live_number
 from guard import Guard, PolicyError
 from orchestrator.clients import make_model_client
 from orchestrator.fake_model import FakeModel, RecordingError
@@ -38,6 +39,7 @@ from orchestrator.loop import DEFAULT_PROFILE, Orchestrator
 from orchestrator.model_client import ModelClient
 from orchestrator.plan_tools import PlanSession
 from orchestrator.project import ProjectCheckUnavailable
+from orchestrator.sample_tools import SampleTools
 from orchestrator.tools import CONFIRM_WINDOW_S, Plan, Tool, Toolbox, ToolDefinitionError
 
 SDK_LOGGER = "claude_agent_sdk"
@@ -50,7 +52,7 @@ _QUIT = {"", "exit", "quit"}
 def _live_number(index: Any) -> str:
     """0-based tool index -> Live's 1-based number; anything else shown as is."""
     if isinstance(index, int) and not isinstance(index, bool) and index >= 0:
-        return str(index + 1)
+        return live_number(index)
     return str(index)
 
 
@@ -131,7 +133,9 @@ def main(
                 unavailable = str(exc)
         limit = guard.policy.profile(args.profile).max_files_written
         plans = PlanSession()  # needs no project folder: plans stay in this chat
-        toolbox = (Toolbox(session.tools(files_per_request=limit) + plans.tools(),
+        toolbox = (Toolbox(session.tools(files_per_request=limit)
+                           + SampleTools(session).tools(files_per_request=limit)
+                           + plans.tools(),
                            capability_gate=session.gate())
                    if session is not None else Toolbox(plans.tools()))
         if model is None:

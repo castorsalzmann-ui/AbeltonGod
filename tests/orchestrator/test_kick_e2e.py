@@ -456,8 +456,8 @@ def test_chat_with_project_registers_the_three_tools(tmp_path, make_guard):
     code = main(["--profile", "p", "--project", str(tmp_path)], read=lambda _p: next(lines),
                 out=out, guard=make_guard(), model=model, session_factory=factory)
     assert code == 0, out.getvalue()
-    assert [t.name for t in model.requests[0].tools] == ["generate_kick", "list_tracks",
-                                                         "import_sample", "plan_arrangement"]
+    assert [t.name for t in model.requests[0].tools] == [
+        "generate_kick", "list_tracks", "import_sample", "generate_sample", "plan_arrangement"]
     # #170 (mutant Q11): the chat passes the profile's file limit to the tool description
     # (profile "p" in the test policy allows 10 files, 2 per kick)
     generate = model.requests[0].tools[0]
