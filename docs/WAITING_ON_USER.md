@@ -4,9 +4,7 @@ What only the user can do. The lead keeps this table current after every merge o
 
 | Was | Link | Aufgabe | Seit |
 | --- | --- | --- | --- |
-| Merge | https://github.com/castorsalzmann-ui/AbeltonGod/pull/239 | Fundament für Claps und weitere Sounds mergen (Review freigegeben, Kicks unverändert) | 2026-11-02 |
-| Merge | https://github.com/castorsalzmann-ui/AbeltonGod/pull/240 | Clap-Ziele und Hörtest-Plan mergen (nur Doku, Review + Gate grün) | 2026-11-02 |
-| Merge | https://github.com/castorsalzmann-ui/AbeltonGod/pull/241 | Hat-Recherche mergen (nur Doku, Review freigegeben, Gate grün) | 2026-11-02 |
+| Einstellung | https://github.com/castorsalzmann-ui/AbeltonGod/settings/pages | Unter Build and deployment bei Source „GitHub Actions“ wählen; danach läuft das Cockpit auf GitHub Pages (Link in der README) | 2026-11-02 |
 | Schließen | https://github.com/castorsalzmann-ui/AbeltonGod/issues/103 | Hörtests abgeschlossen: Issue schließen | 2026-11-02 |
 | Schließen | https://github.com/castorsalzmann-ui/AbeltonGod/issues/57 | Kick-Layering nicht verfolgt: Issue schließen | 2026-11-02 |
 | Test | https://github.com/castorsalzmann-ui/AbeltonGod/issues/176 | Offline-Test von Claude auf deinem PC wiederholen | 2026-11-01 |
