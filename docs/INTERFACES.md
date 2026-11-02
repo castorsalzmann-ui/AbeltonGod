@@ -6,10 +6,11 @@ Machine-readable contracts live in `contracts/`. This file explains them. Changi
 | --- | --- | --- |
 | `contracts/kick-params.schema.json` | Orchestrator / CLI → audio engine | v0.3 (#104, follow-ups #131); the engine renders 0.2 and 0.3 (PR #130) |
 | `contracts/tool-generate-kick.schema.json` | Orchestrator (tool definition) → Claude | strict-subset variant of kick-params 0.3 for the `generate_kick` tool, for when it is sent strict (#131; the choice is #148's, see "Strict tool variant"); the engine still validates against `kick-params.schema.json` |
-| `contracts/sample-metadata.schema.json` | Audio engine → library, orchestrator | v0.2 (#229): kick keeps 0.1; categories `kick`, `clap`, `hat` (#249), `snare` (#272); non-pitched features; engine identity per category. v0.1 kick sidecars stay valid |
+| `contracts/sample-metadata.schema.json` | Audio engine → library, orchestrator | v0.2 (#229): kick keeps 0.1; categories `kick`, `clap`, `hat` (#249), `snare` (#272), `rim` (#296); non-pitched features; engine identity per category. v0.1 kick sidecars stay valid |
 | `contracts/clap-params.schema.json` | Orchestrator / CLI → audio engine | v0.1 proposal (#229); no engine yet; ranges are measured and may be adjusted by the engine PR |
 | `contracts/hat-params.schema.json` | Orchestrator / CLI → audio engine | v0.1 proposal (#249); no engine yet; ranges are proposals the engine PR measures and may adjust |
 | `contracts/snare-params.schema.json` | Orchestrator / CLI → audio engine | v0.1 proposal (#272); no engine yet; ranges are placeholders the engine PR measures and may adjust |
+| `contracts/rim-params.schema.json` | Orchestrator / CLI → audio engine | v0.1 proposal (#296); no engine yet; ranges are hypotheses from one weak source plus placeholders the engine PR measures and may adjust |
 | `contracts/capabilities.json` (+ `capabilities.schema.json`) | Bridge → orchestrator | v1 — statuses updated in Phase 02 (#42: entry `track.mute.get` added, no format change) and Phase 03 (#50: `clip_slot.create_audio_clip` → `tested`, no format change; #143: `song.create_audio_track` → `tested`, own `tested` entries `track.has_audio_input.get`, `clip_slot.has_clip.get`, `clip.file_path.get`, `song.num_scenes.get` (no borrowed gate any more), no format change; one undo may revert track + clip together; #140: 12 Arrangement-check entries added as `unknown`, no format change) |
 | `contracts/guard-policy.schema.json` → `config/guard-policy.json` | User config → resource guard | v1 — default values are untuned starting points |
 | `contracts/tool-list-tracks.schema.json`, `contracts/tool-import-sample.schema.json` | Claude (tool arguments) → orchestrator | v1 (#81) — input schemas only; not wired yet |
@@ -93,6 +94,17 @@ All ranges are proposals (design note section 4, targets note section 2); `attac
 - Sidecars: category `snare`, `schema_version` `0.2`, `engine.name` `abeltongod-audio-engine-snare` with its own version (D-025), `parameters.schema_version` `0.1`.
 
 No tool schema (`generate_snare`) exists.
+
+## Rim parameters
+
+`rim-params.schema.json` v0.1 (#296) is a proposal for one mono rim shot: two damped sine partials (`f1_hz`, `f1_hz` x `f2_ratio`, relative amplitude `level2`, own decays `decay1_ms` / `decay2_ms` as time to -60 dB), a high-pass `hp_hz` and an optional noise click (`click_level`, `click_ms`). Separate `rim-params`, not a snare `model` (lead decision on #272). The research note's few sourced numbers are weak (one hobby page); every range and default is a placeholder. Decisions taken in this draft, open for the lead: a single partial is `level2` 0 (no "off" value in `f2_ratio`); `f3_ratio`, pitch `bend`, `tone_peak_*` and a `clave` model are not in v0.1; category `rim` (not `perc`). Fixed by the contract text (details in the schema `$comment`):
+
+- Cross-field rule `hp_hz` < 0.8 x `f1_hz`: JSON Schema cannot express it; the engine rejects violations with an error text, never clamps. The default `hp_hz` (200) satisfies it for every `f1_hz` in range.
+- Partials start with phase 0; the seed changes only the click, so `click_level` 0 is seed-independent. The highest partial (3500 x 5.0 Hz) is below 0.45 x `sample_rate`.
+- Out-of-range values are rejected, never clamped.
+- Sidecars: category `rim`, `schema_version` `0.2`, `engine.name` `abeltongod-audio-engine-rim` with its own version (D-025), `parameters.schema_version` `0.1`.
+
+No tool schema (`generate_rim`) exists.
 
 ## Guard policy
 
