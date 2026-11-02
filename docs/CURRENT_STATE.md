@@ -1,6 +1,16 @@
 # Current State
 
-_Last updated: 2026-10-29 evening (after #144, #150) · Written only by the lead session on `main` after a merge. Parallel tracks: `docs/ROADMAP.md` → Pipeline._
+_Last updated: 2026-11-02 13:30 (Stand-Block unten, ältere Einträge teils historisch) · Written only by the lead session on `main` after a merge. Parallel tracks: `docs/ROADMAP.md` → Pipeline._
+
+## Stand 2026-11-02, 13:30 (Nachmittag)
+
+Neue Sample-Kategorien: **Clap zuerst, dann Hats** (D-025). Details und offene Schritte pro Feature: `docs/ROADMAP.md` (Features-Tabelle). Was nur der Nutzer tun kann: `docs/WAITING_ON_USER.md`. Live-Cockpit (aktualisiert sich alle 30 Minuten): <https://castorsalzmann-ui.github.io/AbeltonGod/>.
+
+- **Gemergt heute Nachmittag (Nutzer):** C0 Vertrag `sample-metadata` v0.2 + `clap-params` v0.1 (PR #237), C1 Audio-Fundament (DSP-Bausteine, nicht-tonhöhenbezogene Analyse, Kategorie-Registry; PR #239), Clap-Voice C2 mit Presets short/long/bright/default (PR #246, Kick-Bytes unverändert), Clap-Ziele/Referenzanalyse der 13 Nutzer-Claps (PRs #240, #244, Drei Cluster S/L/B), Hat-Recherche und Hat-Ziele (PRs #241, #247), Snare/Rim/Bass-Recherche (PR #253), Auth-Lücke im Abo-Modus (PR #243), Cockpit-Collector (PR #238) und selbstaktualisierendes Cockpit auf GitHub Pages (PR #242). Beim Gate auf dem gemergten Stand: 5756 bestanden, 11 übersprungen (main + #240 + #241); Review-Läufe der Agents zuletzt 5972 bestanden (PR #256).
+- **In Review / offen für den Nutzer (Stand 13:30):** Keyword-Parser für Kicks (PR #248, `--prompt`), Hörtest-Paket Clap (PR #254; Paket ging an den Nutzer, Antworten stehen aus), API-Key-Auth-Lücke (PR #255, Issue #245), Hat-Vertrag `hat-params` v0.1 (PR #256, contract-change), Tool-Design `generate_sample` (PR #257), Drum-Rack-Notiz (PR #260), Clap-Import in Live hinter Fake-Tests (PR #261, nichts in Live getestet), Hörcheck-Plan Kick-Keywords (PR #263).
+- **In Arbeit:** G7 `generate_sample` nur Clap (#258), H1 Hat-DSP-Bausteine (#250), H2 Hat-Analysehelfer (#251), Flakes unter Last (#180/#183).
+- **Entscheidungen des Leads (Nutzer wollte keine Rückfragen):** `generate_sample` als ein generisches Tool mit 0 optionalen Parametern (Option B, #258); Hat-Vertrag mit `model`-Enum (`metal_bank`, `noise`), Shaker/Ride nicht in v0.1, mono; Reihenfolge nach Hats: Snare, Rim, Bass; Referenz-Claps liegen nur im Arbeitsbereich, nicht im Repo.
+- **Bekannte Lücken:** Windows-Golden-Hashes des Claps nur durch CI belegt; Drum-Rack/Choke-Gruppen nicht in AbletonOSC (nur Recherche, alle Fähigkeiten `unknown`); Kick-Sidecar pinnt Engine-Namen nicht (#262); Last-Flakes #180; Quellen der Snare/Bass-Notiz teils nur vom Lead geprüft.
 
 ## Phase
 
