@@ -369,12 +369,12 @@ def test_timed_out_import_never_undoes(fake, tmp_path):
         # directly (fake.hold() would deadlock on the non-reentrant lock).
         fake._held = []
         fake.released.clear()
-        fake.release_after(0.45)
+        fake.release_after(3.0)  # 3x the deadline below: 2 s margin even if descheduled (#180)
         # the clip is never created (e.g. the datagram had no effect)
 
     fake._create_audio_clip = blocked
     code, out, prompts = run(fake, tmp_path, ["y", "0", "y", "y", "y"],
-                          extra=("--timeout", "0.3"))  # expects the timeout (#180)
+                             extra=("--timeout", "1.0"))  # expects the timeout (#180)
     assert code == 1, out
     assert "UNBEKANNT" in out and "KEIN Undo" in out
     assert UNDO not in [a for a, _ in writes(fake)]

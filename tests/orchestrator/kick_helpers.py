@@ -82,9 +82,10 @@ def audio_set(fake) -> None:
     ]
 
 
-def bridge_factory(fake, registry: CapabilityRegistry, made: list | None = None):
+def bridge_factory(fake, registry: CapabilityRegistry, made: list | None = None,
+                   timeout_s: float = REPLY_TIMEOUT_S):
     def connect() -> AbletonBridge:
-        t = OscTransport(send_port=fake.port, receive_port=0, timeout_s=REPLY_TIMEOUT_S)
+        t = OscTransport(send_port=fake.port, receive_port=0, timeout_s=timeout_s)
         fake.response_port = t.receive_port
         bridge = AbletonBridge(t, CapabilityGate(registry))
         if made is not None:
