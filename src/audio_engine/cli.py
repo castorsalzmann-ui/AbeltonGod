@@ -1,8 +1,11 @@
 """Command line for kick presets and variants (Phase 01b, issue #3).
 
     python -m audio_engine.kick --preset NAME [--variants N] --out DIR
-                                [--seed INT] [--set FIELD=VALUE ...]
-    python -m audio_engine.kick --list-presets
+                                [--seed INT] [--set FIELD=VALUE ...] [--category kick|clap]
+    python -m audio_engine.kick --list-presets [--category kick|clap]
+
+``--category clap`` (#231) renders clap presets from ``presets/clap/`` and writes
+``clap-params`` sidecars; the default is ``kick``.
 
 Writes ``<preset>_s<seed>_v<i>[_custom].wav`` + ``.json`` for ``i = 0 … N-1`` into ``DIR``
 (``<seed>`` is the base seed; ``_custom`` when ``--set`` changed a value). Existing files are
@@ -26,6 +29,8 @@ import sys
 from pathlib import Path
 from typing import Any, TextIO
 
+from . import clap_variants
+from .clap import ClapParamsError, resolve_clap_params
 from .io import write_kick
 from .params import KickParamsError, resolve_kick_params
 from .presets import UnknownPresetError, describe, load_preset, preset_names
@@ -66,6 +71,10 @@ def build_parser() -> argparse.ArgumentParser:
         default=[],
         metavar="FIELD=VALUE",
         help="set one kick parameter (a number), repeatable; e.g. --set pitch_decay_ms=15",
+    )
+    parser.add_argument(
+        "--category", choices=("kick", "clap"), default="kick",
+        help="sound category (default kick)",
     )
     parser.add_argument(
         "--prompt",
@@ -115,20 +124,25 @@ def plan(args: argparse.Namespace) -> tuple[str, list[dict[str, Any]], list[str]
     if not args.out:
         raise UsageError("--out is required")
     overrides = parse_overrides(args.overrides)
-    base = dict(load_preset(args.preset))
+    category = getattr(args, "category", "kick")  # callers build their own Namespace
+    base = dict(load_preset(args.preset, category))
     if args.seed is not None:
         base["seed"] = args.seed
     base.update(overrides)
     base["variants"] = args.variants  # validated by the contract (1 … 8)
     request = base
-    base = resolve_kick_params(request)
+    resolve, make = (
+        (resolve_kick_params, make_variants) if category == "kick"
+        else (resolve_clap_params, clap_variants.make_variants)
+    )
+    base = resolve(request)
     # The request, not its resolved form: variants of a tail_note / length_beats request keep
     # the note and the -60 dB rule (#120), which the resolved form no longer shows.
-    variants = make_variants(request, base["variants"])
+    variants = make(request, base["variants"])
     suffix = "_custom" if overrides else ""
     stem = f"{args.preset}_s{base['seed']}"
     stems = [f"{stem}_v{i}{suffix}" for i in range(len(variants))]
-    text = describe(args.preset)
+    text = describe(args.preset, category)
     custom = ", ".join(f"{k}={v}" for k, v in overrides.items())
     descriptions = []
     n, seed = len(variants), base["seed"]
@@ -147,6 +161,8 @@ def _plan_prompt(
     description. Adjustments are kept on ``args.prompt_adjustments`` for the caller to print."""
     if args.preset or args.overrides:
         raise UsageError("--prompt cannot be combined with --preset or --set")
+    if getattr(args, "category", "kick") != "kick":
+        raise UsageError("--prompt is a kick vocabulary, not usable with --category clap")
     if not args.out:
         raise UsageError("--out is required")
     try:
@@ -196,13 +212,13 @@ def _main(argv: list[str] | None, stdout: TextIO, stderr: TextIO) -> int:
         return EXIT_OK if exc.code == 0 else EXIT_USAGE
 
     if args.list_presets:
-        for name in preset_names():
-            print(f"{name:14s} {describe(name)}", file=stdout)
+        for name in preset_names(args.category):
+            print(f"{name:14s} {describe(name, args.category)}", file=stdout)
         return EXIT_OK
 
     try:
         out_dir, variants, stems, descriptions = plan(args)
-    except (UsageError, UnknownPresetError, KickParamsError) as exc:
+    except (UsageError, UnknownPresetError, KickParamsError, ClapParamsError) as exc:
         print(f"error: {exc}", file=stderr)
         return EXIT_USAGE
 
@@ -211,7 +227,10 @@ def _main(argv: list[str] | None, stdout: TextIO, stderr: TextIO) -> int:
     for i, (params, stem, description) in enumerate(zip(variants, stems, descriptions,
                                                         strict=True)):
         try:
-            wav_path, json_path = write_kick(params, out_dir, name=stem, description=description)
+            extra = {} if args.category == "kick" else {"category": args.category}
+            wav_path, json_path = write_kick(
+                params, out_dir, name=stem, description=description, **extra
+            )
         except OSError as exc:  # includes FileExistsError (no free name) and disk full
             print(
                 f"error: variant {i} ({stem}) not written: {exc}. "
@@ -225,10 +244,18 @@ def _main(argv: list[str] | None, stdout: TextIO, stderr: TextIO) -> int:
 
 
 def _summary(wav_path: Path, json_path: Path) -> str:
-    features = json.loads(json_path.read_text(encoding="utf-8"))["features"]
+    meta = json.loads(json_path.read_text(encoding="utf-8"))
+    features = meta["features"]
 
     def fmt(value: float | None, unit: str) -> str:
         return "n/a" if value is None else f"{value:g} {unit}"
+
+    if meta["category"] != "kick":
+        return (
+            f"{wav_path}  centroid={fmt(features.get('spectral_centroid_hz'), 'Hz')}  "
+            f"t60={fmt(features.get('t60_ms'), 'ms')}  "
+            f"peak={fmt(features['peak_dbfs'], 'dBFS')}"
+        )
 
     return (
         f"{wav_path}  f0={fmt(features.get('fundamental_hz'), 'Hz')}  "

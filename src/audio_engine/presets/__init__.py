@@ -33,6 +33,17 @@ DESCRIPTIONS = {
 }
 
 
+CLAP_DESCRIPTIONS = {
+    "default": "The contract defaults written out (three bursts, mid band-pass, 200 ms tail).",
+    "short": "Starter set S of the clap reference analysis: four bursts, short tail, mid "
+    "band-pass.",
+    "long": "Starter set L of the clap reference analysis: four bursts, long tail, mid "
+    "band-pass.",
+    "bright": "Starter set B of the clap reference analysis: wide band-pass, high high-pass "
+    "corner.",
+}
+
+
 class UnknownPresetError(KeyError):
     """No preset with this name. The message lists the valid names."""
 
@@ -40,20 +51,28 @@ class UnknownPresetError(KeyError):
         return str(self.args[0])
 
 
-def preset_names() -> list[str]:
-    """Names of all presets shipped in this folder, sorted."""
-    return sorted(p.stem for p in PRESETS_DIR.glob("*.json"))
+def _folder(category: str) -> Path:
+    if category == "kick":
+        return PRESETS_DIR
+    if category == "clap":
+        return PRESETS_DIR / "clap"
+    raise ValueError(f"no presets for category {category!r}")
 
 
-def load_preset(name: str) -> dict[str, Any]:
-    """The preset's ``kick-params`` object as stored (not resolved, not validated here)."""
-    names = preset_names()
+def preset_names(category: str = "kick") -> list[str]:
+    """Names of all presets of ``category`` shipped in its folder, sorted."""
+    return sorted(p.stem for p in _folder(category).glob("*.json"))
+
+
+def load_preset(name: str, category: str = "kick") -> dict[str, Any]:
+    """The preset's params object as stored (not resolved, not validated here)."""
+    names = preset_names(category)
     if name not in names:  # only listed names: no path from user input reaches the file system
         raise UnknownPresetError(
             f"Unknown preset {name!r}. Valid presets: {', '.join(names)}."
         )
-    return json.loads((PRESETS_DIR / f"{name}.json").read_text(encoding="utf-8"))
+    return json.loads((_folder(category) / f"{name}.json").read_text(encoding="utf-8"))
 
 
-def describe(name: str) -> str:
-    return DESCRIPTIONS.get(name, "")
+def describe(name: str, category: str = "kick") -> str:
+    return (CLAP_DESCRIPTIONS if category == "clap" else DESCRIPTIONS).get(name, "")

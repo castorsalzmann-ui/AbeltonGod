@@ -109,6 +109,18 @@ def test_clamp_is_reported():
     assert "drive" in str(adj) and "0 ... 1" in str(adj)
 
 
+@pytest.mark.parametrize(
+    ("word", "field", "value"),
+    [("sub", "pitch_start_hz", 200.0), ("punch", "pitch_start_hz", 200.0),
+     ("click", "click_level", 0.35), ("bite", "click_tone_hz", 3500.0),
+     ("tail", "amp_decay_ms", 560.0), ("drive", "drive", 0.45), ("wums", "clip_db", 3.0),
+     ("bright", "tone", 0.0)],
+)
+def test_bare_keyword_is_weight_one(word, field, value):
+    # no weight = w 1 = dense (wums: the typical 3 dB)
+    assert parse_prompt(word).params[field] == pytest.approx(value, rel=1e-9)
+
+
 # --- slots -------------------------------------------------------------------------------------
 
 # Camelot code -> tail_note, typed from the note table (genre-words note, section 4).
@@ -256,3 +268,6 @@ def test_cli_prints_adjustments_and_rejects_bad_use(tmp_path):
         code, _, err = run(argv)
         assert code == 2 and err.startswith("error:")
         assert not (tmp_path / "d").exists()
+    code, _, err = run(["--prompt", "sub:1", "--category", "clap", "--out", str(tmp_path / "d")])
+    assert code == 2 and "clap" in err and "Traceback" not in err
+    assert not (tmp_path / "d").exists()
