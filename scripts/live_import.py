@@ -25,7 +25,7 @@ Steps:
    A refused or unconfirmed undo prints how to remove the import by hand.
 8. No: the clip stays; asks whether the kick plays (the user's answer is recorded as such)
    and prints how to remove the import by hand later.
-9. Prints a result block to paste into issue #50.
+9. Prints a result block to paste into issue #129.
 
 Capability gate: ``clip_slot.create_audio_clip`` is ``tested`` since #50 (user runs 2-4),
 ``song.create_audio_track`` and the four import reads (``song.num_scenes.get``,
@@ -86,12 +86,15 @@ from bridge.osc_client import (
     BridgeUnavailableError,
     ReceivePortInUseError,
 )
+from bridge.sample_info import SampleInfo, read_sample_info
 
 # 0.2.0: read-back polls up to 2 s and tolerates Live renaming the target track (#50 run 1)
 # 0.3.0: undo question before the listening step; manual-removal text (#50 runs 2 and 3)
 # 0.4.0: a timed-out create_audio_track / create_audio_clip is settled by an exact read-back
 #        (#166); the step then reads "confirmed (late: ...)"
-SCRIPT_VERSION = "0.4.0"
+# 0.5.0: category-aware (#129 follow-up): the sidecar category must be registered and match the
+#        folder, checked before connecting; plan, prompts and result block name the category
+SCRIPT_VERSION = "0.5.0"
 
 ALLOWED = ("app.version", "song.track_names.get", "song.undo", "song.create_audio_track",
            "clip_slot.create_audio_clip",
@@ -179,6 +182,7 @@ class Report:
     file_path_read: str = "-"
     target_name_after: str = "-"
     user_hears_kick: str = "not asked"
+    sample: SampleInfo | None = None
     undo_result: str = "SKIPPED"
     action_log: str = "-"
     overrides_used: list[str] = field(default_factory=list)  # writes actually sent
@@ -202,6 +206,7 @@ def render_result_block(r: Report) -> str:
         "capability_overrides_reads_only: "
         f"{', '.join(sorted(set(r.overrides_reads_only))) or '-'}",
         f"wav: {r.path}",
+        f"sample_category: {r.sample.category or 'unknown (no sidecar)' if r.sample else '-'}",
         f"tracks: {r.tracks!r}",
         f"num_scenes: {r.num_scenes if r.num_scenes is not None else '-'}",
         f"extension: {r.extension}",
@@ -244,7 +249,8 @@ def choose_target(names: list[str], audio: list[bool], input_fn: Callable[[str],
     return False, None
 
 
-def plan_text(path: str, names: list[str], track: int | None, slot: int) -> str:
+def plan_text(path: str, names: list[str], track: int | None, slot: int,
+              sample: SampleInfo | None = None) -> str:
     target = len(names)
     lines = ["", "Geplante Änderungen im Live-Set:"]
     n = 1
@@ -256,6 +262,7 @@ def plan_text(path: str, names: list[str], track: int | None, slot: int) -> str:
         where = f"Spur {track} '{names[track]}'"
     lines += [
         f"  {n}. Audio-Clip in {where}, Zelle (Szene) {slot}, aus der Datei:",
+        *([f"       Sample: {sample.label}"] if sample is not None else []),
         f"       {path}",
         "     Live verweist auf die Datei; sie wird nicht kopiert oder verändert.",
         "Danach liest das Script die Zellen der Spur und den Dateipfad des Clips zurück.",
@@ -342,7 +349,7 @@ def run(bridge: AbletonBridge, report: Report, path: str, slot_arg: int | None,
     report.target = (f"new audio track {len(names)}" if track is None
                      else f"track {track} {names[track]!r}") + f", slot {slot}"
 
-    print(plan_text(path, names, track, slot), file=out)
+    print(plan_text(path, names, track, slot, report.sample), file=out)
     if not ask_yes("\nDiese Änderungen jetzt ausführen? [y/N]: ", input_fn):
         print("Keine Änderung.", file=out)
         report.error = "user answered no"
@@ -380,7 +387,8 @@ def run(bridge: AbletonBridge, report: Report, path: str, slot_arg: int | None,
     print("Kein Undo. Der Clip bleibt im Set." + (" Die neue Spur auch." if
                                                    outcome.created_track else ""), file=out)
 
-    answer = ask("\nBitte in Live die Zelle starten und anhören. Spielt der Kick? [y/n]: ",
+    what = (report.sample.category or "kick").capitalize() if report.sample else "Kick"
+    answer = ask(f"\nBitte in Live die Zelle starten und anhören. Spielt der {what}? [y/n]: ",
                  input_fn)
     report.user_hears_kick = {"y": "yes", "j": "yes", "ja": "yes", "yes": "yes",
                               "n": "no", "nein": "no", "no": "no"}.get(
@@ -567,6 +575,8 @@ def import_wav(args: argparse.Namespace, report: Report, wav: str | Path,
     log = ActionLog(args.log)
     try:
         report.path = validate_wav_path(wav, library_root=library_root)
+        # Category check from the sidecar, still before any connection (ImportPathError below).
+        report.sample = read_sample_info(report.path)
         report.action_log = str(log.path)
         send_port = (args.send_port if args.send_port is not None
                      else env_port("ABLETON_OSC_SEND_PORT", DEFAULT_SEND_PORT))
@@ -644,7 +654,7 @@ def main(argv: list[str] | None = None, input_fn: Callable[[str], str] = input,
     print(f"AbeltonGod live_import {SCRIPT_VERSION}\n", file=out)
     code = import_wav(args, report, args.wav, input_fn, out)
     report.finished_at = now_iso()
-    print("\nBitte den folgenden Block komplett in Issue #50 einfügen:\n", file=out)
+    print("\nBitte den folgenden Block komplett in Issue #129 einfügen:\n", file=out)
     print(render_result_block(report), file=out)
     return code
 

@@ -232,7 +232,7 @@ Select-String -Path "$env:USERPROFILE\Documents\Ableton\User Library\Remote Scri
 **Erwartete Ausgabe (gekürzt, Ziel Spur 0, leeres Set, Undo `y`):**
 
 ```text
-AbeltonGod live_import 0.4.0
+AbeltonGod live_import 0.5.0
 
 Verbindung zu AbletonOSC (127.0.0.1:11000) steht.
 
