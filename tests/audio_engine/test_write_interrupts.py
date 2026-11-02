@@ -16,6 +16,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
+from support.traced_thread import run_in_fresh_thread
 
 import audio_engine.io as io_mod
 from audio_engine.io import write_kick
@@ -52,15 +53,20 @@ class _Sweep:
 
 def _run_with_interrupt(k: int, call) -> tuple[_Sweep, str]:
     sweep = _Sweep(k)
-    sys.settrace(sweep.global_trace)
-    try:
-        call()
-        result = "returned"
-    except KeyboardInterrupt:
-        result = "interrupted"
-    finally:
-        sys.settrace(None)
-    return sweep, result
+
+    def body() -> str:
+        sys.settrace(sweep.global_trace)
+        try:
+            call()
+            return "returned"
+        except KeyboardInterrupt:
+            return "interrupted"
+        finally:
+            sys.settrace(None)
+
+    # Own thread (#183): an interrupt at some points leaves a handled exception behind in the
+    # thread; in the xdist worker thread it became the __context__ of later tests' errors.
+    return sweep, run_in_fresh_thread(body)
 
 
 def _racing_unique_pair(monkeypatch) -> dict:

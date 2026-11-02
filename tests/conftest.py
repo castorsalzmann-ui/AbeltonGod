@@ -83,6 +83,25 @@ def pytest_runtest_call(item):
             m.render_kick = original
 
 
+@pytest.hookimpl(wrapper=True)
+def pytest_runtest_teardown(item, nextitem):
+    """Fail a test that leaves a handled exception behind in its thread (#183).
+
+    Such a leftover becomes the ``__context__`` of every later exception in the same xdist
+    worker and made unrelated failures point at the wrong test (#180, #183)."""
+    result = yield
+    import sys
+
+    leaked = sys.exception()
+    if leaked is not None:
+        pytest.fail(
+            f"{item.nodeid} left a handled exception in its thread: {leaked!r}. Run trace-hook "
+            "sweeps through tests/support/traced_thread.run_in_fresh_thread.",
+            pytrace=False,
+        )
+    return result
+
+
 def pytest_runtest_logreport(report) -> None:
     if report.when != "call":
         return
