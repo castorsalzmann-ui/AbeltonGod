@@ -130,20 +130,36 @@ def _unnormalised(monkeypatch, p: dict, drive_fn=None) -> np.ndarray:
 
 
 SMALL_DRIVES = (1e-7, 1e-5, 1e-4)
-# Relative error of the change (engine vs first-order reference). Measured over these 42
-# cases: median 0.0006, largest 0.0151. The O(g^2) term of the series is below 1e-4 here, so
-# the rest is the difference between the engine's band limit (Kaiser transition 22.1-25.9 kHz
-# at 48 kHz) and the reference's brick-wall at Nyquist; cause of the largest case not isolated
-# further. A 2 % wrong gain moves the change by 4 % and must fail.
+# Both change vectors are compared in the band up to this frequency (the aliasing test's
+# AUDIBLE_HZ). The engine's low-pass has its transition band centred on the base Nyquist
+# frequency (Kaiser, 0.46-0.54 of the base rate: 20.3-23.8 kHz at 44.1 kHz) and attenuates
+# the x and x^3 content there on its way in and out; the reference is a brick wall at
+# Nyquist. The difference between the two is not what this test checks (#115).
+COMPARE_BAND_HZ = 20000.0
+# Relative error of the change in that band (engine vs first-order reference). The O(g^2)
+# term of the series is below 1e-4 here. Over 342 cases (--fresh-seeds 0..5: 10 + 5 x 16
+# sets, 3 drives each) the largest is 0.0032 (fresh seed 3, random-16503). Full band, the
+# same cases reached 0.0151 (defaults) and 0.0288 (that case: 44.1 kHz, loud 7.3 kHz
+# click); with the click off it is 0.0005, so the difference lives above 20 kHz. A 2 % wrong gain moves the change by 4 % and must fail.
 FIRST_ORDER_TOLERANCE = 0.02
+
+
+def _band_limited(x: np.ndarray, sr: int, top_hz: float = COMPARE_BAND_HZ) -> np.ndarray:
+    n = len(x)
+    spec = np.fft.rfft(np.concatenate([x, np.zeros(n)]))  # zero-padded: no wrap-around
+    spec[np.fft.rfftfreq(2 * n, 1.0 / sr) > top_hz] = 0.0
+    return np.fft.irfft(spec, 2 * n)[:n]
 
 
 @pytest.mark.parametrize("p", _sets(seed0=16500, n=10))
 @pytest.mark.parametrize("drive", SMALL_DRIVES)
 def test_change_near_zero_matches_first_order_reference(monkeypatch, p: dict, drive) -> None:
     clean = _unnormalised(monkeypatch, {**p, "drive": 0.0})
-    got = _unnormalised(monkeypatch, {**p, "drive": drive}) - clean
-    want = _unnormalised(monkeypatch, {**p, "drive": drive}, _first_order_drive) - clean
+    sr = int(p.get("sample_rate", 48000))
+    got = _band_limited(_unnormalised(monkeypatch, {**p, "drive": drive}) - clean, sr)
+    want = _band_limited(
+        _unnormalised(monkeypatch, {**p, "drive": drive}, _first_order_drive) - clean, sr
+    )
     err = float(np.linalg.norm(got - want) / np.linalg.norm(want))
     assert err <= FIRST_ORDER_TOLERANCE, err
 
