@@ -162,7 +162,7 @@ METADATA_INVALID = {
     "clap parameters without seed": _changed(CLAP_DOC, "parameters.seed", ...),
     "clap parameters with kick-params version": _changed(
         CLAP_DOC, "parameters.schema_version", "0.3"),
-    "category hat not yet allowed": _changed(CLAP_DOC, "category", "hat"),
+    "category snare not allowed": _changed(CLAP_DOC, "category", "snare"),
     "category snare": _changed(KICK_DOC, "category", "snare"),
     "kick with schema_version 0.2": _changed(KICK_DOC, "schema_version", "0.2"),
     "schema_version 0.3": _changed(CLAP_DOC, "schema_version", "0.3"),
