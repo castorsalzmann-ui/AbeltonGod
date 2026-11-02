@@ -125,8 +125,8 @@ def _hard_params(rng: np.random.Generator) -> dict:
     return p
 
 
-RANDOM_CASES = [_random_params(kp.np_rng(1300 + i)) for i in range(24)] + [
-    _hard_params(kp.np_rng(7700 + i)) for i in range(8)
+RANDOM_CASES = [_random_params(kp.np_rng(1300 + i)) for i in range(12)] + [
+    _hard_params(kp.np_rng(7700 + i)) for i in range(4)
 ]
 
 

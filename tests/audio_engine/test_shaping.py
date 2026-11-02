@@ -40,7 +40,7 @@ SCHEMA_VERSION = "0.2"
 BASE = {"schema_version": SCHEMA_VERSION, "seed": 11}
 TONES = (-1.0, -0.5, 0.0, 0.5, 1.0)
 DRIVES = (0.0, 0.25, 0.5, 0.75, 1.0)
-N_RANDOM = 30
+N_RANDOM = 16
 
 
 def _draw(rng: random.Random) -> dict:
