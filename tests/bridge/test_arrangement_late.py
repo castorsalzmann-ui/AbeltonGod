@@ -13,7 +13,7 @@ import threading
 import time
 
 import pytest
-from bridge_helpers import TEST_TIMEOUT_S
+from bridge_helpers import REPLY_TIMEOUT_S, TEST_TIMEOUT_S, ShortWrites
 from fake_abletonosc import MARKER, build
 from test_arrangement_check import (
     ADD_NOTES,
@@ -47,6 +47,27 @@ LABELS = {SONG_TIME_SET: "set_song_time", CREATE_TRACK: "create_midi_track",
 def run(*args, **kwargs):
     """Every test in this file is about timed-out writes: the short deadline is the subject."""
     return _run(*args, timeout=str(RUN_TIMEOUT_S), **kwargs)
+
+
+SETTLE_TIMEOUT_S = REPLY_TIMEOUT_S  # the --timeout of tests whose subject is the settlement
+
+
+def run_settled(fake, tmp_path, answers, monkeypatch, **kwargs):
+    """Run the script for a test whose subject is the late SETTLEMENT, not the timeout (#329).
+
+    Everything that must be answered (the connection check, the plan reads, the read-backs
+    after the timeout, which wait 3 x ``--timeout``) gets a deadline of >= 5 s; only the WRITE
+    calls keep the short ``TEST_TIMEOUT_S`` deadline, because the stalled/lost write is what
+    must time out. ``run()`` above (1 s for everything) stays for tests about the timeout."""
+    real_connect = script.AbletonBridge.connect
+
+    def connect(*args, **kw):
+        kw["timeout_s"] = REPLY_TIMEOUT_S  # the transport default, used by all plain reads
+        bridge = real_connect(*args, **kw)
+        return ShortWrites(bridge, bridge._transport)
+
+    monkeypatch.setattr(script.AbletonBridge, "connect", staticmethod(connect))
+    return _run(fake, tmp_path, answers, timeout=str(SETTLE_TIMEOUT_S), **kwargs)
 
 
 CAPS = {label: cap for cap, label in script.CAPABILITY_STEPS}
@@ -193,17 +214,17 @@ def test_unknown_or_pushed_out_request_ids_give_none(bridge, fake, transport):
 @pytest.mark.parametrize("mechanism", ["busy", "lost"])
 @pytest.mark.parametrize("address", list(LABELS))
 def test_each_timed_out_write_that_reads_back_as_intended_is_settled(fake, tmp_path, address,
-                                                                     mechanism):
+                                                                     mechanism, monkeypatch):
     before = snapshot(fake)
     fault(fake, address, mechanism)
-    code, out, _ = run(fake, tmp_path, ["y", "y", "y"])
+    code, out, _ = run_settled(fake, tmp_path, ["y", "y", "y"], monkeypatch)
     assert code == script.EXIT_OK, out
     label = LABELS[address]
     b = block(out)
     assert b[CAPS[label]] == "PASS (late: read-back after timeout)"
     line = step_line(out, label)
-    assert line.startswith(f"{label}: confirmed (late: no confirmation within {RUN_TIMEOUT_S:g} s; "
-                           "read-back matched (1 read(s)); "), line
+    assert line.startswith(f"{label}: confirmed (late: no confirmation within "
+                           f"{SETTLE_TIMEOUT_S:g} s; read-back matched (1 read(s)); "), line
     assert ("end echo after " in line) if mechanism == "busy" else line.endswith(
         "end echo not seen)"), line
     assert b["song.undo"] == "PASS (5 undo(s) for 5 write(s); read back)"
@@ -258,7 +279,7 @@ def test_late_error_with_a_lost_end_echo_stops_without_undo(fake, tmp_path):
     assert entry["late_reply"]["end_seen"] is False and entry["late_reply"]["errors"]
 
 
-def test_change_visible_only_at_a_later_poll_is_settled(fake, tmp_path):
+def test_change_visible_only_at_a_later_poll_is_settled(fake, tmp_path, monkeypatch):
     """Review #167 R5: the settlement polls within the window, not just once."""
     real = fake._create_midi_track
 
@@ -272,7 +293,7 @@ def test_change_visible_only_at_a_later_poll_is_settled(fake, tmp_path):
 
     fake._create_midi_track = create_later
     fake.drop_next_marker_after.add(CREATE_TRACK)
-    code, out, _ = run(fake, tmp_path, ["y", "y", "y"])
+    code, out, _ = run_settled(fake, tmp_path, ["y", "y", "y"], monkeypatch)
     assert code == script.EXIT_OK, out
     line = step_line(out, "create_midi_track")
     assert line.startswith("create_midi_track: confirmed (late:") and "(1 read(s))" not in line
