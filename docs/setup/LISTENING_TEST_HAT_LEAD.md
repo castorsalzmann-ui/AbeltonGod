@@ -97,6 +97,7 @@ Determinismus: das Paket wurde in zwei getrennten Läufen erzeugt, SHA-256 aller
 - **Einzelschläge statt Loops.** Es gibt keinen Loop-Generator für Hats, und das Issue verbietet Engine-Änderungen. Der Hörer baut das Muster (Kick auf jedem Beat, Hat auf jedem 16tel bzw. Off-Beat-8tel) einmal im Simpler. Folge: das Abschneiden durch den nächsten Schlag (Plan: 3 ms Fade) hängt an den Simpler-Einstellungen des Hörers, nicht an der Datei. Wenn der Test im Ergebnis auf Längenfragen (T1, T4) baut, einmal prüfen, dass der Hörer Voices 1 benutzt hat. Die Live-Schritte sind nicht von uns in Live geprüft.
 - **Kick-Level:** nicht festgelegt, der Hörer stellt den Hat-Fader einmal selbst ein. Die Plan-Vorgabe „dense Kick auf jedem Beat" ist erfüllt (Preset `dense`, Peak -0.3 dBFS).
 - **T6:** Pegel-Angleich je Variante statt `--variants 4` in einem Lauf (siehe Abschnitt 1).
+- **Clap-Vorlage nicht auf main:** `listening_test_clap.py` (PR #254) und `docs/setup/LISTENING_TEST_CLAP*.md` liegen zum Zeitpunkt dieses PR noch nicht auf `origin/main`; als Vorlage diente der Branch `phase-06/232-clap-listening`.
 - **Folgeissue (Vorschlag):** ein Loop-Generator `listening_test_hat.py` nach dem Muster von `listening_test_clap.py` (PR #254) würde das Abschneiden und das Muster in die Datei legen und den Hörer-Aufbau auf „Dateien laden, Warp aus" verkürzen. Das ist Engine-/Tool-Arbeit des audio-engineer, nicht Teil dieses Issues.
 
 ## 5. Was der Lead mit den Antworten macht

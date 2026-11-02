@@ -25,7 +25,7 @@ Reihenfolge: **T1 → T0 → T2 → T5 → T4 → T3 → T6.** Nach T2 eine Minu
 
 | # | Frage (eine pro Block) | Antwortmöglichkeiten |
 | --- | --- | --- |
-| T1 | Hör `T1_A`, dann `T1_B`. **Welche Hi-Hat passt besser zu deinem Kick-Muster?** Wenn die kürzere etwas verliert: was (ein Wort)? | A / B / kein Unterschied · Wort |
+| T1 | Hör `T1_A`, dann `T1_B`. **Welche Hi-Hat passt besser zu deinem Kick-Muster?** Wenn eine der beiden etwas verliert: was (ein Wort)? | A / B / kein Unterschied · Wort |
 | T0 | Gleiche Frage für `T0_A` und `T0_B`: **Welche Hi-Hat sitzt besser?** | A / B / kein Unterschied |
 | T2 | Drei Dateien (X, Y, Z). **Welche ist zu dunkel, welche zu hell, welche passt?** | z. B. X dunkel, Y passt, Z hell |
 | T5 | **Hat eine der beiden (A, B) etwas, das die andere nicht hat? Wenn ja, welche und was (ein Wort)?** | A / B / kein Unterschied · Wort |
