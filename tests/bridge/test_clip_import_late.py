@@ -8,6 +8,7 @@ sent. Nothing here shows how Live behaves.
 
 from __future__ import annotations
 
+import threading
 import time
 
 import pytest
@@ -77,6 +78,30 @@ def hold_inside(fake, seconds):
     fake.release_after(seconds)
 
 
+def busy_until_read_back_starts(bridge, fake, address):
+    """Live is busy after ``address`` and answers nothing until the read-back after the write's
+    timeout starts: the busy period ends on an event, not after a wall-clock time, so the
+    test does not race the scheduler (#303: a 2 x timeout sleep against a 3 x timeout read
+    failed when the fake's thread was delayed by about 2 x timeout)."""
+    ended = threading.Event()
+    fake.stall_until[address] = ended
+    send = {CREATE_TRACK: "create_audio_track", CREATE_CLIP: "create_audio_clip"}[address]
+    real_send, real_names = getattr(bridge, send), bridge.get_track_names
+    state = {"sent": False}
+
+    def sending(*a, **k):
+        state["sent"] = True
+        return real_send(*a, **k)
+
+    def names(*a, **k):
+        if state["sent"]:
+            ended.set()
+        return real_names(*a, **k)
+
+    setattr(bridge, send, sending)
+    bridge.get_track_names = names
+
+
 def patch_handler(fake, address, fn):
     attr = "_create_audio_track" if address == CREATE_TRACK else "_create_audio_clip"
     real = getattr(fake, attr)
@@ -101,7 +126,7 @@ def assert_stopped_without_undo(imp, fake, address, outcome="timeout"):
 def test_settled_write_logs_the_late_reply_and_allows_undo(ibridge, audio_set, log, tmp_path,
                                                            address, mechanism):
     if mechanism == "busy":
-        audio_set.stall_after[address] = 2 * TEST_TIMEOUT_S
+        busy_until_read_back_starts(ibridge, audio_set, address)
     else:
         audio_set.drop_next_marker_after.add(address)
     imp = ClipImporter(ibridge, log, timeout_s=TEST_TIMEOUT_S)
