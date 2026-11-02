@@ -5,11 +5,11 @@ _Date: 2026-11-02 · Refs #277 · Researcher B. Sources opened 2026-11-02. Nothi
 ## For workers
 
 - **Possible?** Yes, on two routes. (a) A Standard MIDI File the user drags into Live: needs no Live bridge at all. (b) A Session MIDI clip written by AbletonOSC: needs three already-existing handlers (`create_midi_track`, `clip_slot/create_clip`, `clip/add/notes`), but **none of them is `tested`** (see the table). Arrangement placement of the clip is not possible without an extension.
-- **Recommended route:** build (a) first (deterministic, CI-testable, no Ableton). Treat (b) as a second step once the user has run tests A1-A6 below. Both routes share one pure function, `acid_line JSON -> list of (pitch, start, duration, velocity)`.
-- **Mapping (PROPOSAL):** 1 step = 0.25 beat; clip 4.0 beats. Accent = high velocity. Slide = the note is made longer than its step so it overlaps the next note by a small amount; a monophonic synth with glide and legato then glides. Details in section 4.
+- **Recommended route:** build (a) first (deterministic, CI-testable, no Ableton). Treat (b) as a second step once the user has run tests A1-A8 below. Both routes share one pure function, `acid_line JSON -> list of (pitch, start, duration, velocity)`.
+- **Mapping (PROPOSAL):** 1 step = 0.25 beat; clip 4.0 beats. Accent = high velocity. Slide = the flag sits on the step you slide FROM; if the next step is a sounding note, the slid note is made longer than its step so it overlaps that note by a small amount (otherwise no overlap); a monophonic synth with glide and legato then glides. Details in section 4.
 - **Read first:** section 2 (capability gaps) and section 4 (mapping), then `contracts/capabilities.json`.
 - **Effort:** (a) small; (b) medium (new capability entries via `contract-change`, a client with read-back, user tests).
-- **Blockers:** the six user tests in section 3 for route (b); whether Live's file import keeps the file's tempo (the manual does not say, see finding 7).
+- **Blockers:** the eight user tests (A1-A8) in section 3 for route (b); whether Live's file import keeps the file's tempo (the manual does not say, see finding 7).
 - **Open questions for the user only:** (1) Which synth should play the line by default (Live's Drift in Mono mode, or the user's own 303 plug-in)? (2) Does the standalone Acid 303 mark slide on the step you slide **from** or the one you slide **to**? (3) Is 16 steps fixed, or do odd lengths (13, 15) matter?
 
 ## 1. Findings
@@ -29,7 +29,7 @@ _Date: 2026-11-02 · Refs #277 · Researcher B. Sources opened 2026-11-02. Nothi
 
 ## 2. Which functions are `tested`, `supported`, `unknown`
 
-Checked against `contracts/capabilities.json` on `origin/main` (`e7d7522`).
+Checked against `contracts/capabilities.json` on `origin/main` (`ee0cae2`, the newest at the time of this edit).
 
 | Needed for an acid clip | Registry entry | Status |
 | --- | --- | --- |
@@ -55,10 +55,10 @@ Same style as E1-E7 in the MIDI/devices note; E1 there already covers "create tr
 | A2 | Mixed velocities 127 and 100 (accent / normal). Read back the exact integers. | velocity round-trip |
 | A3 | Durations 0.125 (gate) and 0.28125 (step + overlap). Read back: are the floats unchanged, or snapped? | duration precision |
 | A4 | Two overlapping notes of **different** pitch (slide), then two overlapping notes of the **same** pitch. Read back the count and durations. Finding 8 leaves open whether the API drops or shortens the earlier note. | overlap behaviour |
-| A5 | `create_clip` on an occupied slot and on an audio track. Record the `/live/error` text. | error path |
-| A6 | `clip/set/name` and, if needed, `set/loop_end`; one `song.undo` after the clip and notes (read back whether one undo or more is needed, as in the `song.undo` evidence). | name / loop / undo cost |
-| A7 | MIDI file: user drags the generated `.mid` into a MIDI track. Report: note count, velocities, whether the overlap is kept, whether Live changes the set tempo or asks about it, clip length. | route (a) |
-| A8 | Ears, user only: put Drift in Mono with legato on and glide time above 0, play the clip, say whether the slid notes glide and the accented ones stand out. **No claim about sound is made here.** | none (listening result, not a capability) |
+| A5 | `create_clip` on an occupied slot and on an audio track. Record the `/live/error` text. **Pass:** each call yields either an error text or an observable refusal, the existing clip and its notes are unchanged, and the track list is unchanged. | error path |
+| A6 | `clip/set/name` and, if needed, `set/loop_end`; one `song.undo` after the clip and notes (read back whether one undo or more is needed, as in the `song.undo` evidence). **Pass:** the name reads back exactly; `loop_end` reads back as set (or the note records that it could not be set); the number of `song.undo` calls that restores the pre-test track list and slot state is recorded and the read-back after the last undo equals the pre-test snapshot. | name / loop / undo cost |
+| A7 | MIDI file: user drags the generated `.mid` into a MIDI track. Report: note count, velocities, whether the overlap is kept, whether Live changes the set tempo or asks about it, clip length. **Pass:** the clip holds exactly the generated notes (same count, pitches, start times, durations within 0.001 beat, velocities), checked by reading it back over `get/notes` or by File > Export MIDI Clip and comparing; any tempo change is reported, not judged. | route (a) |
+| A8 | Ears, user only: put Drift in Mono with legato on and glide time above 0, play the clip, say whether the slid notes glide and the accented ones stand out. **Pass criterion (the user's own judgement):** the user answers yes or no for glide and for accent separately, with the synth settings used; a "no" is a finding about the mapping or the patch, not a failure of the test. **No claim about sound is made here.** | none (listening result, not a capability) |
 
 CI can test the pure mapping (section 4) and the MIDI file bytes. It cannot test A1-A8.
 
@@ -72,10 +72,10 @@ All values are defaults the user may change; none is a measured or sourced optim
 - Rest step: no note.
 - Normal note: velocity 100 (PROPOSAL), duration 0.125 beat (half a step, a "staccato" gate; Roland's article says slides work best against short notes).
 - Accent: velocity 127 (PROPOSAL). Whether accent then also opens the filter depends on the target synth's velocity routing; this is not claimed.
-- Slide: the slid note gets duration `0.25 + overlap` with `overlap = 0.03125` (PROPOSAL, 1/128 note), so it still sounds when the next note starts. A monophonic synth with legato and glide (Drift: finding 6) is the only kind of target where this produces a glide; a polyphonic patch would just play two notes at once.
-- Slide into a rest, or into the same pitch: no overlap needed. Same pitch: lengthen the first note to end at the next note's end and drop the second note (a tie). This avoids the unknown overwrite rule of finding 8 and test A4.
+- Slide rule (lead decision, one rule): the slide flag sits on the step you slide FROM. If step `i+1` is a sounding note with a different pitch, the note of step `i` gets duration `0.25 + overlap` with `overlap = 0.03125` (PROPOSAL, 1/128 note), so it ends after the next note has started. If step `i+1` is a rest (or `i` is the last step), no overlap is added and the slide flag has no effect on the notes. A monophonic synth with legato and glide (Drift: finding 6) is the only kind of target where this produces a glide; a polyphonic patch would just play two notes at once.
+- Slide into the same pitch (next step sounding, same pitch): lengthen the first note to end at the next note's end and drop the second note (a tie). **Accent in a tie:** the merged note is accented if either of the two notes is (PROPOSAL; the alternative, keeping only the first note's accent, is an open point for the user). A tie of a normal note and a gate-length note is therefore as long as `0.25 + 0.125` beat. This avoids the unknown overwrite rule of finding 8 and test A4.
 - The pitch is `root_midi + scale_interval[degree] + 12 * octave`; the Acid 303 should write the resolved `note` too (below), so the importer does not need the scale tables.
-- Note on slide semantics: on the hardware the slide flag is stored per step, and the opened sources only say that it ties two notes. Which step carries the flag (the one slid from or the one slid to) is **not established by an opened source**; the format below defines it explicitly (open question 2).
+- Note on slide semantics: on the hardware the slide flag is stored per step, and the opened sources only say that it ties two notes. Which step carries the flag on the hardware is **not established by an opened source**; the lead decided "FROM" for this format (open question 2 remains for the user's standalone tool).
 
 ### Acid-line JSON (PROPOSAL ONLY, not a contract)
 
@@ -92,14 +92,15 @@ Determinism: the Acid 303 owns the random generator. The file stores the **resol
   "steps": [
     {"on": true,  "degree": 0, "octave": 0, "accent": true,  "slide": false, "note": 45},
     {"on": false},
-    {"on": true,  "degree": 2, "octave": 0, "accent": false, "slide": true,  "note": 48}
+    {"on": true,  "degree": 2, "octave": 0, "accent": false, "slide": true,  "note": 48},
+    {"on": true,  "degree": 3, "octave": 0, "accent": false, "slide": false, "note": 50}
   ],
   "length": 16,
   "render": {"velocity": 100, "accent_velocity": 127, "gate": 0.125, "slide_overlap": 0.03125}
 }
 ```
 
-Rules: `steps` has exactly `length` entries (16 default; 1-32 allowed by the format, open question 3); `slide` on step `i` means "glide from this note into the next sounding step" (PROPOSAL, flagged because of the semantics note above); `note` is an integer 0-126; `render` is optional and falls back to the defaults above. Tempo is not part of the line: the line is in beats and the host sets BPM.
+Rules: `steps` has exactly `length` entries (16 default; 1-32 allowed by the format, open question 3); `slide` on step `i` means "this note is extended to overlap step `i+1`, if step `i+1` is a sounding note" (PROPOSAL; same rule as the mapping above, no effect when step `i+1` is a rest or `i` is the last step). The `steps` array above is shortened to four entries for display, a real file has `length` entries; in it step 2 (note 48) slides into step 3 (note 50) and ends at 0.5 + 0.28125 beats; `note` is an integer 0-126; `render` is optional and falls back to the defaults above. Tempo is not part of the line: the line is in beats and the host sets BPM.
 
 ### Generation rules: what is standard and what is not
 
@@ -125,14 +126,14 @@ Rules: `steps` has exactly `length` entries (16 default; 1-32 allowed by the for
 
 ## 6. Test strategy hints
 
-- **CI:** golden tests of `acid_line -> notes` (including the tie rule, rests, accent, slide, odd lengths); a property test over seeded random lines (every note inside 0-126, no same-pitch overlap, no overlap longer than `slide_overlap`, the notes are sorted); a byte-identical-output test for the `.mid` writer; parse the file back with an independent reader (mido as a dev-only dependency, MIT, would be an independent reference; a stdlib writer would need no new dependency in the product).
+- **CI:** golden tests of `acid_line -> notes` (including the tie rule with accent merge, a slide before a rest, a slide on the last step, a slide into the same pitch, accent, odd lengths); a property test over seeded random lines (every note inside 0-126, no same-pitch overlap, no overlap longer than `slide_overlap`, the notes are sorted); a byte-identical-output test for the `.mid` writer; parse the file back with an independent reader (mido as a dev-only dependency, MIT, would be an independent reference; a stdlib writer would need no new dependency in the product).
 - **Not CI:** A1-A8. Report them as user runs, never as CI.
 
 ## 7. Implications for the lead (PROPOSALS)
 
 1. Open one issue for route (a): `acid_line` JSON validator + `notes` mapping + `.mid` writer (audio-engineer or a new owner of `src/`; the lead decides). It needs no Live.
 2. Open a `contract-change` issue for the bridge-engineer: capability entries `clip_slot.create_clip`, `clip.notes.add`, `clip.notes.get`, `clip.name.set`, `clip.loop_end.set` as `unknown` (this note does not change any status).
-3. Ask the user to run A1-A7 in one script run (the E1 style), then decide on route (b).
+3. Ask the user to run A1-A7 in one script run (A8 is a separate listening step) (the E1 style), then decide on route (b).
 4. If the line should be a contract later: the format above is not one; it needs its own `contract-change` PR and an owner (INTERFACES.md).
 5. A new dependency (`mido`) is not needed for the product; mention it only for tests, with a PR reason.
 
