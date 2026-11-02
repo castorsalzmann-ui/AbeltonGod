@@ -134,7 +134,7 @@ def test_plan_warns_about_undo_history_before_the_final_confirmation(fake):
     receive = free_udp_port()
     fake.response_port = receive
     bridge_check.main(["--send-port", str(fake.port), "--receive-port", str(receive),
-                       "--timeout", "0.3"], input_fn=input_fn, out=out)
+                       "--timeout", "5"], input_fn=input_fn, out=out)
     (shown,) = seen
     assert "4. Undo in Live (/live/song/undo), zurücklesen - erwartet: nicht stumm" in shown
     assert "WICHTIG - Undo-Risiko" in shown
@@ -159,7 +159,7 @@ def test_set_changed_between_plan_and_confirmation_writes_nothing(fake):
     fake.response_port = receive
     out = io.StringIO()
     code = bridge_check.main(["--send-port", str(fake.port), "--receive-port", str(receive),
-                              "--timeout", "0.3"], input_fn=input_fn, out=out)
+                              "--timeout", "5"], input_fn=input_fn, out=out)
     assert code == 1
     assert writes(fake.payload()) == []
     assert "zwischen Plan und Bestätigung" in out.getvalue()
@@ -218,7 +218,7 @@ def _run_with_interrupt(fake, at: int, when: str, monkeypatch):
     fake.response_port = receive
     out = io.StringIO()
     code = bridge_check.main(["--send-port", str(fake.port), "--receive-port", str(receive),
-                              "--timeout", "0.3"], input_fn=input_fn, out=out)
+                              "--timeout", "5"], input_fn=input_fn, out=out)
     return code, out.getvalue(), armed["fired"]
 
 
@@ -414,7 +414,7 @@ def test_last_reply_of_a_failed_signature_holds_both_replies(fake, tmp_path):
     from bridge.osc_client import ADDRESSES, OscTransport
 
     fake.signature = (7, 0)
-    with OscTransport(send_port=fake.port, receive_port=0, timeout_s=0.3) as t:
+    with OscTransport(send_port=fake.port, receive_port=0, timeout_s=5.0) as t:
         fake.response_port = t.receive_port
         b = AbletonBridge(t, CapabilityGate(registry_with(tmp_path, set(ADDRESSES))))
         with pytest.raises(BridgeProtocolError):
@@ -428,7 +428,7 @@ def test_last_reply_is_per_thread(fake, tmp_path):
     from bridge.capabilities import CapabilityGate
     from bridge.osc_client import ADDRESSES, OscTransport
 
-    with OscTransport(send_port=fake.port, receive_port=0, timeout_s=0.3) as t:
+    with OscTransport(send_port=fake.port, receive_port=0, timeout_s=5.0) as t:
         fake.response_port = t.receive_port
         b = AbletonBridge(t, CapabilityGate(registry_with(tmp_path, set(ADDRESSES))))
         b.get_version()

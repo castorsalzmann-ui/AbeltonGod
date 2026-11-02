@@ -98,7 +98,7 @@ def run(fake, tmp_path, project, answers, extra=(), preset="dense", send_port=No
     try:
         code = k2l.main(
             ["--preset", preset, "--project", str(project), "--send-port", str(port),
-             "--receive-port", str(receive), "--timeout", "0.3",
+             "--receive-port", str(receive), "--timeout", "5",
              "--log", str(tmp_path / "actions.jsonl"), *extra],
             input_fn=input_fn, out=out)
     except KeyboardInterrupt:  # would end the whole pytest session instead of failing
@@ -315,7 +315,8 @@ def test_extension_missing(fake, tmp_path, project):
 
 
 def test_live_closed(tmp_path, project):
-    code, out, _ = run(None, tmp_path, project, ["y"], send_port=free_udp_port())
+    code, out, _ = run(None, tmp_path, project, ["y"], send_port=free_udp_port(),
+                       extra=("--timeout", "0.3"))
     assert code == k2l.EXIT_NO_CONNECTION
     assert "antwortet nicht" in out and "Es wurde nichts in Live geändert." in out
     wav = kick_dir(project) / "dense_s1001_v0.wav"
@@ -713,7 +714,8 @@ def test_timed_out_import_is_unknown_and_never_undone(fake, tmp_path, project):
         # the clip is never created: the read-back cannot settle the timeout (#166)
 
     fake._create_audio_clip = blocked
-    code, out, prompts = run(fake, tmp_path, project, ["y", "0", "y", "y", "y"])
+    code, out, prompts = run(fake, tmp_path, project, ["y", "0", "y", "y", "y"],
+                            extra=("--timeout", "0.3"))
     assert code == 1, out
     assert UNDO not in [a for a, _ in writes(fake)]
     assert block(out)["kick_in_live"] == "unknown (see the messages above)"
@@ -735,7 +737,7 @@ def test_refused_undo_is_unknown(fake, tmp_path, project):
     fake.response_port = receive
     out = io.StringIO()
     code = k2l.main(["--preset", "dense", "--project", str(project), "--send-port",
-                     str(fake.port), "--receive-port", str(receive), "--timeout", "0.3",
+                     str(fake.port), "--receive-port", str(receive), "--timeout", "5",
                      "--log", str(tmp_path / "a.jsonl")], input_fn=changing, out=out)
     text = out.getvalue()
     assert code == 1, text

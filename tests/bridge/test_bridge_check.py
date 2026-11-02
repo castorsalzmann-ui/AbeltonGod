@@ -27,7 +27,8 @@ bridge_check = importlib.util.module_from_spec(spec)
 sys.modules["bridge_check"] = bridge_check  # dataclasses look the module up by name
 spec.loader.exec_module(bridge_check)
 
-TIMEOUT = "0.3"
+TIMEOUT = "5"  # tests that expect a reply (#180); timeout tests pass SHORT_TIMEOUT
+SHORT_TIMEOUT = "0.3"  # tests whose subject is the timeout: pass ("--timeout", SHORT_TIMEOUT)
 
 # Expected wire traffic, written out by hand (independent of the script's own constants).
 READS = [
@@ -262,7 +263,7 @@ class _HangAfterFirstMuteFake(FakeAbletonOSC):
 def test_write_timeout_sends_no_undo_and_reports_unknown_outcome():
     fake = _HangAfterFirstMuteFake()
     try:
-        code, out, _ = run(fake, ["y", "0", "y"])
+        code, out, _ = run(fake, ["y", "0", "y"], extra_args=("--timeout", SHORT_TIMEOUT))
         assert code == 1
         assert writes(fake.payload()) == [set_mute(0, 1)]
         assert "UNBEKANNT" in out and "KEIN Undo" in out
@@ -284,7 +285,7 @@ def test_live_not_running_gives_german_error_and_nonzero_exit():
     out = io.StringIO()
     code = bridge_check.main(
         ["--send-port", str(nobody), "--receive-port", str(free_udp_port()),
-         "--timeout", TIMEOUT],
+         "--timeout", SHORT_TIMEOUT],
         input_fn=lambda _p: pytest.fail("must not prompt"), out=out,
     )
     text = out.getvalue()

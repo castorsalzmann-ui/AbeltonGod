@@ -1,0 +1,7 @@
+{
+  "schema_version": "0.1",
+  "preset": "closed-tight",
+  "seed": 1,
+  "decay_ms": 35,
+  "hp_hz": 7000
+}

@@ -44,6 +44,20 @@ CLAP_DESCRIPTIONS = {
 }
 
 
+HAT_DESCRIPTIONS = {
+    "closed-tight": "Closed hat, short decay, high high-pass corner (starter set of the hat "
+    "targets note).",
+    "closed-std": "Closed hat, medium decay, mid high-pass corner (starter set of the hat "
+    "targets note).",
+    "closed-loose": "Closed hat, longer decay, lower high-pass corner (starter set of the hat "
+    "targets note).",
+    "open-short": "Open hat, short open decay, mid high-pass corner (starter set of the hat "
+    "targets note).",
+    "open-long": "Open hat, long decay, lower-mid high-pass corner (starter set of the hat "
+    "targets note).",
+}
+
+
 class UnknownPresetError(KeyError):
     """No preset with this name. The message lists the valid names."""
 
@@ -56,6 +70,8 @@ def _folder(category: str) -> Path:
         return PRESETS_DIR
     if category == "clap":
         return PRESETS_DIR / "clap"
+    if category == "hat":
+        return PRESETS_DIR / "hat"
     raise ValueError(f"no presets for category {category!r}")
 
 
@@ -75,4 +91,5 @@ def load_preset(name: str, category: str = "kick") -> dict[str, Any]:
 
 
 def describe(name: str, category: str = "kick") -> str:
-    return (CLAP_DESCRIPTIONS if category == "clap" else DESCRIPTIONS).get(name, "")
+    table = {"clap": CLAP_DESCRIPTIONS, "hat": HAT_DESCRIPTIONS}.get(category, DESCRIPTIONS)
+    return table.get(name, "")

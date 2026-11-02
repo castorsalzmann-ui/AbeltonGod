@@ -1,0 +1,25 @@
+{
+  "description": "#294 fault injection on the hat adapter row. Run: python scripts/qa/mutate.py tests/orchestrator/mutants/issue294_hat_adapter.json",
+  "mutants": [
+    {"id": "H1_HAT_ROW_USES_CLAP_VARIANTS", "file": "src/orchestrator/sample_tools.py",
+     "old": "\"hat-params.schema.json\", hat_variants,",
+     "new": "\"hat-params.schema.json\", make_variants,",
+     "tests": ["tests/orchestrator/test_sample_dispatch.py"], "note": "hat rendered by the clap variant maker"},
+    {"id": "H2_HAT_ROW_USES_CLAP_CONTRACT", "file": "src/orchestrator/sample_tools.py",
+     "old": "\"hat-params.schema.json\", hat_variants,",
+     "new": "\"clap-params.schema.json\", hat_variants,",
+     "tests": ["tests/orchestrator/test_sample_dispatch.py"], "note": "hat keys/ranges checked against the clap contract"},
+    {"id": "H3_HAT_ROW_REMOVED", "file": "src/orchestrator/sample_tools.py",
+     "old": "    \"hat\": CategoryAdapter(\"hat\", \"hat-params.schema.json\", hat_variants, noun=\"hat\"),\n",
+     "new": "",
+     "tests": ["tests/orchestrator/test_sample_dispatch.py"], "note": "hat not dispatchable"},
+    {"id": "H4_ONEOF_ALWAYS_OK", "file": "src/orchestrator/sample_tools.py",
+     "old": "            ok = value in consts or (rng is not None\n                                     and rng[\"minimum\"] <= value <= rng[\"maximum\"])",
+     "new": "            ok = True",
+     "tests": ["tests/orchestrator/test_sample_dispatch.py"], "note": "choke_ms 0 or 5..900 not enforced"},
+    {"id": "H5_FILES_FOR_IGNORES_VARIANT_COUNT", "file": "src/orchestrator/sample_tools.py",
+     "old": "return adapter.files_per_variant * n",
+     "new": "return adapter.files_per_variant",
+     "tests": ["tests/orchestrator/test_sample_dispatch.py"], "note": "guard file cap sees one variant only"}
+  ]
+}
