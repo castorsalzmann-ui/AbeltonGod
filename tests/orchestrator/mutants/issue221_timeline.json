@@ -1,0 +1,202 @@
+{
+"mutants": [
+{
+"id": "T1_SYNTH_THRESHOLD",
+"file": "src/orchestrator/arrangement_timeline.py",
+"old": "\"synth\": 0.65",
+"new": "\"synth\": 0.66",
+"tests": [
+"tests/orchestrator/test_arrangement_timeline.py"
+]
+},
+{
+"id": "T2_PAD_THRESHOLD",
+"file": "src/orchestrator/arrangement_timeline.py",
+"old": "\"pad\": 0.70",
+"new": "\"pad\": 0.71",
+"tests": [
+"tests/orchestrator/test_arrangement_timeline.py"
+]
+},
+{
+"id": "T3_CLAP_THRESHOLD",
+"file": "src/orchestrator/arrangement_timeline.py",
+"old": "\"clap\": 0.55",
+"new": "\"clap\": 0.56",
+"tests": [
+"tests/orchestrator/test_arrangement_timeline.py"
+]
+},
+{
+"id": "T4_BASS_THRESHOLD",
+"file": "src/orchestrator/arrangement_timeline.py",
+"old": "\"bass\": 0.45",
+"new": "\"bass\": 0.46",
+"tests": [
+"tests/orchestrator/test_arrangement_timeline.py"
+]
+},
+{
+"id": "T5_STRICT_COMPARE",
+"file": "src/orchestrator/arrangement_timeline.py",
+"old": "return {n for n in names if energy >= ELEMENT_THRESHOLDS[n]}",
+"new": "return {n for n in names if energy > ELEMENT_THRESHOLDS[n]}",
+"tests": [
+"tests/orchestrator/test_arrangement_timeline.py"
+]
+},
+{
+"id": "G1_GRID_FROM_BAR_1",
+"file": "src/orchestrator/arrangement_timeline.py",
+"old": "points = set(change_points(plan))",
+"new": "points = set(range(0, plan[\"total_bars\"], plan[\"settings\"][\"change_grid\"])) | {s[\"start_bar\"] - 1 for s in sections}",
+"tests": [
+"tests/orchestrator/test_arrangement_timeline.py"
+]
+},
+{
+"id": "G2_GRID_IGNORED",
+"file": "src/orchestrator/arrangement_timeline.py",
+"old": "points = set(change_points(plan))",
+"new": "points = set(range(0, plan[\"total_bars\"], 8)) | {s[\"start_bar\"] - 1 for s in sections}",
+"tests": [
+"tests/orchestrator/test_arrangement_timeline.py"
+]
+},
+{
+"id": "P1_GAP_LONGER",
+"file": "src/orchestrator/arrangement_timeline.py",
+"old": "Event(\"pre_drop_gap\", beat - gap, gap, i - 1)",
+"new": "Event(\"pre_drop_gap\", beat - gap, gap + 1, i - 1)",
+"tests": [
+"tests/orchestrator/test_arrangement_timeline.py"
+]
+},
+{
+"id": "P2_GAP_START_FIXED",
+"file": "src/orchestrator/arrangement_timeline.py",
+"old": "Event(\"pre_drop_gap\", beat - gap, gap, i - 1)",
+"new": "Event(\"pre_drop_gap\", beat - 4, gap, i - 1)",
+"tests": [
+"tests/orchestrator/test_arrangement_timeline.py"
+]
+},
+{
+"id": "P3_GAP_AFTER_DROP",
+"file": "src/orchestrator/arrangement_timeline.py",
+"old": "Event(\"pre_drop_gap\", beat - gap, gap, i - 1)",
+"new": "Event(\"pre_drop_gap\", beat, gap, i - 1)",
+"tests": [
+"tests/orchestrator/test_arrangement_timeline.py"
+]
+},
+{
+"id": "F1_FILL_VARIANT_CONSTANT",
+"file": "src/orchestrator/arrangement_timeline.py",
+"old": "variant=fill_count % FILL_VARIANTS",
+"new": "variant=0",
+"tests": [
+"tests/orchestrator/test_arrangement_timeline.py"
+]
+},
+{
+"id": "F2_FILL_LAST_PHRASE_INTO_BREAK",
+"file": "src/orchestrator/arrangement_timeline.py",
+"old": "            if not boundary_fill:\n                phrase_ends.pop()",
+"new": "            pass",
+"tests": [
+"tests/orchestrator/test_arrangement_timeline.py"
+]
+},
+{
+"id": "F3_FILL_ONTO_GAP",
+"file": "src/orchestrator/arrangement_timeline.py",
+"old": "boundary_fill = nxt in DRUM_LED and not (nxt == \"drop\" and gap)",
+"new": "boundary_fill = nxt in DRUM_LED",
+"tests": [
+"tests/orchestrator/test_arrangement_timeline.py"
+]
+},
+{
+"id": "F4_FILL_BAR_AFTER",
+"file": "src/orchestrator/arrangement_timeline.py",
+"old": "Event(\"fill\", e - BEATS_PER_BAR, BEATS_PER_BAR",
+"new": "Event(\"fill\", e, BEATS_PER_BAR",
+"tests": [
+"tests/orchestrator/test_arrangement_timeline.py"
+]
+},
+{
+"id": "Z1_MIX_ZONE_CAP_REMOVED",
+"file": "src/orchestrator/arrangement_timeline.py",
+"old": "                energy = min(energy, MIX_ZONE_CAP)",
+"new": "                pass",
+"tests": [
+"tests/orchestrator/test_arrangement_timeline.py"
+]
+},
+{
+"id": "B1_BUILD_KICK_ALWAYS",
+"file": "src/orchestrator/arrangement_timeline.py",
+"old": "settings[\"build_kick\"] == \"filtered_in_build\" or prev in (\"groove\", \"break\")",
+"new": "True",
+"tests": [
+"tests/orchestrator/test_arrangement_timeline.py"
+]
+},
+{
+"id": "B2_BUILD_KICK_NEVER_AFTER_BREAK",
+"file": "src/orchestrator/arrangement_timeline.py",
+"old": "prev in (\"groove\", \"break\")",
+"new": "prev in (\"groove\",)",
+"tests": [
+"tests/orchestrator/test_arrangement_timeline.py"
+]
+},
+{
+"id": "B3_INTRO_BASS_FROM_START",
+"file": "src/orchestrator/arrangement_timeline.py",
+"old": "start >= sec_start + sec_len - PHRASE_BARS) if kind == \"intro\" else True",
+"new": "True) if kind == \"intro\" else True",
+"tests": [
+"tests/orchestrator/test_arrangement_timeline.py"
+]
+},
+{
+"id": "B4_OUTRO_ZONE_NOT_USED",
+"file": "src/orchestrator/arrangement_timeline.py",
+"old": "mode == \"outside_mix_zone\" and wanted and not in_zone",
+"new": "mode == \"outside_mix_zone\" and wanted",
+"tests": [
+"tests/orchestrator/test_arrangement_timeline.py"
+]
+},
+{
+"id": "R1_RUMBLE_IGNORED",
+"file": "src/orchestrator/arrangement_timeline.py",
+"old": "if settings[\"breakdown_rumble\"] == \"on\":",
+"new": "if False:",
+"tests": [
+"tests/orchestrator/test_arrangement_timeline.py"
+]
+},
+{
+"id": "E1_MEAN_AT_CELL_START",
+"file": "src/orchestrator/arrangement_timeline.py",
+"old": "            energy = mean_energy(nodes, a, b)",
+"new": "            energy = energy_at(nodes, a)[1]",
+"tests": [
+"tests/orchestrator/test_arrangement_timeline.py"
+]
+},
+{
+"id": "E2_IMPACT_ON_GROOVE_ALWAYS",
+"file": "src/orchestrator/arrangement_timeline.py",
+"old": "(kind == \"groove\" and prev == \"breakdown\")",
+"new": "(kind == \"groove\")",
+"tests": [
+"tests/orchestrator/test_arrangement_timeline.py"
+]
+}
+]
+}
