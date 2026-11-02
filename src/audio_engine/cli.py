@@ -29,9 +29,10 @@ import sys
 from pathlib import Path
 from typing import Any, TextIO
 
-from . import clap_variants
+from . import clap_variants, hat_variants
 from .categories import CategoryUnavailable, get_category
 from .clap import ClapParamsError, resolve_clap_params
+from .hat import HatParamsError, resolve_hat_params
 from .io import write_kick
 from .params import KickParamsError, resolve_kick_params
 from .presets import UnknownPresetError, describe, load_preset, preset_names
@@ -132,10 +133,11 @@ def plan(args: argparse.Namespace) -> tuple[str, list[dict[str, Any]], list[str]
     base.update(overrides)
     base["variants"] = args.variants  # validated by the contract (1 … 8)
     request = base
-    resolve, make = (
-        (resolve_kick_params, make_variants) if category == "kick"
-        else (resolve_clap_params, clap_variants.make_variants)
-    )
+    resolve, make = {
+        "kick": (resolve_kick_params, make_variants),
+        "clap": (resolve_clap_params, clap_variants.make_variants),
+        "hat": (resolve_hat_params, hat_variants.make_variants),
+    }[category]
     base = resolve(request)
     # The request, not its resolved form: variants of a tail_note / length_beats request keep
     # the note and the -60 dB rule (#120), which the resolved form no longer shows.
@@ -163,7 +165,7 @@ def _plan_prompt(
     if args.preset or args.overrides:
         raise UsageError("--prompt cannot be combined with --preset or --set")
     if getattr(args, "category", "kick") != "kick":
-        raise UsageError("--prompt is a kick vocabulary, not usable with --category clap")
+        raise UsageError("--prompt is a kick vocabulary, not usable with --category clap or hat")
     if not args.out:
         raise UsageError("--out is required")
     try:
@@ -213,7 +215,7 @@ def _main(argv: list[str] | None, stdout: TextIO, stderr: TextIO) -> int:
         return EXIT_OK if exc.code == 0 else EXIT_USAGE
 
     try:
-        get_category(args.category)  # a contract category without a voice yet (hat, #252)
+        get_category(args.category)  # a contract category without a voice is refused here
     except CategoryUnavailable as exc:
         print(f"error: {exc}", file=stderr)
         return EXIT_USAGE
@@ -225,7 +227,8 @@ def _main(argv: list[str] | None, stdout: TextIO, stderr: TextIO) -> int:
 
     try:
         out_dir, variants, stems, descriptions = plan(args)
-    except (UsageError, UnknownPresetError, KickParamsError, ClapParamsError) as exc:
+    except (UsageError, UnknownPresetError, KickParamsError, ClapParamsError,
+                HatParamsError) as exc:
         print(f"error: {exc}", file=stderr)
         return EXIT_USAGE
 
