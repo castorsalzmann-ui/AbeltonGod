@@ -274,3 +274,102 @@ def test_rendered_bytes_are_unchanged_by_the_new_write_path(tmp_path) -> None:
     wav_path, _ = write_kick(FAST, tmp_path, created_at=FIXED_TIME)
     wav_bytes, _, _ = io_mod.render_kick_wav(FAST)
     assert wav_path.read_bytes() == wav_bytes
+
+
+class _FailsToWrite:
+    """A real, open text file whose ``write`` fails (disk full)."""
+
+    def __init__(self, f) -> None:
+        self._f = f
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        self._f.close()
+        return False
+
+    def close(self) -> None:
+        self._f.close()
+
+    def write(self, _data):
+        raise OSError(28, "No space left on device (simulated)")
+
+
+def test_clean_up_removes_the_sidecar_before_the_wav(tmp_path, monkeypatch) -> None:
+    """The docstring of ``write_kick`` and the clean-up comment say "sidecar first": a
+    half-removed pair must never be a sidecar without its WAV (#96 nit 3). The order is
+    recorded at ``os.unlink``."""
+    real_open, real_unlink = builtins.open, os.unlink
+    removed: list[str] = []
+
+    def open_full_json(file, mode="r", *args, **kwargs):
+        f = real_open(file, mode, *args, **kwargs)
+        return _FailsToWrite(f) if str(file).endswith(".json") else f
+
+    def recording_unlink(path, *args, **kwargs):
+        removed.append(Path(path).suffix)
+        return real_unlink(path, *args, **kwargs)
+
+    monkeypatch.setattr(io_mod, "open", open_full_json, raising=False)
+    monkeypatch.setattr(io_mod.os, "unlink", recording_unlink)
+    with pytest.raises(OSError, match="simulated"):
+        write_kick(FAST, tmp_path, created_at=FIXED_TIME)
+    monkeypatch.undo()
+    assert removed == [".json", ".wav"]
+    assert list(tmp_path.iterdir()) == []
+
+
+class _CloseFailsAfterExit:
+    """A real binary file that closes fine when the ``with`` block ends, and whose later
+    ``close`` (the explicit one in ``_discard``) fails."""
+
+    def __init__(self, f) -> None:
+        self._f = f
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        self._f.close()
+        return False
+
+    def write(self, data):
+        return self._f.write(data)
+
+    def close(self) -> None:
+        raise OSError(5, "close failed (simulated)")
+
+
+def test_close_error_while_dropping_our_wav_after_a_sidecar_race_is_raised(
+    tmp_path, monkeypatch
+) -> None:
+    """Sidecar name taken; closing our WAV in the targeted removal fails. That error is raised
+    (not swallowed and not followed by another counter); the general clean-up then still
+    removes our WAV and leaves the foreign sidecar alone (#96 nit 4)."""
+    _racing_unique_pair(monkeypatch)
+    real_open = builtins.open
+
+    def open_wav(file, mode="r", *args, **kwargs):
+        f = real_open(file, mode, *args, **kwargs)
+        return _CloseFailsAfterExit(f) if str(file).endswith(".wav") else f
+
+    monkeypatch.setattr(io_mod, "open", open_wav, raising=False)
+    with pytest.raises(OSError, match="close failed"):
+        write_kick(FAST, tmp_path, created_at=FIXED_TIME)
+    monkeypatch.undo()
+    assert snapshot(tmp_path) == {"kick.json": b"theirs"}
+
+
+def test_discard_swallows_errors_only_when_asked(tmp_path) -> None:
+    class BadClose:
+        def close(self) -> None:
+            raise OSError(5, "close failed (simulated)")
+
+    path = tmp_path / "x.wav"
+    path.write_bytes(b"x")
+    with pytest.raises(OSError, match="close failed"):
+        io_mod._discard(BadClose(), path, swallow=False)
+    assert path.exists()  # the error came before any removal
+    io_mod._discard(BadClose(), path, swallow=True)
+    assert not path.exists()

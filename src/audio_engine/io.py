@@ -111,13 +111,18 @@ def write_kick(
     never touched; if a name is taken between the check and the write, the next counter is
     tried. Returns ``(wav_path, json_path)``.
 
-    If the call fails for any reason after it created a file (disk full, permission, Ctrl+C,
-    also during the ``return``), the files it created are closed and removed again and the
-    original error is raised unchanged: no 0-byte file, no WAV without sidecar. Known
-    exceptions (#94), all a few bytecodes wide or outside this call:
+    If the call fails for any reason after it created a file (disk full, permission, Ctrl+C),
+    the files it created are closed and removed again and the original error is raised
+    unchanged: no 0-byte file, no WAV without sidecar. Known exceptions (#94, #96), all a few
+    bytecodes wide or outside this call:
 
-    - an interrupt between an ``open`` returning and its result being stored leaves that
-      0-byte file (Python runs no line in between; the call cannot know it created it);
+    - an interrupt during or right after an ``open``, before its result is stored, leaves that
+      0-byte file (the call cannot know it created it). Measured in the review of PR #205
+      with real interrupts: a 0-byte remainder occurred in both modes (13.7 % with ``"x"``
+      and an encoding, 10.3 % with ``"xb"``), so the mode is not established as the cause;
+    - the last bytecodes of the ``return`` are outside the handler: an exception injected there
+      by a trace function leaves the complete pair. Whether a real Ctrl+C can land there is
+      not established;
     - a second Ctrl+C during the clean-up stops the clean-up;
     - a file the clean-up cannot remove (e.g. held open by a virus scanner on Windows) stays;
       the original error is still raised. (When the sidecar name was taken and our WAV
