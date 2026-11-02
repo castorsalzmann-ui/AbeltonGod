@@ -182,3 +182,13 @@ def test_file_that_is_not_this_sidecars_wav_is_rejected(
 
 def test_sidecar_renamed_away_from_its_file_is_rejected(written, tmp_path, monkeypatch) -> None:
     _rejected(_put(tmp_path, written[1], written[0], stem="renamed"), monkeypatch)
+
+
+def test_finite_check_reaches_into_lists_and_nested_objects() -> None:
+    """The schema has no list-valued numbers today; the check must still not stop at one."""
+    ok = {"a": [1, 2.5, {"b": [0.0]}], "c": "x"}
+    assert io_mod._all_finite(ok)
+    for bad in (float("nan"), float("inf"), -float("inf")):
+        assert not io_mod._all_finite({"a": [1, {"b": [bad]}]})
+        assert not io_mod._all_finite([{"a": bad}])
+        assert not io_mod._all_finite({"a": {"b": bad}})
