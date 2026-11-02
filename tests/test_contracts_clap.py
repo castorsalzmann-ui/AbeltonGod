@@ -46,10 +46,16 @@ CLAP_FIELDS = {
     "schema_version", "seed", "variants", "sample_rate", "bit_depth", "bursts", "polarity",
     "preset", *CLAP_RANGES,
 }
+V02_RANGES = {  # name: (minimum, maximum), written by hand (#280)
+    "fold": (0, 1), "crush": (0, 1), "rate_div": (1, 16), "ring_hz": (20, 3000),
+    "ring_mix": (0, 1), "comb_hz": (100, 4000), "comb_fb": (0, 0.95),
+}
+V02_FIELDS = {*V02_RANGES, "gate_ms", "tail_reverse"}
 
 
 def test_clap_field_set_and_required() -> None:
     assert set(CLAP["properties"]) == CLAP_FIELDS
+    assert set(CLAP["allOf"][0]["then"]["properties"]) == V02_FIELDS
     assert CLAP["required"] == ["schema_version", "seed"]
 
 
@@ -84,11 +90,79 @@ def test_clap_discrete_fields() -> None:
 
 def test_clap_required_version_and_unknown_fields() -> None:
     CLAP_V.validate({"schema_version": "0.1", "seed": 0})
-    for doc in ({"seed": 1}, {"schema_version": "0.1"}, {"schema_version": "0.2", "seed": 1},
+    for doc in ({"seed": 1}, {"schema_version": "0.1"}, {"schema_version": "0.3", "seed": 1},
+                {"schema_version": "0.2"}, {"schema_version": "0.2", "seed": 1, "wobble": 1},
                 {"schema_version": "0.1", "seed": 1, "wobble": 1},
-                {"schema_version": "0.1", "seed": 1, "voice": "rim"}):
+                {"schema_version": "0.1", "seed": 1, "voice": "perc"}):
         with pytest.raises(ValidationError):
             CLAP_V.validate(doc)
+
+
+@pytest.mark.parametrize("name", sorted(V02_RANGES))
+def test_clap_v02_range_edges(name: str) -> None:
+    low, high = V02_RANGES[name]
+    base = {"schema_version": "0.2", "seed": 1}
+    for ok in (low, high):
+        CLAP_V.validate({**base, name: ok})
+    span = high - low
+    # Relative probes plus fixed probes just outside each bound (a bound moved to 0 or far
+    # away must still turn this red).
+    eps = {"rate_div": 1}.get(name, 0.1 if span > 10 else 0.001)
+    for bad in (low - span / 100, high + span / 100, low - eps, high + eps):
+        with pytest.raises(ValidationError):
+            CLAP_V.validate({**base, name: bad})
+    with pytest.raises(ValidationError):  # same value under 0.1: field not allowed
+        CLAP_V.validate({"schema_version": "0.1", "seed": 1, name: low})
+
+
+def test_clap_v02_discrete_fields() -> None:
+    base = {"schema_version": "0.2", "seed": 1}
+    for good in ({"rate_div": 1}, {"rate_div": 16}, {"gate_ms": 0}, {"gate_ms": 5},
+                 {"gate_ms": 500}, {"gate_ms": 120.5}, {"tail_reverse": True},
+                 {"tail_reverse": False}):
+        CLAP_V.validate({**base, **good})
+    for bad in ({"rate_div": 0}, {"rate_div": 17}, {"rate_div": 2.5}, {"rate_div": True},
+                {"gate_ms": 4.9}, {"gate_ms": 0.5}, {"gate_ms": -1}, {"gate_ms": 500.1},
+                {"gate_ms": None}, {"tail_reverse": 1}, {"tail_reverse": "yes"},
+                {"comb_fb": 1}, {"ring_mix": "0.5"}):
+        with pytest.raises(ValidationError):
+            CLAP_V.validate({**base, **bad})
+
+
+def test_clap_v02_fields_have_no_schema_default_and_are_not_root_properties() -> None:
+    """Root properties stay the v0.1 set: tool builders and a 0.1 resolved form read only those."""
+    for name in V02_FIELDS:
+        assert name not in CLAP["properties"], name
+        assert "default" not in CLAP["allOf"][0]["then"]["properties"][name], name
+
+
+def test_clap_v01_and_v02_documents_with_all_old_fields_validate() -> None:
+    old = {"seed": 5, "variants": 2, "bursts": 4, "burst_spacing_ms": 9, "drive": 0.3,
+           "room": 0.2, "polarity": -1, "offset_ms": 2, "preset": "default", "bpm": 130}
+    for version in ("0.1", "0.2"):
+        CLAP_V.validate({"schema_version": version, **old})
+    CLAP_V.validate({"schema_version": "0.2", **old, "fold": 0.4, "crush": 0.7, "rate_div": 4,
+                     "ring_hz": 400, "ring_mix": 0.7, "comb_hz": 800, "comb_fb": 0.8,
+                     "gate_ms": 120, "tail_reverse": True})
+
+
+def test_clap_v02_random_values_over_the_whole_range() -> None:
+    import random
+    rng = random.Random(280)
+    for _ in range(300):
+        doc = {"schema_version": "0.2", "seed": rng.randrange(2**32)}
+        for name, (low, high) in V02_RANGES.items():
+            if rng.random() < 0.6:
+                doc[name] = rng.randint(low, high) if name == "rate_div" else rng.uniform(low, high)
+        if rng.random() < 0.5:
+            doc["gate_ms"] = rng.choice([0, rng.uniform(5, 500)])
+        if rng.random() < 0.5:
+            doc["tail_reverse"] = rng.random() < 0.5
+        CLAP_V.validate(doc)
+        names = [n for n in doc if n in V02_FIELDS]
+        if names:
+            with pytest.raises(ValidationError):
+                CLAP_V.validate({**doc, "schema_version": "0.1"})
 
 
 def test_clap_longest_burst_onset_fits_minimum_length() -> None:
@@ -150,6 +224,9 @@ def _changed(base: dict, path: str, value) -> dict:
 def test_metadata_valid_instances() -> None:
     META_V.validate(KICK_DOC)
     META_V.validate(CLAP_DOC)
+    # Clap sidecar embedding params v0.2 (#280).
+    META_V.validate(_changed(CLAP_DOC, "parameters", {
+        "schema_version": "0.2", "seed": 7, "fold": 0.4, "gate_ms": 120, "tail_reverse": True}))
     # Non-pitched features may be absent: only peak and length are required.
     META_V.validate(_changed(CLAP_DOC, "features", {"peak_dbfs": -6.0, "length_ms": 300.0}))
     # Kick sidecar fixture from before this change.
@@ -162,8 +239,10 @@ METADATA_INVALID = {
     "clap parameters without seed": _changed(CLAP_DOC, "parameters.seed", ...),
     "clap parameters with kick-params version": _changed(
         CLAP_DOC, "parameters.schema_version", "0.3"),
-    "category rim not allowed": _changed(CLAP_DOC, "category", "rim"),
-    "category rim": _changed(KICK_DOC, "category", "rim"),
+    "clap parameters with an unknown version 0.2.1": _changed(
+        CLAP_DOC, "parameters.schema_version", "0.2.1"),
+    "category perc not allowed": _changed(CLAP_DOC, "category", "perc"),
+    "category perc": _changed(KICK_DOC, "category", "perc"),
     "kick with schema_version 0.2": _changed(KICK_DOC, "schema_version", "0.2"),
     "schema_version 0.3": _changed(CLAP_DOC, "schema_version", "0.3"),
     "hf_share above 1": _changed(CLAP_DOC, "features.hf_share_8k", 1.5),
