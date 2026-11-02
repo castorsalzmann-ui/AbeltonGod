@@ -44,7 +44,7 @@ Rules for this table: a **sourced point** is a value a source gives; the **propo
 | `pitch_drop` (start/end) | 1.6x (artifact) | S11, existing note only; the bridged-T bend of more than an octave is stated for the **kick** (S5), not the snare | 1.0 .. 2.0 | 1.4 |
 | `pitch_drop_ms` | 30 ms (artifact) | S11 | 3 .. 60 | 25 |
 | `body_decay_ms` | about 100 ms to zero (S10) ; artifact 70 ms + decay setting | S10, S11; low | 30 .. 300 | 90 |
-| `body2_decay_ratio` | none (S1 only says each partial has its **own** envelope and level) | S1: separate VCA and contour per partial in the article's model | 0.3 .. 1.2 | 0.7 |
+| `body2_decay_ratio` | none (S1 only says the Roland design has a **separate** envelope and level per partial) | S1: the author's own patch used a single VCA and contour for both partials; the per-partial VCAs and contours are Roland's design as the author describes it | 0.3 .. 1.2 | 0.7 |
 | `noise_decay_ms` | 200 ms (S10); "longer than the tone" (S9, no number) | S9 medium (qualitative), S10 low-medium | 60 .. 800 | 180 |
 | `noise_hp_hz` | 2000 Hz (S10); 1200 Hz + 10 x tone (artifact) | S10, S11; low-medium | 500 .. 6000 | 1800 |
 | `noise_lp_hz` | **none** ("Tone" = low-pass on the noise, no cutoff, S9; S1 low-passes the noise, no cutoff) | S1, S9: qualitative only | 3000 .. 16000 | 9000 (no source; placeholder) |
@@ -101,7 +101,7 @@ State of the code: `origin/main` 5fdb159 for `analyse`, `analyse_nonpitched`, `s
 | Q6 / Q7 band `t60` | `rms_envelope`, `t60_ms` operate on a given array (main) | the building blocks exist; the **band split** (a filter before the envelope) and the wrapper do not | `body_t60_ms`, `noise_t60_ms`: band-pass or high-pass first, then `rms_envelope` (5 ms) and `t60_ms`, with the `None` rule |
 | Q8 noise attack | `rise_time_ms` takes an envelope array | a 0.25 ms RMS envelope of the high band could be fed to it | not available as a ready function; seed-spread report needed |
 
-Policy (derived from the hat precedent, issue H2): new snare measurements start as **design and test helpers next to `analyse_nonpitched`, not as sidecar fields** (the sidecar `features` object stays at four non-pitched features, which keeps kick and clap sidecars valid). Promoting `body_peak_hz`, `body_noise_ratio_db`, `body_t60_ms`, `noise_t60_ms` into `sample-metadata` is a `contract-change` and is the researcher note's step S0; this note recommends doing it only after the user's first listening result shows which of them he steers by.
+Policy (derived from the hat precedent, issue H2): new snare measurements start as **design and test helpers next to `analyse_nonpitched`, not as sidecar fields** (the sidecar `features` object keeps its 10 existing keys, 4 of them non-pitched, which keeps kick and clap sidecars valid). Promoting `body_peak_hz`, `body_noise_ratio_db`, `body_t60_ms`, `noise_t60_ms` into `sample-metadata` is a `contract-change` and is the researcher note's step S0; this note recommends doing it only after the user's first listening result shows which of them he steers by.
 
 ## 5. Proposed contract fields for a future `snare-params` (PROPOSAL ONLY, `contracts/` untouched)
 
@@ -182,7 +182,7 @@ Blind-named files: N0 2, N1 3, N2 3, N3 3, N4 3, N5 3, N6 4 = **21**. Unique ren
 
 - **Any numeric taste range for a techno/trance snare.** No published target, no user references. The 77-kick taste range does not transfer.
 - **Any real-machine value.** The SOS article gives no 808 or 909 frequencies, cutoffs or decay times (verified by opening the page today). The 238/476 Hz and the 808 rim values (S4, S6) come from one hobby page I did not re-open; the Roland service manual (the page's own named source) was not opened.
-- **The researcher's S1 wording** ("named 180 Hz and 330 Hz" as a 909 mode) does not match the article: they are the author's model values (short version 3). The researcher note is not edited by this PR (owner: researcher); the lead may ask for a correction line.
+- **The researcher's S1 wording** ("named 180 Hz and 330 Hz" as a 909 mode) does not match the article: they are the author's model values (short version 3). The researcher note is corrected by PR #268 (https://github.com/castorsalzmann-ui/AbeltonGod/pull/268), not by this PR.
 - `noise_lp_hz`, band-pass Q, the second-partial level, the 909 noise-band split frequency, a real snare's decay times: no number found.
 - No measurement of any kind was made for this note: no model run (unlike the clap and hat notes), no engine, no render, no reference audio. The only command I ran against a source was one page fetch (below). The `PR #265` helper behaviour is taken from its PR body and function signatures, not from running it.
 - Not covered: rim shot, clave, snare+clap layering design beyond the N5 question, stereo, a note-name input.
