@@ -14,7 +14,35 @@
 - **Recommended route #58:** (1) a reference analyser that writes per-zone features (click / body / tail) from a WAV, (2) a staged fit (pitch curve, amplitude slope, then click/drive) to kick-params with a residual report per zone, (3) a per-user preset made of fitted params. Reference audio never enters the repo.
 - **Read first:** this note sections 3, 5, 6; `src/audio_engine/kick.py` (signal chain), `analysis.py` (pitfalls in its docstring), kick-gen2 learnings section 4.
 - **Effort:** #57 step 1-2 small to medium; #57 crossover/attack-density medium; #58 analyser + staged fit large (new reader for arbitrary WAVs, scipy decision, taste checks).
-- **Blockers / decisions only the user can make:** (a) which of the #57 listening pairs (A-E) won: they decide whether H1/H2 (level, clipping) or H3/H4 (two pitches, phase) is the real cause, and so whether summing is the right feature at all; (b) licence of the reference samples (section 7): the Splice FAQ says AI training/modelling use is not permitted, and calls "analysis" nothing explicitly; (c) new dependency `scipy` (section 4); (d) who supplies 3-5 reference kicks.
+- **Blockers / decisions only the user can make:** (a) the follow-up listening test K3 (layer on top of `dense`, [listening-test-3 plan](2026-11-02_listening-test-3-plan.md), PR #195): its outcome decides whether a fuse feature is wanted at all (section 0). Not a blocker for the polarity/offset step, which test 1 already supports; (b) licence of the reference samples (section 7): the Splice FAQ says AI training/modelling use is not permitted, and calls "analysis" nothing explicitly; (c) new dependency `scipy` (section 4); (d) who supplies 3-5 reference kicks.
+
+## 0. Listening state (added in review round 1, 2026-11-02)
+
+The first version of this note treated the #57 listening pairs as open. They are not: listening tests 1 and 2 of #103 are done (CURRENT_STATE line 10; decoded by the lead in [#103 comments](https://github.com/castorsalzmann-ui/AbeltonGod/issues/103), read 2026-11-02). The packages are named P1-P6 (test 1) and T1-T3 (test 2), not A-E. As decoded by the lead (one listener, one session, six forced choices heard once; hypotheses, not findings about the sound):
+
+| Pair | User chose | Reading for this note (inference) |
+| --- | --- | --- |
+| P1 | `dark-dry` inverted (sub ratio 1.49 vs 0.52) | Polarity matters for the low end: supports step 1 (polarity/offset search). |
+| P2 | `punchy` alone +3 dB over the pair ("im low end") | Level alone gave the low-end push (#57 H1). |
+| P3 | the hard-clipped layer ("besser, vollmundiger") | Clipping/saturation contributed (H2); supports section 3.3. |
+| P4 | `centre` drive 0.45 alone over a two-body pair | No evidence for a second body layer; density/drive mattered. |
+| T1-T3 | base `centre` drive 0.45 (= preset `dense`) won all three | Neither a pitch snap nor a mid click beat it. |
+
+Consequence: the blocker "wait for listening pairs A and B" is replaced. What remains open is **K3 of the [listening-test-3 plan](2026-11-02_listening-test-3-plan.md)** (sound-designer, PR #195, branch `sound-designer/lt3-plan`; read from that branch on 2026-11-02): a second kick at -6 dB layered on `dense` against `dense` alone. The plan says: "no difference" or `dense` preferred closes #57 (keep polarity and offset as engine fields only); a preference for the layer reopens it for the fuse feature. The same plan has K2, the onset clip `clip_db` 3, which tests section 3.3 directly. So: step 1 and the report fields are justified now; the crossover and any second-layer fuse wait for K3, and the attack clip waits for K2.
+
+## Which source was read how (retrieval date 2026-11-02)
+
+| Source | What this session read | Not read |
+| --- | --- | --- |
+| Fenton & Lee, JAES 67(6), 2019 (PM95) | **Abstract only** (publisher repository page, via a page summariser); the r = 0.849 / rho = 0.833 values come from it | full text; the JAES paper's model equations |
+| Fenton, Lee, Wakefield, AES 139 preprint | **Full text of the preprint** (via a page summariser, not the PDF by eye); source of the filter changes, 280 ms blocks, 11 listeners, limitations; its temporal-weighting equation was garbled | later model changes in the JAES version |
+| Splice Sounds licensing FAQ | **The FAQ page** (via a page summariser) | the Terms of Use, section 3.1.1.3 |
+| Attack Magazine, layering kicks, pages 1 and 2 | both pages (summariser) | pages 3-4 |
+| Sonnox, drum phase alignment | the page (summariser); no author or date shown | n/a |
+| Wikipedia LR filter, SciPy docs (`sosfiltfilt`, `least_squares`, `differential_evolution`), NumPy RNG policy, DDSP arXiv 2001.04643 (section 4.2.1), pyloudnorm README, FMP C6S1 | the pages (summariser) | DDSP code licence not stated on the page read |
+| PyPI JSON for scipy, numpy, librosa, pyloudnorm, soundfile | fetched directly with HTTP; fields quoted from the JSON | n/a |
+
+All web pages except PyPI were read through a summarising fetch tool, not as raw text. The review round-1 reviewer could not open the Fenton and Splice pages at all (proxy 403 on his side), so those two rows are unconfirmed by a second reader; check them from a machine with web access before relying on the numbers.
 
 ## 1. Findings table
 
@@ -77,7 +105,7 @@ Sound-designer H2 suggests clipping at the output might be part of the perceived
 | Library | Version / date (PyPI, 2026-11-02) | Licence | Use here | Remark |
 | --- | --- | --- | --- | --- |
 | NumPy | 2.5.4 (2026-10-10); already a dependency (`numpy>=1.26`) | BSD-3-Clause and others | all array work, FFT, Hilbert via FFT | enough for alignment search, zone energies, STFT loss |
-| SciPy | 1.18.1 (2026-08-21), BSD, **`requires_python >=3.12`**, Windows wheels 36-37 MB | BSD | `signal.butter/sosfilt/sosfiltfilt/hilbert/correlate`, `optimize.least_squares/curve_fit` | The repo says `requires-python >=3.11`: SciPy 1.18 does not install on 3.11, an older SciPy would be needed there. Which Python the user runs is not recorded in the files read. Everything except the optimiser can be written in NumPy; the optimiser is the part worth buying. |
+| SciPy | 1.18.1 (2026-08-21), BSD, **`requires_python >=3.12`**, Windows wheels 36-37 MB | BSD | `signal.butter/sosfilt/sosfiltfilt/hilbert/correlate`, `optimize.least_squares/curve_fit` | The repo says `requires-python >=3.11`: SciPy 1.18 does not install on 3.11, an older SciPy would be needed there. CURRENT_STATE (lines 19 and 88) records Python 3.14.4 on the user's Windows machine and 3.12 in CI, so 1.18.1 installs in both; only the repo minimum 3.11 is in conflict. Everything except the optimiser can be written in NumPy; the optimiser is the part worth buying. |
 | pyloudnorm | 0.2.0 (2026-01-04) | MIT | BS.1770 loudness, custom filter classes | needs SciPy; fails for signals shorter than the block size (finding 7), so unusable for 80-400 ms kicks without a smaller block size; a short K-weighted RMS written in NumPy is less work. |
 | soundfile | 0.14.0 (2026-06-06), Windows amd64 wheel exists | BSD-3 | reading 24-bit / float / stereo reference WAVs | alternative: standard-library `wave` (PCM only, no 32-bit float); not checked whether `wave` covers WAVE_FORMAT_EXTENSIBLE (not researched). |
 | librosa | 1.0.0 (2026-08-11), `>=3.12` | ISC | onset strength, STFT, pYIN | heavy dependency chain; not needed, see [kick-in-tracks](2026-10-29_kick-in-tracks.md) for the long-form reason. |
@@ -100,7 +128,7 @@ None of these is a measure of the user's taste. Only PM95 has a published listen
 | Loudness (K-weighted) of the first 100-400 ms | own implementation | rules out "just louder" (#57 H1) | `pyloudnorm` unusable for short kicks (finding 7) |
 | Mono / correlation check | sum L+R vs sides; for mono engine output, compare the sub ratio at several polarity/offset values | cancellation risk | engine is mono, so this is the sub ratio again |
 
-Recommendation (inference): the layer feature reports sub ratio, zone energies, peak before normalisation, and the crest/rise measures as **numbers next to the files**, and the listening pairs of #57 decide. PM95 is a candidate for a later issue, not for the first step.
+Recommendation (inference): the layer feature reports sub ratio, zone energies, peak before normalisation, and the crest/rise measures as **numbers next to the files**, and the listening test K3 decides (section 0). PM95 is a candidate for a later issue, not for the first step.
 
 ## 6. Experiments run for this note (scratchpad, not in the repo)
 
@@ -138,12 +166,12 @@ The references here are renders of the engine with known random parameters, so t
 
 - **CI can test (deterministic, no Ableton):** same two kicks + recipe give byte-identical fused WAV; sub ratio of the fused result is at least the naive sum's for every pair over seeded random kicks (property test, full contract range); crossover reconstruction `low + high == input` to a stated dB for all presets and random kicks; peak at or below the ceiling after quantising; no NaN; fused kick starts and ends at exact zero (engine invariant); the fit round-trip: render with known params, fit, assert the *body* parameters within stated tolerances and mark `drive`/fast-drop cases as reported low confidence rather than asserting them; fault injection (flip the polarity sign, drop the zero padding, shift the offset by one sample) must turn tests red (CLAUDE.md rule).
 - **Independent reference:** do not compare the search against the same function; compare against a brute-force loop written in the test, and the crossover against an analytic response.
-- **Needs the user:** whether the fused kick is "more punch" and which of listening pairs A-E of #57 explains the original impression; whether a fitted kick resembles the reference character (#58); the licence question; which kicks are references. Nothing here touches Live, so no `capabilities.json` change.
+- **Needs the user:** whether the fused kick is "more punch" and the result of K3 of the listening-test-3 plan; whether a fitted kick resembles the reference character (#58); the licence question; which kicks are references. Nothing here touches Live, so no `capabilities.json` change.
 - **Time per test:** a reference render is 0.2 s, an alignment search over 2 x 241 offsets took seconds here; keep fit tests to a few cases and slow-mark them.
 
 ## 9. Implementation proposal (for a later issue; the lead decides)
 
-**Prerequisite (user):** the #57 listening results. If listening pair A (louder single vs pair) shows H1 only, step 1 below alone will not satisfy the wish.
+**Prerequisite (user):** none for step 1 (test 1 pair P1 supports it). Steps 3-4 wait for the K3 answer (section 0): "no difference" or `dense` preferred means a fuse feature is not needed (plan: close #57, keep `polarity`/`offset_ms` as engine fields only).
 
 **#57 Layer v1 (audio-engineer, no contract change except the sidecar):**
 1. `layer_kicks(a_params, b_params, *, max_offset_ms=5.0, f_split_hz=None)` in `src/audio_engine/` (new module): render both, search polarity x offset for the best sub ratio (section 3.1), normalise to the ceiling. Report object with sub ratio before/after, unnormalised peak, crest of the first 100 ms, chosen polarity/offset. Property and mutation tests as in section 8. Done when: same inputs give identical bytes; sub ratio >= naive for all tested pairs; a preset-pair table is posted in the PR.
@@ -162,17 +190,17 @@ The references here are renders of the engine with known random parameters, so t
 
 ## 10. Open questions only the user can answer
 
-1. Which two kicks, which faders, which master processing in the #3 test (sound-designer step 0), and the results of listening pairs A-E: they decide what #57 must build.
+1. The K3 answer (layer on `dense`: audible difference, preferred side, one word): it decides whether #57 is built beyond polarity/offset.
 2. May reference kicks from commercial packs be analysed for parameter extraction at all, given the Splice FAQ (finding 11)? Or only the user's own material?
-3. Which Python version does the user's Windows installation use (SciPy 1.18 needs 3.12 or newer, the repo allows 3.11)?
+3. Raise the repo minimum from Python 3.11 to 3.12 (user has 3.14.4, CI 3.12, so SciPy 1.18.1 installs on both), or keep 3.11 and avoid/pin SciPy? Open only as a repo decision, not as a question about the user's machine.
 4. Are 3-5 reference kicks available outside the repo, and is the goal to approximate them or to be pushed in their direction?
 
 ## Implications for the lead
 
-- Summing plus polarity/offset search is cheap and uses fields that exist; but `punchy`-class level loss after normalisation (sound-designer H1) means this may not be the punch the user heard. Wait for listening pairs A and B before sizing #57.
+- Summing plus polarity/offset search is cheap and uses fields that exist; but `punchy`-class level loss after normalisation (sound-designer H1) means this may not be the punch the user heard. Test 1 and 2 already answered part of this (section 0); size #57 beyond polarity/offset only after K3.
 - The sidecar (`parameters` = one object) blocks a fused kick being re-renderable; plan a `contract-change` for it.
 - Reference steering needs three decisions that are not technical: licence stance on reference samples, whether to add `scipy`, and which references.
 - A pure-NumPy fallback exists for everything except the optimiser; scipy would still be added for `curve_fit`/`least_squares` in practice.
 - The `kick-gen2` required-reading note does not yet mention the new facts in 6.2/6.3 (zero padding; naive joint fit fails); the lead may point the future issue here.
 
-**State update proposal (for the PR body):** "Research note `docs/research/2026-11-02_kick-layering-and-reference-steering.md` answers #57/#58: layering = polarity/offset search + optional zero-phase crossover with reported sub ratio; reference steering = staged deterministic fit with per-zone residuals; open: listening pairs of #57, licence stance on references, scipy and Python version."
+**State update proposal (for the PR body):** "Research note `docs/research/2026-11-02_kick-layering-and-reference-steering.md` answers #57/#58: layering = polarity/offset search + optional zero-phase crossover with reported sub ratio; reference steering = staged deterministic fit with per-zone residuals; open: K3 result, licence stance on references, scipy and whether the repo minimum Python 3.11 is raised (user 3.14.4, CI 3.12)."
