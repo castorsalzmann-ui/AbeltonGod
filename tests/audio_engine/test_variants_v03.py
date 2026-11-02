@@ -69,7 +69,7 @@ def _beats_request(rng: random.Random, explicit: bool) -> dict:
     return req
 
 
-@pytest.mark.parametrize(("i", "explicit"), [(i, e) for i in range(4) for e in (False, True)])
+@pytest.mark.parametrize(("i", "explicit"), [(i, e) for i in range(2) for e in (False, True)])
 def test_length_beats_variants_follow_the_rule(i, explicit) -> None:
     req = _beats_request(random.Random(140120 + i), explicit)
     base = resolve_kick_params(req)

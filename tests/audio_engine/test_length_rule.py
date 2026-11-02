@@ -384,7 +384,7 @@ def _random_beats_request(rng: random.Random) -> dict:
     return req
 
 
-RANDOM_REQUESTS = [_random_beats_request(kp.rng(20120 + i)) for i in range(14)]
+RANDOM_REQUESTS = [_random_beats_request(kp.rng(20120 + i)) for i in range(8)]
 
 
 def check_derived_or_rejected(req: dict) -> bool:

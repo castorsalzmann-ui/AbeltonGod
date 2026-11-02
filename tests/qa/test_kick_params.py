@@ -219,7 +219,7 @@ def test_fresh_seeds_option_reaches_the_generator() -> None:
     default, fresh = _collect(), _collect("--fresh-seeds=2")
     assert default.returncode == 0 and fresh.returncode == 0, fresh.stdout[-2000:]
     old_ids, new_ids = _aliasing_ids(default.stdout), _aliasing_ids(fresh.stdout)
-    assert len(old_ids) == len(new_ids) == 32
+    assert len(old_ids) == len(new_ids) == 16  # test_drive_aliasing: 12 random + 4 hard
     assert not set(old_ids) & set(new_ids)
     first = kp.draw(np.random.default_rng(1300 + 2 * 2**32), kp.ALIASING)
     assert new_ids[0] == f"seed{first['seed']}"

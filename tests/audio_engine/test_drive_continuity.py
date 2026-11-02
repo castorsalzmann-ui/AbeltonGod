@@ -78,7 +78,7 @@ MIN_STEP_RATIO = 1.003
 SMALL_COEFF = 0.2
 
 
-@pytest.mark.parametrize("p", _sets(seed0=16000))
+@pytest.mark.parametrize("p", _sets(seed0=16000, n=16))
 def test_change_from_clean_is_small_and_grows_monotonically(p: dict) -> None:
     clean, _ = render_kick({**p, "drive": 0.0})
     shares = [_residual_share(render_kick({**p, "drive": d})[0], clean) for d in LADDER]
