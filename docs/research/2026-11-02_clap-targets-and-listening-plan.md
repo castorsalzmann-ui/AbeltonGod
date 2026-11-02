@@ -7,7 +7,7 @@ _Date: 2026-11-02 · Role: sound-designer · Issue: #232 (after #231 = C2 clap v
 1. Three styles are defined by contract fields plus four non-pitched features (`spectral_centroid_hz`, `hf_share_8k`, `t60_ms`, `rise_time_ms`, v0.2 `sample-metadata`): **tight techno**, **long trance**, **layered** (section 2).
 2. The ranges come from my own NumPy model of the v0.1 recipe, **not from the engine** (C2 is not on `main` yet) and **not from reference audio** (none was supplied). They are hypotheses until the audio-engineer re-measures them on the real voice (H1).
 3. One pitfall found by the model: `rise_time_ms` is not usable as a style target for a multi-burst noise clap (section 3, P1). `t60_ms` is `null` for roomy claps that do not fall 60 dB inside the file (P2).
-4. Listening plan: 7 items, 16 distinct files, about 12 minutes, identical control pair, blind names, key file, German answer sheet (section 5).
+4. Listening plan: 7 items, 18 blind-named files from 11 unique renders, about 12 minutes, identical control pair, blind names, key file, German answer sheet (section 5).
 
 ## 1. Read and method
 
@@ -85,7 +85,7 @@ Rendered by the audio-engineer (script + guide under `docs/setup/LISTENING_TEST_
 | **C5** layer | A = tight techno, B = tight techno + wide clap (6 / 14 / 30 / 0.95, `bp_hz` 1200) at -6 dB, summed, normalised to -0.3 dBFS | Does B have something A lacks | second layer |
 | **C6** variants | four seed variants of tight techno (`variants` 4) | Which sound like the same clap, which falls out | `variants` |
 
-Distinct files: C0 1 (plus the duplicate), C1 2, C2 3, C3 3, C4 2, C5 2, C6 4 = 17, minus the three shared with tight techno (render once, copy under blind names) = 14 renders. Time: pairs about 1 minute each, the three-file items 2 minutes, set-up 2 minutes, one-minute break after C3: about 12 minutes. **Order:** C1 → C0 → C4 → C5 → C3 → C2 → C6 (the pair with the most likely audible difference first, control in the middle, rankings last).
+Blind-named files the user loads: C0 2, C1 2, C2 3, C3 3, C4 2, C5 2, C6 4 = **18**. Unique renders: **11**. The tight-techno render T (seed 1) is used 7 times under different blind names (C0 A and B, C1-A, C2 `bursts` 3, C3 `bp_hz` 1500, C4-A, C5-A) and C6 v0 is T as well (`variants` 4: v0 = the preset), so render it once and copy it. The other ten unique renders: (1) long trance, (2) `bursts` 1, (3) `bursts` 6, (4) `bp_hz` 1000, (5) `bp_hz` 2500, (6) tight + `room` 0.4, (7) tight + wide-clap sum (C5-B), (8-10) variants v1, v2, v3. Copies of T are the same render; only the per-item level-match gain may differ (so bytes can differ between items, but C0 A and B must be byte-identical); the key file lists which blind name is which render. The C5 sum is normalised to -0.3 dBFS and then RMS-matched to its partner T (0-60 ms, as above), like every other pair, so the sum may be scaled below -0.3 dBFS. Time: pairs about 1 minute each, the three-file items 2 minutes, set-up 2 minutes, one-minute break after C3: about 12 minutes. **Order:** C1 → C0 → C4 → C5 → C3 → C2 → C6 (the pair with the most likely audible difference first, control in the middle, rankings last).
 
 **Aufbau (einmal, 2 Minuten):** Alle `*.wav` des Pakets in eine Audiospur laden, Warp aus, Projekttempo 136 BPM, jede Datei als Loop. Gleiche Lautstärke an der Spur, nichts auf dem Master. Die Dateinamen sind anonym. Schluessel.md erst nach dem Test öffnen.
 
