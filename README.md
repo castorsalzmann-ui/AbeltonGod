@@ -4,7 +4,9 @@ KI-Musikproduktions-Copilot für Ableton Live 12 (Windows), Schwerpunkt Techno u
 
 Der Copilot soll Samples erzeugen und verfeinern, Arrangements vorschlagen, beim Mixing helfen und dabei erklären, was er tut. Er ersetzt keine kreativen Entscheidungen, sondern unterstützt einen eigenen Signature Sound.
 
-**Stand (28.10.2026):** Phase 00 ist abgeschlossen. In Phase 01 ist der Kern der Kick-Engine fertig: Sie erzeugt Kicks deterministisch aus Parametern, misst sie und schreibt WAV-Dateien mit Metadaten. Noch nicht vorhanden sind Presets, Varianten und ein Kommandozeilen-Befehl (#3), und die Kicks wurden noch nicht angehört. Ableton-Anbindung und Claude-Steuerung gibt es noch nicht. Was tatsächlich funktioniert, steht immer in [`docs/CURRENT_STATE.md`](docs/CURRENT_STATE.md).
+**Stand (02.11.2026):** Der Kick-Generator ist abgeschlossen (Hörtest 3, Preset `dense`). Der Kick lässt sich per Terminal-Chat mit Claude erzeugen und in ein Ableton-Projekt importieren, jeweils durch den Ressourcen-Wächter. Ein Arrangement-Planer erzeugt Pläne aus Genre, Tempo und Länge (Layout, Energiekurve, Timeline); ins Live schreiben kann er noch nicht. Als Nächstes: Kick-Prompts mit Schlüsselwörtern, dann Clap und Hats.
+
+**Cockpit:** Roadmap, Forschungsnotizen, offene Aufgaben für den Nutzer und wer gerade arbeitet: [Projekt-Cockpit](https://claude.ai/artifact/VtqRwzLvCEiYaeQb4i7x3u) (Anmeldung nötig). Was nur der Nutzer tun kann, steht in [`docs/WAITING_ON_USER.md`](docs/WAITING_ON_USER.md), die Feature-Tabelle in [`docs/ROADMAP.md`](docs/ROADMAP.md), der ausführliche Stand in [`docs/CURRENT_STATE.md`](docs/CURRENT_STATE.md).
 
 ## Architektur in einem Satz
 
@@ -15,11 +17,13 @@ Eine lokale Python-Audio-Engine erzeugt Samples, eine Remote-Script-Bridge (Able
 | Phase | Ziel | Status |
 | --- | --- | --- |
 | 00 | Repo, CI, Agentenregeln | fertig |
-| 01 | Kick-Engine ohne Claude: deterministische Synthese, drei Varianten, WAV + Metadaten | Kern fertig; Presets, Varianten, CLI und Hörtest offen |
-| 02 | Ableton-Bridge: AbletonOSC in Live Standard 12, Lesen, harmlose Schreibaktion, Undo | geplant |
-| 03 | Sample-Import: Kick landet im Ableton-Projekt | geplant |
-| 04a | Resource Guard: Grenzen für Tokens, Aufrufe, Kosten, Zeit, Schleifen, Datei- und Ableton-Schreibzugriffe | geplant |
-| 04b | Claude-Orchestrator: Sprache → validierte Parameter → Engine → Import | geplant |
+| 01 | Kick-Engine ohne Claude: deterministische Synthese, Varianten, WAV + Metadaten | fertig |
+| 02 | Ableton-Bridge: AbletonOSC in Live Standard 12, Lesen, harmlose Schreibaktion, Undo | fertig (Arrangement-Funktionen warten auf einen Lauf in Live) |
+| 03 | Sample-Import: Kick landet im Ableton-Projekt | fertig |
+| 04a | Resource Guard: Grenzen für Tokens, Aufrufe, Kosten, Zeit, Schleifen, Datei- und Ableton-Schreibzugriffe | fertig |
+| 04b | Claude-Orchestrator: Sprache → validierte Parameter → Engine → Import | in Arbeit (Abnahmelauf am PC offen) |
+| 05 | Kick-Charakter: Preset `dense`, Hörtests, Keyword-Prompts | Hörtests abgeschlossen; Keyword-Prompts in Arbeit |
+| 06 | Weitere Klangkategorien (zuerst Clap, dann Hats) | geplant |
 
 Phasenspezifikationen: [`docs/phases/`](docs/phases/).
 
