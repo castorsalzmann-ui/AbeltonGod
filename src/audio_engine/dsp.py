@@ -250,3 +250,47 @@ def substreams(seed: int, count: int) -> list[np.random.Generator]:
         raise ValueError(f"count must be >= 0, got {count}")
     children = np.random.SeedSequence(seed).spawn(count)
     return [np.random.Generator(np.random.PCG64(s)) for s in children]
+
+
+# ---------------------------------------------------------------------------------------------
+# Hat blocks (#250). Only gaps are added: the envelope (linear attack, exponential to -60 dB)
+# and the 5 ms fade already exist as ``kick._amp_envelope`` / ``kick._fade_out`` and fit.
+# ---------------------------------------------------------------------------------------------
+
+
+def highpass_cascade(x: np.ndarray, sr: int, f0: float, sections: int = 2,
+                     q: float = 1 / math.sqrt(2)) -> np.ndarray:
+    """``sections`` identical RBJ high-pass sections in series (default 2: "steep", 4th order)."""
+    if isinstance(sections, bool) or not isinstance(sections, int) or sections < 1:
+        raise ValueError(f"sections must be an int >= 1, got {sections!r}")
+    _check_corner(sr, f0, q)
+    for _ in range(sections):
+        x = rbj_highpass(x, sr, f0, q)
+    return x
+
+
+def mix_passband(bank: np.ndarray, noise: np.ndarray, share: float, chain) -> np.ndarray:
+    """Mix ``bank`` and ``noise`` so the bank carries ``share`` of the PASSBAND power.
+
+    Both signals go through ``chain`` (a function array -> array: the high-pass chain and any
+    other filter stages) first, are each RMS-normalised to 1 over the whole array, and are then
+    mixed as ``sqrt(share) * bank + sqrt(1 - share) * noise``. For uncorrelated parts the
+    filtered bank therefore holds the fraction ``share`` of the mixed power, however much of
+    its raw power the filter removed. Returns the filtered mix (``chain`` is not applied again).
+    A part with weight 0 is not required to have energy; a weighted part without energy
+    after filtering raises ``ValueError``.
+    """
+    if not 0.0 <= share <= 1.0:
+        raise ValueError(f"share must be in [0, 1], got {share}")
+    if len(bank) != len(noise):
+        raise ValueError("bank and noise must have the same length")
+    out = np.zeros(len(bank))
+    for part, weight in ((bank, share), (noise, 1.0 - share)):
+        if weight == 0.0:
+            continue
+        y = chain(part)
+        rms = math.sqrt(float(np.mean(y * y))) if len(y) else 0.0
+        if rms <= 0.0:
+            raise ValueError("a mixed part has no energy after the filter chain")
+        out += math.sqrt(weight) * y / rms
+    return out
