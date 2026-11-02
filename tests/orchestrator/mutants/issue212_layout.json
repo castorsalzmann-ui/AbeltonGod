@@ -1,0 +1,11 @@
+{"mutants":[
+{"id":"L1_TIEBREAK_LARGEST_FIRST","file":"src/orchestrator/arrangement_layout.py","old":"key = (deviation, combo)","new":"key = (deviation, tuple(-n for n in combo))","tests":["tests/orchestrator/test_arrangement_layout.py"]},
+{"id":"L2_DEVIATION_IGNORED","file":"src/orchestrator/arrangement_layout.py","old":"key = (deviation, combo)","new":"key = (0, combo)","tests":["tests/orchestrator/test_arrangement_layout.py"]},
+{"id":"L3_OUTRO_FROM_SETTING","file":"src/orchestrator/arrangement_layout.py","old":"    length, _ = default_outro(DROP_END_VALUE, min_length=outro_length)\n    return length","new":"    return outro_length","tests":["tests/orchestrator/test_arrangement_layout.py"]},
+{"id":"L4_NEAREST_BELOW_SECOND","file":"src/orchestrator/arrangement_layout.py","old":"\"below\": below[-1] if below else None","new":"\"below\": below[-2] if len(below) > 1 else None","tests":["tests/orchestrator/test_arrangement_layout.py"]},
+{"id":"L5_NEAREST_ABOVE_SECOND","file":"src/orchestrator/arrangement_layout.py","old":"\"above\": above[0] if above else None","new":"\"above\": above[1] if len(above) > 1 else None","tests":["tests/orchestrator/test_arrangement_layout.py"]},
+{"id":"L6_MINUTES_TIE_DOWN","file":"src/orchestrator/arrangement_layout.py","old":"+ Fraction(1, 2)) * PHRASE_BARS","new":"+ Fraction(1, 3)) * PHRASE_BARS","tests":["tests/orchestrator/test_arrangement_layout.py"]},
+{"id":"L7_SECOND_BREAKDOWN_DROPPED","file":"src/orchestrator/arrangement_layout.py","old":"for _ in range(breakdown_count):","new":"for _ in range(1):","tests":["tests/orchestrator/test_arrangement_layout.py"]},
+{"id":"L8_START_BAR_ZERO","file":"src/orchestrator/arrangement_layout.py","old":"    start = 1\n","new":"    start = 0\n","tests":["tests/orchestrator/test_arrangement_layout.py"]},
+{"id":"L9_RANGE_UPPER_OFF_BY_ONE","file":"src/orchestrator/arrangement_layout.py","old":"if bars < lo or bars > hi:","new":"if bars < lo or bars >= hi:","tests":["tests/orchestrator/test_arrangement_layout.py"]}
+]}
