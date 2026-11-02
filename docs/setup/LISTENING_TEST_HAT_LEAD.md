@@ -12,6 +12,8 @@ Der Ordner muss neu oder leer sein und liegt **außerhalb** des Repos. Ergebnis:
 
 ## 1b. Einzelschlag-Variante (Rückfall)
 
+Wenn der Hörer die Hats lieber selbst im Simpler spielt: Einzelschläge mit `python -m audio_engine.kick --category hat` erzeugen (Befehle unten). Der Hörer baut dann Kick auf jedem Beat, Hat auf jedem 16tel (Closed) bzw. jedem Off-Beat-8tel (Open), Voices 1, Retrigger an, Fade Out ca. 3 ms. Diese Variante ist nur beschrieben, nicht geprüft; der Pegelangleich der Loops gilt für sie nicht. Der Hörer-Anleitung steht dazu nichts (sie verweist nicht auf dieses Dokument).
+
 Das Paket aus Einzelschlägen, das PR #299 geliefert hat und das der Hörer im Simpler selbst abspielt. Aus dem Repo-Stamm, mit der Engine auf dem Pfad (`PYTHONPATH=src` oder editable install), Bash. `OUT` ist ein neuer, leerer Ordner **außerhalb** des Repos. Verschickt wird nur `OUT/hoerer/`; `OUT/render/` enthält die Sidecars (Dateinamen und Parameter verraten den Schlüssel). Der Pegelangleich dieser Variante geschieht über `peak_ceiling_dbfs`, nicht über Gains.
 
 ```bash
