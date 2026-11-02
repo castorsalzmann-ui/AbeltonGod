@@ -30,6 +30,7 @@ from pathlib import Path
 from typing import Any, TextIO
 
 from bridge.capabilities import CapabilityError
+from bridge.clip_import import live_number
 from guard import Guard, PolicyError
 from orchestrator.clients import make_model_client
 from orchestrator.fake_model import FakeModel, RecordingError
@@ -51,7 +52,7 @@ _QUIT = {"", "exit", "quit"}
 def _live_number(index: Any) -> str:
     """0-based tool index -> Live's 1-based number; anything else shown as is."""
     if isinstance(index, int) and not isinstance(index, bool) and index >= 0:
-        return str(index + 1)
+        return live_number(index)
     return str(index)
 
 

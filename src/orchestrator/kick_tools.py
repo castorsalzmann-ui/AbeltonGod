@@ -62,6 +62,7 @@ from bridge.clip_import import (
     ImportPathError,
     SlotState,
     first_empty_slot,
+    live_number,
     read_state,
     same_file_path,
     validate_wav_path,
@@ -148,7 +149,7 @@ def _live_number(index: Any) -> str:
     """A 0-based index as Live's 1-based number for user-facing text; anything that is not a
     whole number >= 0 is shown as given (it is the model's wrong value, quoted back)."""
     whole = _whole_int(index)
-    return str(whole + 1) if whole is not None and whole >= 0 else repr(index)
+    return live_number(whole) if whole is not None and whole >= 0 else repr(index)
 
 
 @dataclass(frozen=True)
