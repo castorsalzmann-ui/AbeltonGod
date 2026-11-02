@@ -212,6 +212,75 @@ def test_collect_pipeline_without_roadmap(tmp_path):
 
 
 # ---------- issues ----------
+# ---------- features.json and research.json ----------
+FEATURES_MD = """# Roadmap
+
+## Features (status, research, work)
+
+| Feature | Phase | Status | Research | Work |
+| --- | --- | --- | --- | --- |
+| Kick engine | 01 | Fertig | 2026-10-28_kick.md, 2026-11-02_gone.md | PR #8 |
+| Bridge | 02 | Geplant | 2026-10-28_kick.md | #5 |
+| Odd | 08 | Irgendwas | - | - |
+
+## Next section
+"""
+
+
+def _features_repo(tmp_path: Path) -> Path:
+    repo = _roadmap(tmp_path, FEATURES_MD)
+    res = repo / "docs" / "research"
+    res.mkdir()
+    (res / "2026-10-28_kick.md").write_text("# Research: Kick\n\none two three\n", "utf-8")
+    (res / "2026-11-01_loose.md").write_text("no heading here\n", "utf-8")
+    return repo
+
+
+def test_collect_features(tmp_path, capsys):
+    assert cc.collect_features(_features_repo(tmp_path)) == [
+        {"feature": "Kick engine", "phase": "01", "status": "Fertig",
+         "research": ["2026-10-28_kick.md", "2026-11-02_gone.md"], "work": "PR #8",
+         "research_count": 2},
+        {"feature": "Bridge", "phase": "02", "status": "Geplant",
+         "research": ["2026-10-28_kick.md"], "work": "#5", "research_count": 1},
+        {"feature": "Odd", "phase": "08", "status": "Unklar", "research": [], "work": "-",
+         "research_count": 0},
+    ]
+    err = capsys.readouterr().err
+    assert "2026-11-02_gone.md" in err  # missing research file is reported
+    assert "2026-10-28_kick.md" not in err
+
+
+def test_collect_features_without_table(tmp_path, capsys):
+    assert cc.collect_features(_roadmap(tmp_path, "# Roadmap\n\n## Pipeline\n")) == []
+    assert "Features" in capsys.readouterr().err
+
+
+def test_collect_research(tmp_path):
+    repo = _features_repo(tmp_path)
+    rows = cc.collect_research(repo, cc.collect_features(repo))
+    base = "https://github.com/castorsalzmann-ui/AbeltonGod/blob/main/docs/research/"
+    assert rows == [  # newest first
+        {"file": "2026-11-01_loose.md", "date": "2026-11-01", "title": "2026-11-01_loose.md",
+         "topic": "loose", "features": [], "mapped": False,
+         "url": base + "2026-11-01_loose.md", "words": 3},
+        {"file": "2026-10-28_kick.md", "date": "2026-10-28", "title": "Research: Kick",
+         "topic": "kick", "features": ["Kick engine", "Bridge"], "mapped": True,
+         "url": base + "2026-10-28_kick.md", "words": 6},
+    ]
+
+
+def test_collect_snapshot():
+    def row(kind, closed, merged=None):
+        return {"kind": kind, "closed": closed, "merged": merged}
+
+    issues = [row("PR", None), row("PR", "2026-11-01", "2026-11-01"), row("PR", "2026-11-01"),
+              row("Issue", None), row("Side-Finding", None), row("Issue", "2026-11-01")]
+    (snap,) = cc.collect_snapshot("abc1234", issues)
+    assert {k: v for k, v in snap.items() if k != "at"} == {
+        "sha": "abc1234", "open_prs": 1, "open_issues": 2, "merged_prs": 1}
+    assert snap["at"].endswith("+00:00")
+
 NOT_A_PR = object()
 
 
@@ -221,6 +290,7 @@ def _issue(number, title, labels=(), state="open", pr=NOT_A_PR, body="", comment
         "number": number, "title": title, "labels": [{"name": n} for n in labels],
         "state": state, "body": body, "comments": comments,
         "created_at": f"2026-10-01T00:00:{number:02d}Z",
+        "updated_at": f"2026-10-{number:02d}T00:00:00Z",
         "closed_at": None if state == "open" else "2026-10-02T00:00:00Z",
         "html_url": f"https://example.invalid/{number}",
     }
@@ -244,6 +314,8 @@ CANNED_ISSUES = [
     _issue(19, "Other", ["agent:unknownrole"]),
     _issue(20, "Review", ["agent:review", "needs:user-test"], state="closed"),
     _issue(21, "Legacy key", ["agent:reviewer"]),
+    _issue(22, "Needs you", ["needs-user", "agent:audio"]),
+    _issue(23, "Needs you, done", ["needs-user"], state="closed"),
 ]
 
 
@@ -269,7 +341,7 @@ def issues(tmp_path, monkeypatch):
 
 def test_issue_rows_sorted_and_bodies(issues):
     by_num, rows, bodies = issues
-    assert [r["number"] for r in rows] == list(range(10, 22))
+    assert [r["number"] for r in rows] == list(range(10, 24))
     assert {b["number"]: b["kind"] for b in bodies}[12] == "PR"
     assert {b["number"]: b["kind"] for b in bodies}[16] == "Issue"
     assert next(b["text"] for b in bodies if b["number"] == 10).startswith("Text")
@@ -278,7 +350,7 @@ def test_issue_rows_sorted_and_bodies(issues):
 @pytest.mark.parametrize(("n", "kind", "phase", "track", "status", "owner", "needs_user"), [
     (10, "Issue", "01", "Kick", "Bereit", "audio-engineer", False),
     (11, "Issue", "—", "Sonstiges", "Fertig", "nicht zugewiesen", False),
-    (12, "PR", "04b", "Orchestrator", "In Review", "Du", False),
+    (12, "PR", "04b", "Orchestrator", "In Review", "Du", True),
     (13, "PR", "02", "Bridge", "Geschlossen", "nicht zugewiesen", False),
     (14, "PR", "03", "Import", "Fertig", "nicht zugewiesen", False),
     (15, "Issue", "04a", "Guard", "Blockiert", "qa-tester", True),
@@ -485,3 +557,80 @@ def test_no_github_write_call_in_source():
         assert flag not in src, flag
     assert src.count('["gh", "api", path]') == 1
     assert len(re.findall(r'"gh"', src)) == 1  # the only gh invocation is the GET helper
+
+
+def test_needs_user_for_open_prs_and_needs_user_label(issues):
+    by_num, _, _ = issues
+    got = {n: r["needs_user"] for n, r in by_num.items()}
+    assert got[12] is True  # open PR
+    assert got[22] is True  # open issue with label needs-user
+    assert by_num[22]["owner"] == "Du"
+    assert got[23] is False  # closed
+    assert got[14] is False and got[13] is False  # merged / closed PR
+    assert got[10] is False and got[17] is False  # plain open issues
+
+
+# ---------- active_work.json, user_actions.json, no write after a failed GitHub call ----------
+def test_collect_active_work(issues):
+    _, rows, _ = issues
+    got = cc.collect_active_work(rows, {12: "phase-04b/orchestrator"})
+    assert [(r["number"], r["role"], r["kind"], r["status"]) for r in got] == [
+        (16, "sound", "Issue", "in-progress"),  # newest update first
+        (12, "phase-04b", "PR", "PR offen"),
+    ]
+    assert got[0]["url"] == "https://example.invalid/16"
+    assert got[0]["updated"] == "2026-10-16T00:00:00Z"
+
+
+def test_collect_user_actions(issues, tmp_path, capsys):
+    _, rows, _ = issues
+    listed_pr = dict(next(r for r in rows if r["number"] == 12), number=25, title="Listed PR")
+    rows = [*rows, listed_pr]
+    base = "https://github.com/castorsalzmann-ui/AbeltonGod/"
+    (tmp_path / "docs").mkdir(exist_ok=True)
+    (tmp_path / "docs" / "WAITING_ON_USER.md").write_text(
+        "# Waiting\n\n| Was | Link | Aufgabe | Seit |\n| --- | --- | --- | --- |\n"
+        f"| Test | {base}issues/10 | Kick am PC hören | 2026-11-01 |\n"
+        f"| Merge | {base}pull/25 | prüfen | 2026-11-02 |\n"
+        f"| Merge | [PR 14]({base}pull/14) | mergen | 2026-10-30 |\n"
+        "| Entscheidung | https://evil.example/issues/11 | Kategorie wählen | 2026-11-02 |\n",
+        encoding="utf-8",
+    )
+    got = cc.collect_user_actions(tmp_path, rows)
+    assert got == [
+        {"kind": "Test", "url": base + "issues/10", "number": 10, "title": "Kick thing",
+         "task": "Kick am PC hören", "since": "2026-11-01", "state": "open", "auto": False},
+        {"kind": "Merge", "url": base + "pull/25", "number": 25, "title": "Listed PR",
+         "task": "prüfen", "since": "2026-11-02", "state": "open", "auto": False},
+        {"kind": "Merge", "url": base + "pull/14", "number": 14, "title": "merged PR",
+         "task": "mergen", "since": "2026-10-30", "state": "merged", "auto": False},
+        {"kind": "Entscheidung", "url": "", "number": None, "title": "",  # foreign URL dropped
+         "task": "Kategorie wählen", "since": "2026-11-02", "state": "", "auto": False},
+        {"kind": "Merge", "url": "https://example.invalid/12", "number": 12,
+         "title": "Phase 04b: orchestrator", "task": "PR prüfen und mergen (CI grün?)",
+         "since": "2026-10-01", "state": "open", "auto": True},  # open PR, not in the table
+    ]
+    # missing file: only the automatic row plus a warning
+    (tmp_path / "docs" / "WAITING_ON_USER.md").unlink()
+    capsys.readouterr()
+    got = cc.collect_user_actions(tmp_path, rows)
+    assert [r["number"] for r in got] == [12, 25] and all(r["auto"] for r in got)
+    assert "WAITING_ON_USER.md" in capsys.readouterr().err
+
+
+def test_failed_github_call_writes_nothing(tmp_path, monkeypatch, capsys):
+    def boom(path):
+        raise subprocess.CalledProcessError(1, ["gh", "api", path], stderr="HTTP 502")
+
+    monkeypatch.setattr(cc, "gh_all", boom)
+    out = tmp_path / "out"
+    out.mkdir()
+    (out / "issues.json").write_text("[1]", encoding="utf-8")  # an earlier good dataset
+    (tmp_path / "repo").mkdir()
+    monkeypatch.setattr("sys.argv", ["cockpit_collect.py", str(tmp_path / "repo"), str(out)])
+    with pytest.raises(SystemExit) as e:
+        cc.main()
+    assert e.value.code == 1
+    assert [f.name for f in out.iterdir()] == ["issues.json"]
+    assert (out / "issues.json").read_text(encoding="utf-8") == "[1]"
+    assert "HTTP 502" in capsys.readouterr().err
