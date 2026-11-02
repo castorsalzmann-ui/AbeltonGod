@@ -1,0 +1,68 @@
+{
+  "description": "#170 fault injection: confirmation window before the question, files_per_request in the chat, presented wait bound. Run: python scripts/qa/mutate.py tests/orchestrator/mutants/issue170_window.json",
+  "mutants": [
+    {
+      "id": "W1_NO_WINDOW_CHECK_BEFORE_ASK",
+      "file": "src/orchestrator/tools.py",
+      "old": "            late = self._window_refusal(req, permit, call, turn_started, asked=False)\n            if late is not None:\n                return late\n",
+      "new": "",
+      "tests": ["tests/orchestrator/test_tool_rules.py", "tests/orchestrator/test_guard_wiring.py"]
+    },
+    {
+      "id": "W2_WINDOW_BEFORE_ASK_STRICT",
+      "file": "src/orchestrator/tools.py",
+      "old": "        if waited <= CONFIRM_WINDOW_S:  # False for NaN\n",
+      "new": "        if waited < CONFIRM_WINDOW_S:  # False for NaN\n",
+      "tests": ["tests/orchestrator/test_tool_rules.py"]
+    },
+    {
+      "id": "W3_WINDOW_NAN_PASSES",
+      "file": "src/orchestrator/tools.py",
+      "old": "        if waited <= CONFIRM_WINDOW_S:  # False for NaN\n",
+      "new": "        if not waited > CONFIRM_WINDOW_S:\n",
+      "tests": ["tests/orchestrator/test_tool_rules.py"]
+    },
+    {
+      "id": "W4_LATE_BEFORE_ASK_NOT_SETTLED",
+      "file": "src/orchestrator/tools.py",
+      "old": "        req.after_tool(permit, files_written=0, live_writes=0, ok=False)\n        if asked:\n",
+      "new": "        if asked:\n",
+      "tests": ["tests/orchestrator/test_tool_rules.py"]
+    },
+    {
+      "id": "Q4_PRESENT_IGNORES_VIOLATION_AND_END",
+      "file": "src/orchestrator/sdk_client.py",
+      "old": "                if not sess or sess.closed or sess.violation is not None or sess.stream_ended:\n",
+      "new": "                if not sess or sess.closed:\n",
+      "tests": ["tests/orchestrator/test_tool_rules.py"]
+    },
+    {
+      "id": "Q11_CHAT_NO_KICK_LIMIT_IN_DESCRIPTION",
+      "file": "src/orchestrator/chat.py",
+      "old": "session.tools(files_per_request=limit)",
+      "new": "session.tools()",
+      "tests": ["tests/orchestrator/test_kick_e2e.py"]
+    },
+    {
+      "id": "Q13_PRESENT_WAIT_25S",
+      "file": "src/orchestrator/sdk_client.py",
+      "old": "            until = time.monotonic() + max(0.0, float(wait_s))\n",
+      "new": "            until = time.monotonic() + 25.0\n",
+      "tests": ["tests/orchestrator/test_tool_rules.py"]
+    },
+    {
+      "id": "Q13b_PRESENT_WAIT_CONSTANT_CHANGED",
+      "file": "src/orchestrator/tools.py",
+      "old": "PRESENT_WAIT_S = 2.0\n",
+      "new": "PRESENT_WAIT_S = 25.0\n",
+      "tests": ["tests/orchestrator/test_tool_rules.py"]
+    },
+    {
+      "id": "N4_NOT_PRESENTED_TEXT_ONE_CAUSE",
+      "file": "src/orchestrator/tools.py",
+      "old": "the guard ended the session; the call was cancelled or already \"\n                    \"answered. ",
+      "new": "\"\n                    \"\". ",
+      "tests": ["tests/orchestrator/test_kick_e2e.py"]
+    }
+  ]
+}

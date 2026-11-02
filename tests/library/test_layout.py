@@ -20,6 +20,7 @@ from pathlib import Path
 import pytest
 from jsonschema import Draft202012Validator
 from support import kick_params as kp
+from support.traced_thread import run_in_fresh_thread
 
 import audio_engine.io as io_mod
 import library.layout as layout_mod
@@ -888,14 +889,17 @@ def _sweep_place_kick(project: Path, k: int) -> tuple[tuple | None, str]:
     def global_trace(frame, event, arg):
         return local if (frame.f_code.co_filename, frame.f_code.co_name) in traced else None
 
-    sys.settrace(global_trace)
-    try:
-        place_kick(FAST, project, created_at=FIXED_TIME)
-        result = "returned"
-    except KeyboardInterrupt:
-        result = "interrupted"
-    finally:
-        sys.settrace(None)
+    def body() -> str:
+        sys.settrace(global_trace)
+        try:
+            place_kick(FAST, project, created_at=FIXED_TIME)
+            return "returned"
+        except KeyboardInterrupt:
+            return "interrupted"
+        finally:
+            sys.settrace(None)
+
+    result = run_in_fresh_thread(body)  # own thread: see tests/support/traced_thread.py (#183)
     return state["hit"], result
 
 

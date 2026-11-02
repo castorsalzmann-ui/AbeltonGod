@@ -15,7 +15,9 @@ import random
 import pytest
 from kick_helpers import (  # noqa: F401 - fake_fixture is a pytest fixture
     FAST_KICK,
+    TEST_TIMEOUT_S,
     ProjectCheckDouble,
+    bridge_factory,
     fake_fixture,
     make_project,
     make_session,
@@ -419,7 +421,11 @@ def test_list_tracks_without_live_is_a_clear_error(tmp_path, make_guard):
 
     server = FakeAbletonOSC()
     server.close()  # nobody answers on that port
-    session = make_session(tmp_path, server)
+    registry = registry_copy(tmp_path)
+    # the subject is the timeout: the short deadline, not the 5 s of the other tests (#180)
+    session = make_session(tmp_path, server, registry=registry,
+                           bridge_factory=bridge_factory(server, registry,
+                                                         timeout_s=TEST_TIMEOUT_S))
     result = run(make_guard(), toolbox(session), "list_tracks", {})
     assert result.is_error and "Live could not be read" in result.content["message"]
 

@@ -797,11 +797,14 @@ class SdkModelClient:
         if not isinstance(account, Mapping):
             refuse("Claude Code reported no readable account; refusing to send the request")
         source = account.get("apiKeySource")
+        # A key that is present at all counts, even as an explicit null (#159): the pinned CLI
+        # drops an undefined field from the JSON, so null cannot come from it today.
+        has_source = "apiKeySource" in account
         provider = account.get("apiProvider")
         if provider != "firstParty":
             refuse(f"Claude Code uses API provider {provider!r}, expected 'firstParty'")
         if self.settings.mode is AuthMode.SUBSCRIPTION:
-            if source is not None:
+            if has_source:
                 refuse(
                     f"Claude Code would use an API key (source {source!r}) instead of your "
                     "Claude login; remove it or set ABELTONGOD_CLAUDE_AUTH=api_key"
@@ -809,8 +812,10 @@ class SdkModelClient:
             token = account.get("tokenSource")
             if "tokenSource" not in account:
                 plan = account.get("subscriptionType")
+                # "Claude API" is compared without case and surrounding blanks (#159 nit: an
+                # exact match would let "Claude API " pass; the pinned CLI cannot produce it)
                 if (not isinstance(plan, str) or not plan.startswith(SUBSCRIPTION_PLAN_PREFIX)
-                        or plan == NOT_A_SUBSCRIPTION_PLAN):
+                        or plan.strip().casefold() == NOT_A_SUBSCRIPTION_PLAN.casefold()):
                     refuse(
                         f"Claude Code reports no Claude subscription (plan {plan!r}) and no "
                         "login token; refusing to send the request"

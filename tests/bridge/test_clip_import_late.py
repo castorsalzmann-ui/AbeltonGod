@@ -12,7 +12,7 @@ import time
 
 import pytest
 from bridge_helpers import registry_with
-from conftest import TEST_TIMEOUT_S
+from conftest import TEST_TIMEOUT_S, short_writes_if_listed
 from test_clip_import import (
     CREATE_CLIP,
     CREATE_TRACK,
@@ -37,10 +37,10 @@ from bridge.osc_client import ADDRESSES, AbletonBridge
 
 
 @pytest.fixture
-def ibridge(fake, transport, tmp_path):
+def ibridge(fake, transport, tmp_path, request):
     gate = CapabilityGate(registry_with(tmp_path, set(ADDRESSES) - {"song.create_audio_track"}),
                           allow_untested=IMPORT_CAPS)
-    return AbletonBridge(transport, gate)
+    return short_writes_if_listed(AbletonBridge(transport, gate), transport, request)
 
 
 @pytest.fixture

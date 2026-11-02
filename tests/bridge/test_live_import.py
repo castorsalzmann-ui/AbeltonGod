@@ -78,7 +78,7 @@ def run(fake, tmp_path, answers, extra=(), path=None, send_port=None):
     p = path if path is not None else wav(tmp_path / "Kick 1.wav")
     code = live_import.main(
         [p, "--send-port", str(send_port or fake.port), "--receive-port", str(receive),
-         "--timeout", "0.3", "--log", str(tmp_path / "actions.jsonl"), *extra],
+         "--timeout", "5", "--log", str(tmp_path / "actions.jsonl"), *extra],
         input_fn=input_fn, out=out)
     return code, out.getvalue(), prompts
 
@@ -369,11 +369,12 @@ def test_timed_out_import_never_undoes(fake, tmp_path):
         # directly (fake.hold() would deadlock on the non-reentrant lock).
         fake._held = []
         fake.released.clear()
-        fake.release_after(0.45)
+        fake.release_after(3.0)  # 3x the deadline below: 2 s margin even if descheduled (#180)
         # the clip is never created (e.g. the datagram had no effect)
 
     fake._create_audio_clip = blocked
-    code, out, prompts = run(fake, tmp_path, ["y", "0", "y", "y", "y"])
+    code, out, prompts = run(fake, tmp_path, ["y", "0", "y", "y", "y"],
+                             extra=("--timeout", "1.0"))  # expects the timeout (#180)
     assert code == 1, out
     assert "UNBEKANNT" in out and "KEIN Undo" in out
     assert UNDO not in [a for a, _ in writes(fake)]
@@ -556,7 +557,7 @@ def test_refused_undo_on_an_already_reverted_set_says_clip_is_gone(fake, tmp_pat
     fake.response_port = receive
     out = io.StringIO()
     code = live_import.main([wav(tmp_path / "k.wav"), "--send-port", str(fake.port),
-                             "--receive-port", str(receive), "--timeout", "0.3",
+                             "--receive-port", str(receive), "--timeout", "5",
                              "--log", str(tmp_path / "actions.jsonl")],
                             input_fn=reverting_input, out=out)
     text = out.getvalue()
@@ -581,7 +582,7 @@ def test_undo_refused_when_user_changed_set(fake, tmp_path):
     fake.response_port = receive
     out = io.StringIO()
     code = live_import.main([wav(tmp_path / "k.wav"), "--send-port", str(fake.port),
-                             "--receive-port", str(receive), "--timeout", "0.3",
+                             "--receive-port", str(receive), "--timeout", "5",
                              "--log", str(tmp_path / "actions.jsonl")],
                             input_fn=lambda p: next(gen), out=out)
     assert code == 1

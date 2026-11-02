@@ -198,7 +198,17 @@ def test_toolbox_calls_before_tool_first():
 def test_checks_after_the_yes_start_with_the_deadline():
     fn = _function("orchestrator/tools.py", "Toolbox._after_yes")
     assert _call_lines(fn, "check_deadline"), "deadline re-check after the confirmation"
-    assert len(_call_lines(fn, "after_tool")) >= 3  # each refusal settles the call
+    # each refusal settles the call: the deadline stop and "session lost" here, "too late" in
+    # the shared window helper (#170: it also runs before the question)
+    assert len(_call_lines(fn, "after_tool")) >= 2
+    assert _call_lines(fn, "_window_refusal")
+    window = _function("orchestrator/tools.py", "Toolbox._window_refusal")
+    assert _call_lines(window, "after_tool")
+
+
+def test_the_window_is_checked_before_the_user_is_asked():
+    fn = _function("orchestrator/tools.py", "Toolbox.run")
+    assert _first(fn, "_window_refusal") < _first(fn, "confirm")
 
 
 def test_orchestrator_runs_tools_only_through_the_toolbox():

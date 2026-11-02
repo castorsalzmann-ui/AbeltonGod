@@ -463,6 +463,15 @@ FP = {"apiProvider": "firstParty"}
     FP,  # no token, no plan: what an Anthropic profile (~/.config/anthropic) reports
     {**FP, "tokenSource": None}, {**FP, "tokenSource": None, "subscriptionType": "Claude Max"},
     {**FP, "subscriptionType": "Claude API"},  # the CLI's label for an unknown plan
+    # #159: the label next to blanks or in another case is the same label
+    {**FP, "subscriptionType": "Claude API "}, {**FP, "subscriptionType": "Claude API\n"},
+    {**FP, "subscriptionType": "Claude api"}, {**FP, "subscriptionType": "CLAUDE API"},
+    {**FP, "subscriptionType": "Claude API\t"},
+    # #159: an explicit null key source is a key source (the token one is refused too)
+    {**FP, "apiKeySource": None},
+    {**FP, "apiKeySource": None, "tokenSource": "none"},
+    {**FP, "apiKeySource": None, "tokenSource": "claude.ai"},
+    {**FP, "apiKeySource": None, "subscriptionType": "Claude Max"},
     {**FP, "subscriptionType": "max"}, {**FP, "subscriptionType": "Claude"},
     {**FP, "subscriptionType": ""}, {**FP, "subscriptionType": 1},
     {**FP, "subscriptionType": None},
@@ -519,9 +528,10 @@ def test_account_property_api_billing_is_never_accepted(make_guard, events, clie
     pools = {
         # weighted towards the subscription shape so the passing branch is hit often enough
         "apiProvider": PROVIDERS + ("firstParty",) * 8 + (MISSING, None, "FirstParty"),
-        "apiKeySource": API_KEY_SOURCES + (MISSING,) * 12,
+        "apiKeySource": API_KEY_SOURCES + (MISSING,) * 12 + (None,) * 2,  # null: #159
         "tokenSource": API_TOKEN_SOURCES + SUB_TOKEN_SOURCES + (MISSING,) * 4 + ("x", None),
-        "subscriptionType": SUB_PLANS + ("Claude API", "max", "", "Claude", MISSING, MISSING),
+        "subscriptionType": SUB_PLANS + ("Claude API", "Claude API ", " Claude API", "claude api",
+                                         "max", "", "Claude", MISSING, MISSING),
         "email": ("a@b.c", MISSING),
     }
     seen = {True: 0, False: 0}
@@ -815,6 +825,20 @@ def test_other_retries_are_left_to_the_cli(turns, make_guard, events, clients):
     factory = FakeCLIFactory({"turns": [*turns, {"text": "da"}], "total_cost_usd": 0.01})
     out = run(make_guard(), make_client(clients, factory), [])
     assert out.success is True and out.reply == "da", out
+
+
+def test_a_no_response_frame_does_not_reset_the_retry_count(make_guard, events, clients):
+    """#185: 3 plain retries, one ``no_response`` frame, 1 more plain retry: 4 counted ones in
+    a row (the no_response frame neither counts nor resets), so the request ends. A mutant
+    that resets the count on no_response would let this run to the hang."""
+    factory = FakeCLIFactory({"turns": [
+        *retries(3), retry_frame(4, no_response={"waited_ms": 30000}), retry_frame(5),
+        {"hang": True}]})
+    start = time.monotonic()
+    out = run(make_guard(timeout_s=60), make_client(clients, factory), [])
+    assert time.monotonic() - start < 5.0
+    assert out.success is False and out.error == "model_unreachable"
+    assert factory.cli.closed
 
 
 def test_the_retry_count_is_in_a_row_across_a_successful_model_call(make_guard, events,
