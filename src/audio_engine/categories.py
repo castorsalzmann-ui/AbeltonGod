@@ -2,9 +2,9 @@
 
 ``sample-metadata.schema.json`` v0.2 names two categories, ``kick`` and ``clap``. Each category
 carries its own engine name and version, so a byte change in one never invalidates the sidecars
-of another. Only categories that have a renderer are *registered* here: today that is the kick.
-``clap`` is known to the contract but has no voice yet (a later issue registers it); asking for
-it raises :class:`CategoryUnavailable` before any parameter of that category is looked at.
+of another. Only categories that have a renderer are *registered* here: kick and clap
+(#231). A category the contract names but that is not registered raises
+:class:`CategoryUnavailable` before any parameter of that category is looked at.
 """
 
 from __future__ import annotations
@@ -15,7 +15,7 @@ from typing import Any
 
 import numpy as np
 
-from . import ENGINE_NAME, ENGINE_VERSION, analysis, kick
+from . import ENGINE_NAME, ENGINE_VERSION, analysis, clap, kick
 from .params import resolve_kick_params
 
 # Categories named by contracts/sample-metadata.schema.json (a test compares with the file).
@@ -56,6 +56,16 @@ _REGISTRY: dict[str, Category] = {
         # which replace ``kick.render_kick``, keep working through the generic path.
         render=lambda params: kick.render_kick(params),
         analyse=lambda audio, sr: analysis.analyse(audio, sr),
+    ),
+    "clap": Category(
+        name="clap",
+        engine_name=clap.CLAP_NAME,
+        engine_version=clap.CLAP_VERSION,
+        metadata_schema_version="0.2",
+        default_stem="clap",
+        resolve=clap.resolve_clap_params,
+        render=lambda params: clap.render_clap(params),
+        analyse=lambda audio, sr: analysis.analyse_nonpitched(audio, sr),
     ),
 }
 

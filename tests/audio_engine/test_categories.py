@@ -48,11 +48,21 @@ def _clap_sidecar(directory: Path, engine_version: str = "0.1.0") -> Path:
 def test_registry_and_contract_agree() -> None:
     schema = json.loads(METADATA_SCHEMA_FILE.read_text(encoding="utf-8"))
     assert tuple(schema["properties"]["category"]["enum"]) == CONTRACT_CATEGORIES
-    assert registered_categories() == ("kick",)  # clap has no voice yet
+    assert registered_categories() == ("kick", "clap")
     assert get_category("kick").engine == {"name": ENGINE_NAME, "version": ENGINE_VERSION}
 
 
-def test_clap_is_refused_by_category_everywhere(tmp_path: Path) -> None:
+@pytest.fixture
+def clap_unregistered(monkeypatch):
+    """A contract category without a renderer (what clap was before #231)."""
+    from audio_engine import categories
+
+    monkeypatch.delitem(categories._REGISTRY, "clap")
+
+
+def test_unregistered_category_is_refused_by_category_everywhere(
+    tmp_path: Path, clap_unregistered
+) -> None:
     with pytest.raises(CategoryUnavailable, match="clap"):
         get_category("clap")
     with pytest.raises(CategoryUnavailable, match="clap"):
@@ -66,7 +76,9 @@ def test_clap_is_refused_by_category_everywhere(tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize("allow", [False, True])
-def test_rerender_refuses_clap_sidecar_by_category(tmp_path: Path, allow: bool) -> None:
+def test_rerender_refuses_unregistered_category_by_category(
+    tmp_path: Path, allow: bool, clap_unregistered
+) -> None:
     sidecar = _clap_sidecar(tmp_path)
     with pytest.raises(CategoryUnavailable) as err:
         rerender_from_sidecar(sidecar, allow_engine_mismatch=allow)
@@ -105,3 +117,8 @@ def test_place_sample_kick_matches_place_kick(tmp_path: Path) -> None:
     b = place_sample("kick", KICK, two, name="x", created_at=STAMP)
     assert a.relative_to(one) == b.relative_to(two)
     assert a.read_bytes() == b.read_bytes()
+
+
+def test_unknown_category_name_is_refused() -> None:
+    with pytest.raises(CategoryUnavailable, match="unknown category"):
+        get_category("hat")
