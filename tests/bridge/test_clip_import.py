@@ -761,8 +761,11 @@ def test_occupied_slot_text_is_one_based(log):
 
 def test_texts_over_the_whole_index_range(log):
     rng = random.Random(188)
-    for _ in range(300):  # slot index up to 10^6: refused before any slot is read
-        slot = rng.choice([rng.randrange(0, 10**6 + 1), 10**6])
+    # Slot index up to 10^4 (Live shows a few hundred scenes at most). Not 10^6: ``read_state``
+    # reads ``num_slots`` slots, twice per case (``_run`` and ``run``), so 10^6 cost ~230 M
+    # stub calls = 20 s CPU for the same text check (QA #69).
+    for _ in range(300):
+        slot = rng.choice([rng.randrange(0, 10**4 + 1), 10**4])
         assert _run(StubBridge(2, True), log, 0, slot, slot) == \
             f"scene number {slot + 1} does not exist ({slot} scenes)"
     for _ in range(300):  # track index up to 10^6

@@ -41,6 +41,7 @@ MODULES = [
     f"{AE}/test_contract_semantics.py", f"{AE}/test_drive_aliasing.py",
     f"{AE}/test_presets_variants.py", f"{AE}/test_wav_sidecar_robustness.py",
     f"{AE}/test_tampered_sidecars.py", f"{LIB}/test_layout.py",
+    f"{AE}/test_clip_aliasing.py", f"{AE}/test_length_rule.py",
 ]
 
 # Tests that seed inside their body (node-id prefixes; for a parametrized one the first case
@@ -86,6 +87,14 @@ RANDOM_PARAMS = {
     f"{AE}/test_drive_continuity.py::test_change_near_zero_matches_first_order_reference":
         ("p", r".*-random-\d+"),
     f"{AE}/test_drive_aliasing.py::test_random_case_aliasing_is_bounded": ("params", r".*"),
+    # clip_aliasing: RANDOM_CASES via kp.np_rng; length_rule: RANDOM_REQUESTS via kp.rng (#192)
+    f"{AE}/test_clip_aliasing.py::test_random_case_is_bounded": ("params", r"seed\d+"),
+    f"{AE}/test_clip_aliasing.py::test_foldback_above_the_oversampled_rate_is_small":
+        ("params", r"seed\d+"),  # "worst" is the curated case
+    f"{AE}/test_length_rule.py::test_derived_decay_fits_and_the_next_grid_value_does_not":
+        ("req", r"seed\d+"),
+    f"{AE}/test_length_rule.py::test_fits_changes_once_near_the_derived_value":
+        ("req", r"seed\d+"),
 }
 
 
