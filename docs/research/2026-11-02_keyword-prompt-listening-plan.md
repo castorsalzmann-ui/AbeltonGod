@@ -101,10 +101,10 @@ Use the same seed for every file; the click measures are the noisiest (section 2
 >
 > **So gehst du vor (für jede Datei `E01` bis `E17`, dann `K01` bis `K06`):**
 > 1. Höre `REF`, dann die Datei, dann nochmal `REF`. Beliebig oft wiederholen.
-> 2. Antworte im Antwortbogen: **Hörst du einen Unterschied zu `REF`?** (ja / nein / unsicher). „Nein" ist eine gültige und wichtige Antwort. Ein Teil der Dateien ist absichtlich nicht oder kaum anders.
+> 2. Antworte im Antwortbogen: **Hörst du einen Unterschied zu `REF`?** (ja / nein / unsicher). „Nein" ist eine gültige Antwort.
 > 3. Wenn ja: **Was ist der Hauptunterschied?** Kreuze höchstens zwei Wörter aus der Liste an und sag jeweils **mehr** oder **weniger** als `REF`.
 >
-> **Wortliste (gilt für jede Datei gleich):** Tiefbass · Körper (Mitten) · Klick · Höhe vom Klick · Länge des Ausklangs · Sättigung · Anschlag-Wumms · Helligkeit insgesamt · Lautstärke · etwas anderes (ein Wort).
+> **Wortliste (gilt für jede Datei gleich):** Tiefbass · Körper (Mitten) · Klick · Höhe vom Klick · Länge des Ausklangs · Sättigung · Anschlag-Druck · Helligkeit insgesamt · Lautstärke · etwas anderes (ein Wort).
 >
 > **Für `K01` bis `K06` zusätzlich:** **Ist die Datei näher an „meinem Kick" als `REF`?** (ja / gleich / nein).
 >
@@ -137,7 +137,7 @@ Decode table (file numbers `E01 ...` are filled in by the packager from the blin
 | B1 / B2 | `bite:0` / `bite:2` | Höhe vom Klick tiefer / höher (**weak**, "nein" plausible) | clickcent 2436 / 3201 |
 | T1 / T2 | `tail:0` / `tail:2` | Länge kürzer / länger | d40 350 / not reached |
 | D1 / D2 | `drive:0` / `drive:2` | Sättigung weniger / mehr (`drive:0` also changes the whole level and transient; "Lautstärke" or "etwas anderes" counts as audible) | crest 8.8 / 1.74 |
-| W1 / W2 | `wums:1` / `wums:2` | Anschlag-Wumms mehr; W2 more than W1 | crest 0.96 / 0.67 |
+| W1 / W2 | `wums:1` / `wums:2` | Anschlag-Druck mehr; W2 more than W1 | crest 0.96 / 0.67 |
 | H1 / H2 | `bright:0` / `bright:2` | Helligkeit insgesamt weniger / mehr (`bright:2` also lowers body) | clickcent 2027 / 2900 |
 | Z | twin of `REF` (byte copy) | **nein** (control) | identical bytes |
 | K01 ... K06 | C1 ... C6 of section 3 | closer to "mein Kick": ja / gleich / nein (no prediction); named words should match the table of section 3 | section 3 |
@@ -162,5 +162,5 @@ How to read (one listener, one session; not a finding about the sound):
 - One listener, one session, one kick (`dense` with seed 1001); the click measures vary with the seed, so a "nein" on `click` or `bite` could change with another seed.
 - The expectations are my script's numbers, not the repo's `analyse()` (it returns only peak, length, `fundamental_hz`, `decay_20db_ms`, `decay_40db_ms`, DC). If the audio-engineer moves these measures into the repo, re-run the lead's check on them.
 - The bar loop (one hit per 1.765 s) differs from the real use (hit on every beat). It answers "does the keyword move the sound", not "does it work in a groove".
-- The neutral word list is my choice; a user word outside it (such as "Wumms" for the wrong property) is recorded in "etwas anderes" and decoded by the lead.
+- The neutral word list is my choice; a user word outside it (such as "Wumms" used for a different property) is recorded in "etwas anderes" and decoded by the lead.
 - No file was rendered into a listening package; the section 4 gains come from the CLI-default renders and may shift slightly with the common pre-gain.
