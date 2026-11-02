@@ -304,7 +304,10 @@ def test_not_presented_reason_reaches_the_model(tmp_path, make_guard, events, cl
     [listed, refused] = results
     assert not listed.is_error
     assert refused.content["error"] == "not_presented"
-    assert "not the first tool call of its turn" in refused.content["message"]
+    message = refused.content["message"]
+    # one text for several causes (#170): the first-of-turn rule is named as one of them
+    assert "not the first tool call of its turn" in message
+    assert "guard ended the session" in message and "already answered" in message
     assert "Nobody was asked" in refused.content["message"]
     reasons = [e for e in factory.made[1].log if e[0] == "hook" and e[3] == "t3"]
     assert reasons[0][2] == "deny"
@@ -455,6 +458,11 @@ def test_chat_with_project_registers_the_three_tools(tmp_path, make_guard):
     assert code == 0, out.getvalue()
     assert [t.name for t in model.requests[0].tools] == ["generate_kick", "list_tracks",
                                                          "import_sample"]
+    # #170 (mutant Q11): the chat passes the profile's file limit to the tool description
+    # (profile "p" in the test policy allows 10 files, 2 per kick)
+    generate = model.requests[0].tools[0]
+    assert "At most 5 kicks per request" in generate.description
+    assert "10 files" in generate.description
     assert "Kicks gehen nach" in out.getvalue()
 
 
