@@ -296,3 +296,11 @@ The researchers for 04b clusters 1 (Agent SDK behaviour) and 2 (tool-schema gene
 **Reason.** The user wants to plan tracks visually in a separate window and keep full control over style choices without hard-coded taste.
 
 **Consequences.** The plan format (contract-change) carries sections, bar grid, energy nodes (two nodes on one bar allowed) and a settings block with defaults; defaults come from `docs/research/2026-10-29_arrangement-planner-sections-energy.md` (#139) and are marked as convention where no source measured them. Building in Live waits for the arrangement capability check (#140) and D-004.
+
+## D-025 · 2026-11-02 · accepted — Kick generator closed; next category is clap, then hats; engine versions per category (user decisions 10:33–10:59, lead decision on versions)
+
+**Decision.** (1) The kick generator is finished after listening test 3 (#103); further kick work is the keyword vocabulary (#226, #233) and genre words (#234). Prompts are absolute (always from `dense`); "Sättigung" is `drive`, "Wums" is `wums`; notes are named by note name and Camelot key; genre words are researched by the team (user). (2) The next sound category is the clap, then the hat (user, 10:59); the issues are C0–C3 (#229–#232). (3) Lead decision: from category 2 on, engines carry a **version per category**. The kick keeps `ENGINE_VERSION` unchanged; a byte change in clap or hat code never makes kick sidecars refuse to re-render (D-013 stays valid inside each category). The contract shape is decided in #229 (`contract-change`, user merges). (4) The arrangement timeline (events, element states) stays an internal code type until the Live builder needs a contract (G3 folded into G4, lead decision 2026-11-02).
+
+**Reason.** One global engine version would make every kick sidecar unreadable after any clap or hat change (research note `2026-11-02_next-category-proposal.md`, section 7).
+
+**Consequences.** #229 defines the category field and the per-category version in the sidecar. The strict tool budget (24 of 24 optional parameters) still decides how `generate_clap` is wired (design choice later, orchestrator-engineer).
