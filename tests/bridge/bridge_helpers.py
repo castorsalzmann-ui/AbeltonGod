@@ -3,7 +3,8 @@
 Test files import from here (``from bridge_helpers import ...``), never from ``conftest``:
 without ``tests/__init__.py`` every ``conftest.py`` is loaded as the module name ``conftest``,
 so a second conftest elsewhere can shadow it depending on collection order (#86, #133).
-``tests/bridge/conftest.py`` keeps only fixtures.
+``tests/bridge/conftest.py`` keeps the fixtures. ``TEST_TIMEOUT_S`` is still defined there until
+#180 (qa-tester) is merged; moving it here is the remaining part of #133.
 """
 
 from __future__ import annotations
@@ -12,8 +13,6 @@ import json
 from pathlib import Path
 
 from bridge.capabilities import CAPABILITIES_FILE, CapabilityRegistry
-
-TEST_TIMEOUT_S = 0.25
 
 
 def registry_with(tmp_path: Path, tested: set[str]) -> CapabilityRegistry:

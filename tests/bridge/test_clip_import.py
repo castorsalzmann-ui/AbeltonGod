@@ -12,7 +12,8 @@ import random
 import struct
 
 import pytest
-from bridge_helpers import TEST_TIMEOUT_S, registry_with
+from bridge_helpers import registry_with
+from conftest import TEST_TIMEOUT_S
 
 from bridge.capabilities import CapabilityGate
 from bridge.clip_import import (

@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import pytest
-from bridge_helpers import TEST_TIMEOUT_S, registry_with
+from bridge_helpers import registry_with
 from fake_abletonosc import FakeAbletonOSC
 
 from bridge.capabilities import CapabilityGate
 from bridge.osc_client import ADDRESSES, AbletonBridge, OscTransport
+
+TEST_TIMEOUT_S = 0.25
 
 
 @pytest.fixture

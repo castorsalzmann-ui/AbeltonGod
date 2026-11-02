@@ -11,7 +11,8 @@ from __future__ import annotations
 import time
 
 import pytest
-from bridge_helpers import TEST_TIMEOUT_S, registry_with
+from bridge_helpers import registry_with
+from conftest import TEST_TIMEOUT_S
 from test_clip_import import (
     CREATE_CLIP,
     CREATE_TRACK,
