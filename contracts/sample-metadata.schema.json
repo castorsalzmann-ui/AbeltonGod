@@ -2,14 +2,14 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/castorsalzmann-ui/AbeltonGod/contracts/sample-metadata.schema.json",
   "title": "Sample sidecar metadata",
-  "description": "Draft v0.2 (#229, hat added by #249). Written next to every generated WAV as <name>.json. Must be sufficient to re-render the identical file. schema_version 0.1 = kick sidecars as before (still valid, kick keeps 0.1); 0.2 is required for clap and hat sidecars and not allowed for kick. Engine identity is per category (D-025): kick sidecars carry engine.name 'abeltongod-audio-engine' and its version; clap sidecars carry engine.name 'abeltongod-audio-engine-clap' and the clap engine's own version; hat sidecars carry engine.name 'abeltongod-audio-engine-hat' and the hat engine's own version. A re-render compares only the name/version pair of its own category, so a byte change in one category never invalidates the sidecars of another (D-013 holds inside each category).",
+  "description": "Draft v0.2 (#229, hat added by #249, snare by #272). Written next to every generated WAV as <name>.json. Must be sufficient to re-render the identical file. schema_version 0.1 = kick sidecars as before (still valid, kick keeps 0.1); 0.2 is required for clap, hat and snare sidecars and not allowed for kick. Engine identity is per category (D-025): kick sidecars carry engine.name 'abeltongod-audio-engine' and its version; clap sidecars carry engine.name 'abeltongod-audio-engine-clap' and the clap engine's own version; hat sidecars carry engine.name 'abeltongod-audio-engine-hat' the hat engine's own version; snare sidecars carry engine.name 'abeltongod-audio-engine-snare' and the snare engine's own version. A re-render compares only the name/version pair of its own category, so a byte change in one category never invalidates the sidecars of another (D-013 holds inside each category).",
   "type": "object",
   "additionalProperties": false,
   "required": ["schema_version", "file", "category", "engine", "parameters", "features", "created_at"],
   "properties": {
     "schema_version": { "enum": ["0.1", "0.2"] },
     "file": { "type": "string", "pattern": "\\.wav$" },
-    "category": { "enum": ["kick", "clap", "hat"] },
+    "category": { "enum": ["kick", "clap", "hat", "snare"] },
     "description": { "type": "string", "maxLength": 500 },
     "engine": {
       "type": "object",
@@ -20,7 +20,7 @@
         "version": { "type": "string" }
       }
     },
-    "parameters": { "type": "object", "description": "Exact <category>-params object used (kick-params for kick, clap-params for clap, hat-params for hat), including the variant's derived seed." },
+    "parameters": { "type": "object", "description": "Exact <category>-params object used (kick-params for kick, clap-params for clap, hat-params for hat, snare-params for snare), including the variant's derived seed." },
     "features": {
       "type": "object",
       "additionalProperties": false,
@@ -67,6 +67,19 @@
         "properties": {
           "schema_version": { "const": "0.2" },
           "engine": { "properties": { "name": { "const": "abeltongod-audio-engine-hat" } } },
+          "parameters": {
+            "required": ["schema_version", "seed"],
+            "properties": { "schema_version": { "const": "0.1" } }
+          }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "category": { "const": "snare" } }, "required": ["category"] },
+      "then": {
+        "properties": {
+          "schema_version": { "const": "0.2" },
+          "engine": { "properties": { "name": { "const": "abeltongod-audio-engine-snare" } } },
           "parameters": {
             "required": ["schema_version", "seed"],
             "properties": { "schema_version": { "const": "0.1" } }

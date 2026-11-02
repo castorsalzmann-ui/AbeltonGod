@@ -121,4 +121,4 @@ def test_place_sample_kick_matches_place_kick(tmp_path: Path) -> None:
 
 def test_unknown_category_name_is_refused() -> None:
     with pytest.raises(CategoryUnavailable, match="unknown category"):
-        get_category("snare")
+        get_category("rim")
