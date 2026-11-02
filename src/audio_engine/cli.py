@@ -1,8 +1,8 @@
 """Command line for kick presets and variants (Phase 01b, issue #3).
 
     python -m audio_engine.kick --preset NAME [--variants N] --out DIR
-                                [--seed INT] [--set FIELD=VALUE ...] [--category kick|clap]
-    python -m audio_engine.kick --list-presets [--category kick|clap]
+                                [--seed INT] [--set FIELD=VALUE ...] [--category kick|clap|hat]
+    python -m audio_engine.kick --list-presets [--category kick|clap|hat]
 
 ``--category clap`` (#231) renders clap presets from ``presets/clap/`` and writes
 ``clap-params`` sidecars; the default is ``kick``.
@@ -30,6 +30,7 @@ from pathlib import Path
 from typing import Any, TextIO
 
 from . import clap_variants
+from .categories import CategoryUnavailable, get_category
 from .clap import ClapParamsError, resolve_clap_params
 from .io import write_kick
 from .params import KickParamsError, resolve_kick_params
@@ -73,7 +74,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="set one kick parameter (a number), repeatable; e.g. --set pitch_decay_ms=15",
     )
     parser.add_argument(
-        "--category", choices=("kick", "clap"), default="kick",
+        "--category", choices=("kick", "clap", "hat"), default="kick",
         help="sound category (default kick)",
     )
     parser.add_argument(
@@ -210,6 +211,12 @@ def _main(argv: list[str] | None, stdout: TextIO, stderr: TextIO) -> int:
         args = parser.parse_args(argv)
     except SystemExit as exc:  # argparse already printed the message
         return EXIT_OK if exc.code == 0 else EXIT_USAGE
+
+    try:
+        get_category(args.category)  # a contract category without a voice yet (hat, #252)
+    except CategoryUnavailable as exc:
+        print(f"error: {exc}", file=stderr)
+        return EXIT_USAGE
 
     if args.list_presets:
         for name in preset_names(args.category):
