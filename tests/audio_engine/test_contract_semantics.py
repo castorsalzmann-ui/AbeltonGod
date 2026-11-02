@@ -153,9 +153,18 @@ MEASURE_TOLERANCE = 0.015
 # correction in the cases where the signal never crosses zero again, moves the crossings. With
 # both stages switched off the deviation is 0.00 %. -30 dB is not a safe floor in general
 # (fast-decay cycles at -20 to -30 dB reach 13 %). This test passes because it only uses
-# cycles near the settle time.
+# cycles near the settle time (falsified, #115: a cycle at -27 dB of a 27 ms decay measured
+# 102.8 Hz against 84.2 Hz without the DC blocker; the blocker is the cause, the mean
+# correction is not).
 LEVEL_FLOOR_DB = -30.0
 OVERSHOOT = 1.3
+# The zero-crossing measurement is only used where the DC-blocker tail is gone (#27: below
+# amp_decay_ms ~110 ms it moves the crossings). Measured on 298 fresh sets (#115): from 110 ms
+# up the first cycle after the settle time deviates at most 0.15 % from the contract curve
+# (MEASURE_TOLERANCE is 1.5 %); below it single cycles deviate by 1.3 % and 95 %.
+MIN_MEASURABLE_DECAY_MS = 110.0
+# The second check needs the curve to reach 1.05 * (1 + tolerance) above f_end, with 0.5 % to spare.
+SECOND_CHECK_REACH = 1.05 * (1 + MEASURE_TOLERANCE) - 1 + 0.005
 
 
 def _usable_cycles(audio: np.ndarray, sr: int) -> list[tuple[float, float]]:
@@ -175,10 +184,18 @@ def check_guideline_against_render(p: dict) -> int:
     1 / period is the mean pitch over one cycle and the pitch only falls, so:
     - at the limit, the first usable cycle starting after t is at most 1.05 * f_end;
     - at 1.3 x the limit, the last usable cycle ending before t is above 1.05 * f_end.
+    The second check demands the pitch at t to exceed the target by the tolerance. With the
+    contract curve the pitch at t, at ``OVERSHOOT`` x the limit, is
+    ``f_end * (1 + 0.05 * r ** (1 - 1 / OVERSHOOT))`` with ``r = drop / (0.05 * f_end)``
+    (written out here, not taken from the helper). That clears the demanded 6.6 % only for
+    r > ~3.3, so the second check is skipped below that: at r = 2.2 the pitch is 6.0 % above
+    f_end and the zero-crossing measurement is exact, so the old check failed on a correct
+    engine (#115). Reducing the tolerance instead would have blunted it: a limit that is too
+    low by 30 % is caught on 168 of 200 sets with the check and on 4 without it.
     Body only (click, drive, tone off): this checks the helper, not the analysis.
     Returns how many of the two checks had a usable cycle (0 = not measurable)."""
     limit = max_settled_pitch_decay_ms(p)
-    if not 2 <= limit <= 300 / OVERSHOOT:
+    if not 2 <= limit <= 300 / OVERSHOOT or p["amp_decay_ms"] < MIN_MEASURABLE_DECAY_MS:
         return 0
     target = 1.05 * p["pitch_end_hz"]
     t = _settle_time_s(p)
@@ -191,6 +208,10 @@ def check_guideline_against_render(p: dict) -> int:
         assert 1 / (end - start) <= target * (1 + MEASURE_TOLERANCE), (start, 1 / (end - start))
         checked += 1
 
+    drop_ratio = (p["pitch_start_hz"] - p["pitch_end_hz"]) / (0.05 * p["pitch_end_hz"])
+    reach = 0.05 * drop_ratio ** (1 - 1 / OVERSHOOT)  # pitch above f_end at t, as a fraction
+    if reach < SECOND_CHECK_REACH:
+        return checked
     audio, r = render_kick({**p, **BODY_ONLY, "pitch_decay_ms": OVERSHOOT * limit})
     before = [c for c in _usable_cycles(audio, r["sample_rate"]) if c[1] <= t]
     if before:
@@ -206,8 +227,12 @@ SETTLE_SETS = [_random_params(kp.rng(7000 + i)) for i in range(200)]
 def test_guideline_limit_matches_measured_pitch() -> None:
     measurable = sum(check_guideline_against_render(p) > 0 for p in SETTLE_SETS)
     # Guards against a test that silently measures nothing. Not measurable: no allowed
-    # pitch_decay_ms settles, or every cycle near t is below the level floor.
-    assert measurable >= 0.85 * len(SETTLE_SETS), measurable
+    # pitch_decay_ms settles, or every cycle near t is below the level floor, or (#115) the
+    # decay is below MIN_MEASURABLE_DECAY_MS. Measured over --fresh-seeds 0..39 (200 sets
+    # each): 173..188, mean 181.5, sd ~4.3 (the 0.85 bound, 170, sat 3 below the minimum).
+    # 0.80 (160) is 3 sd below the lowest of 40 and still far above a test that measures
+    # nothing.
+    assert measurable >= 0.80 * len(SETTLE_SETS), measurable
 
 
 # No test of the *measured* tail (analyse) against pitch_end_hz here: the analysis window can
