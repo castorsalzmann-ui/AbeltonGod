@@ -1,0 +1,6 @@
+{
+  "schema_version": "0.1",
+  "preset": "bright",
+  "seed": 1,
+  "noise_hp_hz": 3500
+}

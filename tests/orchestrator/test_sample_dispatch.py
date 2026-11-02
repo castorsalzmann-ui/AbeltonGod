@@ -10,6 +10,7 @@ import hashlib
 import json
 from pathlib import Path
 
+import pytest
 from kick_helpers import RecordingApprover as Approver
 from kick_helpers import (  # noqa: F401 - fake_fixture is a pytest fixture
     fake_fixture,
@@ -66,6 +67,7 @@ class Fake:
 
 
 CLAP_ONLY = {"clap": ADAPTERS["clap"]}  # the table of PR #266/#287, before the hat row (#294)
+CLAP_HAT = {k: ADAPTERS[k] for k in ("clap", "hat")}  # the table of PR #302, before snare (#317)
 
 
 def table(*extra):
@@ -86,11 +88,52 @@ def run(guard, box, args, approver=None):
 # --- schema shape ----------------------------------------------------------------------------
 
 
-def test_clap_only_schema_is_byte_identical_to_pr_266():
+V01_CLAP_PRESETS = ["bright", "default", "long", "short"]  # the clap list before #280 (xtreme-*)
+# sha256 of the clap-only schema with the CURRENT preset list (4 baseline + 7 xtreme-* names):
+# only the preset names inside description text differ from PINNED_SCHEMA_SHA256 (#280); the
+# shape test below proves that by stripping descriptions and enum values.
+CLAP_SCHEMA_WITH_XTREME_SHA256 = (
+    "cb0d129aaeafaec0f72259138e24f54a6cada6b492cdc15cd442e25d9f3662f9")
+
+
+@pytest.fixture
+def v01_clap_presets(monkeypatch):
+    """The preset list the 'before' pins were taken with: the four v0.1 clap presets."""
+    import orchestrator.sample_tools as st
+
+    real = st.preset_names
+    monkeypatch.setattr(
+        st, "preset_names", lambda category="kick": V01_CLAP_PRESETS if category == "clap"
+        else real(category))
+
+
+def test_clap_only_schema_is_byte_identical_to_pr_266(v01_clap_presets):
     assert digest(tool_input_schema(CLAP_ONLY)) == PINNED_SCHEMA_SHA256
     tool = SampleTools(_NoSession(), CLAP_ONLY).tools(files_per_request=12)[0]
     assert digest(tool.input_schema) == PINNED_TOOL_SHA256
     assert tool.max_files_written == 16
+
+
+def test_xtreme_presets_change_only_the_preset_names_in_the_text(monkeypatch):
+    """#280: the tool lists preset_names('clap'); the new names are the only change."""
+    now = tool_input_schema(CLAP_ONLY)
+    assert digest(now) == CLAP_SCHEMA_WITH_XTREME_SHA256
+    for name in ("xtreme-saturated", "xtreme-folded", "xtreme-crushed", "xtreme-metal",
+                 "xtreme-gated", "xtreme-reversed", "xtreme-wreck"):
+        assert name in now["description"]
+    import orchestrator.sample_tools as st
+
+    monkeypatch.setattr(st, "preset_names", lambda category="kick": V01_CLAP_PRESETS)
+    before = tool_input_schema(CLAP_ONLY)
+    assert digest(before) == PINNED_SCHEMA_SHA256
+    assert strip(now) == strip(before)  # same shape
+    assert optional_fields(now) == optional_fields(before) == 0  # budget unchanged
+    assert now["required"] == before["required"]
+    # text differs only by the added names: removing them gives the old text back
+    text = now["description"]
+    for name in (n for n in text.replace(",", " ").split() if n.startswith("xtreme-")):
+        text = text.replace(", " + name, "")
+    assert text == before["description"]
 
 
 class _NoSession:
@@ -167,7 +210,7 @@ def test_unregistered_category_is_refused_before_approval_and_any_file(tmp_path,
             raise AssertionError(f"{category!r} was accepted")
     assert build_request({**GOOD, "category": "hat"}, CLAP_ONLY)[1] == [
         "category 'hat' is not available yet; available: clap"]
-    assert build_request({**GOOD, "category": "snare"})[1] == [
+    assert build_request({**GOOD, "category": "snare"}, CLAP_HAT)[1] == [
         "category 'snare' is not available yet; available: clap, hat"]
     assert approver.asked == []
     assert fake.variant_calls == [] and fake.place_calls == []
@@ -183,22 +226,33 @@ HAT = {"category": "hat", "preset": "closed-std", "prompt": "", "seed": 3, "vari
        "adjust": [{"key": "decay_ms", "value": 60}]}
 
 
-def test_default_table_is_clap_and_hat():
-    assert list(ADAPTERS) == ["clap", "hat"]
+def test_default_table_is_clap_hat_snare():
+    assert list(ADAPTERS) == ["clap", "hat", "snare"]
     assert ADAPTERS["hat"].contract == "hat-params.schema.json"
 
 
-def test_hat_row_changes_enum_and_texts_but_not_the_shape_or_the_budget():
-    schema = tool_input_schema()
-    assert digest(schema) == HAT_SCHEMA_SHA256
+HAT_SCHEMA_WITH_XTREME_SHA256 = (
+    "75aa87b14916e71fd124a2fa21311f6c8aced7d66885f43de60a95fb118af908")
+
+
+def test_hat_row_changes_enum_and_texts_but_not_the_shape_or_the_budget(v01_clap_presets):
+    schema = tool_input_schema(CLAP_HAT)  # the "before" of the snare row (#317)
+    assert digest(schema) == HAT_SCHEMA_SHA256  # with the v0.1 clap preset list (#280 note)
     assert schema["properties"]["category"]["enum"] == ["clap", "hat"]
     assert strip(schema) == strip(tool_input_schema(CLAP_ONLY))
     assert optional_fields(schema) == 0
     for preset in ("closed-std", "open-short", "open-long"):
         assert preset in schema["description"]
     assert "choke_ms" in schema["description"]
-    tool = SampleTools(_NoSession()).tools()[0]
+    tool = SampleTools(_NoSession(), CLAP_HAT).tools()[0]
     assert tool.max_files_written == 16
+
+
+def test_hat_table_with_the_xtreme_names_keeps_the_shape():
+    now = tool_input_schema(CLAP_HAT)
+    assert digest(now) == HAT_SCHEMA_WITH_XTREME_SHA256
+    assert strip(now) == strip(tool_input_schema(CLAP_ONLY))
+    assert optional_fields(now) == 0
 
 
 def test_hat_generates_through_the_adapter(tmp_path, make_guard):
@@ -271,12 +325,84 @@ def test_hat_files_count_against_the_guard_cap(tmp_path, make_guard):
     assert len(list(Path(session.project_dir).rglob("*.wav"))) == 5
 
 
-def test_snare_and_kick_stay_refused_with_the_default_table(tmp_path, make_guard):
+def test_kick_and_tom_stay_refused_with_the_default_table(tmp_path, make_guard):
     session, _, box = box_for(tmp_path, ADAPTERS)
     approver = Approver(True)
-    for category in ("snare", "kick", "tom"):
+    for category in ("kick", "tom", "rim"):
         assert run(make_guard(), box, {**HAT, "category": category}, approver).is_error
     assert approver.asked == []
-    assert build_request({**HAT, "category": "snare"})[1] == [
-        "category 'snare' is not available yet; available: clap, hat"]
+    assert build_request({**HAT, "category": "kick"})[1] == [
+        "category 'kick' is not available yet; available: clap, hat, snare"]
     assert not list(Path(session.project_dir).rglob("*.wav"))
+
+
+# --- snare (#317) ----------------------------------------------------------------------------
+
+SNARE_SCHEMA_SHA256 = "2aaca736095daf8ae65e7233259b18fe8355b9692e9ab7eaca4abb7be92ae787"
+SNARE = {"category": "snare", "preset": "default", "prompt": "", "seed": 3, "variants": 2,
+         "adjust": [{"key": "body_hz", "value": 200}]}
+
+
+def test_snare_row_changes_enum_and_texts_but_not_the_shape_or_the_budget(v01_clap_presets):
+    before, after = tool_input_schema(CLAP_HAT), tool_input_schema()
+    assert digest(after) == SNARE_SCHEMA_SHA256 != digest(before)
+    assert after["properties"]["category"]["enum"] == ["clap", "hat", "snare"]
+    assert strip(after) == strip(before)  # same shape; enum and description text differ
+    assert optional_fields(after) == 0
+    for preset in ("default", "tight", "long", "bright", "tonal"):
+        assert preset in after["description"]
+    assert "body_hz" in after["description"]
+    assert SampleTools(_NoSession()).tools()[0].max_files_written == 16
+
+
+def test_snare_generates_through_the_adapter(tmp_path, make_guard):
+    session, _, box = box_for(tmp_path, ADAPTERS)
+    result = run(make_guard(), box, SNARE)
+    assert result.is_error is False, result.content
+    assert result.content["category"] == "snare"
+    assert [s["sample_id"] for s in result.content["samples"]] == ["snare-1", "snare-2"]
+    wavs = sorted(Path(session.project_dir).rglob("*.wav"))
+    assert len(wavs) == 2 and all("Snares" in w.parts for w in wavs), wavs
+    meta = json.loads(wavs[0].with_suffix(".json").read_text(encoding="utf-8"))
+    assert meta["category"] == "snare" and meta["parameters"]["preset"] == "default"
+    assert meta["parameters"]["body_hz"] == 200
+    assert session.entry("snare-2").category == "snare"
+
+
+def test_snare_is_deterministic_for_equal_arguments(tmp_path, make_guard):
+    runs = []
+    for sub in ("a", "b"):
+        (tmp_path / sub).mkdir()
+        session, _, box = box_for(tmp_path / sub, ADAPTERS)
+        assert run(make_guard(), box, SNARE).is_error is False
+        runs.append([w.read_bytes() for w in sorted(Path(session.project_dir).rglob("*.wav"))])
+    assert runs[0] == runs[1]
+
+
+def test_snare_refusals_write_nothing(tmp_path, make_guard):
+    session, _, box = box_for(tmp_path, ADAPTERS)
+    bad = [
+        {**SNARE, "preset": "closed-std"},  # a hat preset
+        {**SNARE, "preset": "short"},  # a clap preset
+        {**SNARE, "prompt": "dark"},  # no keyword parser for snare
+        {**SNARE, "adjust": [{"key": "body_hz", "value": 50}]},
+        {**SNARE, "adjust": [{"key": "mode_ratio", "value": 3}]},
+        {**SNARE, "adjust": [{"key": "polarity", "value": 0}]},
+        {**SNARE, "adjust": [{"key": "choke_ms", "value": 10}]},  # a hat key
+        {**SNARE, "variants": 9},
+    ]
+    for args in bad:
+        assert run(make_guard(), box, args).is_error, args
+    assert not list(Path(session.project_dir).rglob("*.wav"))
+    assert not list(Path(session.project_dir).rglob("*.json"))
+    assert session.sample_ids() == ()
+
+
+def test_snare_files_count_against_the_guard_cap(tmp_path, make_guard):
+    session, _, box = box_for(tmp_path, ADAPTERS)
+    refused = run(make_guard(max_files_written=10), box, {**SNARE, "variants": 6})
+    assert refused.is_error
+    assert not list(Path(session.project_dir).rglob("*.wav"))
+    ok = run(make_guard(max_files_written=10), box, {**SNARE, "variants": 5})
+    assert ok.is_error is False, ok.content
+    assert len(list(Path(session.project_dir).rglob("*.wav"))) == 5

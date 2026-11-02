@@ -1,27 +1,22 @@
 # Hörtest Hi-Hat (Issue #295)
 
-Nur du kannst sagen, wie die Hi-Hats klingen. Die Zahlen im PR beschreiben nur die Signale. Dauer: etwa 14 Minuten plus 5 Minuten Aufbau. Lies bis zum Ende des Tests nichts anderes zu diesem Test (keine Pläne, nicht `LISTENING_TEST_HAT_LEAD.md`).
+Nur du kannst sagen, wie die Hi-Hats klingen. Die Zahlen im PR beschreiben nur die Signale. Dauer: etwa 14 Minuten plus 2 Minuten Aufbau. Lies bis zum Ende des Tests nichts anderes zu diesem Test (keine Pläne, nicht `LISTENING_TEST_HAT_LEAD.md`).
 
 ## Was du bekommst
 
-Einen Ordner mit 20 WAV-Dateien: `Kick.wav` (der Kick, gegen den du die Hats hörst) und 19 anonyme Hats (`T1_A`, `T1_B`, `T0_A` ...). Es sind **Einzelschläge**, keine Loops. Das Muster baust du einmal selbst (siehe Aufbau).
+Einen Ordner `hoerer/` mit **19 anonymen Loops** (`T0_A` ... `T6_D`). Jede Datei ist ein fertiger Loop: 4 Takte, 136 BPM, Kick auf jedem Beat plus Hi-Hat. In den Blöcken T1, T0, T2, T3, T6 läuft die Hat auf **jedem 16tel**, in T5 und T4 ist es eine **offene Hat auf jedem Off-Beat-8tel** (ohne Closed-Hat). Jeder Hat-Schlag wird vom nächsten abgeschnitten (3 ms Fade), das steckt in der Datei. Pegel und Muster sind fest; du baust nichts.
 
-## Aufbau (einmal, 5 Minuten)
+## Aufbau (2 Minuten)
 
-Projekttempo **136 BPM**, nichts auf dem Master, keine Effekte. Zwei Audio-/Instrumentenspuren:
+Projekttempo **136 BPM**, nichts auf dem Master, keine Effekte. Alle Dateien auf **eine** Audiospur nacheinander oder auf getrennte Spuren ziehen, **Warp aus** (die Loops haben das Tempo schon), Loop-Klammer um die 4 Takte (Länge 16 Beats). Den Spurfader einmal einstellen und **danach nicht mehr anfassen**. Die Hat ist je Block schon auf gleiche Energie angeglichen (gleiche RMS in den ersten 30 ms bei Closed, 100 ms bei Open). Angeglichen heißt nicht gleich laut empfunden: wenn dir eine Datei trotzdem lauter vorkommt, schreib das bei „Anmerkung“ dazu.
 
-1. **Kick:** `Kick.wav` in einen Simpler (Classic). 1-Takt-MIDI-Clip, Loop an, eine Note auf **jedem Beat** (4 Noten).
-2. **Hat:** ein zweiter Simpler mit einem Hat. Einstellung: Voices **1**, Retrigger an, Fade Out ca. 3 ms (falls der Regler da ist), damit der nächste Schlag den vorigen abschneidet. Zwei MIDI-Clips (1 Takt, Loop):
-   - **Closed-Clip:** eine Note auf **jedem 16tel** (16 Noten). Gilt für die Blöcke T1, T0, T2, T3, T6.
-   - **Open-Clip:** eine Note auf **jedem Off-Beat-8tel** (Positionen 1.1.3, 1.2.3, 1.3.3, 1.4.3, also 4 Noten). Gilt für T4 und T5. Dazu kein Closed-Hat.
+Hinweis: Das Laden und Loopen in Live ist von uns nicht in Live geprüft. Wenn etwas anders heißt oder fehlt, sag es kurz; das Ergebnis bleibt gültig, solange alle Dateien gleich behandelt werden.
 
-Für jede Datei: aus dem Browser auf den Hat-Simpler ziehen (oder Hot-Swap) und den Clip laufen lassen. Hat-Spurfader einmal so stellen, dass der Hat neben dem Kick hörbar, aber nicht dominant ist, und **danach nicht mehr anfassen**. Die Lautheit ist je Block schon angeglichen (gleiche Energie in den ersten 30 ms bei Closed, 100 ms bei Open). Angeglichen heißt nicht gleich laut empfunden: wenn dir eine Datei trotzdem lauter vorkommt, schreib das bei „Anmerkung" dazu.
-
-Hinweis: Die Schritte in Live (Simpler-Einstellungen, Hot-Swap) sind nicht von uns in Live geprüft. Wenn etwas anders heißt oder fehlt, sag es kurz, das Ergebnis des Tests bleibt gültig, solange alle Dateien gleich behandelt werden.
+**Einzelschlag-Variante (Rückfall).** Wenn du die Hats lieber selbst im Simpler spielst: Einzelschläge mit `python -m audio_engine.kick --category hat` erzeugen (Befehle im Lead-Dokument, Abschnitt „Einzelschlag-Variante“). Dann Kick auf jedem Beat, Hat auf jedem 16tel (Closed) bzw. jedem Off-Beat-8tel (Open), Voices 1, Retrigger an, Fade Out ca. 3 ms. Diese Variante ist nur beschrieben, nicht geprüft; der Pegelangleich der Loops gilt für sie nicht.
 
 ## Reihenfolge und Fragen
 
-Reihenfolge: **T1 → T0 → T2 → T5 → T4 → T3 → T6.** Nach T2 eine Minute Pause. Bei T1, T0, T2, T3 und T6 läuft der Closed-Clip, bei T5 und T4 der Open-Clip.
+Reihenfolge: **T1 → T0 → T2 → T5 → T4 → T3 → T6.** Nach T2 eine Minute Pause. Bei T1, T0, T2, T3 und T6 spielt die Hat auf jedem 16tel, bei T5 und T4 auf jedem Off-Beat-8tel.
 
 | # | Frage (eine pro Block) | Antwortmöglichkeiten |
 | --- | --- | --- |
@@ -47,11 +42,11 @@ T4: Reihenfolge ___ > ___ > ___    beste: zu lang / richtig / zu kurz
 T3: Reihenfolge ___ > ___ > ___    beste: zu rauschig / richtig / zu blechern
 T6: gleiche Hi-Hat: ___ ; fällt raus: ___
 Gesamt: Welche Datei des ganzen Tests ist „meine Hi-Hat"? ____ (oder „keine")
-Anmerkung (z. B. Pegel, Simpler-Einstellung): ____
+Anmerkung (z. B. Pegel): ____
 ```
 
 Schick die ausgefüllte Vorlage ins Issue #295 (oder sag sie dem Lead).
 
 ## Paket neu erzeugen (Entwickler)
 
-Der Befehl steht in `docs/setup/LISTENING_TEST_HAT_LEAD.md` (Abschnitt 1), weil die Datei-Tabelle dort den Schlüssel verrät. Das Paket besteht aus Einzelschlägen von `python -m audio_engine.kick --category hat`; es gibt keinen Loop-Generator.
+`python -m audio_engine.listening_test_hat --out NEUER_LEERER_ORDNER` (außerhalb des Repos, Engine auf dem Pfad). Verschickt wird nur `hoerer/`; `Schluessel.md` verrät den Aufbau und wird erst nach dem Test geöffnet (siehe `docs/setup/LISTENING_TEST_HAT_LEAD.md`).

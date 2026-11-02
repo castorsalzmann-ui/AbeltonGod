@@ -152,7 +152,8 @@ def test_shared_fields_have_the_same_definition_as_clap_and_kick_params() -> Non
     def core(prop: dict) -> dict:
         return {k: v for k, v in prop.items() if k != "description"}
 
-    for name in ("schema_version", "seed", "variants", "bpm", "sample_rate", "bit_depth", "drive",
+    assert SNARE["properties"]["schema_version"] == {"const": "0.1"}  # clap: 0.1 or 0.2 (#280)
+    for name in ("seed", "variants", "bpm", "sample_rate", "bit_depth", "drive",
                  "polarity", "offset_ms", "peak_ceiling_dbfs", "preset"):
         assert core(SNARE["properties"][name]) == core(clap[name]), name
     for name in ("seed", "variants", "sample_rate", "bit_depth", "peak_ceiling_dbfs",

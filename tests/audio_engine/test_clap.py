@@ -357,7 +357,7 @@ def test_presets_are_valid_contract_objects(name: str) -> None:
     p = load_preset(name, "clap")
     assert p["preset"] == name
     assert resolve_clap_params(p)["preset"] == name
-    assert sorted(preset_names("clap")) == ["bright", "default", "long", "short"]
+    assert {"bright", "default", "long", "short"} <= set(preset_names("clap"))  # + xtreme-* (#280)
     assert "short" not in preset_names("kick")  # clap presets do not leak into the kick list
 
 
@@ -373,3 +373,38 @@ def test_variants_stay_in_the_contract_and_are_reproducible(p: dict) -> None:
     base = render_clap(p)[0].tobytes()
     assert render_clap(vs[0])[0].tobytes() == base  # variant 0 is the base, byte for byte
     assert render_clap(vs[1])[0].tobytes() != base
+
+
+def test_envelope_has_the_burst_spacing_falloff_and_tail_start_of_the_contract() -> None:
+    """Direct check of the envelope with hand-computed values (no noise involved).
+
+    3 bursts 10 ms apart, falloff 0.5, burst decay 20 ms to -60 dB, tail from 30 ms (one
+    spacing after the last burst onset) at level 0.4, 100 ms to -60 dB. A component with
+    onset s and level L is L * 10 ** (-3 * (t - s) / decay) once it has risen (0.3 ms), 0 before.
+    """
+    p = resolve_clap_params({**BASE, "bursts": 3, "burst_spacing_ms": 10.0, "burst_decay_ms": 20.0,
+                             "burst_level_falloff": 0.5, "tail_level": 0.4,
+                             "tail_decay_ms": 100.0})
+    env = C.envelope(p, SR // 10)
+
+    def at(ms: float) -> float:
+        assert (ms * SR / 1000) % 1 == 0, "pick times that fall on a sample"
+        return float(env[round(ms * SR / 1000)])
+
+    def burst(level: float, onset: float, t: float) -> float:  # onset, t in ms
+        return level * 10 ** (-3 * (t - onset) / 20.0)
+
+    def tail(t: float) -> float:
+        return 0.4 * 10 ** (-3 * (t - 30.0) / 100.0)
+
+    exp = 1e-9
+    assert at(0.0) == 0.0 and at(5.0) == pytest.approx(burst(1, 0, 5), abs=exp)
+    assert at(9.875) == pytest.approx(burst(1, 0, 9.875), abs=exp)            # burst 1 not started
+    assert at(15.0) == pytest.approx(burst(1, 0, 15) + burst(0.5, 10, 15), abs=exp)
+    # just before the tail starts: bursts only
+    assert at(29.875) == pytest.approx(
+        burst(1, 0, 29.875) + burst(0.5, 10, 29.875) + burst(0.25, 20, 29.875), abs=exp)
+    assert at(40.0) == pytest.approx(
+        burst(1, 0, 40) + burst(0.5, 10, 40) + burst(0.25, 20, 40) + tail(40), abs=exp)
+    assert at(90.0) == pytest.approx(
+        burst(1, 0, 90) + burst(0.5, 10, 90) + burst(0.25, 20, 90) + tail(90), abs=exp)

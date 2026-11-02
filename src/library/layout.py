@@ -38,7 +38,9 @@ WINDOWS_MAX_PATH_CHARS = 259  # MAX_PATH 260 minus the terminating NUL
 DEFAULT_KICK_FOLDER = "Samples/Drums/Kicks"
 DEFAULT_CLAP_FOLDER = "Samples/Drums/Claps"
 DEFAULT_HAT_FOLDER = "Samples/Drums/Hats"
+DEFAULT_SNARE_FOLDER = "Samples/Drums/Snares"
 DEFAULT_RIM_FOLDER = "Samples/Drums/Rims"
+DEFAULT_BASS_FOLDER = "Samples/Bass"  # a bass is not a drum: outside Samples/Drums (#328)
 MIN_STEM_CHARS = 16  # below this the name would be cut too short to stay readable
 # write_kick adds _002, _003 … on a clash. The length check reserves room for up to 9999
 # files of the same name; beyond that the files are checked after writing (and removed).
@@ -75,13 +77,17 @@ class LibraryLayout:
     claps: str = DEFAULT_CLAP_FOLDER  # used once the clap voice exists (#230 scaffold)
 
     hats: str = DEFAULT_HAT_FOLDER  # used once the hat voice exists (#270)
+    snares: str = DEFAULT_SNARE_FOLDER  # snare voice (#308)
     rims: str = DEFAULT_RIM_FOLDER  # rim voice (#321)
+    bass: str = DEFAULT_BASS_FOLDER  # bass voice (#328)
 
     def __post_init__(self) -> None:
         split_folder(self.kicks)  # raises LibraryPathError
         split_folder(self.claps)
         split_folder(self.hats)
+        split_folder(self.snares)
         split_folder(self.rims)
+        split_folder(self.bass)
         limit = self.max_path_chars
         if limit is not None and (isinstance(limit, bool) or not isinstance(limit, int)):
             raise TypeError(f"max_path_chars must be an int or None, got {limit!r}")
@@ -100,8 +106,12 @@ class LibraryLayout:
             return split_folder(self.claps)
         if category == "hat":
             return split_folder(self.hats)
+        if category == "snare":
+            return split_folder(self.snares)
         if category == "rim":
             return split_folder(self.rims)
+        if category == "bass":
+            return split_folder(self.bass)
         raise LibraryPathError(f"no library folder is defined for category {category!r}")
 
 

@@ -17,8 +17,9 @@ def run(argv: list[str]) -> tuple[int, str, str]:
 
 def test_list_clap_presets_and_default_list_is_still_kick() -> None:
     code, out, _ = run(["--category", "clap", "--list-presets"])
-    assert code == 0 and [ln.split()[0] for ln in out.splitlines()] == [
-        "bright", "default", "long", "short"]
+    assert code == 0 and [ln.split()[0] for ln in out.splitlines()] == sorted(
+        ["bright", "default", "long", "short", *(f"xtreme-{n}" for n in (
+            "saturated", "folded", "crushed", "metal", "gated", "reversed", "wreck"))])
     _, kick_out, _ = run(["--list-presets"])
     assert "centre" in kick_out and "short" not in kick_out
 
