@@ -29,7 +29,9 @@ still running after the request; Ctrl+C took 25.2 s to arrive and then escaped
 from __future__ import annotations
 
 import _thread
+import asyncio
 import os
+import re
 import signal
 import sys
 import threading
@@ -189,13 +191,70 @@ def test_cli_that_never_starts_is_killed(cli, tmp_path):
     assert wait_dead(cli.pids()) == []
 
 
-def test_cli_that_exits_without_output_is_unavailable(cli, tmp_path):
-    """Before the fix the exit was only noticed at the request deadline."""
+EXIT_REASON = re.compile(r"exit code:? 0")  # both wordings below name the exit code
+
+
+def _exited_cli_outcome(cli, tmp_path):
     cli.mode("exit")
     out, took = handle(cli.client(), guard(tmp_path, timeout_s=10))
     assert out.success is False and out.error == "model_unavailable", out
     assert took < 4.0, f"took {took:.1f} s (deadline 10 s)"
-    assert "nicht erreichbar" in out.message_de and "exit code 0" in out.message_de
+    # The product promises a German message that names the reason (the CLI exited, with its
+    # code) and that the engine and bridge go on. It does not promise the SDK's wording, and
+    # the SDK text depends on a race (#210): our poll saw the exit ("... exited before it
+    # answered (exit code 0)") or the SDK's write failed first ("... CLIConnectionError:
+    # Cannot write to terminated process (exit code: 0)").
+    assert out.message_de.startswith("Claude ist gerade nicht erreichbar ("), out.message_de
+    assert EXIT_REASON.search(out.message_de), out.message_de
+    assert "funktionieren weiter ohne Claude" in out.message_de
+    return out
+
+
+def test_cli_that_exits_without_output_is_unavailable(cli, tmp_path):
+    """Before the fix the exit was only noticed at the request deadline. Whichever of the two
+    paths below wins the race, the promise is the same."""
+    _exited_cli_outcome(cli, tmp_path)
+
+
+def test_exit_noticed_by_our_poll_names_the_exit(cli, tmp_path, monkeypatch):
+    """Path 1, forced: the SDK's write to the dead CLI hangs, so only the poll in
+    ``_connect`` can end the request."""
+    async def stall(self, data):
+        await asyncio.sleep(60)
+
+    monkeypatch.setattr(SubprocessCLITransport, "write", stall)
+    out = _exited_cli_outcome(cli, tmp_path)
+    assert "exited before it answered" in out.message_de, out.message_de
+
+
+def test_exit_noticed_by_the_sdk_names_the_exit(cli, tmp_path, monkeypatch):
+    """Path 2, forced: the poll cannot see the process, so the SDK's own error ends the
+    request."""
+    original = SubprocessCLITransport.write
+
+    async def write_after_exit(self, data):
+        while self._process.returncode is None:  # the exit has happened before the write
+            await asyncio.sleep(0.01)
+        await original(self, data)
+
+    monkeypatch.setattr(SubprocessCLITransport, "write", write_after_exit)
+    monkeypatch.setattr(SdkModelClient, "_process_of", staticmethod(lambda sess: None))
+    out = _exited_cli_outcome(cli, tmp_path)
+    assert "could not start Claude" in out.message_de, out.message_de
+    assert "CLIConnectionError" in out.message_de, out.message_de
+
+
+def test_exit_that_nobody_notices_fails_the_speed_check(cli, tmp_path, monkeypatch):
+    """Guard for the two tests above (fault injection in the test itself): with the poll blind
+    and the SDK's write hanging, the exit is only found much later, and the helper's 4 s check
+    must turn red."""
+    async def stall(self, data):
+        await asyncio.sleep(60)
+
+    monkeypatch.setattr(SubprocessCLITransport, "write", stall)
+    monkeypatch.setattr(SdkModelClient, "_process_of", staticmethod(lambda sess: None))
+    with pytest.raises(AssertionError):
+        _exited_cli_outcome(cli, tmp_path)
 
 
 def test_children_of_the_cli_are_killed_too(cli, tmp_path):
