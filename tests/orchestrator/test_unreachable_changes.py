@@ -162,9 +162,14 @@ def test_second_ctrl_c_during_the_session_close_does_not_end_the_chat(tmp_path):
 # --- P3: no English SDK log line in the chat ------------------------------------------------
 
 
-def test_chat_silences_the_sdk_error_log(tmp_path, caplog):
+def test_chat_silences_the_sdk_error_log(tmp_path, caplog, request):
     sdk_log = logging.getLogger("claude_agent_sdk._internal.query")
-    before = logging.getLogger("claude_agent_sdk").level
+    root = logging.getLogger("claude_agent_sdk")
+    # #185: do not read the level the logger happens to have (an earlier test under xdist may
+    # have left it at CRITICAL, which would hide a missing restore); set a known one
+    request.addfinalizer(lambda root=root, level=root.level: root.setLevel(level))
+    root.setLevel(logging.WARNING)
+    before = logging.WARNING
 
     class Model:
         def complete(self, request):
@@ -178,7 +183,7 @@ def test_chat_silences_the_sdk_error_log(tmp_path, caplog):
          guard=Guard(log_path=tmp_path / "u.jsonl"), model=Model())
     assert "nicht erreichbar" in out.getvalue()
     assert [r.message for r in caplog.records if r.name.startswith("claude_agent_sdk")] == []
-    assert logging.getLogger("claude_agent_sdk").level == before  # restored after the chat
+    assert root.level == before  # restored after the chat
 
 
 def test_the_waiting_line_does_not_promise_ctrl_c_at_the_confirm_question(tmp_path):

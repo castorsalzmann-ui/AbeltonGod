@@ -495,6 +495,16 @@
    ]
   },
   {
+   "name": "gap before the last section with a matching total_bars",
+   "expect": ["tiling"],
+   "note": "the outro starts at bar 201 (bars 193-200 are in no section) and ends at bar 264 = total_bars; only the gap is wrong (#186: a check that adds lengths instead of using the stated start would see no gap here and report total_bars instead)",
+   "patch": [
+    {"op": "replace", "path": "/sections/8/start_bar", "value": 201},
+    {"op": "replace", "path": "/total_bars", "value": 264},
+    {"op": "replace", "path": "/energy_nodes/35/pos", "value": 264}
+   ]
+  },
+  {
    "name": "overlap",
    "expect": [
     "tiling"

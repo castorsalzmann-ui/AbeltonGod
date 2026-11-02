@@ -416,6 +416,20 @@ def test_terminal_approver_eof_is_no():
     assert TerminalApprover(_reader([]), io.StringIO()).confirm(live_tool(), {}) is False
 
 
+def test_terminal_approver_ctrl_c_at_the_question_is_no():
+    """#185: the chat tells the user that Ctrl+C at "Ausführen?" means no."""
+    def interrupted(_prompt):
+        raise KeyboardInterrupt
+
+    out = io.StringIO()
+    try:
+        answer = TerminalApprover(interrupted, out).confirm(live_tool(), {})
+    except KeyboardInterrupt:  # a plain failure, not an aborted test session
+        pytest.fail("Ctrl+C at the question escaped the approver")
+    assert answer is False
+    assert "Ableton-Set" in out.getvalue()
+
+
 def test_fake_model_limit_kind():
     from orchestrator.fake_model import RecordingError
     from orchestrator.model_client import ModelLimitReached

@@ -817,6 +817,20 @@ def test_other_retries_are_left_to_the_cli(turns, make_guard, events, clients):
     assert out.success is True and out.reply == "da", out
 
 
+def test_a_no_response_frame_does_not_reset_the_retry_count(make_guard, events, clients):
+    """#185: 3 plain retries, one ``no_response`` frame, 1 more plain retry: 4 counted ones in
+    a row (the no_response frame neither counts nor resets), so the request ends. A mutant
+    that resets the count on no_response would let this run to the hang."""
+    factory = FakeCLIFactory({"turns": [
+        *retries(3), retry_frame(4, no_response={"waited_ms": 30000}), retry_frame(5),
+        {"hang": True}]})
+    start = time.monotonic()
+    out = run(make_guard(timeout_s=60), make_client(clients, factory), [])
+    assert time.monotonic() - start < 5.0
+    assert out.success is False and out.error == "model_unreachable"
+    assert factory.cli.closed
+
+
 def test_the_retry_count_is_in_a_row_across_a_successful_model_call(make_guard, events,
                                                                     clients):
     """3 failed attempts, the API answers (a tool turn), 3 more: 6 in total but never 4 in a
