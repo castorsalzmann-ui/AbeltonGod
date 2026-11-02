@@ -211,10 +211,14 @@ def test_window_and_backend_check_apply_to_confirm_tools_only(make_guard, events
     tool = Tool("t", "", OBJ, handler, **kw)
     result = run(make_guard(), Toolbox([tool], clock=ticks), {"n": 1},
                  Yes(during=lambda: setattr(ticks, "t", ticks.t + 1000)),
-                 turn_started=ticks.t - CONFIRM_WINDOW_S - 1, still_waiting=lambda cid: False)
+                 turn_started=ticks.t - 1, still_waiting=lambda cid: False)
     assert bool(ran) == routine
     if not routine:
+        # the question fit the window; the yes came too late (#207: the post-Yes path, not the
+        # pre-question refusal), and the text says the confirmation was given, not "nobody asked"
         assert result.content["error"] == "too_late"
+        assert "the confirmation came 1001 s after" in result.content["message"]
+        assert "nobody was asked" not in result.content["message"]
 
 
 def _window_case(make_guard, events, elapsed):
