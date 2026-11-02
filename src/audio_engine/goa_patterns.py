@@ -313,9 +313,9 @@ def main(argv: list[str] | None = None) -> int:
     a = build_parser().parse_args(argv)
     params: dict[str, Any] = {"root": a.root, "scale": a.scale, "bars": a.bars,
                               "seed": a.seed, "bpm": a.bpm}
-    for k in ("density", "accent", "slide"):
-        if getattr(a, k) is not None:
-            params[k] = getattr(a, k)
+    for k, v in (("density", a.density), ("accent", a.accent), ("slide", a.slide)):
+        if v is not None:
+            params[k] = v
     if a.kind == "arp":
         if a.pattern is not None:
             params["pattern"] = a.pattern
