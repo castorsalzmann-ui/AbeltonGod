@@ -11,8 +11,10 @@ Known trap (auth note row 8, Agent SDK note PR #79 Q6, **not verified on the use
 a set ``ANTHROPIC_API_KEY``, ``ANTHROPIC_AUTH_TOKEN`` or ``CLAUDE_CODE_USE_BEDROCK`` / ``_VERTEX`` /
 ``_FOUNDRY`` silently wins over the subscription
 login in SDK runs and bills a Console organisation. In ``subscription`` mode such a variable is
-therefore refused before any model call. The SDK adapter (step 2) must also compare the init
-message's ``apiKeySource`` with the mode via ``check_api_key_source``.
+therefore refused before any model call; in ``api_key`` mode the cloud-provider switches are
+refused too (#245: they rank above the key and would bill a cloud account).
+The SDK adapter (step 2) must also compare the init message's
+``apiKeySource`` with the mode via ``check_api_key_source``.
 """
 
 from __future__ import annotations
@@ -121,6 +123,12 @@ def load_auth(
             "would use it instead of your Claude login. Remove it from .env and from the "
             "Windows environment, or set "
             f"{AUTH_VARIABLE}=api_key."
+        )
+    if mode is AuthMode.API_KEY and providers:
+        raise AuthConfigError(
+            f"{AUTH_VARIABLE}=api_key, but {', '.join(sorted(providers))} is set. The SDK "
+            "would bill that cloud account instead of your API key. Remove it from .env and "
+            "from the Windows environment, or set it to 0."
         )
     if mode is AuthMode.API_KEY and "ANTHROPIC_API_KEY" not in present:
         raise AuthConfigError(f"{AUTH_VARIABLE}=api_key needs ANTHROPIC_API_KEY in .env")
