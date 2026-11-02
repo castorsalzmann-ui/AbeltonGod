@@ -1,13 +1,27 @@
-# Hi-Hat nach Live importieren (nicht auf deinem Rechner geprüft)
+# Hi-Hat in Live importieren (Testrezept)
 
-Der Import (`scripts/live_import.py`) erkennt die Kategorie `hat` aus dem Sidecar und prüft, dass
-die WAV im Ordner `Samples/Drums/Hats` deines Projekts liegt. Es werden dieselben Funktionen wie
-beim Kick/Clap gesendet (`create_audio_track`, `create_audio_clip`, Read-backs). Es wird nichts
-umbenannt und keine neue Ableton-Funktion benutzt. Bisher nur mit dem Fake-AbletonOSC in CI
-geprüft, **nicht in Live**.
+**Nicht auf deinem Rechner geprüft.** Bisher lief dieser Weg nur gegen einen simulierten AbletonOSC-Server in CI. Das Script sendet dieselben Befehle wie beim Kick und Clap (`create_audio_clip`, ggf. `create_audio_track`, Zurücklesen); es gibt keine neue Ableton-Funktion und es wird nichts umbenannt. Das Script erkennt die Kategorie `hat` aus dem Sidecar und prüft, dass die WAV im Ordner `Samples\Drums\Hats` des Projekts liegt.
 
-Ablauf wie in `docs/setup/CLAP_TO_LIVE.md`, nur mit einer Hat-WAV aus `Samples/Drums/Hats`.
-Eine Hat-WAV in einem anderen Kategorie-Ordner wird mit Exit 4 abgewiesen, bevor etwas an Live
-geht. Ergebnis-Block bitte als Kommentar in Issue #129 posten.
+Voraussetzung: Erweiterung installiert (`ABLETONOSC_WINDOWS.md`, Abschnitt 7.1), Live mit dem **Test-Set** offen, gespeichert (Projektordner mit `.als`).
+
+1. **Hat erzeugen.** In PowerShell im AbeltonGod-Ordner (legt WAV und `.json` unter `<Projektordner>\Samples\Drums\Hats\` ab; ändert nichts in Live):
+   ```powershell
+   python -c "from library import place_sample; print(place_sample('hat', {'schema_version': '0.1', 'seed': 1}, r'C:\voller\Pfad\Test Project'))"
+   ```
+   Der Befehl druckt den Pfad der WAV. Den Pfad für Schritt 2 kopieren.
+
+2. **Importieren.**
+   ```powershell
+   python scripts/live_import.py "C:\voller\Pfad\Test Project\Samples\Drums\Hats\<Dateiname>.wav"
+   ```
+   Erwartet: im Plan steht `Sample: hat: <Dateiname>`, im Ergebnis-Block `sample_category: hat`. Fragen wie beim Kick beantworten (Test-Set `y`, Spur wählen oder `n`, ausführen `y`). Bei der Undo-Frage `Enter`, dann den Clip in Live starten: „Spielt der Hat?“ ehrlich beantworten.
+
+3. **Ablehnung prüfen (ändert nichts in Live).** Einen Clap erzeugen und in den Ordner `Hats` kopieren (Datei und `.json`):
+   ```powershell
+   python -c "from library import place_sample; print(place_sample('clap', {'schema_version': '0.1', 'seed': 1}, r'C:\voller\Pfad\Test Project'))"
+   ```
+   Beide Dateien aus `Samples\Drums\Claps\` nach `Samples\Drums\Hats\` kopieren (Ordner ggf. anlegen) und das Script mit dem kopierten Pfad starten. Erwartet: `FEHLER mit der Datei: ... Claps ...` und `Es wurde nichts in Live geändert`, noch bevor eine Verbindung aufgebaut wird.
+
+Den Ergebnis-Block aus Schritt 2 und die Meldung aus Schritt 3 als Kommentar in Issue #129 einfügen (Evidenz für den Hat-Import; `contracts/capabilities.json` ändert sich dadurch nicht).
 
 Snare folgt über denselben Registry-Weg, sobald die Snare-Stimme auf `main` ist.
