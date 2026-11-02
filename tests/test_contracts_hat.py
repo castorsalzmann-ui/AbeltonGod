@@ -134,6 +134,43 @@ def test_contract_text_fixes_the_agreed_definitions() -> None:
         assert needle in text, needle
 
 
+def test_contract_text_describes_engine_behaviour_of_body_mix_bp_mix_seed() -> None:
+    """Wording of #293: the text must say what the engine does."""
+    comment = HAT["$comment"]
+    props = HAT["properties"]
+    for needle in ("split by frequency at 1.5 * hp_hz", "weight of the fast envelope",
+                   "not a level share of an oscillator group", "ADDED to that signal",
+                   "at `metal` 1 with model `metal_bank`"):
+        assert needle in comment, needle
+    assert "1.5 * hp_hz" in props["body_mix"]["description"]
+    assert "Not a level share" in props["body_mix"]["description"]
+    assert "signal + bp_mix * bandpass(signal)" in props["bp_mix"]["description"]
+    assert "no effect" in props["seed"]["description"] and "metal 1" in props["seed"]["description"]
+    assert "level share of the slower" not in comment + props["body_mix"]["description"]
+
+
+def test_wording_change_accepts_and_rejects_the_same_documents() -> None:
+    """Probes written out by hand with the verdicts of the schema before #293 (verified against
+    the pre-change file); the change touched descriptions only."""
+    accepted = [
+        BASE, {**BASE, "body_mix": 0}, {**BASE, "body_mix": 1, "decay_hi_ratio": 0.2},
+        {**BASE, "bp_mix": 1, "bp_hz": 1500, "bp_q": 4}, {**BASE, "metal": 1, "seed": 0},
+        {**BASE, "metal": 1, "seed": 4294967295}, {**BASE, "model": "noise", "metal": 1},
+        {**BASE, "hp_hz": 12000, "lp_hz": 8000},
+    ]
+    rejected = [
+        {**BASE, "body_mix": 1.01}, {**BASE, "body_mix": -0.01}, {**BASE, "bp_mix": 1.01},
+        {**BASE, "bp_mix": -0.01}, {**BASE, "decay_hi_ratio": 0.19},
+        {**BASE, "decay_hi_ratio": 1.01},
+        {**BASE, "metal": 1.01}, {**BASE, "seed": -1}, {**BASE, "seed": 4294967296},
+        {**BASE, "seed": 1.5}, {**BASE, "body_ratio": 0.5}, {"seed": 1},
+    ]
+    for doc in accepted:
+        HAT_V.validate(doc)
+    for doc in rejected:
+        assert not HAT_V.is_valid(doc), doc
+
+
 def test_shared_fields_have_the_same_definition_as_kick_params() -> None:
     kick = load("kick-params.schema.json")
     kick_props = {**kick["properties"], **kick["allOf"][0]["then"]["properties"]}
