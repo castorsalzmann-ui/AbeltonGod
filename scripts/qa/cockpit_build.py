@@ -2,7 +2,7 @@
 
 Usage:
     python scripts/qa/cockpit_build.py <out_dir> [--repo DIR] [--collector FILE]
-                                       [--prev-gate-url URL] [--max-age-min N]
+                                       [--prev-gate-url URL] [--no-gate] [--max-age-min N]
 
 Runs cockpit_collect.py on a throwaway clone of --repo (default: this checkout) and writes
 <out_dir>/index.html (page + shim + embedded data for file://), <out_dir>/data/*.json and
@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -59,22 +60,29 @@ def fetch_prev_gate(url: str, dest: Path) -> str | None:
     try:
         with urllib.request.urlopen(url, timeout=30) as r:  # noqa: S310 (https URL from workflow)
             rows = json.loads(r.read())
-        if isinstance(rows, list):
+        if isinstance(rows, list) and rows:
             dest.write_text(json.dumps(rows), encoding="utf-8")
             return str(dest)
-    except (OSError, ValueError):
-        pass
+        why = "not a non-empty list"
+    except (OSError, ValueError) as e:
+        why = repr(e)
+    print(f"cockpit_build: WARNING no previous gate.json from {url}: {why}; "
+          "gate history starts again", file=sys.stderr)
     return None
 
 
-def collect(repo: Path, collector: Path, work: Path, prev_url: str | None) -> Path:
+def collect(repo: Path, collector: Path, work: Path, prev_url: str | None,
+            no_gate: bool = False) -> Path:
     clone = work / "clone"
     subprocess.run(["git", "clone", "-q", str(repo), str(clone)], check=True)
     data = work / "data"
     cmd = [sys.executable, str(collector), str(clone), str(data)]
     if prev_url and (prev := fetch_prev_gate(prev_url, work / "prev_gate.json")):
         cmd.append(prev)
-    r = subprocess.run(cmd)
+    if no_gate and len(cmd) == 4:
+        raise BuildError("--no-gate needs a reachable previous gate.json (--prev-gate-url)")
+    env = {**os.environ, "COCKPIT_SKIP_GATE": "1"} if no_gate else None
+    r = subprocess.run(cmd, env=env)
     if r.returncode != 0:
         raise BuildError(f"collector exited with {r.returncode}")
     return data
@@ -122,11 +130,13 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--repo", default=str(HERE.parents[1]))
     ap.add_argument("--collector", default=str(HERE / "cockpit_collect.py"))
     ap.add_argument("--prev-gate-url")
+    ap.add_argument("--no-gate", action="store_true",
+                    help="skip the gate run, reuse previous gate.json (needs --prev-gate-url)")
     ap.add_argument("--max-age-min", type=float, default=30)
     a = ap.parse_args(argv)
     try:
         with tempfile.TemporaryDirectory() as w:
-            data = collect(Path(a.repo), Path(a.collector), Path(w), a.prev_gate_url)
+            data = collect(Path(a.repo), Path(a.collector), Path(w), a.prev_gate_url, a.no_gate)
             loaded = check(data, a.max_age_min)
             assemble(Path(a.out_dir), data, loaded)
     except (BuildError, subprocess.CalledProcessError, ValueError, KeyError, IndexError) as e:

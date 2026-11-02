@@ -27,6 +27,7 @@ Prints a one-line JSON summary (sha and row counts) at the end.
 from __future__ import annotations
 
 import json
+import os
 import re
 import subprocess
 import sys
@@ -677,7 +678,14 @@ def build(repo: Path, prev_path: str | None) -> dict:
         }]
     write(out, "guard_usage", usage)
 
-    write(out, "gate", run_gate(repo, sha, prev))
+    if os.environ.get("COCKPIT_SKIP_GATE") == "1":
+        # No gate run (slow): keep the history as it is. Without any history there is
+        # nothing true to show, so fail instead of publishing an empty gate.
+        if not prev:
+            raise FileNotFoundError("COCKPIT_SKIP_GATE=1 but no previous gate.json given")
+        write(out, "gate", sorted(prev, key=lambda r: r["date"]))
+    else:
+        write(out, "gate", run_gate(repo, sha, prev))
     pending["_summary"] = ({
         "sha": sha, "issues": len(issues), "reviews": len(reviews), "prs": len(prs),
         "decision_refs": len(refs), "ci_runs": len(ci), "commits": len(commits),

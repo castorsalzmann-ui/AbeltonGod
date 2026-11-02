@@ -47,6 +47,7 @@
   .ag-tab:hover { background: #4a4a4a; }
   .ag-tab[aria-selected="true"] { background: var(--ab-orange); color: #111; font-weight: 600; }
   .ag-sec { display: grid; gap: 14px; }
+  .ag-sec[hidden] { display: none; }
   .ag-grid { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(min(100%, 20rem), 1fr)); }
   .ag-tiles { display: grid; gap: 8px; grid-template-columns: repeat(auto-fit, minmax(min(100%, 9rem), 1fr)); }
   /* device panels */

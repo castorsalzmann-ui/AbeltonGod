@@ -26,6 +26,8 @@ FAKE = textwrap.dedent(
     from pathlib import Path
     out = Path(sys.argv[2]); out.mkdir(parents=True)
     mode = os.environ.get("FAKE_MODE", "ok")
+    Path(os.environ["FAKE_LOG"]).write_text(json.dumps(
+        {"argv": sys.argv[3:], "skip": os.environ.get("COCKPIT_SKIP_GATE")}))
     if mode == "crash":
         sys.exit(1)
     age = timedelta(hours=3) if mode == "stale" else timedelta(0)
@@ -55,10 +57,13 @@ def env(tmp_path, monkeypatch):
     fake = tmp_path / "fake_collect.py"
     fake.write_text(FAKE)
 
-    def build(mode: str, out: Path):
+    monkeypatch.setenv("FAKE_LOG", str(tmp_path / "log.json"))
+
+    def build(mode: str, out: Path, *extra: str):
         monkeypatch.setenv("FAKE_MODE", mode)
         return subprocess.run(
-            [sys.executable, str(BUILD), str(out), "--repo", str(repo), "--collector", str(fake)],
+            [sys.executable, str(BUILD), str(out), "--repo", str(repo), "--collector", str(fake),
+             *extra],
             capture_output=True, text=True,
         )
 
@@ -84,6 +89,29 @@ def test_failure_writes_nothing(env, tmp_path, mode):
     r = env(mode, out)
     assert r.returncode == 1
     assert not out.exists()
+
+
+def test_no_gate_needs_previous_gate(env, tmp_path):
+    out = tmp_path / "site"
+    r = env("ok", out, "--no-gate", "--prev-gate-url", (tmp_path / "missing.json").as_uri())
+    assert r.returncode == 1 and not out.exists()
+    assert "WARNING no previous gate.json" in r.stderr
+
+
+def test_no_gate_passes_previous_gate_and_flag(env, tmp_path):
+    prev = tmp_path / "gate.json"
+    prev.write_text(json.dumps([{"run": "x", "date": "2026-01-01T00:00:00+00:00"}]))
+    out = tmp_path / "site"
+    r = env("ok", out, "--no-gate", "--prev-gate-url", prev.as_uri())
+    assert r.returncode == 0, r.stderr
+    log = json.loads((tmp_path / "log.json").read_text())
+    assert log["skip"] == "1" and log["argv"][-1].endswith("prev_gate.json")
+
+
+def test_unreachable_site_warns_but_builds_with_gate(env, tmp_path):
+    out = tmp_path / "site"
+    r = env("ok", out, "--prev-gate-url", (tmp_path / "missing.json").as_uri())
+    assert r.returncode == 0 and "WARNING" in r.stderr
 
 
 NODE = shutil.which("node")
