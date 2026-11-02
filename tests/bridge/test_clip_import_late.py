@@ -12,7 +12,7 @@ import threading
 import time
 
 import pytest
-from bridge_helpers import TEST_TIMEOUT_S, registry_with, short_writes_if_listed
+from bridge_helpers import REPLY_TIMEOUT_S, TEST_TIMEOUT_S, registry_with, short_writes_if_listed
 from test_clip_import import (
     CREATE_CLIP,
     CREATE_TRACK,
@@ -154,7 +154,9 @@ def test_change_visible_only_at_a_later_poll_is_settled(ibridge, audio_set, log,
     """The settlement polls within the window, not just once (cf. review #167 R5)."""
     audio_set.clip_delay_s = 3 * TEST_TIMEOUT_S  # clip appears after the first reads
     audio_set.drop_next_marker_after.add(CREATE_CLIP)
-    imp = ClipImporter(ibridge, log, timeout_s=TEST_TIMEOUT_S)
+    # The write keeps the short deadline (ShortWrites in ibridge); the importer's timeout_s
+    # only sizes the read-backs (3 x), which must be answered: >= 5 s (#329).
+    imp = ClipImporter(ibridge, log, timeout_s=REPLY_TIMEOUT_S)
     out = imp.run(path=wav_file(tmp_path / "k.wav"), track_index=0, slot_index=0, num_slots=4,
                   expected_before=expected_state(audio_set, 0))
     assert out.done

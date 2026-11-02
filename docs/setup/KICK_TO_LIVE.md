@@ -4,7 +4,7 @@ Noch **nicht auf deinem Rechner geprüft.** Ein Befehl macht drei Schritte:
 
 1. erzeugt einen Kick aus einem Preset (wie `python -m audio_engine.kick --preset …`, gleicher Dateiname `<preset>_s<seed>_v0.wav`),
 2. legt WAV + Sidecar (`.json`) in `<Projektordner>\Samples\Drums\Kicks\` ab. Eine vorhandene Datei wird **nie** überschrieben; ein zweiter Lauf schreibt `…_v0_002.wav`,
-3. importiert genau diese Datei in Live, mit demselben Ablauf wie `scripts/live_import.py` 0.4.0 (Abschnitt 7.2 in `ABLETONOSC_WINDOWS.md`): Test-Set-Frage, Ziel, Plan, Bestätigung, Zurücklesen, Undo-Frage **vor** dem Anhören.
+3. importiert genau diese Datei in Live, mit demselben Ablauf wie `scripts/live_import.py` 0.5.0 (Abschnitt 7.2 in `ABLETONOSC_WINDOWS.md`): Test-Set-Frage, Ziel, Plan, Bestätigung, Zurücklesen, Undo-Frage **vor** dem Anhören.
 
 Voraussetzung: die AbeltonGod-Erweiterung ist installiert (`ABLETONOSC_WINDOWS.md`, Abschnitt 7.1) und Live hat das **Test-Set** offen.
 
@@ -34,7 +34,7 @@ Weitere Optionen: `--seed <Zahl>`, `--set FELD=WERT` (mehrfach, wie beim Kick-CL
 Zuerst (vor jeder Frage):
 
 ```text
-AbeltonGod kick_to_live 0.1.0 (Import wie live_import 0.4.0)
+AbeltonGod kick_to_live 0.1.0 (Import wie live_import 0.5.0)
 
 Kick: Preset dense, Seed 1001
 Schreibe WAV + Sidecar nach:

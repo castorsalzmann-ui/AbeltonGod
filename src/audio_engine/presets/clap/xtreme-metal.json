@@ -1,0 +1,9 @@
+{
+  "schema_version": "0.2",
+  "preset": "xtreme-metal",
+  "seed": 2104,
+  "ring_hz": 400,
+  "ring_mix": 0.7,
+  "comb_hz": 800,
+  "comb_fb": 0.8
+}

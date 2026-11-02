@@ -10,6 +10,7 @@ import hashlib
 import json
 from pathlib import Path
 
+import pytest
 from kick_helpers import RecordingApprover as Approver
 from kick_helpers import (  # noqa: F401 - fake_fixture is a pytest fixture
     fake_fixture,
@@ -86,11 +87,52 @@ def run(guard, box, args, approver=None):
 # --- schema shape ----------------------------------------------------------------------------
 
 
-def test_clap_only_schema_is_byte_identical_to_pr_266():
+V01_CLAP_PRESETS = ["bright", "default", "long", "short"]  # the clap list before #280 (xtreme-*)
+# sha256 of the clap-only schema with the CURRENT preset list (4 baseline + 7 xtreme-* names):
+# only the preset names inside description text differ from PINNED_SCHEMA_SHA256 (#280); the
+# shape test below proves that by stripping descriptions and enum values.
+CLAP_SCHEMA_WITH_XTREME_SHA256 = (
+    "cb0d129aaeafaec0f72259138e24f54a6cada6b492cdc15cd442e25d9f3662f9")
+
+
+@pytest.fixture
+def v01_clap_presets(monkeypatch):
+    """The preset list the 'before' pins were taken with: the four v0.1 clap presets."""
+    import orchestrator.sample_tools as st
+
+    real = st.preset_names
+    monkeypatch.setattr(
+        st, "preset_names", lambda category="kick": V01_CLAP_PRESETS if category == "clap"
+        else real(category))
+
+
+def test_clap_only_schema_is_byte_identical_to_pr_266(v01_clap_presets):
     assert digest(tool_input_schema(CLAP_ONLY)) == PINNED_SCHEMA_SHA256
     tool = SampleTools(_NoSession(), CLAP_ONLY).tools(files_per_request=12)[0]
     assert digest(tool.input_schema) == PINNED_TOOL_SHA256
     assert tool.max_files_written == 16
+
+
+def test_xtreme_presets_change_only_the_preset_names_in_the_text(monkeypatch):
+    """#280: the tool lists preset_names('clap'); the new names are the only change."""
+    now = tool_input_schema(CLAP_ONLY)
+    assert digest(now) == CLAP_SCHEMA_WITH_XTREME_SHA256
+    for name in ("xtreme-saturated", "xtreme-folded", "xtreme-crushed", "xtreme-metal",
+                 "xtreme-gated", "xtreme-reversed", "xtreme-wreck"):
+        assert name in now["description"]
+    import orchestrator.sample_tools as st
+
+    monkeypatch.setattr(st, "preset_names", lambda category="kick": V01_CLAP_PRESETS)
+    before = tool_input_schema(CLAP_ONLY)
+    assert digest(before) == PINNED_SCHEMA_SHA256
+    assert strip(now) == strip(before)  # same shape
+    assert optional_fields(now) == optional_fields(before) == 0  # budget unchanged
+    assert now["required"] == before["required"]
+    # text differs only by the added names: removing them gives the old text back
+    text = now["description"]
+    for name in (n for n in text.replace(",", " ").split() if n.startswith("xtreme-")):
+        text = text.replace(", " + name, "")
+    assert text == before["description"]
 
 
 class _NoSession:
@@ -188,9 +230,13 @@ def test_default_table_is_clap_and_hat():
     assert ADAPTERS["hat"].contract == "hat-params.schema.json"
 
 
-def test_hat_row_changes_enum_and_texts_but_not_the_shape_or_the_budget():
+HAT_SCHEMA_WITH_XTREME_SHA256 = (
+    "75aa87b14916e71fd124a2fa21311f6c8aced7d66885f43de60a95fb118af908")
+
+
+def test_hat_row_changes_enum_and_texts_but_not_the_shape_or_the_budget(v01_clap_presets):
     schema = tool_input_schema()
-    assert digest(schema) == HAT_SCHEMA_SHA256
+    assert digest(schema) == HAT_SCHEMA_SHA256  # with the v0.1 clap preset list (#280 note)
     assert schema["properties"]["category"]["enum"] == ["clap", "hat"]
     assert strip(schema) == strip(tool_input_schema(CLAP_ONLY))
     assert optional_fields(schema) == 0
@@ -199,6 +245,13 @@ def test_hat_row_changes_enum_and_texts_but_not_the_shape_or_the_budget():
     assert "choke_ms" in schema["description"]
     tool = SampleTools(_NoSession()).tools()[0]
     assert tool.max_files_written == 16
+
+
+def test_hat_table_with_the_xtreme_names_keeps_the_shape():
+    now = tool_input_schema()
+    assert digest(now) == HAT_SCHEMA_WITH_XTREME_SHA256
+    assert strip(now) == strip(tool_input_schema(CLAP_ONLY))
+    assert optional_fields(now) == 0
 
 
 def test_hat_generates_through_the_adapter(tmp_path, make_guard):
