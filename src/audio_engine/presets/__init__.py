@@ -41,6 +41,16 @@ CLAP_DESCRIPTIONS = {
     "band-pass.",
     "bright": "Starter set B of the clap reference analysis: wide band-pass, high high-pass "
     "corner.",
+    # Extreme family (#280, clap-params 0.2): the default voice plus one idea each. These
+    # describe the parameters, not the sound.
+    "xtreme-saturated": "Default voice with strong drive only.",
+    "xtreme-folded": "Higher band-pass centre with sine wave folding.",
+    "xtreme-crushed": "Bit reduction and sample-and-hold rate reduction, higher high-pass corner.",
+    "xtreme-metal": "Ring modulation with a 400 Hz carrier plus a feedback comb.",
+    "xtreme-gated": "Long tail cut by a hard gate.",
+    "xtreme-reversed": "Strong, medium-length tail reversed in time (swell at the end).",
+    "xtreme-wreck": "Drive, fold, bit reduction, rate reduction and comb together; the top of "
+    "the range, not a starting point.",
 }
 
 

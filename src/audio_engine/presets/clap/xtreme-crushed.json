@@ -1,0 +1,8 @@
+{
+  "schema_version": "0.2",
+  "preset": "xtreme-crushed",
+  "seed": 2103,
+  "hp_hz": 600,
+  "crush": 0.7,
+  "rate_div": 4
+}
