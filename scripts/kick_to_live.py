@@ -253,9 +253,7 @@ def interrupted_text(report: live_import.Report) -> str:
     state = clip_in_live(report)
     done = report.importer.last_outcome if report.importer is not None else None
     if state.startswith("in Live") and done is not None:
-        return ("Der Import war schon fertig; der Clip bleibt im Set"
-                + (", die neue Spur auch" if done.created_track else "")
-                + ".\n" + live_import.manual_removal_text(done))
+        return live_import.import_done_text(done)
     if state in (CLIP_REMOVED, CLIP_REMOVED_NAMES):
         return "Der Import war schon per Undo zurückgenommen (zurückgelesen)."
     if state == CLIP_UNKNOWN:

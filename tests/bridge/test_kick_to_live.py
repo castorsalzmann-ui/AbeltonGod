@@ -376,6 +376,8 @@ def test_ctrl_c_while_connecting(fake, tmp_path, project, monkeypatch):
     assert "ABGEBROCHEN mit Strg+C. Es wurde nichts in Live geändert." in out
     assert fake.received == []
     assert block(out)["kick_in_live"] == "none (nothing sent to Live)"
+    # kills `if not run_started` -> `if False` (#194): the other branch writes another error
+    assert block(out)["error"] == "interrupted by user (Ctrl+C) before connecting"
     assert (kick_dir(project) / "dense_s1001_v0.wav").is_file()
 
 
