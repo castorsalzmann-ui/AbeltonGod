@@ -228,7 +228,8 @@ def test_shared_fields_have_the_same_definition_as_clap_and_kick_params() -> Non
 
     # drive: same stage and range, but a bass default of 0.2 (the research note), so the default
     # is compared separately.
-    for name in ("schema_version", "seed", "variants", "bpm", "sample_rate", "bit_depth",
+    assert BASS["properties"]["schema_version"] == {"const": "0.1"}  # clap: 0.1 or 0.2 (#280)
+    for name in ("seed", "variants", "bpm", "sample_rate", "bit_depth",
                  "polarity", "offset_ms", "peak_ceiling_dbfs", "preset"):
         assert core(BASS["properties"][name]) == core(clap[name]), name
     for name in ("seed", "variants", "sample_rate", "bit_depth", "peak_ceiling_dbfs",
