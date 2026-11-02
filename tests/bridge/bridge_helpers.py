@@ -3,8 +3,7 @@
 Test files import from here (``from bridge_helpers import ...``), never from ``conftest``:
 without ``tests/__init__.py`` every ``conftest.py`` is loaded as the module name ``conftest``,
 so a second conftest elsewhere can shadow it depending on collection order (#86, #133).
-``tests/bridge/conftest.py`` keeps the fixtures. ``TEST_TIMEOUT_S`` is still defined there until
-#180 (qa-tester) is merged; moving it here is the remaining part of #133.
+``tests/bridge/conftest.py`` keeps the fixtures only.
 """
 
 from __future__ import annotations
@@ -13,6 +12,46 @@ import json
 from pathlib import Path
 
 from bridge.capabilities import CAPABILITIES_FILE, CapabilityRegistry
+
+TEST_TIMEOUT_S = 0.25  # the short deadline, for tests that expect a timeout
+# In these modules only the WRITE calls get the short deadline (ShortWrites); ordinary reads
+# keep the long one. A stalled write is what the tests expect to time out (#180).
+SHORT_WRITE_MODULES = {"test_clip_import_late.py", "test_arrangement_late.py"}
+WRITE_METHODS = {
+    "create_audio_track", "create_audio_clip", "undo", "set_track_mute", "create_midi_track",
+    "set_song_time", "toggle_cue_at_song_time", "set_cue_name", "create_arrangement_midi_clip",
+    "add_arrangement_clip_notes",
+}
+
+
+class ShortWrites:
+    """Bridge wrapper: write calls run with the short deadline, everything else keeps the
+    transport's long one (#180). Read-backs that pass their own ``timeout_s`` are untouched."""
+
+    def __init__(self, bridge, transport) -> None:
+        self._bridge, self._transport = bridge, transport
+
+    def __getattr__(self, name):
+        attr = getattr(self._bridge, name)
+        if name not in WRITE_METHODS:
+            return attr
+
+        def short(*args, **kwargs):
+            saved = self._transport.timeout_s
+            self._transport.timeout_s = TEST_TIMEOUT_S
+            try:
+                return attr(*args, **kwargs)
+            finally:
+                self._transport.timeout_s = saved
+
+        return short
+
+
+def short_writes_if_listed(bridge, transport, request):
+    """Wrap ``bridge`` for the modules in SHORT_WRITE_MODULES, else return it unchanged."""
+    if request.node.path.name in SHORT_WRITE_MODULES:
+        return ShortWrites(bridge, transport)
+    return bridge
 
 
 def registry_with(tmp_path: Path, tested: set[str]) -> CapabilityRegistry:
