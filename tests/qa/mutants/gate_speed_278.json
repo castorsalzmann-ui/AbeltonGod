@@ -1,0 +1,70 @@
+{
+  "mutants": [
+    {
+      "id": "Q278_PEAK_SCALED_1_02",
+      "file": "src/audio_engine/kick.py",
+      "old": "    return x * (target / peak)\n",
+      "new": "    return x * (target / peak) * 1.02\n",
+      "tests": ["tests/audio_engine/test_kick.py"],
+      "pytest_args": ["-k", "quantised_file_peak"],
+      "expected": "killed",
+      "note": "#278: test_quantised_file_peak now reads cached renders; a wrong peak must still fail"
+    },
+    {
+      "id": "Q278_ENCODE_LOSES_HEADROOM",
+      "file": "src/audio_engine/io.py",
+      "old": "np.clip(audio, -1.0, 1.0) * full_scale)",
+      "new": "np.clip(audio, -1.0, 1.0) * (full_scale - 4))",
+      "tests": ["tests/audio_engine/test_kick.py"],
+      "pytest_args": ["-k", "quantised_file_peak"],
+      "expected": "killed",
+      "note": "#278: the WAV encoding after the cached render is still really executed"
+    },
+    {
+      "id": "Q278_ANY_KICK_REPLACEMENT_HIDDEN",
+      "file": "tests/support/render_cache.py",
+      "old": "    if m is _kick and k == \"render_kick\" and v is globals().get(\"cached_render_kick\"):\n",
+      "new": "    if m is _kick and k == \"render_kick\":\n",
+      "tests": ["tests/qa/test_render_cache.py"],
+      "expected": "killed",
+      "note": "#278: only the cache itself may replace kick.render_kick without counting as a patch"
+    },
+    {
+      "id": "Q278_SELECT_NOT_TRANSITIVE",
+      "file": "scripts/qa/select_tests.py",
+      "old": "            if mod not in result and imports & result:",
+      "new": "            if mod not in result and imports & changed:",
+      "tests": ["tests/qa/test_select_tests.py"],
+      "expected": "killed",
+      "note": "#278: selector must follow importers of importers"
+    },
+    {
+      "id": "Q278_SELECT_IGNORES_RELATIVE_IMPORTS",
+      "file": "scripts/qa/select_tests.py",
+      "old": "            if node.level:",
+      "new": "            if False:",
+      "tests": ["tests/qa/test_select_tests.py"],
+      "expected": "killed",
+      "note": "#278: src modules import each other relatively"
+    },
+    {
+      "id": "Q278_SELECT_CONTRACT_JSON_NOT_FULL",
+      "file": "scripts/qa/select_tests.py",
+      "old": "        if f.startswith(FULL_TRIGGERS) or (f.startswith(\"contracts/\") and f.endswith(\".json\")):",
+      "new": "        if f.startswith(FULL_TRIGGERS):",
+      "tests": ["tests/qa/test_select_tests.py"],
+      "expected": "killed",
+      "note": "#278: a contract JSON change must run everything"
+    },
+    {
+      "id": "Q278_CACHE_NOT_INSTALLED_IN_KICK_MODULE",
+      "file": "tests/conftest.py",
+      "old": "for m in (module, io_mod, kick_mod) if",
+      "new": "for m in (module, io_mod) if",
+      "tests": ["tests/qa/test_render_cache.py"],
+      "pytest_args": ["-k", "counter"],
+      "expected": "killed",
+      "note": "#278: render_kick_wav in a cached test must hit the cache (render counter shows hits)"
+    }
+  ]
+}
