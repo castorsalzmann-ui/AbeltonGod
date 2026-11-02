@@ -188,16 +188,20 @@ def refusal_text(errors: list[dict]) -> str:
 
 # ----- request building shared by the tool and the CLI -----------------------------------------
 
+def _whole(value: Any) -> Any:
+    """A whole float (16.0) becomes an int; 16.5 stays and is refused by the generator."""
+    return int(value) if isinstance(value, float) and value.is_integer() else value
+
+
 def build_request(genre: Any, bpm: Any, length: Any, unit: Any,
                   changes: list[tuple[Any, Any]]) -> PlanRequest:
     """``length_unit`` picks which of the two generator targets is set; other values are
     left to the generator (a wrong unit leaves both unset, so it answers length_both_or_none)."""
-    if isinstance(length, float) and length.is_integer():
-        length = int(length)  # 64.0 is 64 bars (JSON numbers and argparse floats)
+    length = _whole(length)  # 64.0 is 64 bars (JSON numbers and argparse floats)
     bars = length if unit == "bars" else None
     minutes = length if unit == "minutes" else None
     return PlanRequest(genre, bpm, target_bars=bars, target_minutes=minutes,
-                       settings=dict(changes))
+                       settings={k: _whole(v) for k, v in changes})
 
 
 def plan_summary(plan: dict) -> dict[str, Any]:

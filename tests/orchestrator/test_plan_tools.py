@@ -27,7 +27,13 @@ from orchestrator.arrangement_plan import plan_problems
 from orchestrator.fake_model import FakeModel
 from orchestrator.loop import Orchestrator
 from orchestrator.model_client import ToolResultMessage
-from orchestrator.plan_tools import REFUSALS, PlanSession, refusal_text, tool_input_schema
+from orchestrator.plan_tools import (
+    REFUSALS,
+    PlanSession,
+    build_request,
+    refusal_text,
+    tool_input_schema,
+)
 from orchestrator.tools import Toolbox, validation_errors
 
 SRC = Path(__file__).resolve().parents[2] / "src" / "orchestrator"
@@ -200,6 +206,19 @@ def test_refusals_reach_the_model_as_errors_and_store_no_plan(make_guard, events
     assert result.content["codes"] == [code]
     assert session.plans == {} and session.context() == ""
     assert "Nothing was planned" in result.content["message"]
+
+
+def test_whole_float_setting_values_work_and_fractions_are_refused():
+    session = PlanSession()
+    tool = session.tools()[0]
+    ok = {**GOOD, "length": 200, "length_unit": "bars",
+          "setting_changes": [{"key": "intro_length", "value": 16.0}]}
+    assert validation_errors(tool, ok) == []  # the schema takes 16.0 as an integer
+    assert tool.handler(ok).content["settings"]["intro_length"] == 16
+    bad = {**ok, "setting_changes": [{"key": "intro_length", "value": 16.5}]}
+    assert validation_errors(tool, bad)  # the schema already refuses a fraction
+    request = build_request("techno", 140, 200, "bars", [("intro_length", 16.5)])
+    assert [e["code"] for e in generate_plan(request).errors] == ["bad_setting"]
 
 
 def test_second_drop_ask_text_tells_the_model_to_ask_the_user(make_guard, events):
