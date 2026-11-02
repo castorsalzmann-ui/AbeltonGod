@@ -2,7 +2,7 @@
 
     python -m audio_engine.listening_test_clap --out DIR
 
-
+Plan: ``docs/research/2026-11-02_clap-targets-and-listening-plan.md`` section 5. Parameter
 values: the revised starter set S ("short") of
 ``docs/research/2026-11-02_clap-reference-analysis.md`` section 5.2 replaces the plan's
 "tight techno" T; L ("long") replaces "long trance". Writes into a new folder ``DIR``:
