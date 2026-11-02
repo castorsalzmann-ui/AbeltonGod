@@ -80,9 +80,12 @@ def test_energy_free_band_gives_leak_below_minus_80(seed: int) -> None:
 def test_leak_matches_known_ratio() -> None:
     n = np.arange(SR)
     x = np.sin(2 * np.pi * 1000 * n / SR) + 0.1 * np.sin(2 * np.pi * 9000 * n / SR)
-    # power ratio (0.1 / 1)^2 -> low share of 1 / 1.01 -> hp 6000: below 3000 is the 1 kHz sine
+    # hp 6000: the leak band is below 3000 Hz = the 1 kHz sine. Power ratio of the two sines is
+    # (0.1 / 1)^2, so the low share is 1 / 1.01.
     assert lf_leak_db(x, SR, 6000) == pytest.approx(10 * np.log10(1 / 1.01), abs=1e-3)
-    assert lf_leak_db(x, SR, 18000) == pytest.approx(0.0, abs=0.05)  # all below 9 kHz? 9k not <9k
+    assert lf_leak_db(x, SR, 18000) == pytest.approx(0.0, abs=0.05)
+    # (line above) hp 18000: band is below 9000 Hz, the 9 kHz bin is excluded (< not <=):
+    # only the 1 kHz sine counts, giving -0.043 dB
     assert lf_leak_db(np.zeros(10), SR, 6000) is None
 
 
@@ -127,13 +130,13 @@ def test_peak_count_noise_short_and_silent() -> None:
 
 
 @pytest.mark.parametrize("seed", SEEDS)
-def test_exponential_of_100ms_fits_within_2_percent(seed: int) -> None:
+def test_line_fit_t60_random_decays_and_100ms_exponential(seed: int) -> None:
     rng = np.random.default_rng(seed)
     t60 = float(rng.uniform(60, 400))
     x = _expo(t60, int((t60 + 100) / 1000 * SR), seed)
     got = t60_line_fit_ms(x, SR)
     assert got == pytest.approx(t60, rel=0.04)  # noise carrier: scatter of the envelope
-    # the deterministic carrier is the pinned 2 % case
+    # the deterministic carrier (100 ms exponential) is the pinned 2 % case
     x = _expo(100.0, SR // 4)
     assert t60_line_fit_ms(x, SR) == pytest.approx(100.0, rel=0.02)
 
@@ -153,7 +156,11 @@ def test_early_late_ratio() -> None:
     tone = lambda f, t60: np.sin(2 * np.pi * f * t) * 10.0 ** (-3.0 * t / (t60 / 1000.0))  # noqa: E731
     # high part dies at 60 ms, low part lasts 300 ms -> late window is dominated by 4 kHz
     split = 4 * tone(12000, 60) + tone(4000, 300)
-    assert early_late_centroid_ratio(split, SR) > 1.5
+    # Late window (60-100 % of the fitted T60) holds only the 4 kHz tone, so the ratio is the
+    # early centroid / 4000 Hz. 2.57 was measured once on this signal (an expected value, not a
+    # formula from the code); +-0.05 is narrower than the 0.125 shift when the window starts
+    # at 10 % of T60 instead of 60 % (2.44).
+    assert early_late_centroid_ratio(split, SR) == pytest.approx(2.57, abs=0.05)
     # a single decaying tone has the same centroid early and late
     assert early_late_centroid_ratio(tone(8000, 200), SR) == pytest.approx(1.0, abs=0.05)
     assert early_late_centroid_ratio(np.zeros(n), SR) is None

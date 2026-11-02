@@ -296,9 +296,11 @@ def peak_count(audio: np.ndarray, sr: int) -> int | None:
 
     First 100 ms, Hann window, zero-padded to 16384 points. A bin is a peak when it is a local
     maximum and at least 15 dB above the running median (+-500 Hz) of the dB spectrum; peaks
-    closer than 50 Hz keep only the highest. The band is cut at Nyquist. Depends on the decay
-    (longer decay, narrower lines): compare only at equal decay (P8). ``None`` for silence or
-    fewer than 16 samples; a signal shorter than 100 ms uses all its samples.
+    closer than 50 Hz keep only the highest. A candidate within 40 / duration Hz of a stronger
+    one and at least 20 dB below it is dropped as a window sidelobe, not counted as a line.
+    The band is cut at Nyquist. Depends on the decay (longer decay, narrower lines): compare
+    only at equal decay (P8). ``None`` for silence or fewer than 16 samples; a signal shorter
+    than 100 ms uses all its samples.
     """
     seg = audio[: int(round(PEAK_WINDOW_MS * sr / 1000.0))]
     if len(seg) < 16 or not np.any(seg):
