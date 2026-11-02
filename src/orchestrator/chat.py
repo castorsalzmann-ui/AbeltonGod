@@ -38,6 +38,7 @@ from orchestrator.loop import DEFAULT_PROFILE, Orchestrator
 from orchestrator.model_client import ModelClient
 from orchestrator.plan_tools import PlanSession
 from orchestrator.project import ProjectCheckUnavailable
+from orchestrator.sample_tools import SampleTools
 from orchestrator.tools import CONFIRM_WINDOW_S, Plan, Tool, Toolbox, ToolDefinitionError
 
 SDK_LOGGER = "claude_agent_sdk"
@@ -131,7 +132,9 @@ def main(
                 unavailable = str(exc)
         limit = guard.policy.profile(args.profile).max_files_written
         plans = PlanSession()  # needs no project folder: plans stay in this chat
-        toolbox = (Toolbox(session.tools(files_per_request=limit) + plans.tools(),
+        toolbox = (Toolbox(session.tools(files_per_request=limit)
+                           + SampleTools(session).tools(files_per_request=limit)
+                           + plans.tools(),
                            capability_gate=session.gate())
                    if session is not None else Toolbox(plans.tools()))
         if model is None:

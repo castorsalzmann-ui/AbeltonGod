@@ -159,6 +159,7 @@ class SampleEntry:
     file: str
     variant: int
     seed: int
+    category: str = "kick"  # generate_sample adds other categories (#258)
 
 
 @dataclass(frozen=True)
@@ -204,7 +205,7 @@ class KickSession:
         self.action_log = Path(action_log)
         self.bridge_timeout_s = float(bridge_timeout_s)
         self._table: dict[str, SampleEntry] = {}
-        self._next_id = 1
+        self._next_ids: dict[str, int] = {}  # per sample_id prefix
         self._lock = threading.Lock()
 
     # ----- configuration ---------------------------------------------------------------------
@@ -233,15 +234,18 @@ class KickSession:
         with self._lock:
             return self._table.get(sample_id)
 
-    def _register(self, path: str, sha: str, variant: int, seed: int) -> SampleEntry:
+    def _register(self, path: str, sha: str, variant: int, seed: int,
+                  category: str = "kick") -> SampleEntry:
         with self._lock:
             # A reused path (the old file was deleted, place_kick gave its name to the new
             # kick) makes every older id for it unknown (INTERFACES.md, import_sample 1.).
             for old_id in [i for i, e in self._table.items() if same_file_path(e.path, path)]:
                 del self._table[old_id]
-            sample_id = f"{SAMPLE_ID_PREFIX}{self._next_id}"
-            self._next_id += 1
-            entry = SampleEntry(sample_id, path, sha, Path(path).name, variant, seed)
+            prefix = SAMPLE_ID_PREFIX if category == "kick" else f"{category}-"
+            number = self._next_ids.get(prefix, 1)
+            self._next_ids[prefix] = number + 1
+            sample_id = f"{prefix}{number}"
+            entry = SampleEntry(sample_id, path, sha, Path(path).name, variant, seed, category)
             self._table[sample_id] = entry
             return entry
 
@@ -251,8 +255,9 @@ class KickSession:
             entries = list(self._table.values())[-CONTEXT_MAX_KICKS:]
         if not entries:
             return ""
-        lines = ["Kicks generated in this chat session (newest last). To import one, pass its "
-                 "sample_id to import_sample; never a file name or path:"]
+        what = "Kicks" if all(e.category == "kick" for e in entries) else "Samples"
+        lines = [f"{what} generated in this chat session (newest last). To import one, pass "
+                 "its sample_id to import_sample; never a file name or path:"]
         lines += [f"- {e.sample_id}: {e.file} (variant {e.variant}, seed {e.seed})"
                   for e in entries]
         return "\n".join(lines)
@@ -338,7 +343,8 @@ class KickSession:
         return ToolOutput({"kicks": made, "folder": str(self.kick_folder)},
                           files_written=files, live_writes=0)
 
-    def _pin(self, wav: Path, variant: int, seed: int) -> tuple[SampleEntry, dict[str, Any]]:
+    def _pin(self, wav: Path, variant: int, seed: int,
+             category: str = "kick") -> tuple[SampleEntry, dict[str, Any]]:
         """Hash the WAV just written, check it against its sidecar, register it."""
         try:
             sha = sha256_file(wav)
@@ -351,7 +357,7 @@ class KickSession:
         if stated is not None and stated != sha:
             raise ToolError(f"{wav.name} does not match the sha256 in its sidecar; refused "
                             "(no sample_id)")
-        entry = self._register(str(wav), sha, variant, seed)
+        entry = self._register(str(wav), sha, variant, seed, category)
         params = sidecar.get("parameters") if isinstance(sidecar.get("parameters"), dict) else {}
         shown = {k: v for k, v in params.items()
                  if k not in ("schema_version", "sample_rate", "bit_depth", "variants")}
@@ -401,11 +407,13 @@ class KickSession:
         entry = self.entry(sample_id) if isinstance(sample_id, str) else None
         if entry is None:
             known = ", ".join(self.sample_ids()) or "none yet"
-            raise ToolError(f"unknown sample_id {sample_id!r}: only kicks generate_kick made in "
-                            f"this session can be imported (known: {known})",
+            raise ToolError(f"unknown sample_id {sample_id!r}: only samples generate_kick or "
+                            f"generate_sample made in this session can be imported "
+                            f"(known: {known})",
                             files_written=0, live_writes=0, details={"live": "unchanged"})
         try:
-            path = validate_wav_path(entry.path, library_root=self.kick_folder)
+            path = validate_wav_path(
+                entry.path, library_root=library_folder(self.project_dir, category=entry.category))
             sha = sha256_file(path)
         except (ImportPathError, OSError) as exc:
             raise ToolError(f"{entry.sample_id}: the kick file cannot be used: {exc}",
