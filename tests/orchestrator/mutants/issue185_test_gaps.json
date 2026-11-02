@@ -1,0 +1,41 @@
+{
+  "description": "#185/#186 fault injection: each mutant survived the earlier tests. Run: python scripts/qa/mutate.py tests/orchestrator/mutants/issue185_test_gaps.json",
+  "mutants": [
+    {
+      "id": "G1_NO_RESPONSE_RESETS_THE_RETRY_COUNT",
+      "file": "src/orchestrator/sdk_client.py",
+      "old": "        if isinstance(data, Mapping) and data.get(\"no_response\"):\n            return\n",
+      "new": "        if isinstance(data, Mapping) and data.get(\"no_response\"):\n            sess.offline_retries = 0\n            return\n",
+      "tests": ["tests/orchestrator/test_sdk_client.py"],
+      "pytest_args": ["-k", "retr"]
+    },
+    {
+      "id": "G2_SDK_LOG_LEVEL_NOT_RESTORED",
+      "file": "src/orchestrator/chat.py",
+      "old": "        sdk_log.setLevel(sdk_level)\n",
+      "new": "        pass\n",
+      "tests": ["tests/orchestrator/test_unreachable_changes.py"]
+    },
+    {
+      "id": "G3_CTRL_C_AT_THE_QUESTION_ESCAPES",
+      "file": "src/orchestrator/chat.py",
+      "old": "        except (EOFError, KeyboardInterrupt):\n            return False\n",
+      "new": "        except EOFError:\n            return False\n",
+      "tests": ["tests/orchestrator/test_tools_auth_chat.py"]
+    },
+    {
+      "id": "G4_NEUTRALISE_LABELS_AFTER_CLIPPING",
+      "file": "src/orchestrator/memory.py",
+      "old": "    flat = \" \".join(str(text).split())\n    flat = _SPEAKER.sub(lambda m: m.group(1) + \" -\", flat)  # no inline \"Copilot:\" label\n    if len(flat) <= limit:\n        return flat\n    return flat[: limit - len(_ELLIPSIS)].rstrip() + _ELLIPSIS\n",
+      "new": "    flat = \" \".join(str(text).split())\n    if len(flat) > limit:\n        flat = flat[: limit - len(_ELLIPSIS)].rstrip() + _ELLIPSIS\n    return _SPEAKER.sub(lambda m: m.group(1) + \" -\", flat)\n",
+      "tests": ["tests/orchestrator/test_chat_memory.py"]
+    },
+    {
+      "id": "N7_TILING_ADDS_LENGTHS_INSTEAD_OF_USING_THE_START",
+      "file": "src/orchestrator/arrangement_plan.py",
+      "old": "        expected = s[\"start_bar\"] + s[\"length_bars\"]\n",
+      "new": "        expected += s[\"length_bars\"]\n",
+      "tests": ["tests/test_contracts_arrangement_plan.py"]
+    }
+  ]
+}
