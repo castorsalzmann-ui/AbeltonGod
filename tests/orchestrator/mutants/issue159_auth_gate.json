@@ -1,0 +1,45 @@
+{
+  "description": "#159 fault injection on the subscription account check. Run: python scripts/qa/mutate.py tests/orchestrator/mutants/issue159_auth_gate.json",
+  "mutants": [
+    {
+      "id": "A1_NULL_KEY_SOURCE_COUNTS_AS_ABSENT",
+      "file": "src/orchestrator/sdk_client.py",
+      "old": "            if has_source:\n",
+      "new": "            if source is not None:\n",
+      "tests": ["tests/orchestrator/test_sdk_client.py"],
+      "pytest_args": ["-k", "account"]
+    },
+    {
+      "id": "A1b_NULL_KEY_SOURCE_ONLY_BY_PROPERTY_TEST",
+      "file": "src/orchestrator/sdk_client.py",
+      "old": "            if has_source:\n",
+      "new": "            if source is not None:\n",
+      "tests": ["tests/orchestrator/test_sdk_client.py"],
+      "pytest_args": ["-k", "property"]
+    },
+    {
+      "id": "A2_PLAN_EXACT_MATCH",
+      "file": "src/orchestrator/sdk_client.py",
+      "old": "plan.strip().casefold() == NOT_A_SUBSCRIPTION_PLAN.casefold()",
+      "new": "plan == NOT_A_SUBSCRIPTION_PLAN",
+      "tests": ["tests/orchestrator/test_sdk_client.py"],
+      "pytest_args": ["-k", "account"]
+    },
+    {
+      "id": "A3_PLAN_STRIP_WITHOUT_CASEFOLD",
+      "file": "src/orchestrator/sdk_client.py",
+      "old": "plan.strip().casefold() == NOT_A_SUBSCRIPTION_PLAN.casefold()",
+      "new": "plan.strip() == NOT_A_SUBSCRIPTION_PLAN",
+      "tests": ["tests/orchestrator/test_sdk_client.py"],
+      "pytest_args": ["-k", "account"]
+    },
+    {
+      "id": "A4_PLAN_CASEFOLD_WITHOUT_STRIP",
+      "file": "src/orchestrator/sdk_client.py",
+      "old": "plan.strip().casefold() == NOT_A_SUBSCRIPTION_PLAN.casefold()",
+      "new": "plan.casefold() == NOT_A_SUBSCRIPTION_PLAN.casefold()",
+      "tests": ["tests/orchestrator/test_sdk_client.py"],
+      "pytest_args": ["-k", "account"]
+    }
+  ]
+}

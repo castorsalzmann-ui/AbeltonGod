@@ -463,6 +463,15 @@ FP = {"apiProvider": "firstParty"}
     FP,  # no token, no plan: what an Anthropic profile (~/.config/anthropic) reports
     {**FP, "tokenSource": None}, {**FP, "tokenSource": None, "subscriptionType": "Claude Max"},
     {**FP, "subscriptionType": "Claude API"},  # the CLI's label for an unknown plan
+    # #159: the label next to blanks or in another case is the same label
+    {**FP, "subscriptionType": "Claude API "}, {**FP, "subscriptionType": "Claude API\n"},
+    {**FP, "subscriptionType": "Claude api"}, {**FP, "subscriptionType": "CLAUDE API"},
+    {**FP, "subscriptionType": "Claude API\t"},
+    # #159: an explicit null key source is a key source (the token one is refused too)
+    {**FP, "apiKeySource": None},
+    {**FP, "apiKeySource": None, "tokenSource": "none"},
+    {**FP, "apiKeySource": None, "tokenSource": "claude.ai"},
+    {**FP, "apiKeySource": None, "subscriptionType": "Claude Max"},
     {**FP, "subscriptionType": "max"}, {**FP, "subscriptionType": "Claude"},
     {**FP, "subscriptionType": ""}, {**FP, "subscriptionType": 1},
     {**FP, "subscriptionType": None},
@@ -519,9 +528,10 @@ def test_account_property_api_billing_is_never_accepted(make_guard, events, clie
     pools = {
         # weighted towards the subscription shape so the passing branch is hit often enough
         "apiProvider": PROVIDERS + ("firstParty",) * 8 + (MISSING, None, "FirstParty"),
-        "apiKeySource": API_KEY_SOURCES + (MISSING,) * 12,
+        "apiKeySource": API_KEY_SOURCES + (MISSING,) * 12 + (None,) * 2,  # null: #159
         "tokenSource": API_TOKEN_SOURCES + SUB_TOKEN_SOURCES + (MISSING,) * 4 + ("x", None),
-        "subscriptionType": SUB_PLANS + ("Claude API", "max", "", "Claude", MISSING, MISSING),
+        "subscriptionType": SUB_PLANS + ("Claude API", "Claude API ", " Claude API", "claude api",
+                                         "max", "", "Claude", MISSING, MISSING),
         "email": ("a@b.c", MISSING),
     }
     seen = {True: 0, False: 0}
