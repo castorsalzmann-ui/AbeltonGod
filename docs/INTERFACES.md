@@ -58,6 +58,8 @@ Every generated WAV gets a sidecar `<name>.json` with the parameters, seed, engi
 
 Engine version (#35): `ENGINE_VERSION` is bumped on every change that alters rendered bytes, and golden SHA-256s in `tests/audio_engine/test_engine_version.py` catch a byte change without a bump. So a sidecar can only be reproduced by the engine version that wrote it: `rerender_from_sidecar` raises `audio_engine.io.EngineVersionMismatch` (a `ValueError`) when the sidecar's engine name or version differs. `allow_engine_mismatch=True` renders its parameters with the current engine anyway; the result is a new render, not a reproduction.
 
+Sidecar read checks (#85): reading a sidecar for rendering also refuses non-finite numbers, a `file` that differs from the WAV name next to it (compared case-sensitively, also on Windows), a `created_at` that is not a subset of RFC 3339 (only upper-case `T`/`Z`, no leap second 23:59:60, no year 0000, although RFC 3339 allows them), and a `sha256` that does not match the WAV. `sha256` is compared only when the WAV exists as a file: with no WAV (missing, a directory named `.wav`, a dangling symlink) the check is skipped, because rendering does not use `sha256` and there is nothing to compare.
+
 ## Guard policy
 
 One profile per request type (`kick_generation`, `mentor_answer`, …). The orchestrator picks the profile; the guard enforces it. Limits: output tokens per call, model calls, tool calls, cost estimate, timeout, identical tool calls (loop), files written, Ableton writes, and a warn threshold. Global: session and daily budget, max concurrent requests. Budget reservations must be atomic once requests run in parallel.
