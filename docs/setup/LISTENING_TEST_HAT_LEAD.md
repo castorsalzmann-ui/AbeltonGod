@@ -2,9 +2,17 @@
 
 **Erst nach dem Test lesen.** Diese Datei verrät den Aufbau (Kontrollpaar, Inhalt jeder Datei) und darf nicht vor oder während des Hörens zum Hörer gelangen. Die Anleitung für den Hörer ist `docs/setup/LISTENING_TEST_HAT.md`. Plan und Hypothesen: `docs/research/2026-11-02_hat-targets-and-listening-plan.md` Abschnitt 5. Nichts hier ist gehört worden; Zahlen beschreiben nur Signale.
 
-## 1. Paket erzeugen
+## 1. Paket erzeugen (Loops, Issue #300)
 
-Aus dem Repo-Stamm, mit der Engine auf dem Pfad (`PYTHONPATH=src` oder editable install), Bash. `OUT` ist ein neuer, leerer Ordner **außerhalb** des Repos. Verschickt wird nur `OUT/hoerer/`; `OUT/render/` enthält die Sidecars (Dateinamen und Parameter verraten den Schlüssel).
+```bash
+python -m audio_engine.listening_test_hat --out /pfad/zu/neuem/ordner
+```
+
+Der Ordner muss neu oder leer sein und liegt **außerhalb** des Repos. Ergebnis: `hoerer/T?_?.wav` (19 Loops, wird verschickt) und `Schluessel.md` (nicht verschicken). Jeder Loop: 4 Takte, 136 BPM, mono, 48 kHz, 24 Bit, `dense`-Kick auf jedem Beat (Bus -6 dB, wie Test 3), Hat-Bus -8 dB plus Angleich-Gain (<= 0; fester Startpegel, kein Lautheitsurteil). Closed (T1, T0, T2, T3, T6): Hat auf jedem 16tel (Slot k beginnt bei `round(k * 60/136 * 48000 / 4)` Samples, 64 Slots). Open (T5, T4): Hat auf jedem Off-Beat-8tel (Beat b + 0,5, 16 Slots). Jeder Schlag wird beim nächsten Slot abgeschnitten (3 ms Raised-Cosine-Fade, nur wenn der Render länger ist als der Slot; Open also nach einem Beat). Positionen A/B/C/D: SHA-256 mit festem Seed 300 (`listening_test3.blind_order`). Die Hat-Renders sind die Presets und Änderungen der Tabelle in Abschnitt 2 (Ceiling -0,3, der Angleich geschieht über den Gain); T6 sind die Varianten 0 bis 3 von `closed-std` (`hat_variants.make_variants`, Seed 1).
+
+## 1b. Einzelschlag-Variante (Rückfall)
+
+Das Paket aus Einzelschlägen, das PR #299 geliefert hat und das der Hörer im Simpler selbst abspielt. Aus dem Repo-Stamm, mit der Engine auf dem Pfad (`PYTHONPATH=src` oder editable install), Bash. `OUT` ist ein neuer, leerer Ordner **außerhalb** des Repos. Verschickt wird nur `OUT/hoerer/`; `OUT/render/` enthält die Sidecars (Dateinamen und Parameter verraten den Schlüssel). Der Pegelangleich dieser Variante geschieht über `peak_ceiling_dbfs`, nicht über Gains.
 
 ```bash
 set -euo pipefail
@@ -51,6 +59,8 @@ Die T6-Varianten sind die Parameter von `--variants 4` (aus den Sidecars von `cl
 
 ## 2. Schlüssel (Datei zu Render)
 
+**Loops (Abschnitt 1):** Welche Datei was ist, steht mit Gain, Spitze und Hat-RMS in `Schluessel.md` des erzeugten Pakets (Positionen aus dem festen Seed 300, nicht die der Tabelle unten). Die Items sind dieselben wie in der Tabelle: T1 loose/tight, T0 S/S (byte-gleiche Kopie), T2 S/hp 9000/hp 4500, T5 body_mix 0,4 + decay_hi_ratio 0,5 / open-long, T4 choke 220 / open-short / open-long, T3 metal 1 / metal 0 / S, T6 Varianten 0 bis 3. **Die Tabelle unten gilt nur für die Einzelschlag-Variante** (Positionen von Hand, Pegel über `peak_ceiling_dbfs`).
+
 | Datei | Render | Änderung gegenüber `closed-std` (S: `decay_ms` 70, `hp_hz` 6000, `metal` 0.6, Seed 1) | `peak_ceiling_dbfs` |
 | --- | --- | --- | --- |
 | T1_A | closed-loose | `decay_ms` 120, `hp_hz` 5000 | -2.9 |
@@ -77,7 +87,9 @@ Die Positionen (A/B, X/Y/Z, A bis D) sind von Hand festgelegt und gemischt (nich
 
 ## 3. Gemessen (Befehle unten, Signalwerte, keine Hörurteile)
 
-Level-Angleich je Block: RMS des Hats allein über 0-30 ms (Closed-Blöcke) bzw. 0-100 ms (Open-Blöcke), gemessen an den fertigen Dateien in `hoerer/`; jeder Block ist auf die leiseste Datei heruntergezogen, dazu dient `peak_ceiling_dbfs`.
+**Loops (#300):** Angleich je Item über RMS des einzelnen Hat-Renders (30 ms Closed, 100 ms Open). Gegenprobe an den geschriebenen Dateien, unabhängig vom Generator: Datei minus quantisierter Kick-Loop, RMS im Fenster von drei Slots je Datei (erster, mittlerer, vorletzter); Spreizung im Item unter 0,5 dB (Test `tests/audio_engine/test_listening_test_hat.py`; die Spreizung der Slots selbst steht in `Schluessel.md`). Spitze der Dateien unter -0,3 dBFS. Determinismus: zwei Läufe, alle 19 Dateien und `Schluessel.md` byte-gleich. Ob die Loops im Hörtest gleich laut wirken, ist nicht gemessen und nicht behauptet.
+
+**Einzelschläge (#299):** Level-Angleich je Block: RMS des Hats allein über 0-30 ms (Closed-Blöcke) bzw. 0-100 ms (Open-Blöcke), gemessen an den fertigen Dateien in `hoerer/`; jeder Block ist auf die leiseste Datei heruntergezogen, dazu dient `peak_ceiling_dbfs`.
 
 | Block | Fenster | RMS in dBFS je Datei | Spreizung |
 | --- | --- | --- | --- |
@@ -94,11 +106,12 @@ Determinismus: das Paket wurde in zwei getrennten Läufen erzeugt, SHA-256 aller
 
 ## 4. Abweichungen vom Plan (Abschnitt 5 der Hat-Notiz)
 
-- **Einzelschläge statt Loops.** Es gibt keinen Loop-Generator für Hats, und das Issue verbietet Engine-Änderungen. Der Hörer baut das Muster (Kick auf jedem Beat, Hat auf jedem 16tel bzw. Off-Beat-8tel) einmal im Simpler. Folge: das Abschneiden durch den nächsten Schlag (Plan: 3 ms Fade) hängt an den Simpler-Einstellungen des Hörers, nicht an der Datei. Wenn der Test im Ergebnis auf Längenfragen (T1, T4) baut, einmal prüfen, dass der Hörer Voices 1 benutzt hat. Die Live-Schritte sind nicht von uns in Live geprüft.
+- **Erledigt durch #300:** Der Loop-Generator `listening_test_hat.py` liegt vor; der Hörer-Aufbau ist "Dateien laden, Warp aus". Der folgende Punkt beschreibt nur noch die Einzelschlag-Variante. Offene Punkte der Loops: Kick-Hat-Verhältnis (Hat-Bus -8 dB gegen Kick-Bus -6 dB) ist ein fester Startwert, nicht gehört; offene Hats laufen über die Kick-Positionen weiter (Schnitt erst am nächsten Off-Beat).
+- **Einzelschläge statt Loops (#299).** Es gab keinen Loop-Generator für Hats, und das Issue verbot Engine-Änderungen. Der Hörer baut das Muster (Kick auf jedem Beat, Hat auf jedem 16tel bzw. Off-Beat-8tel) einmal im Simpler. Folge: das Abschneiden durch den nächsten Schlag (Plan: 3 ms Fade) hängt an den Simpler-Einstellungen des Hörers, nicht an der Datei. Wenn der Test im Ergebnis auf Längenfragen (T1, T4) baut, einmal prüfen, dass der Hörer Voices 1 benutzt hat. Die Live-Schritte sind nicht von uns in Live geprüft.
 - **Kick-Level:** nicht festgelegt, der Hörer stellt den Hat-Fader einmal selbst ein. Die Plan-Vorgabe „dense Kick auf jedem Beat" ist erfüllt (Preset `dense`, Peak -0.3 dBFS).
 - **T6:** Pegel-Angleich je Variante statt `--variants 4` in einem Lauf (siehe Abschnitt 1).
 - **Clap-Vorlage nicht auf main:** `listening_test_clap.py` (PR #254) und `docs/setup/LISTENING_TEST_CLAP*.md` liegen zum Zeitpunkt dieses PR noch nicht auf `origin/main`; als Vorlage diente der Branch `phase-06/232-clap-listening`.
-- **Folgeissue (Vorschlag):** ein Loop-Generator `listening_test_hat.py` nach dem Muster von `listening_test_clap.py` (PR #254) würde das Abschneiden und das Muster in die Datei legen und den Hörer-Aufbau auf „Dateien laden, Warp aus" verkürzen. Das ist Engine-/Tool-Arbeit des audio-engineer, nicht Teil dieses Issues.
+- **Folgeissue (Vorschlag, erledigt durch #300):** ein Loop-Generator `listening_test_hat.py` nach dem Muster von `listening_test_clap.py` (PR #254) würde das Abschneiden und das Muster in die Datei legen und den Hörer-Aufbau auf „Dateien laden, Warp aus" verkürzen. Das ist Engine-/Tool-Arbeit des audio-engineer, nicht Teil dieses Issues.
 
 ## 5. Was der Lead mit den Antworten macht
 

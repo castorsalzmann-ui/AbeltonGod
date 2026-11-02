@@ -1,0 +1,11 @@
+{
+  "schema_version": "0.1",
+  "preset": "bright",
+  "seed": 1,
+  "saw_level": 0.8,
+  "square_level": 0.3,
+  "sine_level": 0.4,
+  "lp_hz": 1200,
+  "lp_q": 1.5,
+  "lp_env_amount": 2
+}
