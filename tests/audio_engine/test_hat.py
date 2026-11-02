@@ -659,3 +659,39 @@ def test_kick_and_clap_golden_hashes_are_untouched_by_this_module() -> None:
     """The hat adds a preset folder and a describe() branch; the kick and clap presets still
     load by their old names (their own golden tests are in test_kick.py / test_clap.py)."""
     assert "centre" in preset_names("kick") and "short" in preset_names("clap")
+
+
+# --- variants (H12) and engine rejection of lp_hz <= 1.2 * hp_hz ---------------------------------
+
+
+@pytest.mark.parametrize("p", RANDOM[:8], ids=[f"r{i}" for i in range(8)])
+def test_variants_stay_in_the_contract_and_are_reproducible(p: dict) -> None:
+    from audio_engine import hat_variants
+
+    vs = hat_variants.make_variants(p, 4)
+    assert vs == hat_variants.make_variants(p, 4)
+    assert vs[0] == {k: v for k, v in resolve_hat_params(p).items() if k != "variants"}
+    assert len({v["seed"] for v in vs}) == 4
+    for v in vs:
+        assert resolve_hat_params(v) == {**v, "variants": 1}  # valid, incl. lp_hz > 1.2 * hp_hz
+        assert v["lp_hz"] > 1.2 * v["hp_hz"]
+
+
+def test_variants_edge_hp_next_to_lp_and_derived_length() -> None:
+    from audio_engine import hat_variants
+
+    edge = {**BASE, "hp_hz": 11990, "lp_hz": 14400.5}
+    for v in hat_variants.make_variants(edge, 8):
+        assert v["lp_hz"] > 1.2 * v["hp_hz"]
+    vs = hat_variants.make_variants({**BASE, "decay_ms": 300}, 4)
+    for v in vs:  # length follows the moved decay (not frozen to the base)
+        assert v["length_ms"] == pytest.approx(v["offset_ms"] + v["attack_ms"] + v["decay_ms"] + 30)
+    assert max(v["decay_ms"] for v in vs) <= 330 and min(v["decay_ms"] for v in vs) >= 270
+
+
+def test_engine_rejects_lp_not_above_1_2_hp_with_a_named_error() -> None:
+    """Done-when evidence: the cross-field rule is enforced by the engine, never clamped."""
+    for hp, lp in ((7000, 8400), (7000, 8399.9), (10000, 12000), (12000, 14400), (12000, 8000)):
+        with pytest.raises(HatParamsError, match=r"lp_hz: must be greater than 1\.2 \* hp_hz"):
+            render_hat({**BASE, "hp_hz": hp, "lp_hz": lp})
+    render_hat({**BASE, "hp_hz": 7000, "lp_hz": 8400.1, "length_ms": 40})  # just above: accepted
