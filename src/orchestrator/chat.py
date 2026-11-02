@@ -36,6 +36,7 @@ from orchestrator.fake_model import FakeModel, RecordingError
 from orchestrator.kick_tools import KickSession
 from orchestrator.loop import DEFAULT_PROFILE, Orchestrator
 from orchestrator.model_client import ModelClient
+from orchestrator.plan_tools import PlanSession
 from orchestrator.project import ProjectCheckUnavailable
 from orchestrator.tools import CONFIRM_WINDOW_S, Plan, Tool, Toolbox, ToolDefinitionError
 
@@ -129,8 +130,10 @@ def main(
             except ProjectCheckUnavailable as exc:  # until #149 is merged
                 unavailable = str(exc)
         limit = guard.policy.profile(args.profile).max_files_written
-        toolbox = (Toolbox(session.tools(files_per_request=limit), capability_gate=session.gate())
-                   if session is not None else Toolbox())
+        plans = PlanSession()  # needs no project folder: plans stay in this chat
+        toolbox = (Toolbox(session.tools(files_per_request=limit) + plans.tools(),
+                           capability_gate=session.gate())
+                   if session is not None else Toolbox(plans.tools()))
         if model is None:
             model = (
                 FakeModel.from_file(args.replay)
@@ -143,7 +146,9 @@ def main(
             toolbox,
             profile=args.profile,
             approver=TerminalApprover(read, out),
-            context=session.context if session is not None else None,
+            context=lambda: "\n\n".join(
+                t for t in (session.context() if session is not None else "", plans.context())
+                if t),
         )
     except (RecordingError, PolicyError, ToolDefinitionError, CapabilityError,
             ValueError, OSError) as exc:
@@ -151,7 +156,7 @@ def main(
         return EXIT_SETUP
     if unavailable:
         out.write("Kick-Werkzeuge noch nicht verfügbar: die Prüfung des Projektordners "
-                  f"(#149) fehlt noch ({unavailable}). Der Chat läuft ohne Werkzeuge.\n")
+                  f"(#149) fehlt noch ({unavailable}). Der Chat läuft ohne Kick-Werkzeuge.\n")
     elif session is None:
         out.write("Ohne --project: keine Kick-Werkzeuge (generate_kick, list_tracks, "
                   "import_sample).\n")

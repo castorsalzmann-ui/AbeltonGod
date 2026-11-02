@@ -431,7 +431,7 @@ def test_terminal_approver_shows_track_and_slot(tmp_path):
     assert "20 s" in text
 
 
-def test_chat_without_project_has_no_tools(make_guard):
+def test_chat_without_project_has_only_the_plan_tool(make_guard):
     out = io.StringIO()
     from orchestrator.fake_model import FakeModel
 
@@ -440,7 +440,7 @@ def test_chat_without_project_has_no_tools(make_guard):
     assert main(["--profile", "p"], read=lambda _p: next(lines), out=out, guard=make_guard(),
                 model=model) == 0
     assert "keine Kick-Werkzeuge" in out.getvalue()
-    assert model.requests[0].tools == ()
+    assert [t.name for t in model.requests[0].tools] == ["plan_arrangement"]
 
 
 def test_chat_with_project_registers_the_three_tools(tmp_path, make_guard):
@@ -457,7 +457,7 @@ def test_chat_with_project_registers_the_three_tools(tmp_path, make_guard):
                 out=out, guard=make_guard(), model=model, session_factory=factory)
     assert code == 0, out.getvalue()
     assert [t.name for t in model.requests[0].tools] == ["generate_kick", "list_tracks",
-                                                         "import_sample"]
+                                                         "import_sample", "plan_arrangement"]
     # #170 (mutant Q11): the chat passes the profile's file limit to the tool description
     # (profile "p" in the test policy allows 10 files, 2 per kick)
     generate = model.requests[0].tools[0]
@@ -493,4 +493,4 @@ def test_chat_without_the_shared_check_runs_without_tools(tmp_path, make_guard, 
                 out=out, guard=make_guard(), model=model)
     assert code == 0
     assert "noch nicht verfügbar" in out.getvalue() and "#149" in out.getvalue()
-    assert model.requests[0].tools == ()
+    assert [t.name for t in model.requests[0].tools] == ["plan_arrangement"]
