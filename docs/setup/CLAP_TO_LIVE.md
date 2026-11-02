@@ -18,6 +18,7 @@ been done for this tool.** Your run is the first one. Write the result into issu
 6. Report in the issue: the tool-call arguments Claude sent (chat log), how often it needed a
    repair round, and whether the clap sounds as asked (your ear, not ours).
 
-Limits to know: at most 5 claps per request (the guard allows 10 files per request; 8 claps
-would be 16 files and are refused with the numbers). `prompt` must stay empty for the clap:
-there is no keyword parser for it yet.
+Limits to know: at most 6 claps per request (the real policy, `kick_generation` in
+`config/guard-policy.json`, allows 12 files per request; 8 claps would be 16 files and are
+refused with the numbers). `prompt` must stay empty for the clap: there is no keyword parser
+for it yet.
