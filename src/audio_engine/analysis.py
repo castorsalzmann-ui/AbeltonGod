@@ -120,3 +120,98 @@ def _decay_time(times_ms: np.ndarray, env_db: np.ndarray, drop_db: float) -> flo
     if len(below) == 0:
         return None
     return round(float(times_ms[peak_idx + below[0]]), 3)
+
+
+# ---------------------------------------------------------------------------------------------
+# Non-pitched features (#230; contract fields of sample-metadata v0.2). ``analyse`` above is
+# unchanged, so kick sidecars keep their bytes.
+# ---------------------------------------------------------------------------------------------
+
+HF_SPLIT_HZ = 8000.0
+ENV_RMS_MS = 1.0  # moving RMS window of the fine envelope used for T60 and rise time
+# Frames whose window touches the last FADE_GUARD_MS of the file are ignored when looking for
+# the -60 dB point: the engines' 5 ms fade-out would otherwise fake a decay (cut-off sounds
+# must give None). Must stay >= the kick/clap FADE_OUT_MS (5 ms).
+FADE_GUARD_MS = 6.0
+RISE_LOW, RISE_HIGH = 0.1, 0.9  # fractions of the peak envelope (linear amplitude)
+
+
+def analyse_nonpitched(audio: np.ndarray, sr: int) -> dict[str, float | None]:
+    """peak_dbfs, length_ms and the four non-pitched features of sample-metadata v0.2.
+
+    All spectral values use the whole file with no window (a window would down-weight the
+    attack of a short sound). Silence gives ``None`` for every feature but ``length_ms``.
+    """
+    if audio.ndim != 1:
+        raise ValueError("analyse_nonpitched() expects mono audio (1-D array).")
+    n = len(audio)
+    peak = float(np.max(np.abs(audio))) if n else 0.0
+    out: dict[str, float | None] = {
+        "peak_dbfs": round(_db(peak), 3) if peak > 0 else None,
+        "length_ms": round(n / sr * 1000.0, 3),
+        "spectral_centroid_hz": None,
+        "hf_share_8k": None,
+        "t60_ms": None,
+        "rise_time_ms": None,
+    }
+    if peak == 0.0:
+        return out
+    power = _power_spectrum(audio)
+    freqs = np.fft.rfftfreq(n, 1.0 / sr)
+    total = float(np.sum(power))
+    out["spectral_centroid_hz"] = round(float(np.sum(freqs * power) / total), 2)
+    out["hf_share_8k"] = round(float(np.sum(power[freqs > HF_SPLIT_HZ]) / total), 6)
+    env = rms_envelope(audio, sr)
+    out["t60_ms"] = t60_ms(env, sr)
+    out["rise_time_ms"] = rise_time_ms(env, sr)
+    return out
+
+
+def spectral_flatness(audio: np.ndarray) -> float | None:
+    """Geometric over arithmetic mean of the power spectrum (0 ... 1), whole file, DC excluded.
+
+    1.0 for a flat spectrum (an impulse), near 0 for a pure tone. White noise gives about
+    exp(-gamma) = 0.56 (periodogram bins are exponentially distributed). Not part of the
+    sidecar contract (the ``features`` object does not list it); available for tests and
+    voice design. ``None`` for silence or fewer than 3 samples.
+    """
+    if len(audio) < 3 or not np.any(audio):
+        return None
+    power = _power_spectrum(audio)[1:]
+    power = np.maximum(power, 1e-300)
+    return float(np.exp(np.mean(np.log(power))) / np.mean(power))
+
+
+def rms_envelope(audio: np.ndarray, sr: int) -> np.ndarray:
+    """Moving RMS (centred, ``ENV_RMS_MS`` window, zero-padded), one value per sample."""
+    win = max(1, int(round(ENV_RMS_MS * sr / 1000.0)))
+    kernel = np.full(win, 1.0 / win)
+    return np.sqrt(np.maximum(np.convolve(audio**2, kernel, mode="same"), 0.0))
+
+
+def t60_ms(env: np.ndarray, sr: int) -> float | None:
+    """Time from the envelope peak until it first is 60 dB lower; ``None`` if that does not
+    happen before the last ``FADE_GUARD_MS`` of the file."""
+    if len(env) == 0 or float(np.max(env)) <= 0.0:
+        return None
+    peak_idx = int(np.argmax(env))
+    limit = len(env) - int(round(FADE_GUARD_MS * sr / 1000.0))
+    threshold = float(env[peak_idx]) * 1e-3  # -60 dB
+    below = np.nonzero(env[peak_idx:max(peak_idx, limit)] <= threshold)[0]
+    if len(below) == 0:
+        return None
+    return round(float(below[0]) / sr * 1000.0, 3)
+
+
+def rise_time_ms(env: np.ndarray, sr: int) -> float | None:
+    """First time the envelope reaches 10 % of its peak to first time it reaches 90 %, ms."""
+    if len(env) == 0 or float(np.max(env)) <= 0.0:
+        return None
+    peak = float(np.max(env))
+    lo = int(np.argmax(env >= RISE_LOW * peak))
+    hi = int(np.argmax(env >= RISE_HIGH * peak))
+    return round((hi - lo) / sr * 1000.0, 3)
+
+
+def _power_spectrum(audio: np.ndarray) -> np.ndarray:
+    return np.abs(np.fft.rfft(audio)) ** 2

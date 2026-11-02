@@ -31,10 +31,12 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from audio_engine.categories import get_category
 from audio_engine.io import safe_stem, write_kick
 
 WINDOWS_MAX_PATH_CHARS = 259  # MAX_PATH 260 minus the terminating NUL
 DEFAULT_KICK_FOLDER = "Samples/Drums/Kicks"
+DEFAULT_CLAP_FOLDER = "Samples/Drums/Claps"
 MIN_STEM_CHARS = 16  # below this the name would be cut too short to stay readable
 # write_kick adds _002, _003 … on a clash. The length check reserves room for up to 9999
 # files of the same name; beyond that the files are checked after writing (and removed).
@@ -68,9 +70,11 @@ class LibraryLayout:
 
     kicks: str = DEFAULT_KICK_FOLDER
     max_path_chars: int | None = WINDOWS_MAX_PATH_CHARS
+    claps: str = DEFAULT_CLAP_FOLDER  # used once the clap voice exists (#230 scaffold)
 
     def __post_init__(self) -> None:
         split_folder(self.kicks)  # raises LibraryPathError
+        split_folder(self.claps)
         limit = self.max_path_chars
         if limit is not None and (isinstance(limit, bool) or not isinstance(limit, int)):
             raise TypeError(f"max_path_chars must be an int or None, got {limit!r}")
@@ -80,6 +84,14 @@ class LibraryLayout:
     @property
     def kick_parts(self) -> tuple[str, ...]:
         return split_folder(self.kicks)
+
+    def parts_for(self, category: str) -> tuple[str, ...]:
+        """Folder components of ``category`` below the project folder."""
+        if category == "kick":
+            return self.kick_parts
+        if category == "clap":
+            return split_folder(self.claps)
+        raise LibraryPathError(f"no library folder is defined for category {category!r}")
 
 
 def split_folder(folder: str) -> tuple[str, ...]:
@@ -129,11 +141,29 @@ DEFAULT_LAYOUT = LibraryLayout()
 
 
 def library_folder(project_dir: str | os.PathLike[str],
-                   layout: LibraryLayout = DEFAULT_LAYOUT) -> Path:
-    """Absolute kick folder of a project. Pure: touches no file (e.g. for the Explorer
-    fallback). Symlinks in ``project_dir`` are kept, not resolved."""
+                   layout: LibraryLayout = DEFAULT_LAYOUT, category: str = "kick") -> Path:
+    """Absolute folder of ``category`` (default: kick) in a project. Pure: touches no file
+    (e.g. for the Explorer fallback). Symlinks in ``project_dir`` are kept, not resolved."""
     _check_layout(layout)
-    return Path(os.path.abspath(project_dir)).joinpath(*layout.kick_parts)
+    return Path(os.path.abspath(project_dir)).joinpath(*layout.parts_for(category))
+
+
+def place_sample(
+    category: str,
+    params: dict[str, Any],
+    project_dir: str | os.PathLike[str],
+    *,
+    name: str | None = None,
+    description: str | None = None,
+    created_at: datetime | None = None,
+    layout: LibraryLayout = DEFAULT_LAYOUT,
+) -> Path:
+    """Render a sample of ``category`` into its project folder; see :func:`place_kick`."""
+    cat = get_category(category)  # CategoryUnavailable before any folder is touched
+    return place_kick(
+        params, project_dir, name=cat.default_stem if name is None else name,
+        description=description, created_at=created_at, layout=layout, category=category,
+    )
 
 
 def place_kick(
@@ -144,8 +174,9 @@ def place_kick(
     description: str | None = None,
     created_at: datetime | None = None,
     layout: LibraryLayout = DEFAULT_LAYOUT,
+    category: str = "kick",
 ) -> Path:
-    """Render a kick into the project's kick folder and return the absolute WAV path.
+    """Render a kick into its project folder and return the absolute WAV path.
 
     The sidecar is always ``wav_path.with_suffix(".json")`` in the same folder. ``params``,
     ``name``, ``description`` and ``created_at`` mean the same as in
@@ -177,11 +208,12 @@ def place_kick(
     Raises :class:`LibraryPathError` (a ``ValueError``) for refused paths, ``KickParamsError``
     / ``ValueError`` for bad parameters, ``OSError`` for file system failures.
     """
-    folder = library_folder(project_dir, layout)
+    cat = get_category(category)  # CategoryUnavailable before any folder is touched
+    folder = library_folder(project_dir, layout, category)
     root = Path(os.path.abspath(project_dir))
     if not root.is_dir():
         raise LibraryPathError(f"project folder {root} does not exist or is not a folder")
-    stem = _fitting_stem(name, folder, layout.max_path_chars)
+    stem = _fitting_stem(name, folder, layout.max_path_chars, cat.name)
 
     # One clean-up path for every failure. ``created`` is filled by _make_folders right after
     # each mkdir, inside this try, so an interrupt after a folder is recorded (also right
@@ -191,9 +223,12 @@ def place_kick(
     created: list[Path] = []
     written: tuple[Path, Path] | None = None
     try:
-        _make_folders(root, layout.kick_parts, created)
+        _make_folders(root, layout.parts_for(category), created)
+        # write_kick is the implementation for every category (see its docstring); the plain
+        # kick call keeps the exact signature tests and bridge code patch.
+        extra = {} if category == "kick" else {"category": category}
         written = write_kick(
-            params, folder, name=stem, description=description, created_at=created_at
+            params, folder, name=stem, description=description, created_at=created_at, **extra
         )
         wav_path = written[0]
         limit = layout.max_path_chars
@@ -234,14 +269,14 @@ def _check_layout(layout: Any) -> None:
         raise TypeError(f"layout must be a LibraryLayout, got {type(layout).__name__}")
 
 
-def _fitting_stem(name: str, folder: Path, limit: int | None) -> str:
-    stem = safe_stem(name)
+def _fitting_stem(name: str, folder: Path, limit: int | None, category: str = "kick") -> str:
+    stem = safe_stem(name, get_category(category).default_stem)
     if limit is None:
         return stem
     room = limit - path_chars(folder) - 1 - len(SUFFIX_RESERVE) - len(LONGEST_EXTENSION)
     if room < MIN_STEM_CHARS:
         raise LibraryPathError(
-            f"kick folder {folder} is {path_chars(folder)} characters; with a file name of "
+            f"{category} folder {folder} is {path_chars(folder)} characters; with a file name of "
             f"{MIN_STEM_CHARS} characters, the counter and '{LONGEST_EXTENSION}' (Live's "
             "analysis file) the path would exceed "
             f"{limit} characters (Windows MAX_PATH). Move the project to a shorter path or "
@@ -266,7 +301,7 @@ def _make_folders(root: Path, parts: tuple[str, ...], created: list[Path]) -> No
                 continue
             what = "a dangling symlink" if current.is_symlink() else "not a folder"
             raise LibraryPathError(
-                f"{current} is {what}; the kick folder cannot be created there"
+                f"{current} is {what}; the library folder cannot be created there"
             ) from None
         created.append(current)
 
