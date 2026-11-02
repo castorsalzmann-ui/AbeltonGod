@@ -10,6 +10,29 @@ from bridge.capabilities import CAPABILITIES_FILE, CapabilityGate, CapabilityReg
 from bridge.osc_client import ADDRESSES, AbletonBridge, OscTransport
 
 TEST_TIMEOUT_S = 0.25
+# Tests that expect an ANSWER get a generous deadline: under heavy CPU load (25 busy processes
+# on 2 cores) a 0.25 s deadline expired and the test failed with BridgeTimeoutError (#180).
+REPLY_TIMEOUT_S = 5.0
+# Tests that expect the TIMEOUT keep the short one. A new test that drops or stalls a reply
+# and fails because it now waits 5 s: add its name (or its module) here.
+# In these modules only the WRITE calls get the short deadline (ShortWrites below); ordinary
+# reads keep REPLY_TIMEOUT_S. A stalled write is what the tests expect to time out.
+SHORT_WRITE_MODULES = {"test_clip_import_late.py", "test_arrangement_late.py"}
+WRITE_METHODS = {
+    "create_audio_track", "create_audio_clip", "undo", "set_track_mute", "create_midi_track",
+    "set_song_time", "toggle_cue_at_song_time", "set_cue_name", "create_arrangement_midi_clip",
+    "add_arrangement_clip_notes",
+}
+SHORT_TIMEOUT_TESTS = {
+    "test_missing_markers_time_out_after_the_timeout",
+    "test_timed_out_write_that_reads_back_as_intended_is_settled",
+    "test_timed_out_write_that_never_happened_is_unknown_and_blocks_undo",
+    "test_timed_out_write_with_failed_readback",
+    "test_late_read_reply_does_not_answer_the_next_read",
+    "test_error_of_a_timed_out_request_is_not_raised_on_the_next",
+    "test_write_that_fails_after_a_timed_out_write_is_not_confirmed",
+    "test_unknown_or_pushed_out_request_ids_give_none",
+}
 
 
 def registry_with(tmp_path: Path, tested: set[str]) -> CapabilityRegistry:
@@ -48,6 +71,36 @@ def registry_with_status(tmp_path: Path, statuses: dict[str, str]) -> Capability
     return CapabilityRegistry.from_file(path)
 
 
+class ShortWrites:
+    """Bridge wrapper: write calls run with the short deadline, everything else keeps the
+    transport's long one (#180). Read-backs that pass their own ``timeout_s`` are untouched."""
+
+    def __init__(self, bridge, transport) -> None:
+        self._bridge, self._transport = bridge, transport
+
+    def __getattr__(self, name):
+        attr = getattr(self._bridge, name)
+        if name not in WRITE_METHODS:
+            return attr
+
+        def short(*args, **kwargs):
+            saved = self._transport.timeout_s
+            self._transport.timeout_s = TEST_TIMEOUT_S
+            try:
+                return attr(*args, **kwargs)
+            finally:
+                self._transport.timeout_s = saved
+
+        return short
+
+
+def short_writes_if_listed(bridge, transport, request):
+    """Wrap ``bridge`` for the modules in SHORT_WRITE_MODULES, else return it unchanged."""
+    if request.node.path.name in SHORT_WRITE_MODULES:
+        return ShortWrites(bridge, transport)
+    return bridge
+
+
 @pytest.fixture
 def fake():
     server = FakeAbletonOSC()
@@ -56,15 +109,17 @@ def fake():
 
 
 @pytest.fixture
-def transport(fake):
-    t = OscTransport(send_port=fake.port, receive_port=0, timeout_s=TEST_TIMEOUT_S)
+def transport(fake, request):
+    expects_timeout = request.node.originalname in SHORT_TIMEOUT_TESTS
+    t = OscTransport(send_port=fake.port, receive_port=0,
+                     timeout_s=TEST_TIMEOUT_S if expects_timeout else REPLY_TIMEOUT_S)
     fake.response_port = t.receive_port
     yield t
     t.close()
 
 
 @pytest.fixture
-def bridge(fake, transport, tmp_path):
+def bridge(fake, transport, tmp_path, request):
     """Bridge whose registry marks every bridge capability as tested (CI only)."""
     gate = CapabilityGate(registry_with(tmp_path, set(ADDRESSES)))
-    return AbletonBridge(transport, gate)
+    return short_writes_if_listed(AbletonBridge(transport, gate), transport, request)
