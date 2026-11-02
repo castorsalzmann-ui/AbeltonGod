@@ -187,6 +187,16 @@ def _fit_table(genre: str, breakdown_count: int, intro: int, breakdown: int,
     return {total: lengths for total, (_, lengths) in best.items()}
 
 
+def duration_warning(bars: int, bpm: float) -> dict | None:
+    """S2: the editor warning for a track outside the 4-7 minute window (None when inside)."""
+    minutes = bars * 240 / bpm / 60
+    if WINDOW_MINUTES[0] <= minutes <= WINDOW_MINUTES[1]:
+        return None
+    return {"code": "duration_window",
+            "detail": f"{minutes:.2f} min at {bpm} BPM is outside "
+                      f"{WINDOW_MINUTES[0]:.0f}-{WINDOW_MINUTES[1]:.0f} min"}
+
+
 def plan_layout(req: PlanRequest) -> LayoutResult:
     """Validate ``req`` and return the section list that fits its length, or the errors."""
     result = LayoutResult()
@@ -230,10 +240,7 @@ def plan_layout(req: PlanRequest) -> LayoutResult:
             "code": "outro_lengthened",
             "detail": f"outro is {result.sections[-1]['length_bars']} bars, not "
                       f"{settings['outro_length']}: the energy walk after a full drop needs it"})
-    minutes = bars * 240 / bpm / 60
-    if not WINDOW_MINUTES[0] <= minutes <= WINDOW_MINUTES[1]:
-        result.warnings.append({
-            "code": "duration_window",
-            "detail": f"{minutes:.2f} min at {bpm} BPM is outside "
-                      f"{WINDOW_MINUTES[0]:.0f}-{WINDOW_MINUTES[1]:.0f} min"})
+    warning = duration_warning(bars, bpm)
+    if warning:
+        result.warnings.append(warning)
     return result
