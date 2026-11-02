@@ -14,7 +14,7 @@ import sys
 from pathlib import Path
 
 import pytest
-from conftest import registry_with
+from bridge_helpers import registry_with
 from fake_abletonosc import FakeAbletonOSC
 
 from bridge.capabilities import CAPABILITIES_FILE

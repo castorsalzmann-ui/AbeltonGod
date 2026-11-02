@@ -13,7 +13,8 @@ import threading
 import time
 
 import pytest
-from conftest import TEST_TIMEOUT_S, registry_with
+from bridge_helpers import registry_with
+from conftest import TEST_TIMEOUT_S
 from fake_abletonosc import MARKER, build
 from pythonosc.osc_bundle_builder import IMMEDIATELY, OscBundleBuilder
 from pythonosc.osc_message import OscMessage
