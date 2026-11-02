@@ -227,8 +227,12 @@ SETTLE_SETS = [_random_params(kp.rng(7000 + i)) for i in range(200)]
 def test_guideline_limit_matches_measured_pitch() -> None:
     measurable = sum(check_guideline_against_render(p) > 0 for p in SETTLE_SETS)
     # Guards against a test that silently measures nothing. Not measurable: no allowed
-    # pitch_decay_ms settles, or every cycle near t is below the level floor.
-    assert measurable >= 0.85 * len(SETTLE_SETS), measurable
+    # pitch_decay_ms settles, or every cycle near t is below the level floor, or (#115) the
+    # decay is below MIN_MEASURABLE_DECAY_MS. Measured over --fresh-seeds 0..39 (200 sets
+    # each): 173..188, mean 181.5, sd ~4.3 (the 0.85 bound, 170, sat 3 below the minimum).
+    # 0.80 (160) is 3 sd below the lowest of 40 and still far above a test that measures
+    # nothing.
+    assert measurable >= 0.80 * len(SETTLE_SETS), measurable
 
 
 # No test of the *measured* tail (analyse) against pitch_end_hz here: the analysis window can
