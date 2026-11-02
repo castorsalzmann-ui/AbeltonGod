@@ -6,7 +6,7 @@ from __future__ import annotations
 import json
 
 import pytest
-from conftest import registry_with
+from bridge_helpers import registry_with
 from fake_abletonosc import build
 
 from bridge.capabilities import (

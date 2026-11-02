@@ -570,7 +570,7 @@ def test_clip_not_as_requested_fails_the_read_back(fake, tmp_path, change):
 
 def test_writer_refuses_a_locator_at_the_start_on_its_own(fake, transport, tmp_path):
     """Library callers other than the script get the same protection."""
-    from conftest import registry_with
+    from bridge_helpers import registry_with
 
     from bridge.capabilities import CapabilityGate
     from bridge.clip_import import ActionLog

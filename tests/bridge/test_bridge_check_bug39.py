@@ -408,7 +408,7 @@ def test_ascii_index_variants_select_the_track(fake, answer, idx):
 
 
 def test_last_reply_of_a_failed_signature_holds_both_replies(fake, tmp_path):
-    from conftest import registry_with
+    from bridge_helpers import registry_with
 
     from bridge.capabilities import CapabilityGate
     from bridge.osc_client import ADDRESSES, OscTransport
@@ -423,7 +423,7 @@ def test_last_reply_of_a_failed_signature_holds_both_replies(fake, tmp_path):
 
 
 def test_last_reply_is_per_thread(fake, tmp_path):
-    from conftest import registry_with
+    from bridge_helpers import registry_with
 
     from bridge.capabilities import CapabilityGate
     from bridge.osc_client import ADDRESSES, OscTransport

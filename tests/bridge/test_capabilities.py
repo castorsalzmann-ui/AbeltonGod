@@ -7,7 +7,7 @@ import re
 from pathlib import Path
 
 import pytest
-from conftest import registry_with, registry_with_status
+from bridge_helpers import registry_with, registry_with_status
 from test_arrangement_osc import CALLS as ARRANGEMENT_CALLS
 
 from bridge.capabilities import (
