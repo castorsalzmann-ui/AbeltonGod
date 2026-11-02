@@ -2,14 +2,14 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/castorsalzmann-ui/AbeltonGod/contracts/sample-metadata.schema.json",
   "title": "Sample sidecar metadata",
-  "description": "Draft v0.2 (#229, hat added by #249, snare by #272, rim by #296). Written next to every generated WAV as <name>.json. Must be sufficient to re-render the identical file. schema_version 0.1 = kick sidecars as before (still valid, kick keeps 0.1); 0.2 is required for clap, hat, snare and rim sidecars and not allowed for kick. Engine identity is per category (D-025): kick sidecars carry engine.name 'abeltongod-audio-engine' and its version; clap sidecars carry engine.name 'abeltongod-audio-engine-clap' and the clap engine's own version; hat sidecars carry engine.name 'abeltongod-audio-engine-hat' the hat engine's own version; snare sidecars carry engine.name 'abeltongod-audio-engine-snare' and the snare engine's own version; rim sidecars carry engine.name 'abeltongod-audio-engine-rim' and the rim engine's own version. A re-render compares only the name/version pair of its own category, so a byte change in one category never invalidates the sidecars of another (D-013 holds inside each category).",
+  "description": "Draft v0.2 (#229, hat added by #249, snare by #272, rim by #296, bass by #320). Written next to every generated WAV as <name>.json. Must be sufficient to re-render the identical file. schema_version 0.1 = kick sidecars as before (still valid, kick keeps 0.1); 0.2 is required for clap, hat, snare, rim and bass sidecars and not allowed for kick. Engine identity is per category (D-025): kick sidecars carry engine.name 'abeltongod-audio-engine' and its version; clap sidecars carry engine.name 'abeltongod-audio-engine-clap' and the clap engine's own version; hat sidecars carry engine.name 'abeltongod-audio-engine-hat' the hat engine's own version; snare sidecars carry engine.name 'abeltongod-audio-engine-snare' and the snare engine's own version; rim sidecars carry engine.name 'abeltongod-audio-engine-rim' and the rim engine's own version; bass sidecars carry engine.name 'abeltongod-audio-engine-bass' and the bass engine's own version. A re-render compares only the name/version pair of its own category, so a byte change in one category never invalidates the sidecars of another (D-013 holds inside each category).",
   "type": "object",
   "additionalProperties": false,
   "required": ["schema_version", "file", "category", "engine", "parameters", "features", "created_at"],
   "properties": {
     "schema_version": { "enum": ["0.1", "0.2"] },
     "file": { "type": "string", "pattern": "\\.wav$" },
-    "category": { "enum": ["kick", "clap", "hat", "snare", "rim"] },
+    "category": { "enum": ["kick", "clap", "hat", "snare", "rim", "bass"] },
     "description": { "type": "string", "maxLength": 500 },
     "engine": {
       "type": "object",
@@ -20,7 +20,7 @@
         "version": { "type": "string" }
       }
     },
-    "parameters": { "type": "object", "description": "Exact <category>-params object used (kick-params for kick, clap-params for clap, hat-params for hat, snare-params for snare, rim-params for rim), including the variant's derived seed." },
+    "parameters": { "type": "object", "description": "Exact <category>-params object used (kick-params for kick, clap-params for clap, hat-params for hat, snare-params for snare, rim-params for rim, bass-params for bass), including the variant's derived seed." },
     "features": {
       "type": "object",
       "additionalProperties": false,
@@ -28,7 +28,7 @@
       "properties": {
         "peak_dbfs": { "type": "number" },
         "length_ms": { "type": "number" },
-        "fundamental_hz": { "type": ["number", "null"], "description": "Pitched samples (kick). Optional; absent or null for non-pitched samples." },
+        "fundamental_hz": { "type": ["number", "null"], "description": "Pitched samples (kick; bass: the note frequency measured in the stationary window of the gate, null if that window is shorter than 2 periods, see bass-params). Optional; absent or null for non-pitched samples." },
         "decay_20db_ms": { "type": ["number", "null"] },
         "decay_40db_ms": { "type": ["number", "null"] },
         "dc_offset": { "type": ["number", "null"] },
@@ -98,6 +98,19 @@
         "properties": {
           "schema_version": { "const": "0.2" },
           "engine": { "properties": { "name": { "const": "abeltongod-audio-engine-rim" } } },
+          "parameters": {
+            "required": ["schema_version", "seed"],
+            "properties": { "schema_version": { "const": "0.1" } }
+          }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "category": { "const": "bass" } }, "required": ["category"] },
+      "then": {
+        "properties": {
+          "schema_version": { "const": "0.2" },
+          "engine": { "properties": { "name": { "const": "abeltongod-audio-engine-bass" } } },
           "parameters": {
             "required": ["schema_version", "seed"],
             "properties": { "schema_version": { "const": "0.1" } }
