@@ -14,7 +14,7 @@ import json
 import struct
 
 import pytest
-from bridge_helpers import TEST_TIMEOUT_S, registry_with
+from bridge_helpers import REPLY_TIMEOUT_S, TEST_TIMEOUT_S, registry_with
 
 from bridge.capabilities import CapabilityGate
 from bridge.clip_import import (
@@ -102,7 +102,7 @@ def test_undo_after_rename_restores_set(ibridge, midi_set, log, tmp_path, revert
     """Whether Live's undo also reverts the rename is not known: both must pass."""
     midi_set.rename_on_clip = RENAMED
     midi_set.undo_reverts_rename = reverts_rename
-    imp = ClipImporter(ibridge, log, timeout_s=TEST_TIMEOUT_S)
+    imp = ClipImporter(ibridge, log, timeout_s=REPLY_TIMEOUT_S)
     out = imp.run(path=wav_file(tmp_path / "k.wav"), track_index=None, slot_index=0,
                   num_slots=8, expected_before=BEFORE)
     assert imp.undo_step(out, expect_now=out.after, expect_after=out.after_track,
@@ -130,7 +130,7 @@ def test_file_path_nil_until_ready(ibridge, fake, log, tmp_path):
     """has_clip is already True but file_path reads as nil for a while."""
     fake.tracks = [{"name": "Kick", "mute": False, "audio": True, "slots": [None] * 4}]
     fake.file_path_delay_s = 0.4
-    imp = ClipImporter(ibridge, log, timeout_s=TEST_TIMEOUT_S)
+    imp = ClipImporter(ibridge, log, timeout_s=REPLY_TIMEOUT_S)
     out = imp.run(path=wav_file(tmp_path / "k.wav"), track_index=0, slot_index=0,
                   num_slots=4, expected_before=SlotState(("Kick",), (False,) * 4))
     assert out.done
@@ -179,7 +179,7 @@ def test_other_track_renamed_is_still_a_mismatch(ibridge, fake, log, tmp_path):
         fake.tracks[1]["name"] = "Bass 2"
 
     fake._create_audio_clip = and_rename_other
-    imp = ClipImporter(ibridge, log, timeout_s=TEST_TIMEOUT_S, readback_window_s=0.3)
+    imp = ClipImporter(ibridge, log, timeout_s=REPLY_TIMEOUT_S, readback_window_s=0.3)
     with pytest.raises(ImportAborted, match="does not show exactly"):
         imp.run(path=wav_file(tmp_path / "k.wav"), track_index=0, slot_index=0,
                 num_slots=4, expected_before=SlotState(("Kick", "Bass"), (False,) * 4))
@@ -190,7 +190,7 @@ def test_undo_refused_when_another_track_was_renamed(ibridge, fake, log, tmp_pat
     fake.tracks = [{"name": "Kick", "mute": False, "audio": True, "slots": [None] * 4},
                    {"name": "Bass", "mute": False, "slots": [None] * 4}]
     before = SlotState(("Kick", "Bass"), (False,) * 4)
-    imp = ClipImporter(ibridge, log, timeout_s=TEST_TIMEOUT_S)
+    imp = ClipImporter(ibridge, log, timeout_s=REPLY_TIMEOUT_S)
     out = imp.run(path=wav_file(tmp_path / "k.wav"), track_index=0, slot_index=0,
                   num_slots=4, expected_before=before)
     fake.tracks[1]["name"] = "Bass (user)"
@@ -274,7 +274,7 @@ def test_undo_post_check_compares_names_and_count(ibridge, fake, log, tmp_path, 
     """The undo removes the clip (target slots right), but also changes a name or the track
     count. That is not "set restored"."""
     before = two_tracks(fake)
-    imp = ClipImporter(ibridge, log, timeout_s=TEST_TIMEOUT_S, readback_window_s=0.3)
+    imp = ClipImporter(ibridge, log, timeout_s=REPLY_TIMEOUT_S, readback_window_s=0.3)
     out = imp.run(path=wav_file(tmp_path / "k.wav"), track_index=0, slot_index=0, num_slots=4,
                   expected_before=before)
     orig = fake._undo
@@ -297,7 +297,7 @@ def test_undo_refused_when_target_renamed_by_someone_else(ibridge, fake, log, tm
     """A foreign rename of the target is the newest undo step: one undo would revert it, not
     the clip. Refused before sending."""
     before = two_tracks(fake)
-    imp = ClipImporter(ibridge, log, timeout_s=TEST_TIMEOUT_S)
+    imp = ClipImporter(ibridge, log, timeout_s=REPLY_TIMEOUT_S)
     out = imp.run(path=wav_file(tmp_path / "k.wav"), track_index=0, slot_index=0, num_slots=4,
                   expected_before=before)
     fake.undo_stack.append(("rename", 0, "Kick"))
@@ -313,7 +313,7 @@ def test_undo_clip_pre_check_is_strict_about_the_renamed_name(ibridge, midi_set,
     """After Live's rename, the first undo needs the name Live gave; the old default name
     (also seen by this import) now means someone renamed it back: refused."""
     midi_set.rename_on_clip = RENAMED
-    imp = ClipImporter(ibridge, log, timeout_s=TEST_TIMEOUT_S)
+    imp = ClipImporter(ibridge, log, timeout_s=REPLY_TIMEOUT_S)
     out = imp.run(path=wav_file(tmp_path / "k.wav"), track_index=None, slot_index=0,
                   num_slots=8, expected_before=BEFORE)
     midi_set.tracks[2]["name"] = "3-Audio"
@@ -328,7 +328,7 @@ def test_undo_track_refused_after_foreign_rename_between_undos(ibridge, midi_set
                                                                tmp_path, reverts_rename):
     midi_set.rename_on_clip = RENAMED
     midi_set.undo_reverts_rename = reverts_rename
-    imp = ClipImporter(ibridge, log, timeout_s=TEST_TIMEOUT_S)
+    imp = ClipImporter(ibridge, log, timeout_s=REPLY_TIMEOUT_S)
     out = imp.run(path=wav_file(tmp_path / "k.wav"), track_index=None, slot_index=0,
                   num_slots=8, expected_before=BEFORE)
     assert imp.undo_step(out, expect_now=out.after, expect_after=out.after_track,

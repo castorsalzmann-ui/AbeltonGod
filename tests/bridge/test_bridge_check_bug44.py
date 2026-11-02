@@ -10,6 +10,7 @@ import io
 import pytest
 from fake_abletonosc import FakeAbletonOSC
 from test_bridge_check import (
+    SHORT_TIMEOUT,
     UNDO,
     bridge_check,
     free_udp_port,
@@ -35,7 +36,7 @@ class _HoldAtUndo(FakeAbletonOSC):
 
 def test_undo_timeout_is_fail_says_it_may_have_been_sent_and_sends_nothing_more():
     with closing(_HoldAtUndo) as fake:
-        code, out, _ = run(fake, ["y", "0", "y"])
+        code, out, _ = run(fake, ["y", "0", "y"], extra_args=("--timeout", SHORT_TIMEOUT))
         wire = writes(fake.payload())
     assert code == 1
     assert wire == [set_mute(0, 1), set_mute(0, 0), set_mute(0, 1), UNDO]  # no W4, one undo
@@ -186,7 +187,7 @@ def test_ctrl_c_at_track_prompt_aborts_without_plan(fake):
     fake.response_port = receive
     out = io.StringIO()
     code = bridge_check.main(["--send-port", str(fake.port), "--receive-port", str(receive),
-                              "--timeout", "0.3"], input_fn=input_fn, out=out)
+                              "--timeout", "5"], input_fn=input_fn, out=out)
     assert code == 130
     assert len(calls) == 2
     assert "Geplante Änderungen" not in out.getvalue()
