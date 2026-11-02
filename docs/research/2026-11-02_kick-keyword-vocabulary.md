@@ -48,7 +48,7 @@ Primary value = the analysis value that must move (hypothesis; confirmed or reje
 | `punch` | Punch | more body energy 80-300 Hz at the start, fall begins higher | `pitch_start_hz` x1.3 (200 -> 260) | body level: -4.13 / -3.24 / -2.71 dB; sub share (whole file): 0.725 / 0.623 / 0.529 | body: w = 0 clear (2x), w = 2 only 1.3x range (marginal). Sub share: clear. **Partly confirmed** |
 | `click` | Klick | amount of the high-frequency click | `click_level` + 0.35 (0 -> 0.70) | high-pass 1 kHz level, first 15 ms: -21.6 / -19.5 / -16.1 dB; onset share above 1 kHz: 0.0156 / 0.0256 / 0.0553 | 2-4x range. **Confirmed** (w = 0 is off) |
 | `bite` | Biss | pitch of the click (higher = thinner, harder) | `click_tone_hz` x1.5 (3500 -> 5250) | centroid of the above-1-kHz part, first 15 ms: 2436 / 2582 / 3201 Hz | w = 2 +24 %, but the seed variants span 2582-4164 Hz. **Weak: only readable in a single-axis comparison.** |
-| `tail` | Ausklang | length of the body / tail | `amp_decay_ms` x1.35 (560 -> 756), `length_ms` x1.35 (480 -> 648) | `decay_40db_ms` (engine analysis): 331 / 450 / 604 ms; sub share (whole file) 0.577 / 0.623 / 0.708 | 3-4x range. **Confirmed.** Side effect: tail harmonic ratio 0.0003 / 0.0018 / 0.0083 (longer tail carries more drive residue) |
+| `tail` | Ausklang | length of the body / tail | `amp_decay_ms` x1.35 (560 -> 756), `length_ms` x1.35 (480 -> 648) | time to -40 dB (own 5 ms RMS from the onset, see section 6; not `analyse()`): 331 / 450 / 604 ms; sub share (whole file) 0.577 / 0.623 / 0.708 | 3-4x range. **Confirmed.** Side effect: tail harmonic ratio 0.0003 / 0.0018 / 0.0083 (longer tail carries more drive residue) |
 | `drive` | Sättigung | saturation of the whole kick (tanh) | `drive` + 0.45 (0 -> 0.90) | crest factor 0-100 ms: 8.80 / 2.19 / 1.74 dB; tail harmonic ratio 0 / 0.0018 / 0.0095 | w = 0 to 1 is a very large jump (crest 8.8 dB, sub share 0.325): **below w = 0.67 the kick is no longer the K1 optimum region.** Confirmed |
 | `wums` | Wums | peaks pressed flat at the attack (hard clip), tail stays clean | `clip_db` = w x 3 (add-on: 0 / 3 / 6) | crest: 2.19 / 0.96 / 0.67 dB; onset share above 1 kHz 0.0256 / 0.0358 / 0.0483; click-zone level -19.5 / -16.6 / -14.7 dB | crest 3.7x range at w = 1. **Confirmed.** Follows the K2 file (`clip_db` 3) |
 | `bright` | Helligkeit | spectral tilt toward the top | `tone` + 0.5 (0 -> 0.5) | click-zone centroid: 2027 / 2582 / 2900 Hz; onset share above 1 kHz: 0.0156 / 0.0256 / 0.0395 | clear. Side effect: crest 2.12 / 2.19 / 3.99 dB and body level -3.15 / -3.24 / -5.05 dB (tilt takes body level away) |
@@ -102,17 +102,17 @@ Recording the prompt with the file needs no contract change: the sidecar already
 - **Onset share above 1 kHz** = energy share above 1 kHz in the first 10 ms (rectangular).
 - **Click-zone level / centroid** = RMS dB / spectral centroid of the part above 1 kHz (4th-order high-pass), first 15 ms.
 - **Tail harmonic ratio** = power at 2x-8x f0 / power at f0, 100-300 ms, Hann window.
-- Decay and f0 from the engine analysis. Command pattern: `render_kick(params)` on the table's parameters, then the functions above (scratchpad `kw/kw.py`, `kw/bite.py`, `kw/prompts.py`; not committed).
+- **Time to -40 dB** (`d40`) = first 5 ms-RMS frame, from the onset, that is 40 dB under the RMS maximum; `None` if never reached inside the file. It is **not** `analyse()['decay_40db_ms']` (that returns `None` for `dense` at its own 480 ms and 498 ms at 1000 ms length; the two methods differ, as in the listening-test-3 plan). The `tail` claim therefore rests on this own measure plus the sub share. `fundamental_hz` is from the engine analysis (52.0 Hz in all rows). Command pattern: `render_kick(params)` on the table's parameters, then the functions above (scratchpad `kw/kw.py`, `kw/bite.py`, `kw/prompts.py`; not committed).
 
 ## 7. Ten worked prompts
 
 Weights as given; unmentioned = `dense` (`wums` unmentioned = off). Parameter changes are those of the table above; measured values from the same render. **Hypotheses; sound is to be checked by ear.**
 
-| # | Prompt | Parameter direction (from `dense`) | Measured (crest dB / sub share 0-100 Hz / body dB / click-zone dB / d40 ms) |
+| # | Prompt | Parameter direction (from `dense`) | Measured (crest dB / sub share 0-100 Hz / body dB / click-zone dB / time to -40 dB ms, own method) |
 | --- | --- | --- | --- |
 | P1 | *(empty)* = `dense` | none | 2.19 / 0.623 / -3.24 / -19.5 / 450 |
-| P2 | `kurz, punch:1.2, click:1.2` (= `tail:0.4`) | decay 497, length 426, start 211, click 0.42 | 2.37 / 0.571 / -3.26 / -18.7 / 394 |
-| P3 | `sub:1.5, tail:1.6, dunkel, click:0.5` | start 183, fall 35, decay 670, length 575, click 0.175, tone -0.2 | 2.06 / 0.746 / -3.72 / -23.2 / 533 |
+| P2 | `kurz, punch:1.2, click:1.2` (= `tail:0.4`) | decay 468, length 401, start 211, fall cut 40 -> 38.0 (settle), click 0.42 | 2.42 / 0.574 / -3.39 / -18.7 / 371 |
+| P3 | `sub:1.5, tail:1.6, dunkel, click:0.5` | start 183, fall 35, decay 670, length 575, click 0.175, tone -0.3 | 2.05 / 0.746 / -3.71 / -23.5 / 533 |
 | P4 | `punch:1.3, click:1.3, drive:1.2, wums:1` | start 216, click 0.455, drive 0.54, clip 3 | 0.89 / 0.659 / -2.15 / -15.2 / none (never -40 dB inside file) |
 | P5 | `dunkel, click:0.5` | click 0.175, tone -0.3 | 2.13 / 0.625 / -3.17 / -22.0 / 450 |
 | P6 | `drive:1.3, bite:1.5, wums:1` | drive 0.585, click tone 4287 Hz, clip 3 | 0.68 / 0.688 / -2.09 / -15.7 / none |
@@ -121,7 +121,7 @@ Weights as given; unmentioned = `dense` (`wums` unmentioned = off). Parameter ch
 | P9 | `sub:2, punch:2` (conflict) | start 217, fall 30.8 | 2.20 / 0.672 / -3.73 / -19.3 / 447 |
 | P10 | `tail:2, drive:2, wums:2, click:2` (stacking) | decay 756, length 648, drive 0.9, clip 6, click 0.70 | 1.80 / 0.776 / -3.49 / -13.1 / none; tail harmonic ratio 0.113 |
 
-All ten rendered with the pitch-settle guideline true; no clamp fired. Not measured: any alias bundle of section 8, because those are not proposed for use yet.
+All ten rendered with the pitch-settle guideline true; no contract clamp fired; the settle cut fired in P2 only (`tail:0.4`). Table cells at w = 0 in section 3 (`sub` sub share 0.431, `tail` sub share 0.577) are measured **after** that kind of settle cut (uncut `sub:0` would be 0.366). Not measured: any alias bundle of section 8, because those are not proposed for use yet.
 
 ## 8. Genre words and open questions
 
@@ -179,7 +179,7 @@ Sinnvoll: 0.5 bis 1.5. Mehr als 2 gibt es nicht. Beispiel: `click:0` = kein Klic
 
 ## Limits
 
-- One base (`dense`), one keyword at a time for the table; the ten prompts check combinations only for the numbers shown. Each cell is one render (deterministic, so no repeat), but measures other than `decay_40db_ms` come from my script, not from the repo analysis.
+- One base (`dense`), one keyword at a time for the table; the ten prompts check combinations only for the numbers shown. Each cell is one render (deterministic, so no repeat), but measures other than `fundamental_hz` come from my script, not from the repo analysis.
 - Whether any step is audible, pleasant, or "means what the word says" is for the user's ears. The seed-noise yardstick only says a difference is larger than seed variation, not that it is audible.
 - `bite` is weak by the yardstick; `punch` is marginal at w = 2 by body level.
 - Steps (1.2, 1.3, 1.35, 1.5, 0.5, 0.45) are my proposals to be adjusted after a first listening round; the scale definition does not change when they do.
