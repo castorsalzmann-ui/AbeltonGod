@@ -4,15 +4,15 @@ _Date: 2026-11-02 · Researcher B. Sources opened 2026-11-02. **Nothing here was
 
 ## For workers
 
-- **Possible?** Yes, in two stages. **Stage 1 (reachable now, no new Ableton capability):** five audio tracks (kick, clap, hat, snare, rim), one `clip_slot.create_audio_clip` each (`tested`). Per-track volume/pan/sends are then reachable with already-existing AbletonOSC handlers, but those handlers are `unknown` in the registry. **Stage 2 (a real playable kit):** a Drum Rack on a MIDI track. AbletonOSC cannot create racks, chains or pads, or load samples onto pads; that needs a new handler and user tests.
+- **Possible?** Yes, in two stages. **Stage 1 (reachable now, no new Ableton capability):** five audio tracks (kick, clap, hat, snare, rim), one `clip_slot.create_audio_clip` each (`tested`). Per-track volume/pan/sends are then reachable with already-existing AbletonOSC handlers, but those handlers are not yet in `contracts/capabilities.json` (so not usable by a tool until added and tested). **Stage 2 (a real playable kit):** a Drum Rack on a MIDI track. AbletonOSC cannot create racks, chains or pads, or load samples onto pads; that needs a new handler and user tests.
 - **Sampler is not an option for this user:** per Ableton's edition comparison, Sampler is Suite only; Simpler, Drum Sampler, Drum Rack and Impulse are in Standard (finding 1).
 - **Recommended route:** Stage 1 + a hand-built Drum Rack recipe (already in the choke note, section 5) + read-only probe, then write access. Mixer helpers (volume, pan, send, mute) are a separate small step that does not depend on the kit.
 - **Mixer writes are all `confirm`** (the orchestrator already forces `confirm` for any capability that is not a read, `src/orchestrator/tools.py` module docstring). Reads are `routine`. Section 3 gives the mapping.
 - **Hard limits found in AbletonOSC source:** the track handler addresses only `song.tracks`, so **return tracks and the master track are not reachable** for volume/pan (finding 9). A wildcard `*` as track index would write to **every** track (finding 10): the client must never send it.
 - **Contract:** a kit tool needs a new tool schema and, for stage 2, a kit manifest; the strict optional-parameter budget is already 24 of 24, so every new field must be **required** (section 4). `sample-metadata` category enum is `kick, clap, hat` only: snare and rim need an additive change before their files can carry sidecars.
-- **Read first:** section 1 (options table), section 5 (user test list K1-K12), section 4 (contract sketch).
+- **Read first:** section 1 (options table), section 5 (user test list M1-M12), section 4 (contract sketch).
 - **Effort:** stage 1 kit tool small-medium; mixer reads/writes medium (registry entries, client, tests with fake server, user run); Drum Rack build from files large and possibly "not possible without a user drag".
-- **Blockers:** user tests K1-K12; whether the Python remote-script API offers the Max-LOM classes (inference, unchanged from earlier notes).
+- **Blockers:** user tests M1-M12; whether the Python remote-script API offers the Max-LOM classes (inference, unchanged from earlier notes).
 - **Open questions for the user only:** (1) Is "five audio tracks with clips" good enough as the first kit, or must the kit be playable from MIDI/keys right away? (2) May the copilot ever write volume above the current value (louder), or only equal/lower? (3) Group the five tracks in one Group Track? (cosmetic; no API evidence yet).
 
 ## 1. Options for a full kit in Live 12 Standard
@@ -25,7 +25,7 @@ _Date: 2026-11-02 · Researcher B. Sources opened 2026-11-02. **Nothing here was
 | **D. Sampler** | Full sampler instrument | n/a | n/a | n/a | **Not available in Standard** (finding 1); would need the user to upgrade to Suite |
 | **E. Impulse** | 8-slot one-shot player | not researched for API | Has its own Trigger/Gate decay modes ([manual 31.7.4](https://www.ableton.com/en/live-manual/12/live-instrument-reference/)) | One strip | Not examined further (no LOM page was read) |
 
-_Interpretation:_ A answers "get the five sounds into the set and balance them" today. B answers "play the kit and program drums". C has no advantage over B. The acid-lines note already needs a MIDI track with a synth for route (b); the kit and the bass line would share the same "create MIDI track + load native device" blocker (K1, K2).
+_Interpretation:_ A answers "get the five sounds into the set and balance them" today. B answers "play the kit and program drums". C has no advantage over B. The acid-lines note already needs a MIDI track with a synth for route (b); the kit and the bass line would share the same "create MIDI track + load native device" blocker (M1, M2).
 
 ### Findings
 
@@ -42,7 +42,7 @@ _Interpretation:_ A answers "get the five sounds into the set and balance them" 
 
 ## 2. Programmability matrix (stage 1 and 2)
 
-| Need | Call | Exists in AbletonOSC (master)? | Registry id to add (all `unknown` until the user's run) |
+| Need | Call | Exists in AbletonOSC (master)? | Registry id to add (new ids are not yet in `contracts/capabilities.json`; they enter as `unknown` and stay so until the user's run) |
 | --- | --- | --- | --- |
 | New audio track per sound | `/live/song/create_audio_track` | yes | `song.create_audio_track` is already `tested` |
 | Clip with the WAV | `/live/clip_slot/create_audio_clip` | via the AbeltonGod extension | already `tested` |
@@ -71,17 +71,17 @@ The earlier note ([drum-rack choke](2026-11-02_drum-rack-choke-and-oneshot-place
 | Create return track | `/live/song/create_return_track` | `Song.create_return_track()` | `song.py` method list |
 | Undo | `/live/song/undo` | `Song.undo()` | `song.undo` is `tested` |
 
-Line numbers are from a read of `master` on 2026-11-02 and are approximate to a few lines; the pin `0ca68214` was not diffed. The earlier note cites `track.py:81-86`, `:98-103`, `device.py:128-131` from another snapshot (consistent in content).
+Line numbers are from a read of `master` on 2026-11-02 and are approximate to a few lines. `track.py`, `device.py` and `song.py` at the pinned commit `0ca68214` were diffed against `master` by the reviewer and are identical (reviewer's check; I did not run that diff myself). The earlier note cites `track.py:81-86`, `:98-103`, `device.py:128-131` from another snapshot (consistent in content).
 
 ### Findings
 
 | # | Finding | Confidence | Source |
 | --- | --- | --- | --- |
-| 9 | `TrackHandler` resolves a track index only against `self.song.tracks` (`track_callback` in `init_api`). A grep for `return_tracks` and `master` over `track.py`, `device.py`, `song.py` returned nothing relevant. So **return-track and master-track volume/pan/devices are not reachable** through these handlers (inference from absence; verify with K10). A send level **is** reachable (`mixer_device.sends`) once a return exists. | medium-high | [track.py](https://raw.githubusercontent.com/ideoforms/AbletonOSC/master/abletonosc/track.py) |
+| 9 | `TrackHandler` resolves a track index only against `self.song.tracks` (`track_callback` in `init_api`). A grep for `return_tracks` and `master` over `track.py`, `device.py`, `song.py` returned nothing relevant. So **return-track and master-track volume/pan/devices are not reachable** through these handlers (inference from absence; verify with M10). A send level **is** reachable (`mixer_device.sends`) once a return exists. | medium-high | [track.py](https://raw.githubusercontent.com/ideoforms/AbletonOSC/master/abletonosc/track.py) |
 | 10 | The first argument `"*"` makes `track_callback` loop over **all** tracks; with `set/volume` or `set/mute` that writes every track. | high (source) | same |
 | 11 | LOM `MixerDevice`: `volume`, `panning`, `sends` (one per return track), `track_activator`, split-stereo pans are `DeviceParameter` children, **get only** on the child; the value is changed via the parameter. `panning_mode` is get/set. The page gives **no ranges and no units**. | high | [LOM MixerDevice](https://docs.cycling74.com/apiref/lom/mixerdevice/) |
 | 12 | LOM `DeviceParameter`: `value` is "internal value between min and max" (get/set/observe); `min`, `max`, `default_value` (non-quantized only), `automation_state` (0/1/2), `str_for_value(v)`, `display_value` (get/set/observe), `re_enable_automation`. No dB mapping on the page. | high | [LOM DeviceParameter](https://docs.cycling74.com/apiref/lom/deviceparameter/) |
-| 13 | A commonly quoted "0.85 = 0 dB" for the volume fader is **not** on either LOM page. Not used here; a client must read `min`, `max`, `default_value` and `str_for_value` from the user's Live (K6) and convert dB through a table it measures. | high that the pages lack it | LOM pages above |
+| 13 | A commonly quoted "0.85 = 0 dB" for the volume fader is **not** on either LOM page. Not used here; a client must read `min`, `max`, `default_value` and `str_for_value` from the user's Live (M6) and convert dB through a table it measures. | high that the pages lack it | LOM pages above |
 | 14 | Setting a parameter that has automation probably puts it in the "overridden" state (inference, see MIDI note Q3 pitfall). Unverified. | low | earlier note |
 
 ### Risk of writes
@@ -101,7 +101,7 @@ Line numbers are from a read of `master` on 2026-11-02 and are approximate to a 
 
 ### Meters and loudness
 
-`output_meter_level` / `_left` / `_right` are readable properties (`properties_r`). The LOM pages read here do not state what scale they use or whether they are peak or RMS; so a "gain staging" helper that sets levels from meters is **not** supported by evidence yet (K11). Loudness targets in LUFS need an audio capture path (see [mix loudness targets](2026-10-29_mix-loudness-targets.md)); the meters do not give that.
+`output_meter_level` / `_left` / `_right` are readable properties (`properties_r`). The LOM pages read here do not state what scale they use or whether they are peak or RMS; so a "gain staging" helper that sets levels from meters is **not** supported by evidence yet (M11). Loudness targets in LUFS need an audio capture path (see [mix loudness targets](2026-10-29_mix-loudness-targets.md)); the meters do not give that.
 
 ## 4. What a minimal "kit builder" tool needs in `contracts/`
 
@@ -113,41 +113,41 @@ Existing facts (from the repo): `import_sample` takes `sample_id` (never a path)
    - `pieces`: array of objects `{role, sample_id, track_index, slot_index}`, `role` an enum (`kick`, `clap`, `hat`, `snare`, `rim`), `track_index` an existing audio track (the v1 rule of `import_sample`), `slot_index` required (the first-empty-slot convenience would be an optional field).
    - `additionalProperties: false`, no `minItems` (strict subset); the handler enforces 1 to 5 pieces and no duplicate role/track.
    - Behaviour: the same checks as `import_sample` per piece (sha256, library path, empty slot), one combined plan, one `confirm`, then N `create_audio_clip` calls with read-back per clip. Partial failure is reported per piece; nothing is silently retried (D-002).
-   - Capabilities: `clip_slot.create_audio_clip`, `song.track_names.get`, `track.has_audio_input.get`, `clip_slot.has_clip.get`, `clip.file_path.get`, `song.num_scenes.get` (all `tested`). Naming tracks would add `track.name.set` (needs a test, K4). Guard: `max_live_writes` = number of pieces.
-2. **Stage 2 manifest `contracts/drum-kit.schema.json`** (a file the user keeps, produced by the planner and used by a later Drum Rack builder): `{schema_version, name, pads: [{role, sample_id, file, sha256, note, choke_group | null}]}`. The `note` default (36 kick upward, GM-like) is a **proposal**; Live's own Drum Rack default for the first pad is C1 = note 36 in common Live use, but that was not read in the sources here and must be confirmed (K9).
+   - Capabilities: `clip_slot.create_audio_clip`, `song.track_names.get`, `track.has_audio_input.get`, `clip_slot.has_clip.get`, `clip.file_path.get`, `song.num_scenes.get` (all `tested`). Naming tracks would add `track.name.set` (needs a test, M4). Guard: `max_live_writes` = number of pieces.
+2. **Stage 2 manifest `contracts/drum-kit.schema.json`** (a file the user keeps, produced by the planner and used by a later Drum Rack builder): `{schema_version, name, pads: [{role, sample_id, file, sha256, note, choke_group | null}]}`. The `note` default (36 kick upward, GM-like) is a **proposal**; Live's own Drum Rack default for the first pad is C1 = note 36 in common Live use, but that was not read in the sources here and must be confirmed (M9).
 3. **Additive contract change for sidecars:** `sample-metadata` `category` enum gets `snare` and `rim` when their params contracts land (owner audio-engineer; the existing `snare-targets` and `rim-targets` notes are about targets, not contracts).
 4. **Mixer tools:** `list_mixer` (no arguments, `routine`, reads volume/pan/sends/mute) and `set_mixer` (confirm). To stay inside the 24-optional budget, `set_mixer` would take one required array `changes` of `{track_index, parameter (enum volume|panning|send|mute), send_index, value}` with all four keys required (use `-1` / `0` as an agreed "not used" placeholder for `send_index` only if the lead accepts it; this is a design smell, hence **proposal only**). Value units: store **dB or percent on our side**, convert with the runtime-read `min`/`max` and a measured map (finding 13).
-5. **Capabilities registry:** add the ids from sections 2 and 3 as `unknown` in one `contract-change` PR (owner bridge-engineer). `tool-*` schemas may only name `tested` capabilities (orchestrator rule), so the mixer tools can be defined and tested with the fake bridge in CI but stay off the live toolbox until K6-K8 are green.
+5. **Capabilities registry:** add the ids from sections 2 and 3 as `unknown` in one `contract-change` PR (owner bridge-engineer). `tool-*` schemas may only name `tested` capabilities (orchestrator rule), so the mixer tools can be defined and tested with the fake bridge in CI but stay off the live toolbox until M6-M8 are green.
 
 ### Not needed in contracts for stage 1
 
 No kit manifest, no MIDI. The kit is "five existing tool calls and one plan".
 
-## 5. User test list K1-K12 (Windows PC, Live 12.4.5)
+## 5. User test list M1-M12 (Windows PC, Live 12.4.5)
 
-Prefix `K` to avoid clashing with A1-A8 in the acid-lines note. All use a scratch set, never the user's real project. A script that logs raw replies and read-backs is assumed (bridge-engineer); no test has been run. "Unlocks" = the registry id that may move from `unknown` to `tested` in its own `contract-change` PR with the log excerpt (CLAUDE.md: only the user's evidence can do this).
+Prefix `M` (mixer/kit) to avoid clashing with A1-A8 in the acid-lines note and with K1-K5, the listening-test labels used elsewhere. All use a scratch set, never the user's real project. A script that logs raw replies and read-backs is assumed (bridge-engineer); no test has been run. "Unlocks" = the registry id that may move from `unknown` to `tested` in its own `contract-change` PR with the log excerpt (CLAUDE.md: only the user's evidence can do this).
 
 | # | Test | Expected result | Unlocks |
 | --- | --- | --- | --- |
-| K1 | `/live/song/create_midi_track -1`, then read `track_names` | A new MIDI track appears at the end; `/live/track/get/has_midi_input` = true; one `song.undo` removes it | `song.create_midi_track`, `track.has_midi_input.get` |
-| K2 | Handler for `Track.insert_device("Drum Rack")` on the K1 track (needs the extension); read `devices/class_name` | Device appears; class name printed (record the real string, do not assume); a deliberately wrong device name fails with an error, no crash (the Standard-vs-Suite device list was not checked, so no Suite-only name is proposed) | `track.insert_device`, `track.devices.class_name.get` |
-| K3 | On a **hand-built** Drum Rack with 5 pads loaded by drag: read `RackDevice.drum_pads`, `DrumPad.chains`, `DrumChain.in_note`, `choke_group` via a new read-only handler | Five non-empty pads, notes printed, class name of the per-pad device (Simpler or Drum Sampler) printed | `drum_rack.chain.choke_group.get` (and read ids) |
-| K4 | `/live/track/set/name` on an audio track, then read back; also `color_index` | Name equal on read-back; undo restores (record whether it does) | `track.name.set`, `track.color_index.set` |
-| K5 | Five new audio tracks (`create_audio_track` x5), one `create_audio_clip` each (kick, clap, hat, snare, rim WAV), read back `file_path`; Live must stay responsive | Five clips, five equal `file_path` read-backs; track names changed by Live as seen before (registry note); **this widens the already-tested scope (new track, five calls in a row)**, no new id | none new; extends `clip_slot.create_audio_clip` evidence |
-| K6 | On one track: read `volume` (AbletonOSC returns only the value; `min`, `max`, `str_for_value` need an added read on the mixer parameter), set a value, read back, set the old value back | Read-back equals the sent value (within float tolerance); the audible fader moves; min/max/default recorded for the dB table | `track.volume.get`, `track.volume.set` |
-| K7 | Same for `panning` (set -1, 0, +1 if the range allows) | Read-back equal; pan knob moves | `track.panning.get`, `track.panning.set` |
-| K8 | `create_return_track`, then `set/send 0` value on a kick track, read back; a send index beyond the number of returns | Read-back equal; the out-of-range index returns an error, not a crash or a silent no-op | `song.create_return_track`, `track.send.get`, `track.send.set` |
-| K9 | Does the volume write survive `song.undo`? (Set, undo once, read back.) And: with a parameter that has automation drawn by the user, set it and read `automation_state` | Record: undo restores or not; `automation_state` becomes 2 or not (answers finding 14). Also record the first Drum Rack pad's receive note shown by Live | evidence for `reversible` flags only, not a status |
-| K10 | `/live/track/get/volume <index of the master or a return>` (index = number of tracks, then a negative index) | Expect an error and **no** write on a wrong index; the master/return volume is not reachable (finding 9). **Do not** test `*` on a set that matters; a one-track set only | negative evidence; informs the contract |
-| K11 | While a clip plays, poll `output_meter_level` ten times; compare with Live's meter by eye | Values change; record the range (0-1?) and whether it correlates with the meter. No loudness claim | `track.output_meter_level.get` |
-| K12 | Device parameter set: on a native device on an audio track (the user drops Live's Utility), read `parameters/name`, set `Gain` through `set/parameter/value`, read back, re-read the name first | Name matches, value equal on read-back | `device.parameter.value.get`, `device.parameter.value.set` |
+| M1 | `/live/song/create_midi_track -1`, then read `track_names` | A new MIDI track appears at the end; `/live/track/get/has_midi_input` = true; one `song.undo` removes it | `song.create_midi_track`, `track.has_midi_input.get` |
+| M2 | Handler for `Track.insert_device("Drum Rack")` on the M1 track (needs the extension); read `devices/class_name` | Device appears; class name printed (record the real string, do not assume); a deliberately wrong device name fails with an error, no crash (the Standard-vs-Suite device list was not checked, so no Suite-only name is proposed) | `track.insert_device`, `track.devices.class_name.get` |
+| M3 | On a **hand-built** Drum Rack with 5 pads loaded by drag: read `RackDevice.drum_pads`, `DrumPad.chains`, `DrumChain.in_note`, `choke_group` via a new read-only handler | Five non-empty pads, notes printed, class name of the per-pad device (Simpler or Drum Sampler) printed | `drum_rack.chain.choke_group.get` (and read ids) |
+| M4 | `/live/track/set/name` on an audio track, then read back; also `color_index` | Name equal on read-back; undo restores (record whether it does) | `track.name.set`, `track.color_index.set` |
+| M5 | Five new audio tracks (`create_audio_track` x5), one `create_audio_clip` each (kick, clap, hat, snare, rim WAV), read back `file_path`; Live must stay responsive | Five clips, five equal `file_path` read-backs; track names changed by Live as seen before (registry note); **this widens the already-tested scope (new track, five calls in a row)**, no new id | none new; extends `clip_slot.create_audio_clip` evidence |
+| M6 | On one track: read `volume` (AbletonOSC returns only the value; `min`, `max`, `str_for_value` need an added read on the mixer parameter), set a value, read back, set the old value back | Read-back equals the sent value (within float tolerance); the audible fader moves; min/max/default recorded for the dB table | `track.volume.get`, `track.volume.set` |
+| M7 | Same for `panning` (set -1, 0, +1 if the range allows) | Read-back equal; pan knob moves | `track.panning.get`, `track.panning.set` |
+| M8 | `create_return_track`, then `set/send 0` value on a kick track, read back; a send index beyond the number of returns | Read-back equal; the out-of-range index returns an error, not a crash or a silent no-op | `song.create_return_track`, `track.send.get`, `track.send.set` |
+| M9 | Does the volume write survive `song.undo`? (Set, undo once, read back.) And: with a parameter that has automation drawn by the user, set it and read `automation_state` | Record: undo restores or not; `automation_state` becomes 2 or not (answers finding 14). Also record the first Drum Rack pad's receive note shown by Live | evidence for `reversible` flags only, not a status |
+| M10 | `/live/track/get/volume <index of the master or a return>` (index = number of tracks, then a negative index) | Index == track count: expect an error (`IndexError` in Live's log) and no write. This shows only that the index is out of range; whether master/return volume is reachable stays an **inference** (finding 9). A negative index is valid Python (`song.tracks[-1]` is the last track), so Live would likely **address the last track**, not fail: the client itself must reject negative indices and indices >= track count; do not rely on Live to refuse (probe the negative case only with a read, never a write). **Do not** test `*` on a set that matters; a one-track set only | negative evidence; informs the contract |
+| M11 | While a clip plays, poll `output_meter_level` ten times; compare with Live's meter by eye | Values change; record the range (0-1?) and whether it correlates with the meter. No loudness claim | `track.output_meter_level.get` |
+| M12 | Device parameter set: on a native device on an audio track (the user drops Live's Utility), read `parameters/name`, set `Gain` through `set/parameter/value`, read back, re-read the name first | Name matches, value equal on read-back | `device.parameter.value.get`, `device.parameter.value.set` |
 
-Not in this list because it is already specified: the hand-built Drum Rack and choke recipe (choke note, section 5) and the `replace_sample` / `insert_chain` probes (choke note D3), which become a K13+ only after K2 and K3 pass.
+Not in this list because it is already specified: the hand-built Drum Rack and choke recipe (choke note, section 5) and the `replace_sample` / `insert_chain` probes (choke note D3), which become a M13+ only after M2 and M3 pass.
 
 ## Known pitfalls
 
 - **Index vs name.** A device-parameter index changes when the device changes; re-read names right before a write (risk table).
-- **`create_audio_clip` rules.** Registry limits: verified only on an existing audio track, Session view, one WAV, undo unreliable after user interaction. Five tracks in a row (K5) is outside what was shown.
+- **`create_audio_clip` rules.** Registry limits: verified only on an existing audio track, Session view, one WAV, undo unreliable after user interaction. Five tracks in a row (M5) is outside what was shown.
 - **Replies have no request ids** (protocol note); a mix pass of many writes needs the client's marker bracketing per request.
 - **Drum Rack default In Note** is "All Notes" (-1) on creation, which greys Choke (choke note, finding 5).
 - **Strict-budget trap:** an optional `slot_index` or `send_index` in a new tool breaks the 24 limit and the pinned test (INTERFACES.md).
@@ -156,20 +156,23 @@ Not in this list because it is already specified: the hand-built Drum Rack and c
 ## Test strategy hints
 
 - **CI (fake OSC server, labelled "not an Ableton test"):** argument shape of each new address; refusal of `*`, negative, non-integer, out-of-range indices before any send; plan text shows old and new values; read-back mismatch is reported as failure; gate refuses while the capability is `unknown`; kit tool refuses a duplicate role, a modified file (sha256), an occupied slot, a MIDI track; guard counts one Live write per piece.
-- **User's machine:** all of K1-K12; the sound of a changed level or pan; whether undo reverts value writes.
+- **User's machine:** all of M1-M12; the sound of a changed level or pan; whether undo reverts value writes.
 - **Mutation ideas for the foundation checks:** index check removed (a `*` must then reach the fake server and the test turn red); read-back comparison removed.
 
 ## Implications for the lead
 
-- A kit can be assembled **today** at the clip level with only `tested` capabilities (K5 widens the evidence). A playable Drum Rack waits on K1-K3 and new handlers; do not promise it before those results.
+- A kit can be assembled **today** at the clip level with only `tested` capabilities (M5 widens the evidence). A playable Drum Rack waits on M1-M3 and new handlers; do not promise it before those results.
 - Sampler is Suite-only; Drum Sampler is in Standard and arrived in 12.1 (medium confidence); Simpler's One-Shot behaviour is **not** read, so no claim is made about hat decay in a Simpler pad.
 - Return and master tracks are probably out of reach for AbletonOSC volume/pan; a "master bus" helper needs either an extension or is dropped. Worth saying before a mix feature is promised.
 - Any mixer write tool needs: no wildcard, old-value readback, a confirm plan, a measured dB map. Suggest a guard profile with a higher `max_live_writes` for mix passes (the lead's call).
-- Suggested State update line: "Research: drum-kit assembly and mixer helpers surveyed; stage 1 (five audio tracks) possible with tested capabilities; Drum Rack build, volume/pan/send writes unverified; user test list K1-K12 proposed; nothing run in Live."
+- Suggested State update line: "Research: drum-kit assembly and mixer helpers surveyed; stage 1 (five audio tracks) possible with tested capabilities; Drum Rack build, volume/pan/send writes unverified; user test list M1-M12 proposed; nothing run in Live."
 - Not opened: Max for Live (rejected by D-001; would need the user to reopen it), Sampler (Suite only).
 
-## Open questions (user)
+## Decisions (lead, 2026-11-02)
 
-1. First kit as five audio tracks with clips, or must it be playable from MIDI at once?
-2. Volume writes: allow raising above the current value, or lower/equal only?
-3. Group the five tracks in a Group Track (no API evidence read yet)?
+From the lead's comment on #332 (the user wants no questions):
+1. First kit = five audio tracks with one clip each; no MIDI-playable rack yet. Drum Rack steps stay `unknown` until M1-M12.
+2. Volume writes may raise or lower; every write is `confirm`; a mix pass larger than `max_live_writes` is refused until the user raises the limit (not changed now).
+3. No Group Track in stage 1.
+
+(The three open questions in "For workers" are answered by these decisions.)
