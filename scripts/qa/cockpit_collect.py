@@ -7,7 +7,8 @@ Usage:
     python scripts/qa/cockpit_collect.py <repo_dir> <out_dir> [<previous_gate.json>]
 
     <repo_dir>            checkout to read (docs/, contracts/, config/, git log)
-    <out_dir>             gets phases.json, pipeline.json, issues.json, reviews.json, prs.json,
+    <out_dir>             gets phases.json, pipeline.json, features.json, research.json,
+                          snapshot.json, issues.json, reviews.json, prs.json,
                           decisions.json, decision_refs.json, ci_runs.json, commits.json,
                           capabilities.json, guard.json, guard_budget.json, guard_usage.json,
                           gate.json
@@ -32,6 +33,7 @@ import sys
 import tempfile
 from collections import Counter
 from datetime import UTC, datetime
+from itertools import takewhile
 from pathlib import Path
 
 R = "repos/castorsalzmann-ui/abeltongod"
@@ -168,6 +170,164 @@ def collect_pipeline(repo: Path) -> list[dict]:
     return rows
 
 
+# ---------- features & research notes ----------
+FEATURE_STATUS = ("Fertig", "In Arbeit", "Geplant", "Parkplatz")
+FEATURE_COLUMNS = {
+    "feature": "feature", "phase": "phase", "status": "status", "research": "research",
+    "work": "work",
+}
+RESEARCH_URL = "https://github.com/castorsalzmann-ui/AbeltonGod/blob/main/docs/research/"
+
+
+def collect_features(repo: Path) -> list[dict]:
+    """Rows of the table under `## Features` in docs/ROADMAP.md ([] + stderr message if absent).
+
+    Warns on stderr for every Research cell that names a file missing in docs/research/.
+    """
+    f = repo / "docs" / "ROADMAP.md"
+    txt = f.read_text(encoding="utf-8") if f.exists() else ""
+    sec = re.search(r"^## Features\b.*?\n(.*?)(?=^## |\Z)", txt, re.S | re.M)
+    lines = (sec.group(1) if sec else "").splitlines()
+    start = next((k for k, ln in enumerate(lines) if ln.lstrip().startswith("|")), None)
+    if start is None:
+        print("cockpit_collect: no '## Features' table in docs/ROADMAP.md -> features.json is []",
+              file=sys.stderr)
+        return []
+    table = [_cells(ln) for ln in takewhile(lambda x: x.lstrip().startswith("|"), lines[start:])]
+    header = [FEATURE_COLUMNS.get(h.lower(), "") for h in table[0]]
+    rows = []
+    for cells in table[1:]:
+        if all(re.fullmatch(r":?-+:?", c) for c in cells):
+            continue  # separator line
+        raw = {k: "" for k in FEATURE_COLUMNS.values()}
+        for key, val in zip(header, cells, strict=False):
+            if key:
+                raw[key] = val
+        files = [x.strip().strip("`") for x in raw["research"].split(",")]
+        files = [x for x in files if x and x != "-"]
+        for name in files:
+            if not (repo / "docs" / "research" / name).is_file():
+                print(f"cockpit_collect: feature '{raw['feature']}' names research file "
+                      f"'{name}' which does not exist in docs/research/", file=sys.stderr)
+        rows.append({
+            "feature": raw["feature"], "phase": raw["phase"],
+            "status": raw["status"] if raw["status"] in FEATURE_STATUS else "Unklar",
+            "research": files, "work": raw["work"], "research_count": len(files),
+        })
+    return rows
+
+
+def collect_research(repo: Path, features: list[dict]) -> list[dict]:
+    """One row per docs/research/*.md, newest first; `mapped` = some feature lists the file."""
+    rows = []
+    for f in (repo / "docs" / "research").glob("*.md"):
+        m = re.match(r"(\d{4}-\d{2}-\d{2})_(.+)\.md$", f.name)
+        txt = f.read_text(encoding="utf-8")
+        h1 = re.search(r"^# (.+?)\s*$", txt, re.M)
+        names = [x["feature"] for x in features if f.name in x["research"]]
+        rows.append({
+            "file": f.name, "date": m.group(1) if m else "",
+            "title": h1.group(1) if h1 else f.name,
+            "topic": m.group(2) if m else f.stem, "features": names, "mapped": bool(names),
+            "url": RESEARCH_URL + f.name, "words": len(txt.split()),
+        })
+    return sorted(rows, key=lambda r: (r["date"], r["file"]), reverse=True)
+
+
+def collect_snapshot(sha: str, issues: list[dict]) -> list[dict]:
+    """One row: when the run happened, on which commit, and the PR/issue counts."""
+    prs = [i for i in issues if i["kind"] == "PR"]
+    return [{
+        "at": datetime.now(UTC).isoformat(timespec="seconds"), "sha": sha,
+        "open_prs": sum(p["closed"] is None for p in prs),
+        "open_issues": sum(i["closed"] is None for i in issues if i["kind"] != "PR"),
+        "merged_prs": sum(p["merged"] is not None for p in prs),
+    }]
+
+
+# ---------- active work & user actions ----------
+def _labels(row: dict) -> list[str]:
+    return [x for x in row["labels"].split(", ") if x]
+
+
+def collect_active_work(issues: list[dict], head_refs: dict[int, str]) -> list[dict]:
+    """Open issues labelled status:in-progress and open PRs with a label or a `prefix/` branch."""
+    rows = []
+    for i in issues:
+        if i["closed"] is not None:
+            continue
+        labels = _labels(i)
+        if i["kind"] == "PR":
+            ref = head_refs.get(i["number"], "")
+            prefix = ref.split("/")[0] if "/" in ref else ""
+            if not labels and not prefix:
+                continue
+        elif "status:in-progress" not in labels:
+            continue
+        else:
+            prefix = ""
+        role = next((x.split(":", 1)[1] for x in labels if x.startswith("agent:")), prefix or "?")
+        status = next((x.split(":", 1)[1] for x in labels if x.startswith("status:")), "")
+        rows.append({
+            "role": role, "kind": "PR" if i["kind"] == "PR" else "Issue", "number": i["number"],
+            "title": i["title"], "url": i["url"], "status": status or "PR offen",
+            "updated": i["updated"],
+        })
+    return sorted(rows, key=lambda r: r["updated"] or "", reverse=True)
+
+
+GH_PREFIX = "https://github.com/castorsalzmann-ui/AbeltonGod/"
+ACTION_KINDS = ("Merge", "Test", "Entscheidung", "Schließen")
+
+
+def collect_user_actions(repo: Path, issues: list[dict]) -> list[dict]:
+    """Rows of docs/WAITING_ON_USER.md (Was | Link | Aufgabe | Seit) plus every open PR that
+    the table does not list (auto=true)."""
+    f = repo / "docs" / "WAITING_ON_USER.md"
+    by_num = {i["number"]: i for i in issues}
+    lines = f.read_text(encoding="utf-8").splitlines() if f.exists() else []
+    if not f.exists():
+        print("cockpit_collect: docs/WAITING_ON_USER.md is missing -> only automatic rows",
+              file=sys.stderr)
+    table = [_cells(ln) for ln in lines if ln.lstrip().startswith("|")]
+    header = [h.lower() for h in table[0]] if table else []
+    rows, listed = [], set()
+    for cells in table[1:]:
+        if all(re.fullmatch(r":?-+:?", c) for c in cells):
+            continue
+        raw = dict(zip(header, cells, strict=False))
+        link = raw.get("link", "")
+        m = re.search(r"\((https?://[^)\s]+)\)", link)
+        url = (m.group(1) if m else link.strip())
+        url = url if url.startswith(GH_PREFIX) else ""
+        nm = re.search(r"/(?:issues|pull)/(\d+)", url)
+        number = int(nm.group(1)) if nm else None
+        item = by_num.get(number)
+        was = raw.get("was", "")
+        kind = next((k for k in ACTION_KINDS if was.lower().startswith(k.lower())), "Sonstiges")
+        if item is None:
+            state = ""
+        elif item["closed"] is None:
+            state = "open"
+        else:
+            state = "merged" if item["merged"] else "closed"
+        if number is not None:
+            listed.add(number)
+        rows.append({
+            "kind": kind, "url": url, "number": number, "title": item["title"] if item else "",
+            "task": raw.get("aufgabe", ""), "since": raw.get("seit", ""), "state": state,
+            "auto": False,
+        })
+    for i in issues:
+        if i["kind"] == "PR" and i["closed"] is None and i["number"] not in listed:
+            rows.append({
+                "kind": "Merge", "url": i["url"], "number": i["number"], "title": i["title"],
+                "task": "PR prüfen und mergen (CI grün?)", "since": (i["created"] or "")[:10],
+                "state": "open", "auto": True,
+            })
+    return rows
+
+
 # ---------- issues & PRs ----------
 # `agent:<key>` label -> owner shown in the cockpit. Unknown keys are shown as they are.
 AGENT = {
@@ -210,9 +370,10 @@ def collect_issues(repo: Path) -> tuple[list[dict], list[dict]]:
             status = "In Review"
         else:
             status = ISSUE_STATUS.get(status_lab or "", "Offen")
-        needs_user = (
-            "needs:user-test" in labels or "needs:user-decision" in labels
-        ) and i["state"] == "open"
+        # waiting for the user: any open PR, or an open issue labelled needs-user / needs:user-*
+        needs_user = i["state"] == "open" and (
+            is_pr or bool({"needs-user", "needs:user-test", "needs:user-decision"} & set(labels))
+        )
         agent = next(
             (AGENT.get(lb.split(":")[1], lb.split(":")[1])
              for lb in labels if lb.startswith("agent:")),
@@ -240,7 +401,7 @@ def collect_issues(repo: Path) -> tuple[list[dict], list[dict]]:
             "depends_on": ", ".join(map(str, deps)), "waiting_on": ", ".join(map(str, deps_open)),
             "next_rank": order.index(i["number"]) + 1 if in_order else None,
             "comments": i["comments"], "created": i["created_at"], "closed": i["closed_at"],
-            "merged": merged, "url": i["html_url"],
+            "merged": merged, "url": i["html_url"], "updated": i.get("updated_at"),
         })
         bodies.append({
             "number": i["number"], "kind": "PR" if is_pr else "Issue", "title": title,
@@ -401,10 +562,35 @@ COMMIT_KINDS = {
 }
 
 
-def main() -> None:
-    repo, out = Path(sys.argv[1]), Path(sys.argv[2])
-    prev = json.loads(Path(sys.argv[3]).read_text(encoding="utf-8")) if len(sys.argv) > 3 else []
+def write_all(out: Path, datasets: dict) -> None:
     out.mkdir(parents=True, exist_ok=True)
+    for name, rows in datasets.items():
+        write(out, name, rows)
+
+
+def main() -> None:
+    """Collect everything in memory first; write only if every GitHub call succeeded, so a
+    failed call can never replace good datasets with empty or partial ones (exit code 1)."""
+    out = Path(sys.argv[2])
+    try:
+        datasets = build(Path(sys.argv[1]), sys.argv[3] if len(sys.argv) > 3 else None)
+    except (subprocess.CalledProcessError, FileNotFoundError, json.JSONDecodeError) as e:
+        detail = (getattr(e, "stderr", "") or "").strip() or repr(e)
+        print(f"cockpit_collect: GitHub call failed, nothing written: {detail}", file=sys.stderr)
+        sys.exit(1)
+    summary = datasets.pop("_summary")
+    write_all(out, datasets)
+    print(json.dumps(summary))
+
+
+def build(repo: Path, prev_path: str | None) -> dict:
+    prev = json.loads(Path(prev_path).read_text(encoding="utf-8")) if prev_path else []
+    pending: dict = {}
+
+    def write(_out, name, rows):  # buffered: see main()
+        pending[name] = rows
+
+    out = None
     sha = run(["git", "rev-parse", "--short", "HEAD"], cwd=repo).stdout.strip()
 
     phases = collect_phases(repo)
@@ -424,7 +610,18 @@ def main() -> None:
         "track": "", "phase": "", "roles": "", "goal": "",
         "status": "Keine Pipeline-Tabelle in docs/ROADMAP.md gefunden.", "next": "",
     }])
+    features = collect_features(repo)
+    write(out, "features", features)
+    research = collect_research(repo, features)
+    write(out, "research", research)
     write(out, "issues", issues)
+    write(out, "snapshot", collect_snapshot(sha, issues))
+    head_refs = {
+        i["number"]: gh(f"{R}/pulls/{i['number']}")["head"]["ref"]
+        for i in issues if i["kind"] == "PR" and i["closed"] is None
+    }
+    write(out, "active_work", collect_active_work(issues, head_refs))
+    write(out, "user_actions", collect_user_actions(repo, issues))
     reviews, prs = collect_reviews(issues, bodies)
     write(out, "reviews", reviews)
     write(out, "prs", prs)
@@ -481,8 +678,11 @@ def main() -> None:
     write(out, "guard_usage", usage)
 
     write(out, "gate", run_gate(repo, sha, prev))
-    print(json.dumps({"sha": sha, "issues": len(issues), "reviews": len(reviews), "prs": len(prs),
-                      "decision_refs": len(refs), "ci_runs": len(ci), "commits": len(commits)}))
+    pending["_summary"] = ({
+        "sha": sha, "issues": len(issues), "reviews": len(reviews), "prs": len(prs),
+        "decision_refs": len(refs), "ci_runs": len(ci), "commits": len(commits),
+        "features": len(features), "research": len(research)})
+    return pending
 
 
 if __name__ == "__main__":
