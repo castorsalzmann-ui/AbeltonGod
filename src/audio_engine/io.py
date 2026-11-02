@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import os
 import re
 import struct
@@ -243,6 +244,7 @@ def rerender_from_sidecar(json_path: str | Path, *, allow_engine_mismatch: bool 
     path = Path(json_path)
     meta = json.loads(path.read_text(encoding="utf-8"))
     Draft202012Validator(load_schema(METADATA_SCHEMA_FILE)).validate(meta)
+    _check_sidecar_facts(meta, path)
     engine = meta["engine"]
     if not allow_engine_mismatch and (
         engine["name"] != ENGINE_NAME or engine["version"] != ENGINE_VERSION
@@ -250,6 +252,52 @@ def rerender_from_sidecar(json_path: str | Path, *, allow_engine_mismatch: bool 
         raise EngineVersionMismatch(path, engine)
     wav_bytes, _, _ = render_kick_wav(_upgrade_sidecar_params(meta["parameters"]))
     return wav_bytes
+
+
+class SidecarError(ValueError):
+    """A sidecar passes the JSON schema but contradicts itself or its WAV (#85)."""
+
+
+_RFC3339 = re.compile(
+    r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})", re.ASCII
+)
+
+
+def _all_finite(value: Any) -> bool:
+    if isinstance(value, float):
+        return math.isfinite(value)
+    if isinstance(value, dict):
+        return all(_all_finite(v) for v in value.values())
+    if isinstance(value, list):
+        return all(_all_finite(v) for v in value)
+    return True
+
+
+def _check_sidecar_facts(meta: dict[str, Any], path: Path) -> None:
+    """What the JSON schema cannot say (#85, option a, standard library only).
+
+    - every number is finite (``NaN``, ``Infinity`` and ``1e999`` all parse to non-finite floats);
+    - ``created_at`` is a strict RFC 3339 date-time: ``T`` separator, seconds, ``Z`` or a
+      ``+hh:mm`` offset, and a real calendar time (``datetime.fromisoformat``);
+    - ``file`` names the WAV that belongs to this sidecar (same folder, same stem);
+    - if that WAV exists, ``sha256`` is the hash of its bytes. A missing WAV is not an error
+      (the sidecar alone is enough to re-render); then ``sha256`` is not checked.
+    """
+    if not _all_finite(meta):
+        raise SidecarError("sidecar contains a non-finite number")
+    stamp = meta["created_at"]
+    if not _RFC3339.fullmatch(stamp):
+        raise SidecarError(f"created_at {stamp!r} is not an RFC 3339 date-time")
+    try:
+        datetime.fromisoformat(stamp)
+    except ValueError as exc:
+        raise SidecarError(f"created_at {stamp!r} is not a valid date-time: {exc}") from exc
+    wav = path.with_suffix(".wav")
+    if meta["file"] != wav.name:
+        raise SidecarError(f"file {meta['file']!r} is not the WAV of this sidecar ({wav.name!r})")
+    if "sha256" in meta and wav.is_file():
+        if hashlib.sha256(wav.read_bytes()).hexdigest() != meta["sha256"]:
+            raise SidecarError(f"sha256 does not match {wav.name}")
 
 
 def _created_at_text(created_at: datetime | None) -> str:
