@@ -294,6 +294,32 @@ def test_fundamental_hz_is_null_below_two_periods_and_never_taken_from_the_relea
     assert abs(_cents(B.fundamental_hz(audio, p), _f0(43))) < 5  # the note, not f0 / 2
 
 
+@pytest.mark.parametrize("freq", [96.5, 99.7, 101.9])
+def test_fundamental_hz_follows_a_hand_made_detuned_sine_not_the_note(freq: float) -> None:
+    # Note 43 is 98.0 Hz (written here, not computed); the input is a sine 1.5 to 40 cents away.
+    audio, p = render_bass({**BASE, "note": 43, "gate_ms": 600})
+    t = np.arange(len(audio)) / p["sample_rate"]
+    sine = 0.5 * np.sin(2 * np.pi * freq * t)
+    sidecar = B.analyse_bass(sine, p["sample_rate"], p)
+    for got in (B.fundamental_hz(sine, p), sidecar["fundamental_hz"]):
+        assert got is not None
+        assert abs(got - freq) < 0.1, (freq, got)
+        assert abs(got - 98.0) > 1.0  # not the note frequency
+
+
+def test_dc_offset_is_the_signed_mean_of_a_hand_made_signal() -> None:
+    sr = 48000
+    t = np.arange(sr) / sr  # 1 s, 100 whole periods of 100 Hz: the sine part averages to 0
+    wobble = 0.2 * np.sin(2 * np.pi * 100.0 * t)
+    for dc in (0.3, -0.25, 0.0):
+        got = B.analyse_basic(wobble + dc, sr)["dc_offset"]
+        assert got == pytest.approx(dc, abs=1e-6), (dc, got)
+    # a signal whose mean is negative while the mean of |x| is large
+    sq = np.where(np.arange(1000) < 250, 0.5, -0.5)  # mean = 0.5 * (250 - 750) / 1000 = -0.25
+    assert B.analyse_basic(sq, sr)["dc_offset"] == pytest.approx(-0.25, abs=1e-6)
+    assert B.analyse_basic(-sq, sr)["dc_offset"] == pytest.approx(0.25, abs=1e-6)
+
+
 # --- oscillators and static filters (Q2, Q4): partial levels against the written response -------
 
 
