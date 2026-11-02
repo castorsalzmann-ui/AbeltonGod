@@ -14,15 +14,15 @@ import re
 import struct
 from contextlib import suppress
 from datetime import UTC, datetime
+from functools import partial
 from pathlib import Path
 from typing import Any
 
 import numpy as np
 from jsonschema import Draft202012Validator
 
-from . import ENGINE_NAME, ENGINE_VERSION
-from .analysis import analyse
-from .kick import render_kick
+from .categories import get_category
+from .kick import render_kick  # noqa: F401  (name kept: test harness patches io.render_kick)
 from .params import METADATA_SCHEMA_FILE, load_schema
 
 METADATA_SCHEMA_VERSION = "0.1"
@@ -93,10 +93,46 @@ def _riff_wav(frames: bytes, sr: int, bit_depth: int) -> bytes:
     return b"RIFF" + struct.pack("<I", len(body)) + body
 
 
+def render_sample_wav(
+    category: str, params: dict[str, Any]
+) -> tuple[bytes, np.ndarray, dict[str, Any]]:
+    """Render and encode a sample of ``category``. Returns ``(wav_bytes, audio, resolved)``.
+
+    Raises :class:`audio_engine.categories.CategoryUnavailable` if the category has no renderer.
+    """
+    audio, resolved = get_category(category).render(params)
+    return encode_wav(audio, resolved["sample_rate"], resolved["bit_depth"]), audio, resolved
+
+
 def render_kick_wav(params: dict[str, Any]) -> tuple[bytes, np.ndarray, dict[str, Any]]:
     """Render and encode. Returns ``(wav_bytes, audio, resolved_params)``."""
-    audio, resolved = render_kick(params)
-    return encode_wav(audio, resolved["sample_rate"], resolved["bit_depth"]), audio, resolved
+    return render_sample_wav("kick", params)
+
+
+def _renderer(category: str) -> Any:
+    """``render_kick_wav`` for the kick (tests patch that name), the generic one otherwise."""
+    return render_kick_wav if category == "kick" else partial(render_sample_wav, category)
+
+
+def write_sample(
+    category: str,
+    params: dict[str, Any],
+    out_dir: str | Path,
+    name: str | None = None,
+    description: str | None = None,
+    created_at: datetime | None = None,
+) -> tuple[Path, Path]:
+    """Render a sample of ``category`` and write its WAV + sidecar; see :func:`write_kick`.
+
+    ``name`` defaults to the category's default stem. Raises
+    :class:`audio_engine.categories.CategoryUnavailable` before anything is rendered or written
+    if the category has no renderer.
+    """
+    cat = get_category(category)
+    return write_kick(
+        params, out_dir, cat.default_stem if name is None else name, description, created_at,
+        category=category,
+    )
 
 
 def write_kick(
@@ -105,8 +141,14 @@ def write_kick(
     name: str = "kick",
     description: str | None = None,
     created_at: datetime | None = None,
+    *,
+    category: str = "kick",
 ) -> tuple[Path, Path]:
     """Render a kick and write ``<name>.wav`` + ``<name>.json`` into ``out_dir``.
+
+    This function is the one implementation for every category (``category`` defaults to
+    ``"kick"``; :func:`write_sample` is the category-first entry). It keeps its name because
+    the interrupt sweeps and the bridge/library tests trace and patch ``write_kick``.
 
     If either file exists, a counter suffix (``_002``, ``_003`` …) is added. Existing files are
     never touched; if a name is taken between the check and the write, the next counter is
@@ -136,20 +178,21 @@ def write_kick(
     as RFC 3339 with its offset, to the second. A naive datetime is rejected, because its zone
     cannot be known.
     """
-    stamp = _created_at_text(created_at)
-    wav_bytes, audio, resolved = render_kick_wav(params)
-    features = analyse(audio, resolved["sample_rate"])
+    # One line on purpose: the interrupt-sweep tests address write_kick by line number (#183).
+    cat, stamp = get_category(category), _created_at_text(created_at)
+    wav_bytes, audio, resolved = _renderer(category)(params)
+    features = cat.analyse(audio, resolved["sample_rate"])
     if features["peak_dbfs"] is None:
         # Issue #7: a sidecar always carries a real level. Silence is a bug, not a sample.
         raise ValueError("Render is silent (peak 0); refusing to write a WAV and sidecar.")
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
-    stem = safe_stem(name)
+    stem = safe_stem(name, cat.default_stem)
 
     base_meta: dict[str, Any] = {
-        "schema_version": METADATA_SCHEMA_VERSION,
-        "category": "kick",
-        "engine": {"name": ENGINE_NAME, "version": ENGINE_VERSION},
+        "schema_version": cat.metadata_schema_version,
+        "category": cat.name,
+        "engine": cat.engine,
         "parameters": resolved,
         "features": features,
         "bpm": resolved.get("bpm"),
@@ -202,13 +245,15 @@ def write_kick(
     )
 
 
-def safe_stem(name: str) -> str:
+def safe_stem(name: str, default: str = "kick") -> str:
     """File-system safe stem: ASCII letters, digits, ``.``, ``_``, ``-``; max 80 characters;
-    never a reserved Windows device name (CON, NUL, COM1 …)."""
-    stem = _SAFE_NAME.sub("-", name).strip("-.") or "kick"
-    stem = stem[:_MAX_STEM_LENGTH].rstrip("-.") or "kick"
+    never a reserved Windows device name (CON, NUL, COM1 …). ``default`` is used for a name
+    with no usable characters and as prefix for a device name (``kick`` unless the category
+    says otherwise)."""
+    stem = _SAFE_NAME.sub("-", name).strip("-.") or default
+    stem = stem[:_MAX_STEM_LENGTH].rstrip("-.") or default
     if stem.split(".")[0].upper() in _WINDOWS_RESERVED:
-        stem = f"kick-{stem}"
+        stem = f"{default}-{stem}"
     return stem
 
 
@@ -219,13 +264,21 @@ class EngineVersionMismatch(ValueError):
     sidecar would silently give different bytes than the WAV it describes.
     """
 
-    def __init__(self, path: Path, sidecar_engine: dict[str, str]) -> None:
+    def __init__(
+        self,
+        path: Path,
+        sidecar_engine: dict[str, str],
+        current_engine: dict[str, str] | None = None,
+    ) -> None:
+        if current_engine is None:
+            current_engine = get_category("kick").engine
         self.path = path
         self.sidecar_engine = dict(sidecar_engine)
-        self.current_engine = {"name": ENGINE_NAME, "version": ENGINE_VERSION}
+        self.current_engine = dict(current_engine)
         super().__init__(
             f"{path}: written by engine {sidecar_engine.get('name')} "
-            f"{sidecar_engine.get('version')}, this is {ENGINE_NAME} {ENGINE_VERSION}. "
+            f"{sidecar_engine.get('version')}, this is {current_engine['name']} "
+            f"{current_engine['version']}. "
             "A re-render would not reproduce its WAV. Pass allow_engine_mismatch=True to "
             "render its parameters with the current engine anyway (different bytes)."
         )
@@ -237,21 +290,28 @@ def rerender_from_sidecar(json_path: str | Path, *, allow_engine_mismatch: bool 
     The caller compares the result with ``sha256`` in the sidecar. Identity is only guaranteed
     on the same platform and NumPy build; see the PR #8 notes on cross-OS determinism.
 
+    Raises :class:`audio_engine.categories.CategoryUnavailable` if the sidecar's category has no
+    renderer in this engine (e.g. ``clap`` before the clap voice exists).
+
     Raises :class:`EngineVersionMismatch` if the sidecar's engine name or version differs from
-    the running engine, because the bytes would differ (#35). With
+    the running engine of its category, because the bytes would differ (#35). With
     ``allow_engine_mismatch=True`` the parameters are rendered with the current engine; the
     result is then a new render, not a reproduction.
     """
     path = Path(json_path)
     meta = json.loads(path.read_text(encoding="utf-8"))
     Draft202012Validator(load_schema(METADATA_SCHEMA_FILE)).validate(meta)
+    # Refuse by category first: a clap sidecar must never reach kick-param validation, and a
+    # category without a renderer is an error of its own (CategoryUnavailable).
+    cat = get_category(meta["category"])
     _check_sidecar_facts(meta, path)
     engine = meta["engine"]
-    if not allow_engine_mismatch and (
-        engine["name"] != ENGINE_NAME or engine["version"] != ENGINE_VERSION
-    ):
-        raise EngineVersionMismatch(path, engine)
-    wav_bytes, _, _ = render_kick_wav(_upgrade_sidecar_params(meta["parameters"]))
+    if not allow_engine_mismatch and engine != cat.engine:
+        raise EngineVersionMismatch(path, engine, cat.engine)
+    params = meta["parameters"]
+    if cat.name == "kick":
+        params = _upgrade_sidecar_params(params)
+    wav_bytes, _, _ = render_sample_wav(cat.name, params)
     return wav_bytes
 
 

@@ -146,3 +146,104 @@ def oversampled(x: np.ndarray, factor: int, fn, h: np.ndarray) -> np.ndarray:
     # Keeping every factor-th sample folds the full spectrum onto the base band.
     full = np.concatenate([z, np.conj(z[1 : size // 2][::-1])])
     return np.fft.ifft(full.reshape(factor, m).sum(axis=0)).real[:n]
+
+
+# ---------------------------------------------------------------------------------------------
+# Blocks for non-pitched voices (#230). Nothing above this line changed, so kick bytes are
+# untouched.
+# ---------------------------------------------------------------------------------------------
+
+
+Coeffs = tuple[float, float, float]
+
+
+def _biquad(x: np.ndarray, b: Coeffs, a: Coeffs) -> np.ndarray:
+    """Direct form I biquad; ``a[0]`` is 1 (coefficients already divided by a0)."""
+    b0, b1, b2 = b
+    _, a1, a2 = a
+    y = np.zeros_like(x)
+    x1 = x2 = y1 = y2 = 0.0
+    for i, xi in enumerate(x.tolist()):
+        yi = b0 * xi + b1 * x1 + b2 * x2 - a1 * y1 - a2 * y2
+        y[i] = yi
+        x2, x1 = x1, xi
+        y2, y1 = y1, yi
+    return y
+
+
+def _check_corner(sr: int, f0: float, q: float) -> None:
+    if not 0.0 < f0 < sr / 2:
+        raise ValueError(f"f0 must be in (0, sr/2) = (0, {sr / 2}), got {f0}")
+    if not q > 0.0:
+        raise ValueError(f"q must be positive, got {q}")
+
+
+def rbj_highpass(x: np.ndarray, sr: int, f0: float, q: float = 1 / math.sqrt(2)) -> np.ndarray:
+    """RBJ cookbook 2nd-order high-pass (-3.01 dB at ``f0`` for Q = 1/sqrt(2))."""
+    _check_corner(sr, f0, q)
+    w0 = 2.0 * math.pi * f0 / sr
+    cw, alpha = math.cos(w0), math.sin(w0) / (2.0 * q)
+    a0 = 1.0 + alpha
+    b0 = (1.0 + cw) / 2.0 / a0
+    return _biquad(x, (b0, -2.0 * b0, b0), (1.0, -2.0 * cw / a0, (1.0 - alpha) / a0))
+
+
+def rbj_lowpass(x: np.ndarray, sr: int, f0: float, q: float = 1 / math.sqrt(2)) -> np.ndarray:
+    """RBJ cookbook 2nd-order low-pass (-3.01 dB at ``f0`` for Q = 1/sqrt(2))."""
+    _check_corner(sr, f0, q)
+    w0 = 2.0 * math.pi * f0 / sr
+    cw, alpha = math.cos(w0), math.sin(w0) / (2.0 * q)
+    a0 = 1.0 + alpha
+    b0 = (1.0 - cw) / 2.0 / a0
+    return _biquad(x, (b0, 2.0 * b0, b0), (1.0, -2.0 * cw / a0, (1.0 - alpha) / a0))
+
+
+def rbj_peaking(x: np.ndarray, sr: int, f0: float, q: float, gain_db: float) -> np.ndarray:
+    """RBJ cookbook static peaking EQ: ``gain_db`` at ``f0``, 0 dB far away."""
+    _check_corner(sr, f0, q)
+    big_a = 10.0 ** (gain_db / 40.0)
+    w0 = 2.0 * math.pi * f0 / sr
+    cw, alpha = math.cos(w0), math.sin(w0) / (2.0 * q)
+    a0 = 1.0 + alpha / big_a
+    return _biquad(
+        x,
+        ((1.0 + alpha * big_a) / a0, -2.0 * cw / a0, (1.0 - alpha * big_a) / a0),
+        (1.0, -2.0 * cw / a0, (1.0 - alpha / big_a) / a0),
+    )
+
+
+def square_bank(freqs_hz: list[float] | np.ndarray, sr: int, n: int,
+                phases: list[float] | np.ndarray | None = None) -> np.ndarray:
+    """Sum of band-limited square waves, one per entry of ``freqs_hz`` (additive synthesis).
+
+    Each square is ``(4/pi) * sum sin(2 pi k f t + k phi) / k`` over odd ``k`` with
+    ``k * f < sr / 2``, so nothing folds back (unit amplitude square, Gibbs ripple included).
+    ``phases`` are the starting phases of the fundamentals in radians (default 0). A frequency
+    at or above Nyquist contributes nothing. Deterministic; no random numbers.
+    """
+    freqs = [float(f) for f in freqs_hz]
+    phis = [0.0] * len(freqs) if phases is None else [float(p) for p in phases]
+    if len(phis) != len(freqs):
+        raise ValueError("phases must have one entry per frequency")
+    t = np.arange(n) / sr
+    out = np.zeros(n)
+    for f, phi in zip(freqs, phis, strict=True):
+        k = 1
+        while k * f < sr / 2.0:
+            out += np.sin(2.0 * math.pi * k * f * t + k * phi) / k
+            k += 2
+    return out * (4.0 / math.pi)
+
+
+def substreams(seed: int, count: int) -> list[np.random.Generator]:
+    """``count`` independent random generators derived from one seed (one per layer).
+
+    Stream ``i`` depends only on ``(seed, i)``: adding a layer later does not change the
+    noise of the earlier ones. Uses ``SeedSequence.spawn``; no global RNG, no clock.
+    """
+    if isinstance(seed, bool) or not isinstance(seed, int) or seed < 0:
+        raise ValueError(f"seed must be a non-negative int, got {seed!r}")
+    if count < 0:
+        raise ValueError(f"count must be >= 0, got {count}")
+    children = np.random.SeedSequence(seed).spawn(count)
+    return [np.random.Generator(np.random.PCG64(s)) for s in children]
