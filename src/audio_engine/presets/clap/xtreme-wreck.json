@@ -1,0 +1,11 @@
+{
+  "schema_version": "0.2",
+  "preset": "xtreme-wreck",
+  "seed": 2107,
+  "drive": 0.6,
+  "fold": 0.3,
+  "crush": 0.4,
+  "rate_div": 2,
+  "comb_hz": 1500,
+  "comb_fb": 0.6
+}

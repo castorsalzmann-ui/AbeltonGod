@@ -1,0 +1,9 @@
+{
+  "schema_version": "0.2",
+  "preset": "xtreme-reversed",
+  "seed": 2106,
+  "tail_level": 1,
+  "tail_decay_ms": 300,
+  "length_ms": 700,
+  "tail_reverse": true
+}

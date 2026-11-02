@@ -1,0 +1,8 @@
+{
+  "schema_version": "0.2",
+  "preset": "xtreme-gated",
+  "seed": 2105,
+  "tail_decay_ms": 800,
+  "length_ms": 900,
+  "gate_ms": 120
+}
