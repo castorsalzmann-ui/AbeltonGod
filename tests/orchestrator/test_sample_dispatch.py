@@ -65,8 +65,11 @@ class Fake:
         return place_sample("clap", params, project_dir, **kw)
 
 
+CLAP_ONLY = {"clap": ADAPTERS["clap"]}  # the table of PR #266/#287, before the hat row (#294)
+
+
 def table(*extra):
-    return {**ADAPTERS, **{a.name: a for a in extra}}
+    return {**CLAP_ONLY, **{a.name: a for a in extra}}
 
 
 def box_for(tmp_path, adapters):
@@ -84,8 +87,8 @@ def run(guard, box, args, approver=None):
 
 
 def test_clap_only_schema_is_byte_identical_to_pr_266():
-    assert digest(tool_input_schema()) == PINNED_SCHEMA_SHA256
-    tool = SampleTools(_NoSession()).tools(files_per_request=12)[0]
+    assert digest(tool_input_schema(CLAP_ONLY)) == PINNED_SCHEMA_SHA256
+    tool = SampleTools(_NoSession(), CLAP_ONLY).tools(files_per_request=12)[0]
     assert digest(tool.input_schema) == PINNED_TOOL_SHA256
     assert tool.max_files_written == 16
 
@@ -108,7 +111,7 @@ def test_another_category_changes_enum_and_texts_but_not_the_shape():
     fake = Fake()
     two = tool_input_schema(table(fake.adapter))
     assert two["properties"]["category"]["enum"] == ["clap", "fakeclap"]
-    assert strip(two) == strip(tool_input_schema())
+    assert strip(two) == strip(tool_input_schema(CLAP_ONLY))
     assert optional_fields(two) == 0
     assert "fakeclap" in two["description"] and "clap" in two["description"]
     assert two["required"] == ["category", "preset", "prompt", "seed", "variants", "adjust"]
@@ -149,7 +152,7 @@ def test_unregistered_category_is_refused_before_approval_and_any_file(tmp_path,
     session, tools, box = box_for(tmp_path, table(fake.adapter))
     approver = Approver(True)
     # (a) through the toolbox: the schema enum refuses, approver never asked
-    for category in ("hat", "snare", "kick", ""):
+    for category in ("hat", "snare", "kick", ""):  # hat: not in THIS table (fake + clap)
         r = run(make_guard(), box, {**GOOD, "category": category}, approver)
         assert r.is_error, category
     # (b) a handler reached with an unregistered category (enum bypassed) still refuses
@@ -162,13 +165,118 @@ def test_unregistered_category_is_refused_before_approval_and_any_file(tmp_path,
             assert getattr(exc, "files_written", 0) == 0
         else:
             raise AssertionError(f"{category!r} was accepted")
-    assert build_request({**GOOD, "category": "hat"})[1] == [
+    assert build_request({**GOOD, "category": "hat"}, CLAP_ONLY)[1] == [
         "category 'hat' is not available yet; available: clap"]
+    assert build_request({**GOOD, "category": "snare"})[1] == [
+        "category 'snare' is not available yet; available: clap, hat"]
     assert approver.asked == []
     assert fake.variant_calls == [] and fake.place_calls == []
     assert session.sample_ids() == () and not list(Path(session.project_dir).rglob("*.wav"))
     assert not list(Path(session.project_dir).rglob("*.json"))
 
 
-def test_default_table_has_exactly_clap_until_a_voice_exists():
-    assert list(ADAPTERS) == ["clap"]
+# --- hat (#294) ------------------------------------------------------------------------------
+
+# Written down from a run on this branch; the clap-only hashes above are the "before".
+HAT_SCHEMA_SHA256 = "4f5ff4b25b6cdc2a180ba8671547ba9a1f1947aa9248ce13428ecfd6369b0a54"
+HAT = {"category": "hat", "preset": "closed-std", "prompt": "", "seed": 3, "variants": 2,
+       "adjust": [{"key": "decay_ms", "value": 60}]}
+
+
+def test_default_table_is_clap_and_hat():
+    assert list(ADAPTERS) == ["clap", "hat"]
+    assert ADAPTERS["hat"].contract == "hat-params.schema.json"
+
+
+def test_hat_row_changes_enum_and_texts_but_not_the_shape_or_the_budget():
+    schema = tool_input_schema()
+    assert digest(schema) == HAT_SCHEMA_SHA256
+    assert schema["properties"]["category"]["enum"] == ["clap", "hat"]
+    assert strip(schema) == strip(tool_input_schema(CLAP_ONLY))
+    assert optional_fields(schema) == 0
+    for preset in ("closed-std", "open-short", "open-long"):
+        assert preset in schema["description"]
+    assert "choke_ms" in schema["description"]
+    tool = SampleTools(_NoSession()).tools()[0]
+    assert tool.max_files_written == 16
+
+
+def test_hat_generates_through_the_adapter(tmp_path, make_guard):
+    session, _, box = box_for(tmp_path, ADAPTERS)
+    result = run(make_guard(), box, HAT)
+    assert result.is_error is False, result.content
+    assert result.content["category"] == "hat"
+    assert [s["sample_id"] for s in result.content["samples"]] == ["hat-1", "hat-2"]
+    wavs = sorted(Path(session.project_dir).rglob("*.wav"))
+    assert len(wavs) == 2 and all("Hats" in w.parts for w in wavs)
+    meta = json.loads(wavs[0].with_suffix(".json").read_text(encoding="utf-8"))
+    assert meta["category"] == "hat" and meta["parameters"]["preset"] == "closed-std"
+    assert meta["parameters"]["decay_ms"] == 60
+    assert session.entry("hat-2").category == "hat"
+
+
+def test_hat_is_deterministic_for_equal_arguments(tmp_path, make_guard):
+    runs = []
+    for sub in ("a", "b"):
+        (tmp_path / sub).mkdir()
+        session, _, box = box_for(tmp_path / sub, ADAPTERS)
+        assert run(make_guard(), box, HAT).is_error is False
+        runs.append([w.read_bytes() for w in sorted(Path(session.project_dir).rglob("*.wav"))])
+    assert runs[0] == runs[1]
+
+
+def test_hat_refusals_write_nothing(tmp_path, make_guard):
+    session, _, box = box_for(tmp_path, ADAPTERS)
+    bad = [
+        {**HAT, "preset": "short"},  # a clap preset
+        {**HAT, "prompt": "dark"},
+        {**HAT, "adjust": [{"key": "decay_ms", "value": 5000}]},
+        {**HAT, "adjust": [{"key": "choke_ms", "value": 3}]},  # 0 or 5..900
+        {**HAT, "adjust": [{"key": "model", "value": 2}]},
+        {**HAT, "adjust": [{"key": "polarity", "value": 0}]},
+        {**HAT, "adjust": [{"key": "hp_hz", "value": 9000}, {"key": "lp_hz", "value": 9500}]},
+        {**HAT, "variants": 9},
+    ]
+    for args in bad:
+        r = run(make_guard(), box, args)
+        assert r.is_error, args
+    assert not list(Path(session.project_dir).rglob("*.wav"))
+    assert not list(Path(session.project_dir).rglob("*.json"))
+    assert session.sample_ids() == ()
+
+
+def test_hat_choke_is_checked_locally_before_the_engine(tmp_path, make_guard):
+    _, tools, _ = box_for(tmp_path, ADAPTERS)
+    for value in (3, 4.9, 901):
+        problems = build_request({**HAT, "adjust": [{"key": "choke_ms", "value": value}]})[1]
+        assert problems == [f"adjust[0]: choke_ms must be 0 or from 5 to 900, got {value!r}"]
+
+
+def test_hat_choke_accepts_zero_and_a_range_value(tmp_path, make_guard):
+    session, _, box = box_for(tmp_path, ADAPTERS)
+    for value in (0, 5, 120, 900):
+        args = {**HAT, "variants": 1, "adjust": [{"key": "choke_ms", "value": value}]}
+        r = run(make_guard(), box, args)
+        assert r.is_error is False, (value, r.content)
+
+
+def test_hat_files_count_against_the_guard_cap(tmp_path, make_guard):
+    """Cap 10 files: 5 hats (WAV + sidecar) fit, 6 hats are stopped by the guard, no file."""
+    session, _, box = box_for(tmp_path, ADAPTERS)
+    refused = run(make_guard(max_files_written=10), box, {**HAT, "variants": 6})
+    assert refused.is_error
+    assert not list(Path(session.project_dir).rglob("*.wav"))
+    ok = run(make_guard(max_files_written=10), box, {**HAT, "variants": 5})
+    assert ok.is_error is False, ok.content
+    assert len(list(Path(session.project_dir).rglob("*.wav"))) == 5
+
+
+def test_snare_and_kick_stay_refused_with_the_default_table(tmp_path, make_guard):
+    session, _, box = box_for(tmp_path, ADAPTERS)
+    approver = Approver(True)
+    for category in ("snare", "kick", "tom"):
+        assert run(make_guard(), box, {**HAT, "category": category}, approver).is_error
+    assert approver.asked == []
+    assert build_request({**HAT, "category": "snare"})[1] == [
+        "category 'snare' is not available yet; available: clap, hat"]
+    assert not list(Path(session.project_dir).rglob("*.wav"))

@@ -27,6 +27,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from audio_engine.clap_variants import make_variants
+from audio_engine.hat_variants import make_variants as hat_variants
 from audio_engine.presets import load_preset, preset_names
 from library import place_sample
 from orchestrator.kick_tools import (
@@ -77,6 +78,7 @@ class CategoryAdapter:
 
 ADAPTERS: Mapping[str, CategoryAdapter] = {
     "clap": CategoryAdapter("clap", "clap-params.schema.json", make_variants, noun="clap"),
+    "hat": CategoryAdapter("hat", "hat-params.schema.json", hat_variants, noun="hat"),
 }
 CLAP_CONTRACT = ADAPTERS["clap"].contract
 CATEGORIES = tuple(ADAPTERS)
@@ -97,6 +99,8 @@ def _key_help(adapter: CategoryAdapter) -> str:
     for key, spec in adjustable_keys(adapter).items():
         if "enum" in spec:
             rng = "one of " + "/".join(str(v) for v in spec["enum"])
+        elif "oneOf" in spec:
+            rng = _range_text(spec)
         else:
             rng = f"{spec['minimum']}..{spec['maximum']}"
         parts.append(f"{key} ({'integer ' if spec.get('type') == 'integer' else ''}{rng}, "
@@ -176,7 +180,18 @@ def tool_input_schema(adapters: Mapping[str, CategoryAdapter] | None = None) -> 
     }
 
 
+def _one_of(spec: dict[str, Any]) -> tuple[list[Any], dict[str, Any] | None]:
+    """(consts, numeric range branch) of a ``oneOf`` spec such as hat ``choke_ms``."""
+    consts = [b["const"] for b in spec["oneOf"] if "const" in b]
+    ranges = [b for b in spec["oneOf"] if "minimum" in b]
+    return consts, (ranges[0] if ranges else None)
+
+
 def _range_text(spec: dict[str, Any]) -> str:
+    if "oneOf" in spec:
+        consts, rng = _one_of(spec)
+        text = " or ".join(str(c) for c in consts)
+        return f"{text} or from {rng['minimum']} to {rng['maximum']}" if rng else text
     if "enum" in spec:
         return "one of " + ", ".join(str(v) for v in spec["enum"])
     return f"{'an integer ' if spec.get('type') == 'integer' else ''}from " \
@@ -219,8 +234,13 @@ def check_adjust(adjust: Any, adapter: CategoryAdapter | None = None,
                 problems.append(f"adjust[{i}]: {key} must be a whole number, got {value!r}")
                 continue
             value = whole
-        ok = (value in spec["enum"]) if "enum" in spec else (
-            spec["minimum"] <= value <= spec["maximum"])
+        if "oneOf" in spec:
+            consts, rng = _one_of(spec)
+            ok = value in consts or (rng is not None
+                                     and rng["minimum"] <= value <= rng["maximum"])
+        else:
+            ok = (value in spec["enum"]) if "enum" in spec else (
+                spec["minimum"] <= value <= spec["maximum"])
         if not ok:
             problems.append(f"adjust[{i}]: {key} must be {_range_text(spec)}, got {value!r}")
             continue
