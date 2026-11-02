@@ -1,0 +1,29 @@
+{
+  "description": "#317 fault injection on the snare adapter row. Run: python scripts/qa/mutate.py tests/orchestrator/mutants/issue317_snare_adapter.json",
+  "mutants": [
+    {"id": "S1_SNARE_ROW_USES_HAT_VARIANTS", "file": "src/orchestrator/sample_tools.py",
+     "old": "\"snare-params.schema.json\", snare_variants,",
+     "new": "\"snare-params.schema.json\", hat_variants,",
+     "tests": ["tests/orchestrator/test_sample_dispatch.py"], "note": "snare rendered by the hat variant maker"},
+    {"id": "S2_SNARE_ROW_USES_HAT_CONTRACT", "file": "src/orchestrator/sample_tools.py",
+     "old": "\"snare-params.schema.json\", snare_variants,",
+     "new": "\"hat-params.schema.json\", snare_variants,",
+     "tests": ["tests/orchestrator/test_sample_dispatch.py"], "note": "snare keys/ranges checked against the hat contract"},
+    {"id": "S3_SNARE_ROW_REMOVED", "file": "src/orchestrator/sample_tools.py",
+     "old": "    \"snare\": CategoryAdapter(\"snare\", \"snare-params.schema.json\", snare_variants, noun=\"snare\"),\n",
+     "new": "",
+     "tests": ["tests/orchestrator/test_sample_dispatch.py"], "note": "snare not dispatchable"},
+    {"id": "S4_SNARE_ACCEPTS_PROMPT", "file": "src/orchestrator/sample_tools.py",
+     "old": "snare_variants, noun=\"snare\")",
+     "new": "snare_variants, noun=\"snare\", accepts_prompt=True)",
+     "tests": ["tests/orchestrator/test_sample_dispatch.py"], "note": "prompt not refused for snare"},
+    {"id": "S5_SNARE_PRESET_FROM_CLAP", "file": "src/orchestrator/sample_tools.py",
+     "old": "snare_variants, noun=\"snare\")",
+     "new": "snare_variants, noun=\"snare\", preset_category=\"clap\")",
+     "tests": ["tests/orchestrator/test_sample_dispatch.py"], "note": "snare uses the clap preset folder"},
+    {"id": "S6_FILES_FOR_IGNORES_VARIANT_COUNT", "file": "src/orchestrator/sample_tools.py",
+     "old": "return adapter.files_per_variant * n",
+     "new": "return adapter.files_per_variant",
+     "tests": ["tests/orchestrator/test_sample_dispatch.py"], "note": "guard file cap sees one variant only"}
+  ]
+}
