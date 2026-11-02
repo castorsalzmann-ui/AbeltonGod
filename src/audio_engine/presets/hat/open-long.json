@@ -1,0 +1,7 @@
+{
+  "schema_version": "0.1",
+  "preset": "open-long",
+  "seed": 1,
+  "decay_ms": 500,
+  "hp_hz": 5500
+}

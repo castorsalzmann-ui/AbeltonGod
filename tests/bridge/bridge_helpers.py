@@ -13,7 +13,8 @@ from pathlib import Path
 
 from bridge.capabilities import CAPABILITIES_FILE, CapabilityRegistry
 
-TEST_TIMEOUT_S = 0.25  # the short deadline, for tests that expect a timeout
+TEST_TIMEOUT_S = 1.0  # the short deadline, for tests that expect a timeout
+REPLY_TIMEOUT_S = 5.0  # tests that expect an ANSWER: 0.25 s expired under CPU load (#180)
 # In these modules only the WRITE calls get the short deadline (ShortWrites); ordinary reads
 # keep the long one. A stalled write is what the tests expect to time out (#180).
 SHORT_WRITE_MODULES = {"test_clip_import_late.py", "test_arrangement_late.py"}

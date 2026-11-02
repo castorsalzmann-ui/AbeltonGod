@@ -452,6 +452,12 @@ SAMPLE_METADATA_INVALID = {
     "engine unknown field": _sample_metadata(
         engine={"name": "abeltongod-audio-engine", "version": "0.1.0", "build": "x"}
     ),
+    "kick sidecar with the clap engine name (#262)": _sample_metadata(
+        engine={"name": "abeltongod-audio-engine-clap", "version": "0.1.0"}
+    ),
+    "kick sidecar with an unknown engine name (#262)": _sample_metadata(
+        engine={"name": "abeltongod-audio-engine-hat", "version": "0.1.0"}
+    ),
     "parameters is a list": _sample_metadata(parameters=[]),
     "features without peak_dbfs": _sample_metadata(features={"length_ms": 80.0}),
     "features peak_dbfs null": _sample_metadata(features={"peak_dbfs": None, "length_ms": 80.0}),

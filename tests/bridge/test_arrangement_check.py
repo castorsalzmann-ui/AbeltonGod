@@ -68,7 +68,9 @@ def snapshot(fake):
     return copy.deepcopy((fake.tracks, fake.cue_points))
 
 
-def run(fake, tmp_path, answers, extra=(), send_port=None, on_prompt=None):
+def run(fake, tmp_path, answers, extra=(), send_port=None, on_prompt=None, timeout="5"):
+    """``timeout``: generous because most tests expect a reply (#180); tests whose subject is
+    the timeout pass a short one ("0.3")."""
     receive = free_udp_port()
     fake.response_port = receive
     queue = list(answers)
@@ -88,7 +90,7 @@ def run(fake, tmp_path, answers, extra=(), send_port=None, on_prompt=None):
     out = io.StringIO()
     code = script.main(
         ["--send-port", str(send_port or fake.port), "--receive-port", str(receive),
-         "--timeout", "0.3", "--log", str(tmp_path / "actions.jsonl"), *extra],
+         "--timeout", timeout, "--log", str(tmp_path / "actions.jsonl"), *extra],
         input_fn=input_fn, out=out)
     return code, out.getvalue(), prompts
 
@@ -471,7 +473,7 @@ def test_timeout_during_each_write_is_unknown_and_never_undone(fake, tmp_path, a
         return h
 
     fake._handlers = handlers
-    code, out, prompts = run(fake, tmp_path, ["y", "y", "y"])
+    code, out, prompts = run(fake, tmp_path, ["y", "y", "y"], timeout="0.3")
     assert code == script.EXIT_CHECK_FAILED, out
     assert (UNDO, ()) not in writes(fake) and len(prompts) == 2
     assert "UNBEKANNT" in out
@@ -579,7 +581,7 @@ def test_writer_refuses_a_locator_at_the_start_on_its_own(fake, transport, tmp_p
     b = AbletonBridge(transport, CapabilityGate(registry_with(tmp_path, set()),
                                                 script.ALLOWED + ("song.track_names.get",)))
     fake.cue_points = [["mine", 16.0]]
-    writer = arr.ArrangementWriter(b, ActionLog(tmp_path / "a.jsonl"), timeout_s=0.3)
+    writer = arr.ArrangementWriter(b, ActionLog(tmp_path / "a.jsonl"), timeout_s=5.0)
     state = arr.read_arrangement_state(b, len(fake.tracks))
     with pytest.raises(arr.ImportAborted, match="toggle would delete"):
         writer.run(arr.make_plan(5, 1, "x"), state)

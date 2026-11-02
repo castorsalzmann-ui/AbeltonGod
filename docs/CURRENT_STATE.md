@@ -2,6 +2,13 @@
 
 _Last updated: 2026-11-02 13:30 (Stand-Block unten, ältere Einträge teils historisch) · Written only by the lead session on `main` after a merge. Parallel tracks: `docs/ROADMAP.md` → Pipeline._
 
+## Stand 2026-11-02, 17:00 (Spätnachmittag)
+
+- **Gemergt seit 13:30 (Lead, jeweils unabhängig geprüft, CI Ubuntu + Windows grün):** Kick-Schlüsselwörter `listening_keywords` (PR #288), Flake-Fix Reply-Deadlines (PR #286), Kategorie-Verteilung `generate_sample` (PR #287), Cockpit-Phasen (PR #291), **Hat-Stimme** `abeltongod-audio-engine-hat` 0.1.0 inkl. Registrierung, `hat_variants.py` und CLI `--category hat` (PR #290; Review 2 Runden; H10 verworfen, xfail), Hat-Hörtest-Paket (PR #299), **Hat-Adapter für `generate_sample`** (PR #302; Tool-Schema-Hash `fab17e19…` → `4f5ff4b2…`, nur Texte/Enum, 0 neue optionale Felder), schnellerer Gate-Lauf (PR #304; ~17 s CPU von ~280 s, der Rest ist Warten auf Timeouts, Issue #303/#180). Nutzer: Kick-Engine-Pin (PR #269). Gate auf main + PR #304: ruff sauber, 6400 bestanden, 11 übersprungen, 1 xfailed (319 s).
+- **Offen, wartet auf den Nutzer (Vertragswechsel/Ableton):** PR #289 (clap-params v0.2), PR #292 (snare-params v0.1), PR #297 (hat-params Wortlaut, Issue #293), PR #298 (rim-params v0.1, gestapelt auf #292), PR #261 (Clap-Import in Live). PR #305 (Clap-Engine-Stufen + 7 `xtreme-*`-Presets, baut auf #289; nach dem Merge von #289 neu auf `main` ausrichten; Vertragssatz zu Gate+Reverse als Wortlautänderung danach). Orchestrator-Pins `cb0d129a…` (nur Clap) und `75aa87b1…` (Clap+Hat) gelten erst mit #305.
+- **Nicht getestet:** nichts davon in Live; kein echter Claude-Hat-Aufruf; keine Hörergebnisse für Hat, Xtreme-Claps oder Kick-Schlüsselwörter. Kick-Hörpaket (24 WAVs) ist beim Nutzer, `wums` hat im Vorcheck knapp unter der Mindeststufe (0,29 statt 0,3).
+- **Side-Findings:** #301 (Kick-0.1-Sidecar mit fremdem Engine-Namen gültig), #303 (Bridge-Test `test_clip_import_late` Last-Flake, Ursache nicht geklärt).
+
 ## Stand 2026-11-02, 13:30 (Nachmittag)
 
 Neue Sample-Kategorien: **Clap zuerst, dann Hats** (D-025). Details und offene Schritte pro Feature: `docs/ROADMAP.md` (Features-Tabelle). Was nur der Nutzer tun kann: `docs/WAITING_ON_USER.md`. Live-Cockpit (aktualisiert sich alle 30 Minuten): <https://castorsalzmann-ui.github.io/AbeltonGod/>.

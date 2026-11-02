@@ -38,7 +38,12 @@ cc = _load()
     ("None.", []),
     ("PR #100 and #205 merged", []),  # digits inside longer numbers are not phases
     ("Phase 05 and 10", ["05"]),  # 05..09 count since #125; 10 is not a phase id
-    ("Phases 03–05 accepted", ["03", "04a", "05"]),
+    # #127: a range across 04 covers both 04a and 04b; an end point keeps its letter
+    ("Phases 03–05 accepted", ["03", "04a", "04b", "05"]),
+    ("Phases 01–04b", ["01", "02", "03", "04a", "04b"]),
+    ("Phases 01-04a", ["01", "02", "03", "04a"]),
+    ("Phases 02–04", ["02", "03", "04a", "04b"]),
+    ("Phases 04–05", ["04a", "04b", "05"]),
     ("Phases 05-07 and 09", ["05", "06", "07", "09"]),
     ("Phase 06b later", ["06b"]),
     ("Phase 4 and 5", []),  # a phase id always has two digits
@@ -151,6 +156,27 @@ def test_issue_phase_05_track(tmp_path, monkeypatch):
     rows, _ = cc.collect_issues(tmp_path)
     assert [(r["number"], r["phase"], r["track"], r["next_rank"]) for r in rows] == [
         (40, "05", "Kick", None), (41, "05", "Kick", 1), (42, "06", "Sonstiges", None),
+    ]
+
+
+def test_issue_phase_label_wins_over_title(tmp_path, monkeypatch):
+    """#127: the `phase:` label decides; the title is only a fallback."""
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "docs" / "CURRENT_STATE.md").write_text("## Next step\n\n", encoding="utf-8")
+    canned = [
+        _issue(50, "Prereq for Phase 05+ work", ["phase:00"]),
+        _issue(51, "Phase 03 thing", ["phase:04b"]),
+        _issue(52, "Phase 04b thing", []),  # no label: title fallback
+        _issue(53, "No phase anywhere", []),
+        _issue(54, "Phase 04 label", ["phase:04"]),  # bare 04 label stays 04a
+        _issue(55, "Phase 04b step 2", ["phase:04"]),  # coarse label refined by 04x title
+        _issue(56, "Phase 05 mention", ["phase:04"]),  # ...but not by another phase
+    ]
+    monkeypatch.setattr(cc, "gh_all", lambda p: [dict(i) for i in canned])
+    rows, _ = cc.collect_issues(tmp_path)
+    assert [(r["number"], r["phase"]) for r in rows] == [
+        (50, "00"), (51, "04b"), (52, "04b"), (53, "—"), (54, "04a"),
+        (55, "04b"), (56, "04a"),
     ]
 
 

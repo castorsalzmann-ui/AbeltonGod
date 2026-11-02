@@ -275,6 +275,29 @@ def test_memory_bound_drops_oldest_first(monkeypatch) -> None:
     assert rc._bytes == rc._store[rc.cache_key({**BASE, "seed": 8})][0].nbytes
 
 
+def test_cache_installed_as_kick_render_kick_counts_as_untouched_but_other_patches_do_not(
+    monkeypatch,
+) -> None:
+    """#278: conftest also installs the cache as ``audio_engine.kick.render_kick`` (the name the
+    kick category and so ``render_kick_wav`` call). Only that one replacement is tolerated."""
+    original = kick_mod.render_kick
+    monkeypatch.setattr(kick_mod, "render_kick", rc.cached_render_kick)
+    assert rc.engine_untouched()
+    monkeypatch.setattr(kick_mod, "render_kick", lambda params: original(params))
+    assert not rc.engine_untouched()
+
+
+def test_render_kick_wav_is_served_from_the_cache_and_equals_a_direct_render(monkeypatch) -> None:
+    """#278: through ``render_kick_wav`` a second call is a hit, byte-identical to uncached."""
+    direct = io_mod.render_kick_wav(BASE)
+    monkeypatch.setattr(rc, "_real_engine", kick_mod.render_kick)
+    monkeypatch.setattr(kick_mod, "render_kick", rc.cached_render_kick)
+    first, second = io_mod.render_kick_wav(BASE), io_mod.render_kick_wav(BASE)
+    assert rc.stats == {"hits": 1, "misses": 1, "bypassed": 0}
+    assert first[0] == second[0] == direct[0]
+    assert first[2] == direct[2]
+
+
 def test_cache_is_not_left_installed_outside_listed_tests() -> None:
     assert io_mod.render_kick is not rc.cached_render_kick
     assert kick_mod.render_kick is not rc.cached_render_kick
@@ -299,10 +322,13 @@ GOLDEN = "tests/audio_engine/test_engine_version.py::test_golden_sha256"
 DETERMINISM = "tests/audio_engine/test_kick.py::test_same_params_and_seed_give_identical_wav"
 SIGNAL = "tests/audio_engine/test_kick.py::test_signal_properties"
 ANALYSIS = "tests/audio_engine/test_kick.py::test_analysis_measures_the_real_signal"
+QUANTISED = "tests/audio_engine/test_kick.py::test_quantised_file_peak_never_exceeds_ceiling"
 # Three cases of the two cached tests are enough to show the cache is active where listed;
 # all 161 would re-render 161 kicks in the subprocess for no extra evidence.
 CACHED_CASES = ("defaults", "random-0", "random-1")
-COUNTED = [GOLDEN, DETERMINISM] + [f"{t}[{c}]" for t in (SIGNAL, ANALYSIS) for c in CACHED_CASES]
+COUNTED = [GOLDEN, DETERMINISM] + [
+    f"{t}[{c}]" for t in (SIGNAL, QUANTISED, ANALYSIS) for c in CACHED_CASES
+]
 
 
 def test_render_counter_shows_direct_engine_calls(tmp_path) -> None:
@@ -335,9 +361,11 @@ def test_render_counter_shows_direct_engine_calls(tmp_path) -> None:
     determinism = rows(DETERMINISM)
     assert len(determinism) == 20
     assert all(r["renders"] == 2 and r["cache_hits"] == 0 for r in determinism)
-    signal, analysis = rows(SIGNAL), rows(ANALYSIS)
-    assert len(signal) == len(analysis) == len(CACHED_CASES)
+    signal, analysis, quantised = rows(SIGNAL), rows(ANALYSIS), rows(QUANTISED)
+    assert len(signal) == len(analysis) == len(quantised) == len(CACHED_CASES)
     # The determinism tests run first and render the same sets, but outside the cache, so
     # signal_properties still renders each once and analysis_measures only gets hits.
     assert all(r["renders"] == 1 and r["cache_hits"] == 0 for r in signal)
     assert all(r["renders"] == 0 and r["cache_hits"] == 1 for r in analysis)
+    # #278: the WAV path (render_kick_wav -> kick category) is cached too, not only render_kick.
+    assert all(r["renders"] == 0 and r["cache_hits"] == 1 for r in quantised)

@@ -7,8 +7,9 @@ parameter sets is rendered again by five tests that only *read* the render.
 How it stays honest:
 
 - **Opt-in per test.** Only the test functions in ``CACHED_TESTS`` get the cache, and only
-  for the duration of that test (``tests/conftest.py`` installs it in the test module and in
-  ``audio_engine.io``, and restores the originals afterwards). Determinism, golden-hash,
+  for the duration of that test (``tests/conftest.py`` installs it in the test module, in
+  ``audio_engine.io`` and in ``audio_engine.kick`` (#278: the name ``render_kick_wav`` reaches
+  through the kick category), and restores the originals afterwards). Determinism, golden-hash,
   sidecar re-render and variant reproducibility tests are never on the list, so they always
   call the engine twice for real.
 - **Bypassed under monkeypatch.** A test that requests ``monkeypatch`` is never cached, even
@@ -75,9 +76,21 @@ _bytes = 0
 stats = {"hits": 0, "misses": 0, "bypassed": 0}
 
 
+_ORIGINAL_RENDER_KICK = _kick.render_kick  # also keeps it alive (see _PINNED below)
+
+
+def _ident(m: Any, k: str, v: Any) -> int:
+    # ``tests/conftest.py`` installs the cache itself as ``audio_engine.kick.render_kick`` for a
+    # cached test (#278: ``render_kick_wav`` reaches the engine through that name). That one
+    # known replacement counts as untouched; any other replacement still changes the snapshot.
+    if m is _kick and k == "render_kick" and v is globals().get("cached_render_kick"):
+        return id(_ORIGINAL_RENDER_KICK)
+    return id(v)
+
+
 def _snapshot() -> tuple[tuple[str, tuple[tuple[str, int], ...]], ...]:
     return tuple(
-        (m.__name__, tuple(sorted((k, id(v)) for k, v in vars(m).items())))
+        (m.__name__, tuple(sorted((k, _ident(m, k, v)) for k, v in vars(m).items())))
         for m in _WATCHED_MODULES
     )
 
@@ -136,9 +149,15 @@ def _check_hit(params: dict[str, Any], stored: dict[str, Any]) -> None:
         raise StaleRenderError(f"cache hit for other parameters: {expected} != {stored}")
 
 
+# The engine function that cache misses call. ``tests/conftest.py`` sets it to the
+# ``audio_engine.kick.render_kick`` found at install time (a render counter wrapped around the
+# engine still counts) while it also replaces that very name with the cache (#278); None means
+# "look it up at call time".
+_real_engine: Any = None
+
+
 def _engine(params: dict[str, Any]) -> tuple[np.ndarray, dict[str, Any]]:
-    # Looked up at call time, so a render counter wrapped around the engine still counts.
-    return _kick.render_kick(params)
+    return (_real_engine or _kick.render_kick)(params)
 
 
 def cached_render_kick(params: dict[str, Any]) -> tuple[np.ndarray, dict[str, Any]]:
