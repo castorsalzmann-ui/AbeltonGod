@@ -20,6 +20,9 @@ write -> read -> undo flows. Fault switches:
 - ``stall_after``: after an address was handled without an error, process and answer nothing
   for that many seconds (Live's GUI thread busy after a call; incoming datagrams queue up,
   #140; a failing call such as the extension probe does not stall);
+- ``stall_until``: like ``stall_after`` but the busy period ends when the test sets the given
+  ``threading.Event`` (no wall-clock length; a safety cap of ``STALL_UNTIL_CAP_S`` ends it
+  otherwise), so the test does not race the scheduler (#303);
 - ``drop_next_marker_after``: after an address (also a failing call), drop the next marker
   echo (the request's end marker: a lost reply datagram, #140).
 """
@@ -34,6 +37,7 @@ from pythonosc.osc_message import OscMessage
 from pythonosc.osc_message_builder import OscMessageBuilder
 
 MARKER = "/live/song/get/tempo"
+STALL_UNTIL_CAP_S = 20.0  # a stall_until event that is never set must not hang the suite
 
 
 def build(address: str, args: tuple = ()) -> bytes:
@@ -59,6 +63,7 @@ class FakeAbletonOSC:
         self.extra_before: list[tuple[str, tuple]] = []
         self.raw_reply: dict[str, bytes] = {}
         self.stall_after: dict[str, float] = {}
+        self.stall_until: dict[str, threading.Event] = {}
         self.drop_next_marker_after: set[str] = set()
         self._drop_next_marker = False
 
@@ -374,6 +379,9 @@ class FakeAbletonOSC:
             stall = self.stall_after.get(address, 0.0)
             if stall > 0 and handled:  # a failed call (e.g. a probe) did not touch the song
                 time.sleep(stall)  # busy: nothing is read, processed or answered meanwhile
+            event = self.stall_until.get(address)
+            if event is not None and handled:
+                event.wait(STALL_UNTIL_CAP_S)
 
     def _process(self, host: str, address: str, params: tuple) -> bool:
         """Handle one message; False if the handler is missing or raised."""
@@ -424,6 +432,8 @@ class FakeAbletonOSC:
 
     def close(self) -> None:
         self._stop.set()
+        for event in self.stall_until.values():
+            event.set()
         self._thread.join(timeout=2)
         self.release()
         self.sock.close()
