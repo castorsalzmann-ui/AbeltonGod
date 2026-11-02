@@ -117,12 +117,12 @@ def write_kick(
     bytecodes wide or outside this call:
 
     - an interrupt during or right after an ``open``, before its result is stored, leaves that
-      0-byte file (the call cannot know it created it). The window is wider for the text-mode
-      sidecar: the OS creates the file before the text encoder is set up, so a real Ctrl+C
-      there can leave a 0-byte ``.json`` (opening it in binary mode would avoid that but
-      changes the newlines written on Windows: a separate decision);
+      0-byte file (the call cannot know it created it). Measured in the review of PR #205
+      with real interrupts: a 0-byte remainder occurred in both modes (13.7 % with ``"x"``
+      and an encoding, 10.3 % with ``"xb"``), so the mode is not established as the cause;
     - the last bytecodes of the ``return`` are outside the handler: an exception injected there
-      by a trace function leaves the complete pair, and a real Ctrl+C is not delivered there;
+      by a trace function leaves the complete pair. Whether a real Ctrl+C can land there is
+      not established;
     - a second Ctrl+C during the clean-up stops the clean-up;
     - a file the clean-up cannot remove (e.g. held open by a virus scanner on Windows) stays;
       the original error is still raised. (When the sidecar name was taken and our WAV
