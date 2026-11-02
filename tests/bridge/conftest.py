@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import pytest
-from bridge_helpers import TEST_TIMEOUT_S, registry_with, short_writes_if_listed
+from bridge_helpers import REPLY_TIMEOUT_S, TEST_TIMEOUT_S, registry_with, short_writes_if_listed
 from fake_abletonosc import FakeAbletonOSC
 
 from bridge.capabilities import CapabilityGate
@@ -11,7 +11,6 @@ from bridge.osc_client import ADDRESSES, AbletonBridge, OscTransport
 
 # Tests that expect an ANSWER get a generous deadline: under heavy CPU load (25 busy processes
 # on 2 cores) a 0.25 s deadline expired and the test failed with BridgeTimeoutError (#180).
-REPLY_TIMEOUT_S = 5.0
 # Tests that expect the TIMEOUT keep the short one (TEST_TIMEOUT_S, bridge_helpers). A new test
 # that drops or stalls a reply and fails because it now waits 5 s: add its name here, or its
 # module to SHORT_WRITE_MODULES in bridge_helpers.

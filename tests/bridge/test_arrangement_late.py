@@ -26,20 +26,29 @@ from test_arrangement_check import (
     block,
     block_list,
     log_entries,
-    run,
     script,
     snapshot,
     writes,
+)
+from test_arrangement_check import (
+    run as _run,
 )
 
 import bridge.arrangement_check as arr
 from bridge.clip_import import ActionLog
 from bridge.osc_client import LATE_TRACKED, AbletonOSCError, BridgeTimeoutError, LateReply
 
-RUN_TIMEOUT_S = 0.3  # the --timeout run() passes to the script
+RUN_TIMEOUT_S = 1.0  # the --timeout run() passes to the script
 LABELS = {SONG_TIME_SET: "set_song_time", CREATE_TRACK: "create_midi_track",
           CREATE_CLIP: "create_midi_clip", ADD_NOTES: "add_notes", TOGGLE_CUE: "add_cue",
           CUE_NAME: "set_cue_name"}
+
+
+def run(*args, **kwargs):
+    """Every test in this file is about timed-out writes: the short deadline is the subject."""
+    return _run(*args, timeout=str(RUN_TIMEOUT_S), **kwargs)
+
+
 CAPS = {label: cap for cap, label in script.CAPABILITY_STEPS}
 
 
@@ -64,7 +73,7 @@ def test_late_end_echo_is_recorded_with_its_delay(bridge, fake, transport):
     assert rid is not None
     # The start echo came before the stall; the end echo not yet.
     assert bridge.late_reply(rid) == LateReply(True, False, (), None)
-    transport.timeout_s = 1.0
+    transport.timeout_s = 3 * TEST_TIMEOUT_S + 2.0
     assert bridge.get_track_mute(0) is True  # a later request (waits for the fake)
     late = bridge.late_reply(rid)
     assert late.start_seen and late.end_seen and late.errors == ()
@@ -193,9 +202,9 @@ def test_each_timed_out_write_that_reads_back_as_intended_is_settled(fake, tmp_p
     b = block(out)
     assert b[CAPS[label]] == "PASS (late: read-back after timeout)"
     line = step_line(out, label)
-    assert line.startswith(f"{label}: confirmed (late: no confirmation within 0.3 s; "
+    assert line.startswith(f"{label}: confirmed (late: no confirmation within {RUN_TIMEOUT_S:g} s; "
                            "read-back matched (1 read(s)); "), line
-    assert ("end echo after 0." in line) if mechanism == "busy" else line.endswith(
+    assert ("end echo after " in line) if mechanism == "busy" else line.endswith(
         "end echo not seen)"), line
     assert b["song.undo"] == "PASS (5 undo(s) for 5 write(s); read back)"
     assert snapshot(fake) == before
