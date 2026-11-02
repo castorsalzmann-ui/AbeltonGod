@@ -11,11 +11,14 @@ traceback that pointed at the sweep (#180, #183).
 
 The handled-exception state belongs to the thread, and no pure-Python call clears it. The sweep
 therefore runs in its own thread, which takes the leaked state with it when it ends.
+
+Limit: a real Ctrl+C by a person while the main thread waits in ``thread.join()`` leaves the
+sweep thread running with its trace function until it finishes; fine for tests, not a pattern
+for product code.
 """
 
 from __future__ import annotations
 
-import sys
 import threading
 from collections.abc import Callable
 from typing import TypeVar
@@ -44,7 +47,3 @@ def run_in_fresh_thread(fn: Callable[[], T]) -> T:
         raise error
     return box["value"]  # type: ignore[return-value]
 
-
-def leaked_exception() -> BaseException | None:
-    """The exception this thread still treats as 'being handled', or None when clean."""
-    return sys.exception()

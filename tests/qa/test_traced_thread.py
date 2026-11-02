@@ -82,7 +82,22 @@ def test_the_leak_is_real_in_the_same_thread(tmp_path, monkeypatch) -> None:
     assert sys.exception() is None
 
 
-def test_errors_and_results_cross_the_thread_boundary() -> None:
+def test_results_cross_the_thread_boundary() -> None:
     assert run_in_fresh_thread(lambda: 5) == 5
-    with pytest.raises(KeyError):
-        run_in_fresh_thread(lambda: {}["x"])
+    assert run_in_fresh_thread(lambda: None) is None
+
+
+def test_errors_cross_the_thread_boundary_with_type_and_message() -> None:
+    def boom() -> None:
+        raise ValueError("planted message 42")
+
+    with pytest.raises(ValueError, match="planted message 42"):
+        run_in_fresh_thread(boom)
+
+
+def test_keyboard_interrupt_crosses_the_thread_boundary() -> None:
+    def interrupt() -> None:
+        raise KeyboardInterrupt("planted interrupt")
+
+    with pytest.raises(KeyboardInterrupt, match="planted interrupt"):
+        run_in_fresh_thread(interrupt)

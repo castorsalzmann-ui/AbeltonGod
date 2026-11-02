@@ -26,6 +26,7 @@ import pytest
 
 _ROOT = Path(__file__).resolve().parent.parent
 _GOLDEN_LINES: list[str] = []
+_LAST_LEAK: BaseException | None = None  # last handled exception the teardown guard reported
 
 
 def pytest_addoption(parser) -> None:
@@ -89,11 +90,15 @@ def pytest_runtest_teardown(item, nextitem):
 
     Such a leftover becomes the ``__context__`` of every later exception in the same xdist
     worker and made unrelated failures point at the wrong test (#180, #183)."""
+    global _LAST_LEAK
     result = yield
     import sys
 
     leaked = sys.exception()
-    if leaked is not None:
+    # Once a test leaks, the object stays set for the whole worker: blame only the test after
+    # which a NEW object appears, never the innocent tests that follow it.
+    if leaked is not None and leaked is not _LAST_LEAK:
+        _LAST_LEAK = leaked
         pytest.fail(
             f"{item.nodeid} left a handled exception in its thread: {leaked!r}. Run trace-hook "
             "sweeps through tests/support/traced_thread.run_in_fresh_thread.",
