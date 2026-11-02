@@ -46,7 +46,12 @@
   "allOf": [
     {
       "if": { "properties": { "category": { "const": "kick" } }, "required": ["category"] },
-      "then": { "properties": { "schema_version": { "const": "0.1" } } }
+      "then": {
+        "properties": {
+          "schema_version": { "const": "0.1" },
+          "engine": { "properties": { "name": { "const": "abeltongod-audio-engine" } } }
+        }
+      }
     },
     {
       "if": { "properties": { "category": { "const": "clap" } }, "required": ["category"] },
