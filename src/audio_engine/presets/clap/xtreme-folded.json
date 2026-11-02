@@ -1,0 +1,7 @@
+{
+  "schema_version": "0.2",
+  "preset": "xtreme-folded",
+  "seed": 2102,
+  "bp_hz": 1500,
+  "fold": 0.4
+}

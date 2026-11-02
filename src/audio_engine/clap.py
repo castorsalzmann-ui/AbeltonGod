@@ -1,6 +1,8 @@
 """Clap voice (Phase 06, issue #231): seeded noise, band-passed, multi-burst envelope, tail.
 
-Contract: ``contracts/clap-params.schema.json`` v0.1. Signal path (all float64, mono):
+Contract: ``contracts/clap-params.schema.json`` v0.1 and v0.2 (the optional extreme stages of
+:mod:`audio_engine.clap_stages`, run only for ``schema_version`` "0.2"; every field at its off
+value skips its stage, so defaults reproduce the v0.1 bytes). Signal path (all float64, mono):
 
 1. white noise from sub-stream 0 of the seed (:func:`audio_engine.dsp.substreams`),
    RBJ band-pass (``bp_hz``, ``bp_q``; constant 0 dB peak) over the whole noise;
@@ -14,6 +16,10 @@ Contract: ``contracts/clap-params.schema.json`` v0.1. Signal path (all float64, 
    response (sub-stream 1, exponential, 60 dB in ``room_length_ms``, unit energy);
 5. ``drive`` > 0: the signal is scaled to peak 1, then the kick's anti-aliased saturation
    (:func:`audio_engine.kick._drive`) is applied;
+5a. v0.2 only, contract order: ``crush``, ``rate_div``, ``ring``, ``comb`` run between 2 and 3;
+   ``fold`` between 4 and 5; after 5 ``tail_reverse`` (segment from ``bursts * burst_spacing_ms``
+   to the end of the file, or to the ``gate_ms`` cut when the gate is on) and ``gate_ms`` (cut
+   with a 1 ms fade, applied after the reversal so the cut ends the reversed swell);
 6. 5 ms fade-out, mean removal (the kick's Hann-shaped correction; a short noise burst has a
    non-zero mean even after the high-pass), peak ceiling measured on the quantised file (the
    kick's ``_normalise``), ``offset_ms`` of leading silence, ``polarity``.
@@ -32,6 +38,7 @@ from typing import Any
 import numpy as np
 from jsonschema import Draft202012Validator
 
+from . import clap_stages as S
 from .dsp import biquad_bandpass, rbj_highpass, substreams
 from .kick import FADE_OUT_MS, _drive, _fade_out, _normalise, _remove_mean
 from .params import CONTRACTS_DIR, _error_line, _to_python, load_schema
@@ -92,6 +99,11 @@ def resolve_clap_params(params: dict[str, Any]) -> dict[str, Any]:
     for name, prop in schema["properties"].items():
         if name not in resolved and "default" in prop:
             resolved[name] = prop["default"]
+    if resolved["schema_version"] == "0.2":  # the v0.1 form never carries these keys
+        if isinstance(resolved.get("rate_div"), float):
+            resolved["rate_div"] = int(resolved["rate_div"])
+        for name, value in S.V02_DEFAULTS.items():
+            resolved.setdefault(name, value)
     return resolved
 
 
@@ -141,15 +153,29 @@ def render_resolved(p: dict[str, Any]) -> np.ndarray:
     m = n - n_off
     streams = substreams(p["seed"], N_STREAMS)
 
+    v = {**S.V02_DEFAULTS, **{k: p[k] for k in S.V02_FIELDS if k in p}}  # v0.1: all off
+
     x = biquad_bandpass(streams[NOISE_STREAM].standard_normal(m), sr, p["bp_hz"], p["bp_q"])
     x = x * envelope(p, m)
+    x = S.crush(x, v["crush"])
+    x = S.rate_div(x, v["rate_div"])
+    x = S.ring(x, sr, v["ring_hz"], v["ring_mix"])
+    x = S.comb(x, sr, v["comb_hz"], v["comb_fb"])
     x = rbj_highpass(x, sr, p["hp_hz"])
     if p["room"] > 0:
         x = x + p["room"] * _room(x, streams[ROOM_STREAM], sr, p["room_length_ms"])
+    x = S.fold(x, v["fold"])
     if p["drive"] > 0:
         peak = float(np.max(np.abs(x)))
         if peak > 0.0:
             x = _drive(x / peak, p["drive"])
+    gate = S.gate_window(m, sr, v["gate_ms"])
+    if v["tail_reverse"]:
+        start = int(round(p["bursts"] * p["burst_spacing_ms"] * sr / 1000.0))
+        end = m if gate is None else int(round(v["gate_ms"] * sr / 1000.0))
+        x = S.reverse_tail(x, start, end, sr)
+    if gate is not None:
+        x = x * gate
     x = _fade_out(x, sr, FADE_OUT_MS)
     x = _remove_mean(x)
     x = _normalise(x, p["peak_ceiling_dbfs"], p["bit_depth"])

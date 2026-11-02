@@ -357,7 +357,7 @@ def test_presets_are_valid_contract_objects(name: str) -> None:
     p = load_preset(name, "clap")
     assert p["preset"] == name
     assert resolve_clap_params(p)["preset"] == name
-    assert sorted(preset_names("clap")) == ["bright", "default", "long", "short"]
+    assert {"bright", "default", "long", "short"} <= set(preset_names("clap"))  # + xtreme-* (#280)
     assert "short" not in preset_names("kick")  # clap presets do not leak into the kick list
 
 
