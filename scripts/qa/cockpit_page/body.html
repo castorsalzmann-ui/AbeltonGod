@@ -1,0 +1,123 @@
+<div class="ag">
+  <div class="ag-age" id="age_banner" role="status">Daten werden geladen …</div>
+  <header class="ag-head">
+    <div class="ag-brand"><span class="ag-dot"></span><h1>AbeltonGod · Projekt-Cockpit</h1><span class="ag-tag">Live 12 Standard · Techno / Trance</span></div>
+    <div class="ag-lcds">
+      <div class="ag-lcd"><div class="l">Stand der Daten</div><div class="v" id="h_at">—</div></div>
+      <div class="ag-lcd"><div class="l">Commit auf main</div><div class="v" data-source="snapshot" data-field="sha" data-row="0">—</div></div>
+      <div class="ag-lcd y"><div class="l">Wartet auf dich</div><div class="v" data-source="you_count" data-field="n" data-row="0">—</div></div>
+      <div class="ag-lcd"><div class="l">Offene PRs</div><div class="v" data-source="snapshot" data-field="open_prs" data-row="0">—</div></div>
+      <div class="ag-lcd"><div class="l">Offene Issues</div><div class="v" data-source="snapshot" data-field="open_issues" data-row="0">—</div></div>
+      <div class="ag-lcd g"><div class="l">Tests grün (letzter Gate-Lauf)</div><div class="v" id="h_tests" data-source="gate_latest" data-field="passed" data-row="0">—</div></div>
+    </div>
+    <p class="ag-snap" id="h_note">Die Daten sind eine Momentaufnahme aus GitHub und dem Repo. Der Zeitpunkt oben sagt, wie alt sie sind.</p>
+  </header>
+
+  <nav class="ag-tabs" role="tablist">
+    <button class="ag-tab" role="tab" data-tab="overview" aria-selected="true">Überblick</button>
+    <button class="ag-tab" role="tab" data-tab="roadmap" aria-selected="false">Roadmap</button>
+    <button class="ag-tab" role="tab" data-tab="research" aria-selected="false">Forschung</button>
+    <button class="ag-tab" role="tab" data-tab="work" aria-selected="false">Arbeit</button>
+    <button class="ag-tab" role="tab" data-tab="quality" aria-selected="false">Qualität</button>
+  </nav>
+
+  <!-- ÜBERBLICK -->
+  <section class="ag-sec" id="overview">
+    <div class="ag-card c-orange">
+      <h3>Features nach Status</h3>
+      <p class="ag-note">Aus der Feature-Tabelle in docs/ROADMAP.md. „Fertig“ heißt: gemergt, geprüft und im Repo; was noch auf deinem Rechner getestet werden muss, steht in der Roadmap bei der Arbeit.</p>
+      <div class="ag-tiles" id="feat_tiles"></div>
+    </div>
+    <div class="ag-grid">
+      <div class="ag-card c-yellow">
+        <h3>Wartet auf dich</h3>
+        <p class="ag-note">Was nur du tun kannst, mit Link zu GitHub und kurzer Aufgabe (aus docs/WAITING_ON_USER.md, dazu jeder offene PR).</p>
+        <ul class="ag-list" id="you_list" data-source="you_items" data-row-key="key"></ul>
+      </div>
+      <div class="ag-card c-green">
+        <h3>Wer arbeitet gerade</h3>
+        <p class="ag-note">Abgeleitet aus GitHub: Issues mit „in progress“ und offene PRs, nach Rolle. Wer fertig ist, taucht nicht mehr auf.</p>
+        <ul class="ag-list" id="active_list" data-source="active_work" data-row-key="url"></ul>
+      </div>
+      <div class="ag-card c-blue">
+        <h3>Parallele Spuren</h3>
+        <p class="ag-note">Aus der Pipeline-Tabelle in docs/ROADMAP.md.</p>
+        <ul class="ag-list" id="track_list"></ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- ROADMAP -->
+  <section class="ag-sec" id="roadmap" hidden>
+    <div class="ag-card c-green">
+      <h3>Features</h3>
+      <p class="ag-note">Je Feature: Status, die dazu geschriebenen Forschungsnotizen und die Arbeit (Issues, PRs). „Keine Notiz“ heißt: dazu hat noch kein Researcher etwas dokumentiert.</p>
+      <div class="ag-filter" role="group" aria-label="Status" id="feat_filter" style="margin-bottom: 8px"></div>
+      <div class="ag-tablewrap">
+        <table data-source="features" data-row-key="feature">
+          <thead><tr><th data-field="feature">Feature</th><th data-field="phase">Phase</th><th data-field="status">Status</th><th data-field="research">Forschung</th><th data-field="work">Arbeit</th></tr></thead>
+          <tbody id="feat_rows"></tbody>
+        </table>
+      </div>
+    </div>
+    <div class="ag-card c-orange">
+      <h3>Phasen im Detail</h3>
+      <p class="ag-note">Ziele und Abnahmekriterien aus docs/phases/.</p>
+      <div class="ag-tablewrap">
+        <table data-source="phases" data-row-key="phase">
+          <thead><tr><th data-field="phase">Phase</th><th data-field="name">Name</th><th data-field="goal">Ziel</th><th data-field="status">Status</th><th data-field="criteria_met">Kriterien erfüllt</th></tr></thead>
+          <tbody id="phase_rows"></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- FORSCHUNG -->
+  <section class="ag-sec" id="research" hidden>
+    <div class="ag-card c-purple">
+      <h3>Forschungsnotizen</h3>
+      <p class="ag-note">Alle Notizen aus docs/research/, neueste zuerst. Ein Klick öffnet die Notiz auf GitHub. „Nicht zugeordnet“: Die Notiz hängt an keinem Feature der Roadmap.</p>
+      <input type="search" id="res_q" placeholder="Suchen (Titel, Feature)" aria-label="Forschungsnotizen durchsuchen">
+      <div class="ag-tablewrap" style="margin-top: 8px">
+        <table data-source="research" data-row-key="file">
+          <thead><tr><th data-field="date">Datum</th><th data-field="title">Titel</th><th data-field="features">Feature</th><th data-field="words">Wörter</th></tr></thead>
+          <tbody id="res_rows"></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- ARBEIT -->
+  <section class="ag-sec" id="work" hidden>
+    <div class="ag-card c-blue">
+      <h3>Offene Issues und PRs</h3>
+      <p class="ag-note">Alles, was nicht erledigt ist, nach Status sortiert. Fertiges steht nicht hier.</p>
+      <div class="ag-filter" role="group" aria-label="Status" id="work_filter" style="margin-bottom: 8px"></div>
+      <div class="ag-tablewrap">
+        <table data-source="open_work" data-row-key="number">
+          <thead><tr><th data-field="number">Nr.</th><th data-field="title">Titel</th><th data-field="status">Status</th><th data-field="owner">Rolle</th><th data-field="track">Spur</th></tr></thead>
+          <tbody id="work_rows"></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- QUALITÄT -->
+  <section class="ag-sec" id="quality" hidden>
+    <div class="ag-card c-green">
+      <h3>Gate-Verlauf (ruff + pytest)</h3>
+      <p class="ag-note">Die letzten Läufe. Zahlen aus echten Gate-Läufen, nicht geschätzt.</p>
+      <div class="ag-tablewrap">
+        <table data-source="gate_recent" data-row-key="run">
+          <thead><tr><th data-field="date">Datum</th><th data-field="run">Lauf</th><th data-field="passed">Bestanden</th><th data-field="skipped">Übersprungen</th><th data-field="failed">Fehler</th><th data-field="ruff">ruff</th></tr></thead>
+          <tbody id="gate_rows"></tbody>
+        </table>
+      </div>
+    </div>
+    <div class="ag-card c-cyan">
+      <h3>Ableton-Funktionen</h3>
+      <p class="ag-note">Nur Funktionen mit Status „tested“ dürfen benutzt werden. „unknown“ wartet auf deinen Lauf in Live.</p>
+      <div class="ag-tiles" id="cap_tiles"></div>
+    </div>
+  </section>
+</div>
