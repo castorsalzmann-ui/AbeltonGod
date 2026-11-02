@@ -1,0 +1,33 @@
+{
+  "description": "#258 fault injection on generate_sample. Run: python scripts/qa/mutate.py tests/orchestrator/mutants/issue258_generate_sample.json",
+  "mutants": [
+    {"id": "S1_HANDLER_CALLED_AROUND_THE_TOOLBOX", "file": "src/orchestrator/sample_tools.py",
+     "old": "__all__ = [",
+     "new": "def direct(tool, args):\n    return tool.handler(args)\n\n\n__all__ = [",
+     "tests": ["tests/orchestrator/test_sample_tools.py", "tests/orchestrator/test_guard_wiring.py"], "note": "guard bypass: a handler call outside Toolbox.run"},
+    {"id": "S2_TOOL_WITHOUT_FILE_DECLARATION", "file": "src/orchestrator/sample_tools.py",
+     "old": "approval=Approval.ROUTINE,\n                     max_files_written=FILES_PER_KICK * max_variants, files_for=sample_files)",
+     "new": "approval=Approval.ROUTINE,\n                     max_files_written=0)",
+     "tests": ["tests/orchestrator/test_sample_tools.py"], "note": "the guard must see the files the tool writes (file budget)"},
+    {"id": "S3_OPTIONAL_PARAMETER_ADDED", "file": "src/orchestrator/sample_tools.py",
+     "old": "\"required\": [\"category\", \"preset\", \"prompt\", \"seed\", \"variants\", \"adjust\"],",
+     "new": "\"required\": [\"category\", \"preset\", \"prompt\", \"seed\", \"adjust\"],",
+     "tests": ["tests/orchestrator/test_sample_tools.py"], "note": "one optional parameter more: 24 + 1 > 24"},
+    {"id": "S4_RANGE_NOT_CHECKED", "file": "src/orchestrator/sample_tools.py",
+     "old": "spec[\"minimum\"] <= value <= spec[\"maximum\"])",
+     "new": "True)",
+     "tests": ["tests/orchestrator/test_sample_tools.py"], "note": "out-of-range accepted"},
+    {"id": "S5_CLAMP_INSTEAD_OF_REJECT", "file": "src/orchestrator/sample_tools.py",
+     "old": "        if not ok:\n",
+     "new": "        if not ok and \"minimum\" in spec:\n            value = min(max(value, spec[\"minimum\"]), spec[\"maximum\"])\n        elif not ok:\n",
+     "tests": ["tests/orchestrator/test_sample_tools.py"], "note": "clamping instead of rejecting"},
+    {"id": "S6_PROMPT_NOT_CHECKED", "file": "src/orchestrator/sample_tools.py",
+     "old": "    if arguments.get(\"prompt\") != \"\":",
+     "new": "    if False:",
+     "tests": ["tests/orchestrator/test_sample_tools.py"], "note": "non-empty prompt accepted for clap"},
+    {"id": "S7_SEED_IGNORED", "file": "src/orchestrator/sample_tools.py",
+     "old": "        base[\"seed\"] = seed\n",
+     "new": "        pass\n",
+     "tests": ["tests/orchestrator/test_sample_tools.py"], "note": "same call, other seed: determinism/seed"}
+  ]
+}
