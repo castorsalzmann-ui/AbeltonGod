@@ -140,7 +140,8 @@ COMPARE_BAND_HZ = 20000.0
 # term of the series is below 1e-4 here. Over 342 cases (--fresh-seeds 0..5: 10 + 5 x 16
 # sets, 3 drives each) the largest is 0.0032 (fresh seed 3, random-16503). Full band, the
 # same cases reached 0.0151 (defaults) and 0.0288 (that case: 44.1 kHz, loud 7.3 kHz
-# click); with the click off it is 0.0005, so the difference lives above 20 kHz. A 2 % wrong gain moves the change by 4 % and must fail.
+# click); with the click off it is 0.0005, so the difference lives above 20 kHz.
+# A 2 % wrong gain moves the change by 4 % (measured 0.0404) and must fail.
 FIRST_ORDER_TOLERANCE = 0.02
 
 
