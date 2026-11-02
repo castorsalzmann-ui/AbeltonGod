@@ -140,3 +140,9 @@ def test_substreams_do_not_touch_global_rng() -> None:
 def test_substreams_refuse_bad_seed(bad) -> None:
     with pytest.raises(ValueError):
         substreams(bad, 1)
+
+
+@pytest.mark.parametrize("bad", [0.0, -100.0, float("nan"), float("inf")])
+def test_square_bank_refuses_non_positive_or_non_finite_frequency(bad: float) -> None:
+    with pytest.raises(ValueError):
+        square_bank([bad], SR, 10)

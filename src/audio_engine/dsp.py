@@ -222,6 +222,9 @@ def square_bank(freqs_hz: list[float] | np.ndarray, sr: int, n: int,
     at or above Nyquist contributes nothing. Deterministic; no random numbers.
     """
     freqs = [float(f) for f in freqs_hz]
+    for f in freqs:
+        if not math.isfinite(f) or f <= 0.0:
+            raise ValueError(f"frequencies must be finite and > 0, got {f}")
     phis = [0.0] * len(freqs) if phases is None else [float(p) for p in phases]
     if len(phis) != len(freqs):
         raise ValueError("phases must have one entry per frequency")
