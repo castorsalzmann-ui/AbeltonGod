@@ -105,7 +105,10 @@ def test_clap_v02_range_edges(name: str) -> None:
     for ok in (low, high):
         CLAP_V.validate({**base, name: ok})
     span = high - low
-    for bad in (low - span / 100, high + span / 100):
+    # Relative probes plus fixed probes just outside each bound (a bound moved to 0 or far
+    # away must still turn this red).
+    eps = {"rate_div": 1}.get(name, 0.1 if span > 10 else 0.001)
+    for bad in (low - span / 100, high + span / 100, low - eps, high + eps):
         with pytest.raises(ValidationError):
             CLAP_V.validate({**base, name: bad})
     with pytest.raises(ValidationError):  # same value under 0.1: field not allowed
