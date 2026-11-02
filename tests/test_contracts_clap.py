@@ -86,7 +86,7 @@ def test_clap_required_version_and_unknown_fields() -> None:
     CLAP_V.validate({"schema_version": "0.1", "seed": 0})
     for doc in ({"seed": 1}, {"schema_version": "0.1"}, {"schema_version": "0.2", "seed": 1},
                 {"schema_version": "0.1", "seed": 1, "wobble": 1},
-                {"schema_version": "0.1", "seed": 1, "voice": "rim"}):
+                {"schema_version": "0.1", "seed": 1, "voice": "perc"}):
         with pytest.raises(ValidationError):
             CLAP_V.validate(doc)
 
@@ -162,8 +162,8 @@ METADATA_INVALID = {
     "clap parameters without seed": _changed(CLAP_DOC, "parameters.seed", ...),
     "clap parameters with kick-params version": _changed(
         CLAP_DOC, "parameters.schema_version", "0.3"),
-    "category rim not allowed": _changed(CLAP_DOC, "category", "rim"),
-    "category rim": _changed(KICK_DOC, "category", "rim"),
+    "category perc not allowed": _changed(CLAP_DOC, "category", "perc"),
+    "category perc": _changed(KICK_DOC, "category", "perc"),
     "kick with schema_version 0.2": _changed(KICK_DOC, "schema_version", "0.2"),
     "schema_version 0.3": _changed(CLAP_DOC, "schema_version", "0.3"),
     "hf_share above 1": _changed(CLAP_DOC, "features.hf_share_8k", 1.5),
