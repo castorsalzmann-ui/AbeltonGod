@@ -15,7 +15,7 @@ import sys
 from pathlib import Path
 
 import pytest
-from bridge_helpers import registry_with_status
+from bridge_helpers import registry_with_status, virtual_poll_window
 from fake_abletonosc import FakeAbletonOSC
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -45,6 +45,13 @@ def wav(path: Path) -> str:
             + struct.pack("<I", len(data)) + data)
     path.write_bytes(b"RIFF" + struct.pack("<I", len(body)) + body)
     return str(path)
+
+
+@pytest.fixture
+def virtual_window(monkeypatch):
+    """Opt-in (#307): the 2.0 s read-back window runs on a virtual clock. Not for tests where
+    the fake changes state on a timer (clip_delay_s > 0, release_after)."""
+    return virtual_poll_window(monkeypatch, live_import, "ClipImporter")
 
 
 @pytest.fixture
@@ -521,7 +528,7 @@ def test_second_ctrl_c_in_the_inner_handler_keeps_the_importers_record(fake, tmp
     assert UNDO not in [a for a, _ in writes(fake)]
 
 
-def test_second_undo_differs_prints_removal_for_the_track(fake, tmp_path):
+def test_second_undo_differs_prints_removal_for_the_track(fake, tmp_path, virtual_window):
     """New track; Live does not record the track creation as an undo step (fake), so undo 1
     removes the clip and undo 2 changes nothing. FAIL, no third undo, removal steps say the
     clip is gone and the track must go by hand (PR #126 review, R2)."""
@@ -595,7 +602,7 @@ def test_undo_refused_when_user_changed_set(fake, tmp_path):
     assert "Ansicht -> Widerrufen-Historie" in text
 
 
-def test_undo_reverting_other_action_is_fail(fake, tmp_path):
+def test_undo_reverting_other_action_is_fail(fake, tmp_path, virtual_window):
     fake.clip_undoable = False
     fake.undo_stack = [(1, True)]  # last user action: unmute track 1
     fake.tracks[1]["mute"] = False
@@ -665,7 +672,7 @@ def test_existing_track_renamed_by_live_undo_result(fake, tmp_path, reverts_rena
         assert [t["name"] for t in fake.tracks] == ["1-Kick 1", "2-MIDI"]
 
 
-def test_undo_that_also_renames_another_track_is_fail(fake, tmp_path):
+def test_undo_that_also_renames_another_track_is_fail(fake, tmp_path, virtual_window):
     """Review of #97, R6, at script level: the undo removes the clip but also renames another
     track. FAIL, no second undo, no "set restored" line."""
     orig = fake._undo
@@ -682,13 +689,14 @@ def test_undo_that_also_renames_another_track_is_fail(fake, tmp_path):
     assert sum(1 for a, _ in writes(fake) if a == UNDO) == 1
 
 
-def test_readback_that_never_matches_is_reported_as_unknown(fake, tmp_path):
+def test_readback_that_never_matches_is_reported_as_unknown(fake, tmp_path, virtual_window):
     fake.clip_delay_s = 30.0  # the clip never shows within the 2 s window
     code, out, prompts = run(fake, tmp_path, ["y", "0", "y", "y", "y"])
     assert code == 1
     assert "zeigt nicht das erwartete Ergebnis" in out and "KEIN Undo" in out
     assert not any("Undo" in p for p in prompts)
     assert UNDO not in [a for a, _ in writes(fake)]
+    assert virtual_window.now >= 2.0 - 1e-9  # the whole 2.0 s window was polled (#307)
 
 
 def test_non_ascii_path_round_trip(fake, tmp_path):

@@ -17,6 +17,7 @@ import sys
 from pathlib import Path
 
 import pytest
+from bridge_helpers import virtual_poll_window
 from fake_abletonosc import FakeAbletonOSC
 
 import bridge.arrangement_check as arr
@@ -50,6 +51,13 @@ def free_udp_port() -> int:
     port = s.getsockname()[1]
     s.close()
     return port
+
+
+@pytest.fixture(autouse=True)
+def virtual_window(monkeypatch):
+    """The 2.0 s read-back window of every never-matching read-back runs on a virtual clock
+    (#307); the fake changes nothing on a timer here."""
+    return virtual_poll_window(monkeypatch, script, "ArrangementWriter")
 
 
 @pytest.fixture
@@ -591,7 +599,7 @@ def test_writer_refuses_a_locator_at_the_start_on_its_own(fake, transport, tmp_p
 # Review round 1 of PR #150 (mutants R3, R4, R5): each read-back must also fail on a change
 # outside the field it is about.
 
-def test_name_ignored_by_live_fails_the_name_read_back(fake, tmp_path):
+def test_name_ignored_by_live_fails_the_name_read_back(fake, tmp_path, virtual_window):
     def keep_default_name():
         fake.cue_points[-1][0] = fake.cue_default_name
 
@@ -600,6 +608,7 @@ def test_name_ignored_by_live_fails_the_name_read_back(fake, tmp_path):
     assert code == script.EXIT_CHECK_FAILED, out
     assert block(out)["song.cue_point.set_name"] == "FAIL (read-back differs)"
     assert (UNDO, ()) not in writes(fake) and len(prompts) == 2
+    assert virtual_window.now >= 2.0 - 1e-9  # the whole 2.0 s window was polled (#307)
 
 
 def test_toggle_that_also_changes_the_notes_fails_the_locator_read_back(fake, tmp_path):

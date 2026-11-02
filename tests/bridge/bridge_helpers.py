@@ -89,3 +89,38 @@ def registry_with_status(tmp_path: Path, statuses: dict[str, str]) -> Capability
     path = tmp_path / "capabilities-status.json"
     path.write_text(json.dumps(doc), encoding="utf-8")
     return CapabilityRegistry.from_file(path)
+
+
+class VirtualClock:
+    """Clock and sleep for the read-back poll window (#307).
+
+    ``sleep(s)`` only advances the virtual time, so the 2.0 s ``READBACK_WINDOW_S`` of a
+    read-back that never matches costs no wall time. The reads inside the window are still
+    real OSC round trips to the fake, one per poll interval. Only for tests whose subject is
+    NOT how real time passes during the window (a fake that changes state on a timer needs the
+    real clock). The reply timeouts of the transport stay real: they have their own clock.
+    """
+
+    def __init__(self) -> None:
+        self.now = 0.0
+        self.sleeps: list[float] = []
+
+    def clock(self) -> float:
+        return self.now
+
+    def sleep(self, seconds: float) -> None:
+        self.sleeps.append(seconds)
+        self.now += seconds
+
+
+def virtual_poll_window(monkeypatch, module, *class_names: str) -> VirtualClock:
+    """Make ``module.<class>`` (ClipImporter / ArrangementWriter, as the script looks them up)
+    run its poll window on a virtual clock. Production code is untouched; the script itself
+    keeps its default real clock."""
+    import functools
+
+    vc = VirtualClock()
+    for name in class_names:
+        monkeypatch.setattr(module, name, functools.partial(getattr(module, name),
+                                                            clock=vc.clock, sleep=vc.sleep))
+    return vc

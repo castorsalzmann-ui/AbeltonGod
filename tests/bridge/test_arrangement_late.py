@@ -13,7 +13,7 @@ import threading
 import time
 
 import pytest
-from bridge_helpers import TEST_TIMEOUT_S
+from bridge_helpers import TEST_TIMEOUT_S, virtual_poll_window
 from fake_abletonosc import MARKER, build
 from test_arrangement_check import (
     ADD_NOTES,
@@ -50,6 +50,13 @@ def run(*args, **kwargs):
 
 
 CAPS = {label: cap for cap, label in script.CAPABILITY_STEPS}
+
+
+@pytest.fixture
+def virtual_window(monkeypatch):
+    """Opt-in (#307) for a read-back that never matches: its 2.0 s poll window runs on a
+    virtual clock. Not for tests where the fake changes state on a timer or stalls."""
+    return virtual_poll_window(monkeypatch, script, "ArrangementWriter")
 
 
 def fault(fake, address, mechanism, stall=2 * RUN_TIMEOUT_S):
@@ -287,7 +294,7 @@ def test_reads_after_a_timeout_wait_three_times_the_timeout(fake, tmp_path):
     assert block(out)["song.create_midi_track"] == "PASS (late: read-back after timeout)"
 
 
-def test_timed_out_write_that_never_happened_stays_unknown(fake, tmp_path):
+def test_timed_out_write_that_never_happened_stays_unknown(fake, tmp_path, virtual_window):
     """The datagram was lost (the fake does nothing); the read-back never matches."""
     fake._create_midi_track = lambda p: None
     fake.drop_next_marker_after.add(CREATE_TRACK)
@@ -299,6 +306,7 @@ def test_timed_out_write_that_never_happened_stays_unknown(fake, tmp_path):
     entry = log_entries(tmp_path)[-1]
     assert entry["status"] == "timeout" and "does not show the change" in entry["note"]
     assert writes(fake)[-1] == (CREATE_TRACK, (-1,))  # nothing sent after it
+    assert virtual_window.now >= 2.0 - 1e-9  # the whole 2.0 s window was polled (#307)
 
 
 def test_live_busy_longer_than_the_read_back_allows_stays_unknown(fake, tmp_path):
