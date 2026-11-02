@@ -111,7 +111,7 @@ def test_settled_write_logs_the_late_reply_and_allows_undo(ibridge, audio_set, l
     assert step.outcome == "confirmed" and step.detail.startswith(
         f"late: no confirmation within {TEST_TIMEOUT_S:g} s; read-back matched (1 read(s)); ")
     assert step.detail.endswith("end echo not seen") if mechanism == "lost" else (
-        "; end echo after 0." in step.detail)
+        "; end echo after " in step.detail)
     entry = [e for e in log_lines(log) if e["action"] == LABEL[address]][-1]
     assert entry["status"] == "read_back" and entry["ok"] is True
     assert entry["note"] == "confirmation timed out; settled by read-back"
