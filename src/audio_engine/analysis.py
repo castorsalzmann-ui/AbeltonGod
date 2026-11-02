@@ -215,3 +215,182 @@ def rise_time_ms(env: np.ndarray, sr: int) -> float | None:
 
 def _power_spectrum(audio: np.ndarray) -> np.ndarray:
     return np.abs(np.fft.rfft(audio)) ** 2
+
+
+# ---------------------------------------------------------------------------------------------
+# Hat design-tool helpers (#251). Test and voice-design functions only: they are NOT sidecar
+# fields, and ``analyse`` / ``analyse_nonpitched`` do not call them. Definitions follow
+# docs/research/2026-11-02_hat-targets-and-listening-plan.md section 1 and pitfalls P3 / P5.
+# ---------------------------------------------------------------------------------------------
+
+WELCH_SEGMENT = 512  # samples; shortened for signals shorter than this
+FIT_ENV_MS = 4.0  # RMS window of the line-fit envelope
+FIT_HIGH_DB, FIT_LOW_DB = -10.0, -40.0
+PEAK_FFT = 16384
+PEAK_BAND_HZ = (4000.0, 20000.0)
+PEAK_WINDOW_MS = 100.0
+PEAK_PROMINENCE_DB = 15.0
+PEAK_MEDIAN_HZ = 500.0  # half width of the running median
+PEAK_MIN_SPACING_HZ = 50.0
+PEAK_SIDELOBE_CYCLES = 40.0  # sidelobe reach = this / window duration (Hz)
+SIDELOBE_DB = 20.0  # a candidate this far under a stronger line inside the reach is a sidelobe
+LEAK_FLOOR_DB = -240.0
+EARLY_MS = 20.0
+
+
+def welch_flatness(
+    audio: np.ndarray, sr: int, f_lo: float, f_hi: float, segment: int = WELCH_SEGMENT
+) -> float | None:
+    """Geometric over arithmetic mean of a Welch power spectrum inside ``f_lo``..``f_hi`` Hz.
+
+    Hann segments of ``segment`` samples, 50 % overlap, so the periodogram scatter that holds
+    the whole-file :func:`spectral_flatness` of white noise at 0.56 is averaged out (white noise,
+    1 s: 0.99+). Pick a band inside the passband: filter skirts pull the value down (P2, P5).
+    A signal shorter than ``segment`` uses one segment of its own length. ``None`` for silence,
+    fewer than 16 samples or a band without bins.
+    """
+    n = len(audio)
+    if n < 16 or not np.any(audio):
+        return None
+    seg = min(segment, n)
+    hop = max(1, seg // 2)
+    window = np.hanning(seg)
+    starts = range(0, n - seg + 1, hop)
+    power = np.zeros(seg // 2 + 1)
+    for s in starts:
+        power += np.abs(np.fft.rfft(audio[s : s + seg] * window)) ** 2
+    freqs = np.fft.rfftfreq(seg, 1.0 / sr)
+    band = power[(freqs >= f_lo) & (freqs <= f_hi)]
+    if len(band) == 0 or float(np.mean(band)) <= 0.0:
+        return None
+    band = np.maximum(band, 1e-300)
+    return float(np.exp(np.mean(np.log(band))) / np.mean(band))
+
+
+def lf_leak_db(audio: np.ndarray, sr: int, hp_hz: float) -> float | None:
+    """Energy below ``hp_hz / 2`` over total energy, in dB (whole file, no window).
+
+    Half the corner, not the corner: the filter skirt itself would otherwise count as leak
+    (about -10 dB). Floored at -240 dB when the band holds no energy; ``None`` for silence.
+    """
+    if len(audio) == 0 or not np.any(audio):
+        return None
+    power = _power_spectrum(audio)
+    freqs = np.fft.rfftfreq(len(audio), 1.0 / sr)
+    low = float(np.sum(power[freqs < hp_hz / 2.0]))
+    ratio = low / float(np.sum(power))
+    return max(LEAK_FLOOR_DB, 10.0 * math.log10(ratio)) if ratio > 0 else LEAK_FLOOR_DB
+
+
+def hf_share(audio: np.ndarray, sr: int, split_hz: float = 12000.0) -> float | None:
+    """Energy share above ``split_hz`` (whole file, no window); ``None`` for silence."""
+    if len(audio) == 0 or not np.any(audio):
+        return None
+    power = _power_spectrum(audio)
+    freqs = np.fft.rfftfreq(len(audio), 1.0 / sr)
+    return float(np.sum(power[freqs > split_hz]) / np.sum(power))
+
+
+def peak_count(audio: np.ndarray, sr: int) -> int | None:
+    """Number of spectral lines in 4-20 kHz (hat metal-bank test).
+
+    First 100 ms, Hann window, zero-padded to 16384 points. A bin is a peak when it is a local
+    maximum and at least 15 dB above the running median (+-500 Hz) of the dB spectrum; peaks
+    closer than 50 Hz keep only the highest. A candidate within 40 / duration Hz of a stronger
+    one and at least 20 dB below it is dropped as a window sidelobe, not counted as a line.
+    The band is cut at Nyquist. Depends on the decay (longer decay, narrower lines): compare
+    only at equal decay (P8). ``None`` for silence or fewer than 16 samples; a signal shorter
+    than 100 ms uses all its samples.
+    """
+    seg = audio[: int(round(PEAK_WINDOW_MS * sr / 1000.0))]
+    if len(seg) < 16 or not np.any(seg):
+        return None
+    spec = np.abs(np.fft.rfft(seg * np.hanning(len(seg)), PEAK_FFT)) ** 2
+    db = 10.0 * np.log10(np.maximum(spec, 1e-30))
+    freqs = np.fft.rfftfreq(PEAK_FFT, 1.0 / sr)
+    bin_hz = freqs[1]
+    half = int(round(PEAK_MEDIAN_HZ / bin_hz))
+    idx = np.nonzero((freqs >= PEAK_BAND_HZ[0]) & (freqs <= min(PEAK_BAND_HZ[1], sr / 2.0)))[0]
+    idx = idx[(idx > half) & (idx < len(db) - half - 1)]
+    if len(idx) == 0:
+        return None
+    windows = np.lib.stride_tricks.sliding_window_view(db, 2 * half + 1)  # centre i -> row i-half
+    median = np.median(windows[idx - half], axis=1)
+    local_max = (db[idx] > db[idx - 1]) & (db[idx] >= db[idx + 1])
+    cand = idx[local_max & (db[idx] - median >= PEAK_PROMINENCE_DB)]
+    min_gap = PEAK_MIN_SPACING_HZ / bin_hz
+    # Window sidelobes of a strong line are local maxima too (Hann: -31 dB next to the line,
+    # falling away over ~40 / duration Hz). A candidate that far under a stronger one inside
+    # that reach is a sidelobe, not a line.
+    reach = (PEAK_SIDELOBE_CYCLES / (len(seg) / sr)) / bin_hz
+    kept: list[int] = []
+    for i in sorted(cand, key=lambda k: -db[k]):  # strongest first
+        if any(
+            abs(i - j) < min_gap
+            or (abs(i - j) < reach and db[j] - db[i] >= SIDELOBE_DB)
+            for j in kept
+        ):
+            continue
+        kept.append(int(i))
+    return len(kept)
+
+
+def t60_line_fit_ms(audio: np.ndarray, sr: int) -> float | None:
+    """T60 by a line fit of the 4 ms RMS envelope (dB) between -10 and -40 dB under its peak.
+
+    The first-crossing :func:`t60_ms` undershoots long decays by up to 9 % (P3); the fit uses
+    many points and is extrapolated to -60 dB. The fit range runs from the first -10 dB
+    crossing after the peak to the first -40 dB crossing; ``None`` when the envelope does not
+    reach -40 dB before the last ``FADE_GUARD_MS``, when fewer than 3 points lie in the range,
+    or when the slope is not negative.
+    """
+    n = len(audio)
+    if n == 0 or not np.any(audio):
+        return None
+    win = max(1, int(round(FIT_ENV_MS * sr / 1000.0)))
+    env = np.sqrt(np.maximum(np.convolve(audio**2, np.full(win, 1.0 / win), mode="same"), 0.0))
+    peak_idx = int(np.argmax(env))
+    limit = n - int(round(FADE_GUARD_MS * sr / 1000.0))
+    seg = env[peak_idx:max(peak_idx, limit)]
+    if len(seg) < 3 or seg[0] <= 0.0:
+        return None
+    db = 20.0 * np.log10(np.maximum(seg / seg[0], 1e-12))
+    hi = np.nonzero(db <= FIT_HIGH_DB)[0]
+    lo = np.nonzero(db <= FIT_LOW_DB)[0]
+    if len(hi) == 0 or len(lo) == 0 or lo[0] - hi[0] < 2:
+        return None
+    t = np.arange(hi[0], lo[0] + 1) / sr * 1000.0
+    slope, _ = np.polyfit(t, db[hi[0] : lo[0] + 1], 1)
+    if slope >= 0.0:
+        return None
+    # time from the envelope peak to -60 dB: the fitted line gives dB(t) relative to the peak
+    intercept = float(np.mean(db[hi[0] : lo[0] + 1]) - slope * np.mean(t))
+    return round(float((-60.0 - intercept) / slope), 3)
+
+
+def early_late_centroid_ratio(audio: np.ndarray, sr: int) -> float | None:
+    """Spectral centroid of the first 20 ms over that of 60-100 % of the line-fit T60.
+
+    Both windows are counted from the envelope peak (4 ms RMS). About 1 for a noise-like hat;
+    above 1 when the high part dies first (P10). ``None`` when the T60 fit fails, the late
+    window runs past the file or either window is silent.
+    """
+    t60 = t60_line_fit_ms(audio, sr)
+    if t60 is None:
+        return None
+    win = max(1, int(round(FIT_ENV_MS * sr / 1000.0)))
+    env = np.sqrt(np.maximum(np.convolve(audio**2, np.full(win, 1.0 / win), mode="same"), 0.0))
+    p = int(np.argmax(env))
+
+    def centroid(a: int, b: int) -> float | None:
+        if b > len(audio) or b - a < 16 or not np.any(audio[a:b]):
+            return None
+        seg = audio[a:b]
+        power = _power_spectrum(seg)
+        return float(np.sum(np.fft.rfftfreq(len(seg), 1.0 / sr) * power) / np.sum(power))
+
+    early = centroid(p, p + int(round(EARLY_MS * sr / 1000.0)))
+    late = centroid(p + int(round(0.6 * t60 * sr / 1000.0)), p + int(round(t60 * sr / 1000.0)))
+    if early is None or late is None or late <= 0.0:
+        return None
+    return early / late
