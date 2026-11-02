@@ -296,7 +296,7 @@ def test_v01_sidecar_renders_like_the_same_params_under_v02() -> None:
 def test_v01_sidecar_without_pitch_decay_is_rejected(tmp_path) -> None:
     meta = json.loads(V01_SIDECAR.read_text(encoding="utf-8"))
     del meta["parameters"]["pitch_decay_ms"]
-    path = tmp_path / "old.json"
+    path = tmp_path / "kick-v01.json"  # the sidecar's own stem: `file` must match (#85)
     path.write_text(json.dumps(meta), encoding="utf-8")
     with pytest.raises(KickParamsError, match="schema_version"):
         io_mod.rerender_from_sidecar(path, allow_engine_mismatch=True)
