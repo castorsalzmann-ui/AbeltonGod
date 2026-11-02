@@ -215,9 +215,67 @@ gh api repos/castorsalzmann-ui/abeltongod/issues/276 --jq .body                 
 WebFetch https://www.attackmagazine.com/technique/tutorials/warehouse-rolling-techno-bass/             # B1: C2 octave range, G2 = 98 Hz, HP ~65, LP ~350, sub LP ~80, rhythm; no env values
 WebFetch https://www.attackmagazine.com/technique/synth-secrets/rumbling-techno-bass-ableton-operator/  # B2: note F (no octave), sine+FM, 24 dB/oct LP; no numeric settings
 git show origin/phase-06/rim-targets:docs/research/2026-11-02_rim-targets.md                           # structure (PR #274, open)
-# probes (scratchpad scripts, not in the repo), run as:
-cd /home/claude/wtbass && PYTHONPATH=src python -I -c "exec(open('<scratchpad>/bassprobe.py').read())"    # P1, P3: analyse(), tail_window, zero_crossing_frequency on synthetic notes
-cd /home/claude/wtbass && PYTHONPATH=src python -I -c "exec(open('<scratchpad>/bassprobe2.py').read())"   # P2: RMS-envelope ripple, analyse_nonpitched on synthetic notes
+# probe: the script below, saved as bassprobe_final.py (scratchpad, not in the repo), run from the repo root:
+PYTHONPATH=src python bassprobe_final.py     # without -I: -I ignores PYTHONPATH
 ```
 
 Probe signal definition (so the numbers can be reproduced): 48 kHz; sine, or additive band-limited saw `(2/pi) * sum_{k=1}^{floor(0.45*sr/f)} sin(2 pi k f t)/k`, or that saw plus a sine; notes 24 / 31 / 43 / 55 (32.70 / 49.00 / 98.00 / 196.00 Hz); amplitude ramp 0 to 1 over 3 ms, held to 250 ms, linear ramp to 0 over 60 ms (total 310 ms); ripple measured as max/min of a centred moving RMS in 100-200 ms.
+
+Probe script (one file; its output reproduced every number quoted in section 3 when re-run on `origin/main` e986751 plus this note; the sub-octave lines print mid-gate zero-crossing frequency over `f`, 1.0000 meaning the saw's pitch; those mixes are unenveloped constant-level signals):
+
+```python
+# Run from the repo root:  PYTHONPATH=src python bassprobe_final.py
+import math
+import numpy as np
+from audio_engine.analysis import (analyse, analyse_nonpitched, tail_window,
+                                   zero_crossing_frequency)
+
+SR = 48000
+
+
+def osc(f, n, kind):
+    t = np.arange(n) / SR
+    if kind == "sine":
+        return np.sin(2 * np.pi * f * t)
+    k = np.arange(1, int(0.45 * SR / f) + 1)  # band-limited additive saw
+    return sum(np.sin(2 * np.pi * kk * f * t) / kk for kk in k) * (2 / np.pi)
+
+
+def note(m, kind, gate=250, rel=60, att=3):
+    f = 440 * 2 ** ((m - 69) / 12)
+    n = int((gate + rel) / 1000 * SR)
+    env = np.ones(n)
+    a, g = int(att / 1000 * SR), int(gate / 1000 * SR)
+    env[:a] = np.linspace(0, 1, a)
+    env[g:] = np.linspace(1, 0, n - g)
+    return f, osc(f, n, kind) * env
+
+
+def movrms(x, ms):
+    w = int(ms / 1000 * SR)
+    return np.sqrt(np.convolve(x**2, np.full(w, 1 / w), mode="same"))
+
+
+cents = lambda v, f: None if v is None else round(1200 * math.log2(v / f), 1)
+mid = slice(int(0.1 * SR), int(0.2 * SR))
+for kind in ("sine", "saw"):
+    for m in (24, 31, 43, 55):
+        f, x = note(m, kind)
+        s, e = tail_window(x, SR)
+        a = analyse(x, SR)["fundamental_hz"]
+        z = zero_crossing_frequency(x[mid], SR)
+        rip = [round(20 * math.log10(movrms(x, ms)[mid].max() / movrms(x, ms)[mid].min()), 2)
+               for ms in (1.0, 5.0, 1000 / f)]
+        nn = analyse_nonpitched(x, SR)
+        print(kind, m, round(f, 1), "window_ms", round(s / SR * 1000, 1), round(e / SR * 1000, 1),
+              "analyse", a, cents(a, f), "mid-gate ZC", z, cents(z, f), "ripple 1ms/5ms/period", rip,
+              "t60", nn["t60_ms"], "rise", nn["rise_time_ms"], "centroid", nn["spectral_centroid_hz"])
+# sine one octave below the saw, mid-gate zero crossings
+for m in (31, 43):
+    f = 440 * 2 ** ((m - 69) / 12)
+    n = int(0.31 * SR)
+    t = np.arange(n) / SR
+    for sw, sub in ((0.7, 0.7), (0.5, 1.0), (1.0, 0.3), (0.3, 1.0)):
+        y = osc(f, n, "saw") * sw + np.sin(2 * np.pi * f / 2 * t) * sub
+        print("sub-octave note", m, sw, sub, zero_crossing_frequency(y[mid], SR) / f)
+```
