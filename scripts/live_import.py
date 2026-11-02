@@ -516,14 +516,20 @@ def split_overrides(report: Report, used: list[str]) -> None:
     report.overrides_reads_only = sorted(c for c in set(used) if c not in sent)
 
 
+def import_done_text(done: ImportOutcome) -> str:
+    """Ctrl+C after a finished import: the clip stays, and how to remove it by hand. Shared
+    with scripts/kick_to_live.py (#194)."""
+    return ("Der Import war schon fertig; der Clip bleibt im Set"
+            + (", die neue Spur auch" if done.created_track else "")
+            + ".\n" + manual_removal_text(done))
+
+
 def interrupted_tail(report: Report) -> str:
     """What a Ctrl+C outside a write says about Live (German), from the importer's record."""
     done = report.importer.last_outcome if report.importer is not None else None
     if report.import_result == "PASS" and done is not None:
         # Ctrl+C at the undo or the listening prompt: UNDO_CHOICE promises this.
-        return ("Der Import war schon fertig; der Clip bleibt im Set"
-                + (", die neue Spur auch" if done.created_track else "")
-                + ".\n" + manual_removal_text(done))
+        return import_done_text(done)
     if report.plan_confirmed:
         return "Ob schon etwas gesendet wurde, ist unbekannt. Bitte in Live nachsehen. " + UNDO_HINT
     return "Es wurde nichts in Live geändert."
