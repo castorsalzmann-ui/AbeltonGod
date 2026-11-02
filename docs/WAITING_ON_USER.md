@@ -4,8 +4,7 @@ What only the user can do. The lead keeps this table current after every merge o
 
 | Was | Link | Aufgabe | Seit |
 | --- | --- | --- | --- |
-| Merge | https://github.com/castorsalzmann-ui/AbeltonGod/pull/228 | Keyword-Liste für Kicks mergen (nur Doku) | 2026-11-02 |
-| Merge | https://github.com/castorsalzmann-ui/AbeltonGod/pull/235 | Genre-Wörter und Camelot-Tabelle mergen (nur Doku, Review freigegeben, CI muss grün sein) | 2026-11-02 |
+| Einstellung | https://github.com/castorsalzmann-ui/AbeltonGod/settings/pages | Unter Build and deployment bei Source „GitHub Actions“ wählen; danach läuft das Cockpit auf GitHub Pages (Link in der README) | 2026-11-02 |
 | Schließen | https://github.com/castorsalzmann-ui/AbeltonGod/issues/103 | Hörtests abgeschlossen: Issue schließen | 2026-11-02 |
 | Schließen | https://github.com/castorsalzmann-ui/AbeltonGod/issues/57 | Kick-Layering nicht verfolgt: Issue schließen | 2026-11-02 |
 | Test | https://github.com/castorsalzmann-ui/AbeltonGod/issues/176 | Offline-Test von Claude auf deinem PC wiederholen | 2026-11-01 |

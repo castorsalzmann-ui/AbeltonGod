@@ -1,5 +1,7 @@
 # Roadmap
 
+Live cockpit (updates itself every 30 minutes): <https://castorsalzmann-ui.github.io/AbeltonGod/>
+
 One phase at a time. A phase starts only after the previous phase's acceptance criteria are met and the user has approved.
 
 | Phase | Spec | Goal | Tested where |

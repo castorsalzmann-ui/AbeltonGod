@@ -8,7 +8,8 @@ The value is read from the process environment, else from ``.env`` in the repo r
 in messages; only whether a key is present.
 
 Known trap (auth note row 8, Agent SDK note PR #79 Q6, **not verified on the user's machine**):
-a set ``ANTHROPIC_API_KEY`` or ``ANTHROPIC_AUTH_TOKEN`` silently wins over the subscription
+a set ``ANTHROPIC_API_KEY``, ``ANTHROPIC_AUTH_TOKEN`` or ``CLAUDE_CODE_USE_BEDROCK`` / ``_VERTEX`` /
+``_FOUNDRY`` silently wins over the subscription
 login in SDK runs and bills a Console organisation. In ``subscription`` mode such a variable is
 therefore refused before any model call. The SDK adapter (step 2) must also compare the init
 message's ``apiKeySource`` with the mode via ``check_api_key_source``.
@@ -29,6 +30,12 @@ MODEL_VARIABLE = "ABELTONGOD_CLAUDE_MODEL"
 DEFAULT_MODEL = "claude-opus-5-5"  # D-014
 # Variables that make the SDK's CLI use API billing instead of the login (auth precedence).
 OVERRIDING_VARIABLES = ("ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_API_KEY")
+# Cloud-provider switches rank above both (#118): set, Claude Code bills a cloud account. A value
+# that is explicitly off does not count; any other non-empty value does (refuse when unsure).
+PROVIDER_VARIABLES = (
+    "CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_USE_VERTEX", "CLAUDE_CODE_USE_FOUNDRY",
+)
+_OFF_VALUES = ("0", "false", "no", "off")
 
 # apiKeySource values from the research note (PR #79, Q6); unverified on the user's machine (V7).
 _EXPECTED_SOURCE = {"subscription": ("none",), "api_key": ("ANTHROPIC_API_KEY",)}
@@ -103,7 +110,12 @@ def load_auth(
             f"{AUTH_VARIABLE} must be 'subscription' or 'api_key', got {raw!r}"
         ) from None
     present = {name for name in OVERRIDING_VARIABLES if env.get(name, "").strip()}
-    if mode is AuthMode.SUBSCRIPTION and present:
+    providers = {
+        name for name in PROVIDER_VARIABLES
+        if env.get(name, "").strip() and env[name].strip().lower() not in _OFF_VALUES
+    }
+    if mode is AuthMode.SUBSCRIPTION and (present or providers):
+        present = present | providers
         raise AuthConfigError(
             f"{AUTH_VARIABLE}=subscription, but {', '.join(sorted(present))} is set. The SDK "
             "would use it instead of your Claude login. Remove it from .env and from the "
