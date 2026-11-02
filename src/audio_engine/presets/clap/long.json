@@ -1,0 +1,15 @@
+{
+  "schema_version": "0.1",
+  "preset": "long",
+  "seed": 2003,
+  "bursts": 4,
+  "burst_spacing_ms": 11,
+  "burst_decay_ms": 25,
+  "burst_level_falloff": 0.9,
+  "tail_level": 0.7,
+  "tail_decay_ms": 380,
+  "bp_hz": 1250,
+  "bp_q": 1.2,
+  "hp_hz": 450,
+  "length_ms": 700
+}
