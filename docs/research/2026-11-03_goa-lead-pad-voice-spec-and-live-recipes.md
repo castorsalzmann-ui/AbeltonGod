@@ -141,7 +141,7 @@ Open points this spec does not decide: order of the filter (2nd vs 4th), saw ali
 ### 2.0 Rules for this part
 
 - **All values are starting points. Not tested in Live. Not heard.** Every recipe row inherits that label; it is not repeated per row. The user's ears decide; the values come from the G1/voice-plan windows (themselves hypotheses) and my reasoning, not from a Goa source, unless a source is named.
-- Devices used: Drift, Analog (instruments); Auto Filter, Delay, Reverb, Saturator, Chorus-Ensemble (effects; Standard per compare-editions). **Not used: Operator, Wavetable, Sampler, Meld (Suite-only), Echo, Roar (Standard status not established), Collision, Electric, Tension (edition membership documented, parameters not read, no recipe), Max for Live (not available).** Simpler is named only as a player for rendered one-shots (test plan item T-S).
+- Devices used: Drift, Analog (instruments); Auto Filter, Delay, Reverb, Saturator, Chorus-Ensemble (effects; Standard per compare-editions). **Not used: Operator, Wavetable, Sampler, Meld (Suite-only per issue #345 and the edition-table check the lead made via WebFetch on 2026-11-03, together with G1 section 4.1), Echo, Roar (Standard status not established), Collision, Electric, Tension (edition membership documented, parameters not read, no recipe), Max for Live (not available).** Simpler is named only as a player for rendered one-shots (test plan item T-S).
 - Control names are the manual's, as quoted by the fetch summary (section 2.1, 2.2). **Units:** the summary states no units for Drift Glide, Unison Strength, Stereo Spread, Drift amount, or the Analog Unison Detune/Delay and Pitch Env Time. Where I write a time or a percentage for such a control it is a musical intention to be set by ear, marked "unit not established".
 - Tempo: the recipes assume the 135-150 BPM window of `goa_patterns.py`; arithmetic anchors at 140 BPM: 1/16 = 107.1 ms, 1/8 = 214.3 ms, dotted 1/8 = 321.4 ms, 1 bar = 1714.3 ms.
 - Notes come from the generated `.mid` files (accent = velocity 127, slide = overlapping notes: documented in `acid_midi`); whether Live's import preserves these as the files describe is the open item of G3 tests T1-T8.
@@ -257,4 +257,4 @@ What to report back: per item one line (pick or "no preference"), plus any contr
 
 - Goa lead/pad/pluck voice spec and Drift/Analog recipes written: `docs/research/2026-11-03_goa-lead-pad-voice-spec-and-live-recipes.md` (Refs #338, D-026).
 - Next: user runs test plan items L0-L6; results decide whether a `lead-params` `contract-change` is opened (parameter proposals in section 1.1 are the starting list).
-- Corrected: Echo read as Suite-only on the compare-editions page (still not established; recipes avoid it).
+- Conflicting read: Echo read as Suite-only on the compare-editions page (still not established; recipes avoid it).
