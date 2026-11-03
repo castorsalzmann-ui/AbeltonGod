@@ -68,6 +68,33 @@ HAT_DESCRIPTIONS = {
 }
 
 
+SNARE_DESCRIPTIONS = {
+    "default": "The contract defaults written out (190 Hz body, 180 ms noise decay).",
+    "tight": "Short noise tail, higher body (starter set of the snare targets note, N3 short).",
+    "long": "Long noise tail (starter set of the snare targets note, N3 long).",
+    "tonal": "Higher body share, lower noise share (starter set, N2 body_level 0.85).",
+    "bright": "Raised noise high-pass corner (starter set, N4 noise_hp_hz 3500).",
+}
+
+
+RIM_DESCRIPTIONS = {
+    "rim": "The contract defaults written out (two damped partials, short noise click).",
+    "tight": "Shorter decays of both partials (starter set, placeholder values).",
+    "long": "Longer decays of both partials (starter set, placeholder values).",
+    "high": "Higher lower partial (starter set, placeholder values).",
+    "clave": "Single partial near 2500 Hz, no upper partial (level2 0), starter set.",
+}
+
+
+BASS_DESCRIPTIONS = {
+    "default": "The contract defaults written out (note 43, saw plus sine, 250 ms gate).",
+    "sub": "Sine with a small octave-below sine, low cutoff, no filter envelope, no drive.",
+    "rolling": "Gate about one 16th at 136 BPM, short release, deeper filter envelope.",
+    "bright": "Saw, square and sine, higher cutoff, more resonance, deeper filter envelope.",
+    "low": "The defaults on note 31 with a longer gate (a researcher hypothesis for the note).",
+}
+
+
 class UnknownPresetError(KeyError):
     """No preset with this name. The message lists the valid names."""
 
@@ -82,6 +109,12 @@ def _folder(category: str) -> Path:
         return PRESETS_DIR / "clap"
     if category == "hat":
         return PRESETS_DIR / "hat"
+    if category == "snare":
+        return PRESETS_DIR / "snare"
+    if category == "rim":
+        return PRESETS_DIR / "rim"
+    if category == "bass":
+        return PRESETS_DIR / "bass"
     raise ValueError(f"no presets for category {category!r}")
 
 
@@ -101,5 +134,8 @@ def load_preset(name: str, category: str = "kick") -> dict[str, Any]:
 
 
 def describe(name: str, category: str = "kick") -> str:
-    table = {"clap": CLAP_DESCRIPTIONS, "hat": HAT_DESCRIPTIONS}.get(category, DESCRIPTIONS)
+    table = {
+        "clap": CLAP_DESCRIPTIONS, "hat": HAT_DESCRIPTIONS, "snare": SNARE_DESCRIPTIONS,
+        "rim": RIM_DESCRIPTIONS, "bass": BASS_DESCRIPTIONS,
+    }.get(category, DESCRIPTIONS)
     return table.get(name, "")

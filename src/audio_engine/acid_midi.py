@@ -107,8 +107,12 @@ def _render(line: Mapping[str, Any]) -> dict[str, float]:
     return r
 
 
-def validate_line(line: Any) -> None:
-    """Raise ValueError with a specific message if ``line`` is not a valid acid line."""
+def validate_line(line: Any, max_length: int = MAX_LENGTH) -> None:
+    """Raise ValueError with a specific message if ``line`` is not a valid acid line.
+
+    ``max_length`` (default 32) can be raised by callers that write longer lines (Goa
+    pattern generator, 16 bars = 256 steps); the default keeps the original limit.
+    """
     if not isinstance(line, Mapping):
         raise ValueError("acid line must be an object")
     if line.get("format") != FORMAT_NAME:
@@ -118,8 +122,8 @@ def validate_line(line: Any) -> None:
     if "seed" in line and not _is_int(line["seed"]):
         raise ValueError("seed must be an integer")
     n = line.get("length")
-    if not _is_int(n) or not MIN_LENGTH <= n <= MAX_LENGTH:
-        raise ValueError(f"length must be an integer {MIN_LENGTH}-{MAX_LENGTH}")
+    if not _is_int(n) or not MIN_LENGTH <= n <= max_length:
+        raise ValueError(f"length must be an integer {MIN_LENGTH}-{max_length}")
     steps = line.get("steps")
     if not isinstance(steps, list) or len(steps) != n:
         raise ValueError("steps must be a list with exactly `length` entries")
@@ -136,9 +140,9 @@ def validate_line(line: Any) -> None:
     _render(line)
 
 
-def line_to_notes(line: Mapping[str, Any]) -> list[Note]:
+def line_to_notes(line: Mapping[str, Any], max_length: int = MAX_LENGTH) -> list[Note]:
     """Map a validated acid line to notes, sorted by (start, pitch)."""
-    validate_line(line)
+    validate_line(line, max_length)
     r = _render(line)
     steps = line["steps"]
     n = line["length"]
@@ -183,14 +187,15 @@ def _vlq(v: int) -> bytes:
 
 
 def acid_line_to_midi(
-    line: Mapping[str, Any], bpm: float | None = None, name: str | None = None
+    line: Mapping[str, Any], bpm: float | None = None, name: str | None = None,
+    max_length: int = MAX_LENGTH,
 ) -> bytes:
     """Return a format-0 SMF (PPQ 480, channel 1) for ``line``.
 
     ``bpm`` None (default) writes no tempo event, so the host keeps its own tempo;
     a number writes a tempo meta event. ``name`` (ASCII) writes a track-name event.
     """
-    notes = line_to_notes(line)
+    notes = line_to_notes(line, max_length)
     n = line["length"]
     trk = bytearray()
     if bpm is not None:
@@ -228,10 +233,10 @@ def load_acid_line(path: str | Path) -> dict[str, Any]:
 
 def write_acid_midi(
     line: Mapping[str, Any], path: str | Path, bpm: float | None = None,
-    name: str | None = None,
+    name: str | None = None, max_length: int = MAX_LENGTH,
 ) -> Path:
     """Write the .mid for ``line`` (bytes are computed first, so a bad line writes nothing)."""
-    data = acid_line_to_midi(line, bpm=bpm, name=name)
+    data = acid_line_to_midi(line, bpm=bpm, name=name, max_length=max_length)
     p = Path(path)
     p.write_bytes(data)
     return p

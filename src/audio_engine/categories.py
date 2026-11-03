@@ -3,8 +3,8 @@
 ``sample-metadata.schema.json`` v0.2 names two categories, ``kick`` and ``clap``. Each category
 carries its own engine name and version, so a byte change in one never invalidates the sidecars
 of another. Only categories that have a renderer are *registered* here: kick, clap
-(#231) and hat (#270). A category the contract names but that is not registered raises
-:class:`CategoryUnavailable` before any parameter of that category is looked at.
+(#231), hat (#270), snare (#308) and rim (#321). A category the contract names but that is not
+registered raises :class:`CategoryUnavailable` before any parameter of that category is looked at.
 """
 
 from __future__ import annotations
@@ -15,11 +15,11 @@ from typing import Any
 
 import numpy as np
 
-from . import ENGINE_NAME, ENGINE_VERSION, analysis, clap, hat, kick
+from . import ENGINE_NAME, ENGINE_VERSION, analysis, bass, clap, hat, kick, rim, snare
 from .params import resolve_kick_params
 
 # Categories named by contracts/sample-metadata.schema.json (a test compares with the file).
-CONTRACT_CATEGORIES = ("kick", "clap", "hat")
+CONTRACT_CATEGORIES = ("kick", "clap", "hat", "snare", "rim", "bass")
 
 
 class CategoryUnavailable(ValueError):
@@ -38,6 +38,15 @@ class Category:
     resolve: Callable[[dict[str, Any]], dict[str, Any]]
     render: Callable[[dict[str, Any]], tuple[np.ndarray, dict[str, Any]]]  # (audio, resolved)
     analyse: Callable[[np.ndarray, int], dict[str, Any]]
+    # Optional: features that need the resolved parameters (bass: the gate window, #328).
+    analyse_resolved: Callable[[np.ndarray, int, dict[str, Any]], dict[str, Any]] | None = None
+
+    def features(self, audio: np.ndarray, resolved: dict[str, Any]) -> dict[str, Any]:
+        """Sidecar features of a render of this category."""
+        sr = resolved["sample_rate"]
+        if self.analyse_resolved is not None:
+            return self.analyse_resolved(audio, sr, resolved)
+        return self.analyse(audio, sr)
 
     @property
     def engine(self) -> dict[str, str]:
@@ -76,6 +85,38 @@ _REGISTRY: dict[str, Category] = {
         resolve=hat.resolve_hat_params,
         render=lambda params: hat.render_hat(params),
         analyse=lambda audio, sr: analysis.analyse_nonpitched(audio, sr),
+    ),
+    "snare": Category(
+        name="snare",
+        engine_name=snare.SNARE_NAME,
+        engine_version=snare.SNARE_VERSION,
+        metadata_schema_version="0.2",
+        default_stem="snare",
+        resolve=snare.resolve_snare_params,
+        render=lambda params: snare.render_snare(params),
+        analyse=lambda audio, sr: analysis.analyse_nonpitched(audio, sr),
+    ),
+    "rim": Category(
+        name="rim",
+        engine_name=rim.RIM_NAME,
+        engine_version=rim.RIM_VERSION,
+        metadata_schema_version="0.2",
+        default_stem="rim",
+        resolve=rim.resolve_rim_params,
+        render=lambda params: rim.render_rim(params),
+        analyse=lambda audio, sr: analysis.analyse_nonpitched(audio, sr),
+    ),
+    "bass": Category(
+        name="bass",
+        engine_name=bass.BASS_NAME,
+        engine_version=bass.BASS_VERSION,
+        metadata_schema_version="0.2",
+        default_stem="bass",
+        resolve=bass.resolve_bass_params,
+        render=lambda params: bass.render_bass(params),
+        # Not analysis.analyse: its tail window lands in the release of a gated note.
+        analyse=bass.analyse_basic,
+        analyse_resolved=bass.analyse_bass,
     ),
 }
 

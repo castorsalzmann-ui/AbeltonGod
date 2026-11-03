@@ -10,7 +10,11 @@ python -m audio_engine.listening_test_hat --out /pfad/zu/neuem/ordner
 
 Der Ordner muss neu oder leer sein und liegt **außerhalb** des Repos. Ergebnis: `hoerer/T?_?.wav` (19 Loops, wird verschickt) und `Schluessel.md` (nicht verschicken). Jeder Loop: 4 Takte, 136 BPM, mono, 48 kHz, 24 Bit, `dense`-Kick auf jedem Beat (Bus -6 dB, wie Test 3), Hat-Bus -8 dB plus Angleich-Gain (<= 0; fester Startpegel, kein Lautheitsurteil). Closed (T1, T0, T2, T3, T6): Hat auf jedem 16tel (Slot k beginnt bei `round(k * 60/136 * 48000 / 4)` Samples, 64 Slots). Open (T5, T4): Hat auf jedem Off-Beat-8tel (Beat b + 0,5, 16 Slots). Jeder Schlag wird beim nächsten Slot abgeschnitten (3 ms Raised-Cosine-Fade, nur wenn der Render länger ist als der Slot; Open also nach einem Beat). Positionen A/B/C/D: SHA-256 mit festem Seed 300 (`listening_test3.blind_order`). Die Hat-Renders sind die Presets und Änderungen der Tabelle in Abschnitt 2 (Ceiling -0,3, der Angleich geschieht über den Gain); T6 sind die Varianten 0 bis 3 von `closed-std` (`hat_variants.make_variants`, Seed 1).
 
+Neu erzeugen (aus der Hörer-Anleitung hierher verschoben): Befehl wie oben, Ordner außerhalb des Repos, Engine auf dem Pfad. Verschickt wird nur `hoerer/`; `Schluessel.md` verrät den Aufbau und wird erst nach dem Test geöffnet.
+
 ## 1b. Einzelschlag-Variante (Rückfall)
+
+Wenn der Hörer die Hats lieber selbst im Simpler spielt: Einzelschläge mit `python -m audio_engine.kick --category hat` erzeugen (Befehle unten). Der Hörer baut dann Kick auf jedem Beat, Hat auf jedem 16tel (Closed) bzw. jedem Off-Beat-8tel (Open), Voices 1, Retrigger an, Fade Out ca. 3 ms. Diese Variante ist nur beschrieben, nicht geprüft; der Pegelangleich der Loops gilt für sie nicht. Der Hörer-Anleitung steht dazu nichts (sie verweist nicht auf dieses Dokument).
 
 Das Paket aus Einzelschlägen, das PR #299 geliefert hat und das der Hörer im Simpler selbst abspielt. Aus dem Repo-Stamm, mit der Engine auf dem Pfad (`PYTHONPATH=src` oder editable install), Bash. `OUT` ist ein neuer, leerer Ordner **außerhalb** des Repos. Verschickt wird nur `OUT/hoerer/`; `OUT/render/` enthält die Sidecars (Dateinamen und Parameter verraten den Schlüssel). Der Pegelangleich dieser Variante geschieht über `peak_ceiling_dbfs`, nicht über Gains.
 

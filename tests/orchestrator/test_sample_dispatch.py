@@ -67,6 +67,7 @@ class Fake:
 
 
 CLAP_ONLY = {"clap": ADAPTERS["clap"]}  # the table of PR #266/#287, before the hat row (#294)
+CLAP_HAT = {k: ADAPTERS[k] for k in ("clap", "hat")}  # the table of PR #302, before snare (#317)
 
 
 def table(*extra):
@@ -209,7 +210,7 @@ def test_unregistered_category_is_refused_before_approval_and_any_file(tmp_path,
             raise AssertionError(f"{category!r} was accepted")
     assert build_request({**GOOD, "category": "hat"}, CLAP_ONLY)[1] == [
         "category 'hat' is not available yet; available: clap"]
-    assert build_request({**GOOD, "category": "snare"})[1] == [
+    assert build_request({**GOOD, "category": "snare"}, CLAP_HAT)[1] == [
         "category 'snare' is not available yet; available: clap, hat"]
     assert approver.asked == []
     assert fake.variant_calls == [] and fake.place_calls == []
@@ -225,8 +226,8 @@ HAT = {"category": "hat", "preset": "closed-std", "prompt": "", "seed": 3, "vari
        "adjust": [{"key": "decay_ms", "value": 60}]}
 
 
-def test_default_table_is_clap_and_hat():
-    assert list(ADAPTERS) == ["clap", "hat"]
+def test_default_table_is_clap_hat_snare():
+    assert list(ADAPTERS) == ["clap", "hat", "snare"]
     assert ADAPTERS["hat"].contract == "hat-params.schema.json"
 
 
@@ -235,7 +236,7 @@ HAT_SCHEMA_WITH_XTREME_SHA256 = (
 
 
 def test_hat_row_changes_enum_and_texts_but_not_the_shape_or_the_budget(v01_clap_presets):
-    schema = tool_input_schema()
+    schema = tool_input_schema(CLAP_HAT)  # the "before" of the snare row (#317)
     assert digest(schema) == HAT_SCHEMA_SHA256  # with the v0.1 clap preset list (#280 note)
     assert schema["properties"]["category"]["enum"] == ["clap", "hat"]
     assert strip(schema) == strip(tool_input_schema(CLAP_ONLY))
@@ -243,12 +244,12 @@ def test_hat_row_changes_enum_and_texts_but_not_the_shape_or_the_budget(v01_clap
     for preset in ("closed-std", "open-short", "open-long"):
         assert preset in schema["description"]
     assert "choke_ms" in schema["description"]
-    tool = SampleTools(_NoSession()).tools()[0]
+    tool = SampleTools(_NoSession(), CLAP_HAT).tools()[0]
     assert tool.max_files_written == 16
 
 
 def test_hat_table_with_the_xtreme_names_keeps_the_shape():
-    now = tool_input_schema()
+    now = tool_input_schema(CLAP_HAT)
     assert digest(now) == HAT_SCHEMA_WITH_XTREME_SHA256
     assert strip(now) == strip(tool_input_schema(CLAP_ONLY))
     assert optional_fields(now) == 0
@@ -324,12 +325,84 @@ def test_hat_files_count_against_the_guard_cap(tmp_path, make_guard):
     assert len(list(Path(session.project_dir).rglob("*.wav"))) == 5
 
 
-def test_snare_and_kick_stay_refused_with_the_default_table(tmp_path, make_guard):
+def test_kick_and_tom_stay_refused_with_the_default_table(tmp_path, make_guard):
     session, _, box = box_for(tmp_path, ADAPTERS)
     approver = Approver(True)
-    for category in ("snare", "kick", "tom"):
+    for category in ("kick", "tom", "rim"):
         assert run(make_guard(), box, {**HAT, "category": category}, approver).is_error
     assert approver.asked == []
-    assert build_request({**HAT, "category": "snare"})[1] == [
-        "category 'snare' is not available yet; available: clap, hat"]
+    assert build_request({**HAT, "category": "kick"})[1] == [
+        "category 'kick' is not available yet; available: clap, hat, snare"]
     assert not list(Path(session.project_dir).rglob("*.wav"))
+
+
+# --- snare (#317) ----------------------------------------------------------------------------
+
+SNARE_SCHEMA_SHA256 = "2aaca736095daf8ae65e7233259b18fe8355b9692e9ab7eaca4abb7be92ae787"
+SNARE = {"category": "snare", "preset": "default", "prompt": "", "seed": 3, "variants": 2,
+         "adjust": [{"key": "body_hz", "value": 200}]}
+
+
+def test_snare_row_changes_enum_and_texts_but_not_the_shape_or_the_budget(v01_clap_presets):
+    before, after = tool_input_schema(CLAP_HAT), tool_input_schema()
+    assert digest(after) == SNARE_SCHEMA_SHA256 != digest(before)
+    assert after["properties"]["category"]["enum"] == ["clap", "hat", "snare"]
+    assert strip(after) == strip(before)  # same shape; enum and description text differ
+    assert optional_fields(after) == 0
+    for preset in ("default", "tight", "long", "bright", "tonal"):
+        assert preset in after["description"]
+    assert "body_hz" in after["description"]
+    assert SampleTools(_NoSession()).tools()[0].max_files_written == 16
+
+
+def test_snare_generates_through_the_adapter(tmp_path, make_guard):
+    session, _, box = box_for(tmp_path, ADAPTERS)
+    result = run(make_guard(), box, SNARE)
+    assert result.is_error is False, result.content
+    assert result.content["category"] == "snare"
+    assert [s["sample_id"] for s in result.content["samples"]] == ["snare-1", "snare-2"]
+    wavs = sorted(Path(session.project_dir).rglob("*.wav"))
+    assert len(wavs) == 2 and all("Snares" in w.parts for w in wavs), wavs
+    meta = json.loads(wavs[0].with_suffix(".json").read_text(encoding="utf-8"))
+    assert meta["category"] == "snare" and meta["parameters"]["preset"] == "default"
+    assert meta["parameters"]["body_hz"] == 200
+    assert session.entry("snare-2").category == "snare"
+
+
+def test_snare_is_deterministic_for_equal_arguments(tmp_path, make_guard):
+    runs = []
+    for sub in ("a", "b"):
+        (tmp_path / sub).mkdir()
+        session, _, box = box_for(tmp_path / sub, ADAPTERS)
+        assert run(make_guard(), box, SNARE).is_error is False
+        runs.append([w.read_bytes() for w in sorted(Path(session.project_dir).rglob("*.wav"))])
+    assert runs[0] == runs[1]
+
+
+def test_snare_refusals_write_nothing(tmp_path, make_guard):
+    session, _, box = box_for(tmp_path, ADAPTERS)
+    bad = [
+        {**SNARE, "preset": "closed-std"},  # a hat preset
+        {**SNARE, "preset": "short"},  # a clap preset
+        {**SNARE, "prompt": "dark"},  # no keyword parser for snare
+        {**SNARE, "adjust": [{"key": "body_hz", "value": 50}]},
+        {**SNARE, "adjust": [{"key": "mode_ratio", "value": 3}]},
+        {**SNARE, "adjust": [{"key": "polarity", "value": 0}]},
+        {**SNARE, "adjust": [{"key": "choke_ms", "value": 10}]},  # a hat key
+        {**SNARE, "variants": 9},
+    ]
+    for args in bad:
+        assert run(make_guard(), box, args).is_error, args
+    assert not list(Path(session.project_dir).rglob("*.wav"))
+    assert not list(Path(session.project_dir).rglob("*.json"))
+    assert session.sample_ids() == ()
+
+
+def test_snare_files_count_against_the_guard_cap(tmp_path, make_guard):
+    session, _, box = box_for(tmp_path, ADAPTERS)
+    refused = run(make_guard(max_files_written=10), box, {**SNARE, "variants": 6})
+    assert refused.is_error
+    assert not list(Path(session.project_dir).rglob("*.wav"))
+    ok = run(make_guard(max_files_written=10), box, {**SNARE, "variants": 5})
+    assert ok.is_error is False, ok.content
+    assert len(list(Path(session.project_dir).rglob("*.wav"))) == 5

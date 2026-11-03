@@ -6,9 +6,12 @@ Machine-readable contracts live in `contracts/`. This file explains them. Changi
 | --- | --- | --- |
 | `contracts/kick-params.schema.json` | Orchestrator / CLI → audio engine | v0.3 (#104, follow-ups #131); the engine renders 0.2 and 0.3 (PR #130) |
 | `contracts/tool-generate-kick.schema.json` | Orchestrator (tool definition) → Claude | strict-subset variant of kick-params 0.3 for the `generate_kick` tool, for when it is sent strict (#131; the choice is #148's, see "Strict tool variant"); the engine still validates against `kick-params.schema.json` |
-| `contracts/sample-metadata.schema.json` | Audio engine → library, orchestrator | v0.2 (#229): kick keeps 0.1; categories `kick`, `clap`, `hat` (#249); non-pitched features; engine identity per category. v0.1 kick sidecars stay valid |
+| `contracts/sample-metadata.schema.json` | Audio engine → library, orchestrator | v0.2 (#229): kick keeps 0.1; categories `kick`, `clap`, `hat` (#249), `snare` (#272), `rim` (#296), `bass` (#320); non-pitched features; engine identity per category. v0.1 kick sidecars stay valid |
 | `contracts/clap-params.schema.json` | Orchestrator / CLI → audio engine | v0.2 (#280): v0.1 plus optional extreme-sound fields behind `schema_version` `0.2`; v0.1 documents stay valid; ranges are measured and may be adjusted by the engine PR |
 | `contracts/hat-params.schema.json` | Orchestrator / CLI → audio engine | v0.1 proposal (#249); no engine yet; ranges are proposals the engine PR measures and may adjust |
+| `contracts/snare-params.schema.json` | Orchestrator / CLI → audio engine | v0.1 proposal (#272); no engine yet; ranges are placeholders the engine PR measures and may adjust |
+| `contracts/rim-params.schema.json` | Orchestrator / CLI → audio engine | v0.1 proposal (#296); no engine yet; ranges are hypotheses from one weak source plus placeholders the engine PR measures and may adjust |
+| `contracts/bass-params.schema.json` | Orchestrator / CLI → audio engine | v0.1 proposal (#320); no engine yet; ranges are placeholders (one tutorial is the only source) the engine PR measures and may adjust |
 | `contracts/capabilities.json` (+ `capabilities.schema.json`) | Bridge → orchestrator | v1 — statuses updated in Phase 02 (#42: entry `track.mute.get` added, no format change) and Phase 03 (#50: `clip_slot.create_audio_clip` → `tested`, no format change; #143: `song.create_audio_track` → `tested`, own `tested` entries `track.has_audio_input.get`, `clip_slot.has_clip.get`, `clip.file_path.get`, `song.num_scenes.get` (no borrowed gate any more), no format change; one undo may revert track + clip together; #140: 12 Arrangement-check entries added as `unknown`, no format change) |
 | `contracts/guard-policy.schema.json` → `config/guard-policy.json` | User config → resource guard | v1 — default values are untuned starting points |
 | `contracts/tool-list-tracks.schema.json`, `contracts/tool-import-sample.schema.json` | Claude (tool arguments) → orchestrator | v1 (#81) — input schemas only; not wired yet |
@@ -85,6 +88,39 @@ Features for non-pitched samples (v0.2, all optional, number or null): `spectral
 - Sidecars: category `hat`, `schema_version` `0.2`, `engine.name` `abeltongod-audio-engine-hat` with its own version (D-025), `parameters.schema_version` `0.1`, same non-pitched features as clap.
 
 All ranges are proposals (design note section 4, targets note section 2); `attack_ms` is narrowed to 0.1..5 because the shaker is out, `body_mix` defaults to 0 (single envelope). The audio-engineer measures them and may adjust them in the engine PR. No tool schema (`generate_hat`, H7) exists.
+
+## Snare parameters
+
+`snare-params.schema.json` v0.1 (#272) is a proposal for one mono snare: a sine body of two partials (lower `body_hz`, upper `body_hz` x `mode_ratio`, both with the same exponential pitch drop `pitch_drop` over `pitch_drop_ms`, so the ratio is `mode_ratio` at every instant) plus shaped noise (wide band and a narrow high-passed band with a faster decay). Lead decisions on the research note's open points: `snappy` is not a field (keyword weight only); rim shot is a separate future `rim-params`, not a `model`; `gate_ms`, `body_shape` (sine only) and a note-name resolver for `body_hz` are not in v0.1. Fixed by the contract text (details in the schema `$comment`):
+
+- `body_level` is the share of **passband power after the noise filters** (body and noise RMS-normalised, mixed as sqrt(body_level) body + sqrt(1-body_level) noise), the same reading as hat `metal`. The body has no randomness; the seed changes only the noise (two sub-streams), so `body_level` 1 is seed-independent.
+- `body_decay_ms` and `noise_decay_ms` are the time to -60 dB after the attack; the upper partial decays in `body_decay_ms` x `body2_decay_ratio`.
+- Cross-field rule `noise_lp_hz` > 1.2 x `noise_hp_hz`: JSON Schema cannot express it; the engine rejects violations with an error text, never clamps. An omitted partner never breaks it (defaults 1800 / 9000).
+- Out-of-range values are rejected, never clamped. All defaults are placeholders until measured and listened to.
+- Sidecars: category `snare`, `schema_version` `0.2`, `engine.name` `abeltongod-audio-engine-snare` with its own version (D-025), `parameters.schema_version` `0.1`.
+
+No tool schema (`generate_snare`) exists.
+
+## Rim parameters
+
+`rim-params.schema.json` v0.1 (#296) is a proposal for one mono rim shot: two damped sine partials (`f1_hz`, `f1_hz` x `f2_ratio`, relative amplitude `level2`, own decays `decay1_ms` / `decay2_ms` as time to -60 dB), a high-pass `hp_hz` and an optional noise click (`click_level`, `click_ms`). Separate `rim-params`, not a snare `model` (lead decision on #272). The research note's few sourced numbers are weak (one hobby page); every range and default is a placeholder. Decisions taken in this draft, open for the lead: a single partial is `level2` 0 (no "off" value in `f2_ratio`); `f3_ratio`, pitch `bend`, `tone_peak_*` and a `clave` model are not in v0.1; category `rim` (not `perc`). Fixed by the contract text (details in the schema `$comment`):
+
+- Cross-field rule `hp_hz` < 0.8 x `f1_hz`: JSON Schema cannot express it; the engine rejects violations with an error text, never clamps. The default `hp_hz` (200) satisfies it for every `f1_hz` in range.
+- Partials start with phase 0; the seed changes only the click, so `click_level` 0 is seed-independent. The highest partial (3500 x 5.0 Hz) is below 0.45 x `sample_rate`.
+- Out-of-range values are rejected, never clamped.
+- Sidecars: category `rim`, `schema_version` `0.2`, `engine.name` `abeltongod-audio-engine-rim` with its own version (D-025), `parameters.schema_version` `0.1`.
+
+No tool schema (`generate_rim`) exists.
+
+## Bass parameters
+
+`bass-params.schema.json` v0.1 (#320) is a proposal for one mono, pitched, gated bass note: `note` (MIDI 24 .. 55) + `cents`, three phase-0 sine-series oscillators (`saw_level`, `square_level`, `sine_level`) and `sub_octave_level`, high-pass `hp_hz`, 2nd-order low-pass with a closing cutoff envelope (`lp_hz` = sustained cutoff, `lp_q`, `lp_env_amount` in octaves, `lp_env_decay_ms`), linear `amp_attack_ms`, `gate_ms`, linear `release_ms`, `drive`. File length is `gate_ms` + `release_ms`; there is no length field. Only one tutorial sources any number (high-pass about 65 Hz, low-pass about 350 Hz, G2 = 98 Hz); every range and default is a placeholder the engine PR measures and may adjust. Decisions taken in this draft, open for the lead (details in the PR body): default note 43 (sourced) not 31; `hp_hz` default 20 so the default satisfies the cross-field rule for every note; `detune_cents` and `model` left out of v0.1; `lp_hz` is the sustained cutoff; `fundamental_hz` is the note, not the sub octave; `seed` kept but inert for the core voice; no new sidecar features. Fixed by the contract text (details in the schema `$comment`):
+
+- Cross-field rules, engine-checked with an error text, never clamped: `hp_hz` < 0.8 x note frequency; `lp_hz` >= 1.2 x `hp_hz`; `lp_hz` x 2^`lp_env_amount` < 0.45 x `sample_rate`; at least one oscillator level above 0.
+- Measurement method per field is written into the contract: pitch from the stationary window (40 % to 80 % of the gate) by two independent methods, `fundamental_hz` null if that window holds fewer than 2 periods; envelope readings on period-long or peak envelopes. `rise_time_ms` / `t60_ms` and the kick `tail_window` are not used for bass (they mis-measure gated low notes).
+- Sidecars: category `bass`, `schema_version` `0.2`, `engine.name` `abeltongod-audio-engine-bass` with its own version (D-025), `parameters.schema_version` `0.1`.
+
+No tool schema (`generate_bass`) exists.
 
 ## Guard policy
 

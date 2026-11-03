@@ -1,0 +1,9 @@
+{
+  "schema_version": "0.1",
+  "preset": "rolling",
+  "seed": 1,
+  "gate_ms": 110,
+  "release_ms": 25,
+  "lp_env_amount": 2,
+  "lp_env_decay_ms": 80
+}
