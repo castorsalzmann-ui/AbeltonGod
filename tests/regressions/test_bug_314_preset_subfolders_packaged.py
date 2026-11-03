@@ -9,6 +9,7 @@ every ``*.json`` under ``src/audio_engine/presets`` at any depth is in the build
 from __future__ import annotations
 
 import os
+import shutil
 from pathlib import Path
 
 from setuptools import Distribution
@@ -19,11 +20,23 @@ PRESETS = REPO / "src" / "audio_engine" / "presets"
 
 
 def test_all_preset_json_files_are_built(tmp_path):
+    # Build from a clean copy of pyproject.toml + src: a stale, git-ignored
+    # src/abeltongod.egg-info (its SOURCES.txt lists files) must not influence the result.
+    proj = tmp_path / "proj"
+    proj.mkdir()
+    shutil.copy(REPO / "pyproject.toml", proj / "pyproject.toml")
+    if (REPO / "README.md").exists():
+        shutil.copy(REPO / "README.md", proj / "README.md")
+    shutil.copytree(
+        REPO / "src", proj / "src",
+        ignore=shutil.ignore_patterns("*.egg-info", "__pycache__"),
+    )
+    tmp_path = tmp_path / "build"
     cwd = os.getcwd()
-    os.chdir(REPO)
+    os.chdir(proj)
     try:
         dist = apply_configuration(
-            Distribution({"script_name": "setup.py"}), REPO / "pyproject.toml"
+            Distribution({"script_name": "setup.py"}), proj / "pyproject.toml"
         )
         dist.script_args = ["build_py", "--build-lib", str(tmp_path)]
         dist.parse_command_line()
