@@ -34,7 +34,7 @@
         "dc_offset": { "type": ["number", "null"] },
         "spectral_centroid_hz": { "type": ["number", "null"], "minimum": 0, "description": "v0.2, non-pitched samples (clap, later hat). Spectral centroid of the whole file, Hz." },
         "hf_share_8k": { "type": ["number", "null"], "minimum": 0, "maximum": 1, "description": "v0.2. Share of the spectral energy above 8 kHz, 0 ... 1." },
-        "t60_ms": { "type": ["number", "null"], "minimum": 0, "description": "v0.2. Time from the peak until the envelope has fallen 60 dB, ms; null if it does not within the file." },
+        "t60_ms": { "type": ["number", "null"], "minimum": 0, "description": "v0.2. Time from the peak until the envelope has fallen 60 dB, ms, measured on the signal after a 30 Hz high-pass; null if it does not within the file." },
         "rise_time_ms": { "type": ["number", "null"], "minimum": 0, "description": "v0.2. Onset rise time, 10 % to 90 % of the peak envelope, ms." }
       }
     },

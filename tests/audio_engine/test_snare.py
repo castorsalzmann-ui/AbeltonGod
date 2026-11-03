@@ -569,8 +569,8 @@ def test_the_five_presets_exist_and_validate() -> None:
 
 def test_preset_measurements_follow_their_fields() -> None:
     """Directions only (the note proposes no taste range): tail and brightness order. The tail
-    is read in the band above 2.7 kHz: the sidecar ``t60_ms`` of a snare is floored by the
-    mean-removal bump (see the PR), it is the same ~323 ms for 'tight' and 'default'."""
+    is read in the band above 2.7 kHz (an independent method; the sidecar ``t60_ms`` follows
+    the same order since #313, see tests/regressions/test_bug_313_snare_t60.py)."""
     renders = {n: [render_snare({**load_preset(n, "snare"), "seed": s})[0] for s in range(1, 5)]
                for n in PRESETS}
 
