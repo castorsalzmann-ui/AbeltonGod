@@ -6,9 +6,9 @@ Output is an acid-line dict (format "acid_line", version "0.1-proposal", see
 and seed give identical dicts, JSON text and MIDI bytes (a local ``random.Random`` is
 the only source of randomness; no clock, no global RNG).
 
-Musical assumptions (HYPOTHESES, not facts; the research note
-docs/research/2026-11-03_goa-trance-musicology-and-sound.md was not available when
-this was written, so nothing here is aligned with it yet):
+Musical assumptions (HYPOTHESES, not facts). They were written before the research note
+docs/research/2026-11-03_goa-trance-musicology-and-sound.md (G1) was read; the table
+below reconciles them with it. The note itself calls its numbers starter hypotheses.
 
 * H1 Goa tempo is roughly 135-150 BPM; anything outside is rejected.
 * H2 The bass rolls on 16ths and leaves the kick step (step % 4 == 0) free, i.e. up to
@@ -20,6 +20,31 @@ this was written, so nothing here is aligned with it yet):
   with a fresh variation bar at the end of every 4-bar phrase.
 * H5 Arpeggios run continuous 16ths over chord tones stacked in thirds from a scale degree.
 * H6 Phrygian, phrygian dominant, harmonic minor and aeolian are the scale choices.
+
+Reconciliation with the G1 note (differences are known, behaviour is unchanged):
+
+=====================  ===========================  ================================
+Item                   This module                  G1 note
+=====================  ===========================  ================================
+Bass rhythm            default density 0.75 (9 of   default ``three_after_kick``
+                       12 off-kick steps);          (steps 1,2,3 of each beat);
+                       density 1.0 gives the same   same rhythm as density 1.0
+                       rhythm
+First roll note        same velocity as the others  played quieter
+                       (not implemented)            (``roll_first_velocity`` 0.6)
+Tempo range            hard 135-150 BPM             sources say 130-150 (finding 2)
+Bass octave jumps      root octave in the pitch     ``octave_jump_prob`` 0 for bass
+                       pool, about 19 % of bass     (no Goa source)
+                       notes after the first
+Variation bar          fresh bar every 4th bar      every 8th bar
+Line keys              ``kind``, ``scale``, ``bpm`` ``role``, ``mode``, ``bpm_hint``
+Roll patterns          only the off-kick roll       also offbeat_8th, gallop, full_16th
+=====================  ===========================  ================================
+
+Format decision (lead, 2026-11-03): the keys of this module (``kind``, ``scale``,
+``bpm``) ARE the ``goa_line`` format; the proposal in section 5 of the G1 note is
+superseded by it. The line stays an ``acid_line`` (version "0.1-proposal") with extra
+informational keys.
 
 Density, accent and slide are exact counts per line, not probabilities:
 notes per bar = round-half-up(density * grid size); accents = round-half-up(accent * notes);
