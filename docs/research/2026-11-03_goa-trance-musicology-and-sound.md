@@ -9,7 +9,7 @@ Related notes, not repeated: [acid lines to Live](2026-11-02_acid-lines-to-live.
 ## For workers
 
 - **Possible?** Yes, in two layers. (1) **MIDI + a written patch recipe for Live's own instruments**: needs no new engine and no Live bridge; the existing `src/audio_engine/acid_midi.py` already turns a 16-step line into a `.mid` the user drags in. (2) **Rendered audio** (rolling-bass note one-shots, risers, a swept acid loop) needs new engine voices: a band-limited saw, a time-varying resonant filter and a bass/lead envelope do not exist in `src/audio_engine/dsp.py` (it has fixed-coefficient RBJ biquads, `square_bank`, `substreams`).
-- **Edition fact that changes the plan:** Live 12 **Standard has no Operator, no Wavetable, no Sampler, no Meld, no Echo, no Roar, no Max for Live**. It has **Analog, Drift, Simpler, Collision, Electric, Tension, Drum Synths**, Auto Filter, Saturator, Delay, Reverb, Phaser-Flanger, Chorus-Ensemble, Arpeggiator, Scale, Note Echo (section 4). Any recipe must use Drift or Analog.
+- **Edition fact that changes the plan:** Live 12 **Standard has no Operator, no Wavetable, no Sampler, no Meld, no Max for Live** (Echo and Roar: Standard status **not established**, the user checks Live's device browser). It has **Analog, Drift, Simpler, Collision, Electric, Tension, Drum Synths**, Auto Filter, Saturator, Delay, Reverb, Phaser-Flanger, Chorus-Ensemble, Arpeggiator, Scale, Note Echo (section 4). Any recipe must use Drift or Analog.
 - **Recommended route:** MIDI + recipe first (small), engine voices second (medium-large, after the user has judged the MIDI result). Do not build the sound engine before the user supplies Goa reference tracks: **no published numeric target for a Goa lead, bass or filter sweep was found** (section 3).
 - **Read first:** section 1 (what is documented about Goa), then section 5 (`goa_line`) and section 6 (arrangement); section 4 for the device list.
 - **Effort:** `goa_line` generator + adapter to `acid_midi` = small; Drift/Analog recipes = small (doc); rolling-bass one-shot voice = medium; swept-filter acid loop render = medium-large; riser/FX voices = medium.
@@ -124,7 +124,7 @@ From the [Ableton edition comparison](https://www.ableton.com/en/live/compare-ed
 | Simpler | yes | yes | yes |
 | Collision, Electric, Tension, Drum Synths | no | yes | yes |
 | **Operator, Wavetable, Sampler, Meld** | no | **no** | yes |
-| Echo, Roar | no | **no** | yes |
+| Echo, Roar | no | **not established** | not established; the summarising fetch tool read Echo as Suite-only and Roar as Suite-only, a reviewer recalls Echo in Standard. The user checks Live's device browser |
 | Auto Filter, Saturator, Delay, Reverb, Phaser-Flanger | yes | yes | yes |
 | MIDI: Arpeggiator, Scale, Chord, Note Length, Pitch, Random, Velocity, CC Control | yes | yes | yes |
 | MIDI: Note Echo | no | yes | yes |
@@ -154,7 +154,7 @@ Caveats: the page's overview counts (12 instruments in Standard) do not match th
 | Plucks, chord stabs | Fits (Drift/Analog, short filter envelope) | Fits as one-shots | MIDI + recipe |
 | Pad | Fits (Analog/Drift, long attack) | Possible, low value | MIDI + recipe |
 | FX riser | Noise in Analog plus Auto Filter; time-consuming to describe | Fits: seeded noise + swept band-pass + ramp, N bars long | Rendered audio |
-| Delay / reverb | Live's Delay (Standard), Reverb | Not worth baking | Recipe only (Echo is not in Standard) |
+| Delay / reverb | Live's Delay (Standard), Reverb | Not worth baking | Recipe only (whether Echo is in Standard is not established; use Delay) |
 
 Test boundary: everything above that touches Live (drag-in of the `.mid`, device parameter names, glide behaviour) runs only on the user's Windows machine; CI can test the `.mid` bytes and the line generator only. The `acid_midi` module is pure and deterministic (its own docstring), so route (1) needs no new `capabilities.json` entry.
 
@@ -211,7 +211,7 @@ Determinism: the same `seed` and parameters must give the same `steps` (a seeded
 
 ## 6. Arrangement template (PROPOSAL; inferred from the documented grid, not from measured Goa tracks)
 
-Basis: 8-bar change grid (finding 6), build-ups of 8/16/32 bars and four-beat pause (finding 7), main breakdown about two-thirds in (finding 7), rising accumulative form with a late climax and a fairly quick taper (findings 5, 6). The thesis' "rising sawtooth curve" is applied as: each section's energy peaks higher than the previous one's peak. Length: **288 bars = 9 x 32** = 493.7 s = **8:14 at 140 BPM** (arithmetic: 288 x 240 / 140), inside the 7-9 minute psytrance range of Bonedo and the 8-12 minute Goa figure of Wikipedia (uncited); 8:14 at 140 BPM is also 8:25 at 137 and 7:48 at 148. Whether the intro/outro should be DJ-shaped is open question 2.
+Basis: 8-bar change grid (finding 6), build-ups of 8/16/32 bars and four-beat pause (finding 7), main breakdown about two-thirds in (finding 7), rising accumulative form with a late climax and a fairly quick taper (findings 5, 6). The thesis' "rising sawtooth curve" is applied as: each section's energy peaks higher than the previous one's peak. Length: **288 bars = 9 x 32** = 493.7 s = **8:14 at 140 BPM** (arithmetic: 288 x 240 / 140), inside the 7-9 minute psytrance range of Bonedo and the 8-12 minute Goa figure of Wikipedia (uncited); 8:14 at 140 BPM is also 8:25 at 137 and 7:47 at 148 (467.0 s). Whether the intro/outro should be DJ-shaped is open question 2.
 
 Element presence 0-1 (0 = silent, 1 = full level in that section); "E" = overall energy 0-1 at the section's end. Elements: **K** kick, **B** rolling bass, **S** sub drone, **A** acid line, **L** lead/ostinato, **R** arp/pluck, **P** pad, **H** hats/perc, **X** FX/riser.
 
@@ -238,7 +238,7 @@ Each item is a blind pair or short set of renders/clips; the user chooses or rat
 | G1 | Same material at 136 / 140 / 145 BPM | default tempo and the tempo range (finding 2) |
 | G2 | Bass `three_after_kick` vs `offbeat_8th` vs `gallop` vs `full_16th` (same notes, same synth, kick present) | which roll the user means by "Goa" (finding 9 not established) |
 | G3 | First roll note at 0.3 / 0.6 / 1.0 velocity | `roll_first_velocity` |
-| G4 | Roll gate at 0.5 / 0.8 / 1.0 of a 16th | `render.gate` |
+| G4 | Roll gate at 0.5 / 0.8 of a 16th, and at the maximum `acid_midi` allows (0.249 beat, just under a full 16th); a gate of exactly 1.0 of a 16th (0.25 beat) is refused by `acid_midi` (gate must be below 0.25 beat), so it needs the lead's decision on the gate rule (section 9, item 4) | `render.gate` |
 | G5 | Bass with and without a held sub drone | whether the drone layer (finding 5) is wanted |
 | G6 | Same rhythm in aeolian / phrygian / harmonic minor / phrygian dominant | mode weights (section 2.1) |
 | G7 | Acid line: accents on 3+2+3 groups vs `random` vs none; slides 0 / 0.15 / 0.3 | `rhythm_group`, `accent_*`, `slide_prob` |
@@ -260,7 +260,7 @@ Each item is a blind pair or short set of renders/clips; the user chooses or rat
 ## 9. Implications for the lead (proposals, nothing decided)
 
 1. **File a parking-lot/feature issue "goa_line generator + Drift/Analog recipe"**, small: pure function `(params, seed) -> goa_line JSON`, adapter into `acid_midi` (rewrite `format`/`version`), tests like the acid ones; blocked by nothing in Live.
-2. **Record the edition fact** (no Operator, Wavetable, Sampler, Echo, Roar, Max for Live in Standard) in the next State update, and check that no spec or recipe in the repo assumes them; grep of `docs/` shows Operator only in three research notes (acid-lines, bass-targets, snare-rim-bass), none a decision.
+2. **Record the edition fact** (no Operator, Wavetable, Sampler, Meld, Max for Live in Standard; Echo and Roar not established) in the next State update, and check that no spec or recipe in the repo assumes them; grep of `docs/` shows Operator only in three research notes (acid-lines, bass-targets, snare-rim-bass), none a decision.
 3. **Ask the user for 3-5 Goa references** before any engine voice (G13); the sound-designer then measures them. This is the cheapest way to replace every hypothesis in section 3.
 4. **Decision for the lead:** whether the `acid_midi` `gate` rule (strictly below one 16th) and the 32-step cap are enough for `goa_line`, or whether a `contract-change`-style extension (per-step velocity, longer `length`) is wanted; the note recommends the adapter for now.
 5. **Bridge side (not this track):** writing filter automation into a Live clip is the missing piece for "filter automation as the melody"; today the user must draw it. Worth one parking-lot line, not a task here.
