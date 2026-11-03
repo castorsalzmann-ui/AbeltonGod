@@ -1,6 +1,6 @@
 # Hörtest Hi-Hat (Issue #295)
 
-Nur du kannst sagen, wie die Hi-Hats klingen. Die Zahlen im PR beschreiben nur die Signale. Dauer: etwa 14 Minuten plus 2 Minuten Aufbau. Lies bis zum Ende des Tests nichts anderes zu diesem Test (keine Pläne, nicht `LISTENING_TEST_HAT_LEAD.md`).
+Nur du kannst sagen, wie die Hi-Hats klingen. Die Zahlen im PR beschreiben nur die Signale. Dauer: etwa 14 Minuten plus 2 Minuten Aufbau. Lies bis zum Ende des Tests nichts anderes zu diesem Test (keine Pläne, keine anderen Dokumente zu diesem Test).
 
 ## Was du bekommst
 
@@ -12,8 +12,6 @@ Projekttempo **136 BPM**, nichts auf dem Master, keine Effekte. Alle Dateien auf
 
 Hinweis: Das Laden und Loopen in Live ist von uns nicht in Live geprüft. Wenn etwas anders heißt oder fehlt, sag es kurz; das Ergebnis bleibt gültig, solange alle Dateien gleich behandelt werden.
 
-**Einzelschlag-Variante (Rückfall).** Wenn du die Hats lieber selbst im Simpler spielst: Einzelschläge mit `python -m audio_engine.kick --category hat` erzeugen (Befehle im Lead-Dokument, Abschnitt „Einzelschlag-Variante“). Dann Kick auf jedem Beat, Hat auf jedem 16tel (Closed) bzw. jedem Off-Beat-8tel (Open), Voices 1, Retrigger an, Fade Out ca. 3 ms. Diese Variante ist nur beschrieben, nicht geprüft; der Pegelangleich der Loops gilt für sie nicht.
-
 ## Reihenfolge und Fragen
 
 Reihenfolge: **T1 → T0 → T2 → T5 → T4 → T3 → T6.** Nach T2 eine Minute Pause. Bei T1, T0, T2, T3 und T6 spielt die Hat auf jedem 16tel, bei T5 und T4 auf jedem Off-Beat-8tel.
@@ -22,10 +20,10 @@ Reihenfolge: **T1 → T0 → T2 → T5 → T4 → T3 → T6.** Nach T2 eine Minu
 | --- | --- | --- |
 | T1 | Hör `T1_A`, dann `T1_B`. **Welche Hi-Hat passt besser zu deinem Kick-Muster?** Wenn eine der beiden etwas verliert: was (ein Wort)? | A / B / kein Unterschied · Wort |
 | T0 | Gleiche Frage für `T0_A` und `T0_B`: **Welche Hi-Hat sitzt besser?** | A / B / kein Unterschied |
-| T2 | Drei Dateien (X, Y, Z). **Welche ist zu dunkel, welche zu hell, welche passt?** | z. B. X dunkel, Y passt, Z hell |
+| T2 | Drei Dateien (A, B, C). **Welche ist zu dunkel, welche zu hell, welche passt?** | z. B. A dunkel, B passt, C hell |
 | T5 | **Hat eine der beiden (A, B) etwas, das die andere nicht hat? Wenn ja, welche und was (ein Wort)?** | A / B / kein Unterschied · Wort |
-| T4 | Drei Dateien (X, Y, Z). **Sortiere von „mein Open Hat" bis „am wenigsten mein Open Hat".** Danach: **Ist die beste zu lang, richtig oder zu kurz?** | Reihenfolge, z. B. Z > X > Y · zu lang / richtig / zu kurz |
-| T3 | Drei Dateien (X, Y, Z). **Sortiere von „mein Hat" bis „am wenigsten mein Hat".** Danach: **Ist die beste zu rauschig, richtig oder zu blechern?** | Reihenfolge · zu rauschig / richtig / zu blechern |
+| T4 | Drei Dateien (A, B, C). **Sortiere von „mein Open Hat" bis „am wenigsten mein Open Hat".** Danach: **Ist die beste zu lang, richtig oder zu kurz?** | Reihenfolge, z. B. C > A > B · zu lang / richtig / zu kurz |
+| T3 | Drei Dateien (A, B, C). **Sortiere von „mein Hat" bis „am wenigsten mein Hat".** Danach: **Ist die beste zu rauschig, richtig oder zu blechern?** | Reihenfolge · zu rauschig / richtig / zu blechern |
 | T6 | Vier Dateien (A bis D). **Welche klingen für dich wie dieselbe Hi-Hat? Welche fällt raus (wenn eine rausfällt)?** | Liste |
 
 „Kein Unterschied" ist bei jeder Frage mit zwei Dateien eine gültige und nützliche Antwort.
@@ -46,7 +44,3 @@ Anmerkung (z. B. Pegel): ____
 ```
 
 Schick die ausgefüllte Vorlage ins Issue #295 (oder sag sie dem Lead).
-
-## Paket neu erzeugen (Entwickler)
-
-`python -m audio_engine.listening_test_hat --out NEUER_LEERER_ORDNER` (außerhalb des Repos, Engine auf dem Pfad). Verschickt wird nur `hoerer/`; `Schluessel.md` verrät den Aufbau und wird erst nach dem Test geöffnet (siehe `docs/setup/LISTENING_TEST_HAT_LEAD.md`).
