@@ -112,16 +112,16 @@ def blind_order(block: str, n: int, seed: int = BLIND_SEED) -> list[int]:
     return [ranked.index(i) for i in range(n)]
 
 
-def loop_samples() -> tuple[int, list[int]]:
-    """Total loop length and the start sample of each of the 16 hits."""
-    beat = 60.0 / BPM * SAMPLE_RATE
+def loop_samples(bpm: float = BPM) -> tuple[int, list[int]]:
+    """Total loop length and the start sample of each of the 16 hits (``bpm`` default 136)."""
+    beat = 60.0 / bpm * SAMPLE_RATE
     n_beats = BARS * 4
     return round(n_beats * beat), [round(i * beat) for i in range(n_beats)]
 
 
-def build_loop(hit: np.ndarray, gain_db: float) -> np.ndarray:
+def build_loop(hit: np.ndarray, gain_db: float, bpm: float = BPM) -> np.ndarray:
     """One hit per beat, each cut at the next beat with a 3 ms cosine fade, times the gain."""
-    total, starts = loop_samples()
+    total, starts = loop_samples(bpm)
     out = np.zeros(total)
     gain = 10.0 ** (gain_db / 20.0)
     fade = round(CUT_FADE_MS / 1000.0 * SAMPLE_RATE)
