@@ -35,6 +35,8 @@ import math
 
 import numpy as np
 
+from .dsp import rbj_highpass
+
 ENV_WINDOW_MS = 40.0  # longer than one period at 30 Hz (33.3 ms), so the envelope does not ripple
 ENV_HOP_MS = 1.0
 ENV_MIN_FRAME_MS = 20.0  # shortest frame at the file end; > half a period at 30 Hz (16.7 ms)
@@ -133,6 +135,10 @@ ENV_RMS_MS = 1.0  # moving RMS window of the fine envelope used for T60 and rise
 # the -60 dB point: the engines' 5 ms fade-out would otherwise fake a decay (cut-off sounds
 # must give None). Must stay >= the kick/clap FADE_OUT_MS (5 ms).
 FADE_GUARD_MS = 6.0
+# t60_ms is read on a copy high-passed at T60_HP_HZ (2nd order): a sub-audio floor left by the
+# engines' DC removal (snare: about -47 dB) would otherwise hold the envelope near -60 dB and
+# push the first crossing to ~325 ms (#313). 0 switches it off (fault-injection tests).
+T60_HP_HZ = 30.0
 RISE_LOW, RISE_HIGH = 0.1, 0.9  # fractions of the peak envelope (linear amplitude)
 
 
@@ -162,7 +168,8 @@ def analyse_nonpitched(audio: np.ndarray, sr: int) -> dict[str, float | None]:
     out["spectral_centroid_hz"] = round(float(np.sum(freqs * power) / total), 2)
     out["hf_share_8k"] = round(float(np.sum(power[freqs > HF_SPLIT_HZ]) / total), 6)
     env = rms_envelope(audio, sr)
-    out["t60_ms"] = t60_ms(env, sr)
+    t60_env = rms_envelope(rbj_highpass(audio, sr, T60_HP_HZ), sr) if T60_HP_HZ > 0 else env
+    out["t60_ms"] = t60_ms(t60_env, sr)
     out["rise_time_ms"] = rise_time_ms(env, sr)
     return out
 
