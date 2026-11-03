@@ -1,6 +1,6 @@
 # Hörtest Hi-Hat (Issue #295)
 
-Nur du kannst sagen, wie die Hi-Hats klingen. Die Zahlen im PR beschreiben nur die Signale. Dauer: etwa 14 Minuten plus 2 Minuten Aufbau. Lies bis zum Ende des Tests nichts anderes zu diesem Test (keine Pläne, nicht `LISTENING_TEST_HAT_LEAD.md`).
+Nur du kannst sagen, wie die Hi-Hats klingen. Die Zahlen im PR beschreiben nur die Signale. Dauer: etwa 14 Minuten plus 2 Minuten Aufbau. Lies bis zum Ende des Tests nichts anderes zu diesem Test (keine Pläne, keine anderen Dokumente zu diesem Test).
 
 ## Was du bekommst
 
@@ -44,7 +44,3 @@ Anmerkung (z. B. Pegel): ____
 ```
 
 Schick die ausgefüllte Vorlage ins Issue #295 (oder sag sie dem Lead).
-
-## Paket neu erzeugen (Entwickler)
-
-`python -m audio_engine.listening_test_hat --out NEUER_LEERER_ORDNER` (außerhalb des Repos, Engine auf dem Pfad). Verschickt wird nur `hoerer/`; `Schluessel.md` verrät den Aufbau und wird erst nach dem Test geöffnet (siehe `docs/setup/LISTENING_TEST_HAT_LEAD.md`).
