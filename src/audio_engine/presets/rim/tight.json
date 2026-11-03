@@ -1,0 +1,7 @@
+{
+  "schema_version": "0.1",
+  "preset": "tight",
+  "seed": 1,
+  "decay1_ms": 18,
+  "decay2_ms": 7
+}

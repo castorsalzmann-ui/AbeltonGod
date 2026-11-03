@@ -77,6 +77,15 @@ SNARE_DESCRIPTIONS = {
 }
 
 
+RIM_DESCRIPTIONS = {
+    "rim": "The contract defaults written out (two damped partials, short noise click).",
+    "tight": "Shorter decays of both partials (starter set, placeholder values).",
+    "long": "Longer decays of both partials (starter set, placeholder values).",
+    "high": "Higher lower partial (starter set, placeholder values).",
+    "clave": "Single partial near 2500 Hz, no upper partial (level2 0), starter set.",
+}
+
+
 BASS_DESCRIPTIONS = {
     "default": "The contract defaults written out (note 43, saw plus sine, 250 ms gate).",
     "sub": "Sine with a small octave-below sine, low cutoff, no filter envelope, no drive.",
@@ -102,6 +111,8 @@ def _folder(category: str) -> Path:
         return PRESETS_DIR / "hat"
     if category == "snare":
         return PRESETS_DIR / "snare"
+    if category == "rim":
+        return PRESETS_DIR / "rim"
     if category == "bass":
         return PRESETS_DIR / "bass"
     raise ValueError(f"no presets for category {category!r}")
@@ -125,6 +136,6 @@ def load_preset(name: str, category: str = "kick") -> dict[str, Any]:
 def describe(name: str, category: str = "kick") -> str:
     table = {
         "clap": CLAP_DESCRIPTIONS, "hat": HAT_DESCRIPTIONS, "snare": SNARE_DESCRIPTIONS,
-        "bass": BASS_DESCRIPTIONS,
+        "rim": RIM_DESCRIPTIONS, "bass": BASS_DESCRIPTIONS,
     }.get(category, DESCRIPTIONS)
     return table.get(name, "")

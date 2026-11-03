@@ -2,8 +2,8 @@
 
     python -m audio_engine.kick --preset NAME [--variants N] --out DIR
                                 [--seed INT] [--set FIELD=VALUE ...]
-                                [--category kick|clap|hat|snare|bass]
-    python -m audio_engine.kick --list-presets [--category kick|clap|hat|snare|bass]
+                                [--category kick|clap|hat|snare|rim|bass]
+    python -m audio_engine.kick --list-presets [--category kick|clap|hat|snare|rim|bass]
 
 ``--category clap`` (#231) renders clap presets from ``presets/clap/`` and writes
 ``clap-params`` sidecars; the default is ``kick``.
@@ -30,7 +30,7 @@ import sys
 from pathlib import Path
 from typing import Any, TextIO
 
-from . import bass_variants, clap_variants, hat_variants, snare_variants
+from . import bass_variants, clap_variants, hat_variants, rim_variants, snare_variants
 from .bass import BassParamsError, resolve_bass_params
 from .categories import CategoryUnavailable, get_category
 from .clap import ClapParamsError, resolve_clap_params
@@ -39,6 +39,7 @@ from .io import write_kick
 from .params import KickParamsError, resolve_kick_params
 from .presets import UnknownPresetError, describe, load_preset, preset_names
 from .prompt import PromptError, parse_prompt
+from .rim import RimParamsError, resolve_rim_params
 from .snare import SnareParamsError, resolve_snare_params
 from .variants import make_variants
 
@@ -78,7 +79,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="set one kick parameter (a number), repeatable; e.g. --set pitch_decay_ms=15",
     )
     parser.add_argument(
-        "--category", choices=("kick", "clap", "hat", "snare", "bass"), default="kick",
+        "--category", choices=("kick", "clap", "hat", "snare", "rim", "bass"), default="kick",
         help="sound category (default kick)",
     )
     parser.add_argument(
@@ -141,6 +142,7 @@ def plan(args: argparse.Namespace) -> tuple[str, list[dict[str, Any]], list[str]
         "clap": (resolve_clap_params, clap_variants.make_variants),
         "hat": (resolve_hat_params, hat_variants.make_variants),
         "snare": (resolve_snare_params, snare_variants.make_variants),
+        "rim": (resolve_rim_params, rim_variants.make_variants),
         "bass": (resolve_bass_params, bass_variants.make_variants),
     }[category]
     base = resolve(request)
@@ -171,7 +173,8 @@ def _plan_prompt(
         raise UsageError("--prompt cannot be combined with --preset or --set")
     if getattr(args, "category", "kick") != "kick":
         raise UsageError(
-            "--prompt is a kick vocabulary, not usable with --category clap, hat, snare or bass"
+            "--prompt is a kick vocabulary, not usable with --category clap, hat, snare, rim "
+            "or bass"
         )
     if not args.out:
         raise UsageError("--out is required")
@@ -235,7 +238,7 @@ def _main(argv: list[str] | None, stdout: TextIO, stderr: TextIO) -> int:
     try:
         out_dir, variants, stems, descriptions = plan(args)
     except (UsageError, UnknownPresetError, KickParamsError, ClapParamsError,
-                HatParamsError, SnareParamsError, BassParamsError) as exc:
+                HatParamsError, SnareParamsError, RimParamsError, BassParamsError) as exc:
         print(f"error: {exc}", file=stderr)
         return EXIT_USAGE
 
