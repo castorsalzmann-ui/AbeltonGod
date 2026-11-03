@@ -151,6 +151,62 @@ def test_unregistered_hat_is_refused_before_any_message(fake, tmp_path, project,
     refused_without_connecting(fake, tmp_path, wav, "hat")
 
 
+RIM = {"schema_version": "0.1", "seed": 6}
+BASS = {"schema_version": "0.1", "seed": 7, "gate_ms": 400}
+
+
+def _move(wav, folder):
+    folder.mkdir(parents=True)
+    moved = wav.rename(folder / wav.name)
+    wav.with_suffix(".json").rename(folder / wav.with_suffix(".json").name)
+    return moved
+
+
+@pytest.mark.parametrize("category, params, parts, label", [
+    ("rim", RIM, ("Samples", "Drums", "Rims"), "Rim"),
+    ("bass", BASS, ("Samples", "Bass"), "Bass"),
+])
+def test_rim_and_bass_import_with_the_same_tested_functions(
+        fake, tmp_path, project, category, params, parts, label):
+    wav = place_sample(category, params, project, name="one")
+    assert wav.parent == project.joinpath(*parts)
+    code, out, prompts = run(fake, tmp_path, wav, ["y", "0", "y", "n", "y"])
+    assert code == 0, out
+    assert sent(fake) == [(CREATE_CLIP, (0, 0, str(wav)))]  # no rename, no new function
+    assert f"Sample: {category}: one" in out
+    assert any(f"Spielt der {label}?" in q for q in prompts)
+    b = block(out)
+    assert b["sample_category"] == category
+    assert b["clip_slot.create_audio_clip"] == "PASS"
+
+
+@pytest.mark.parametrize("category, params, wrong, needle", [
+    ("rim", RIM, ("Samples", "Drums", "Claps"), "Rims"),
+    ("rim", RIM, ("Samples", "Bass"), "Rims"),
+    ("bass", BASS, ("Samples", "Drums", "Rims"), "Bass"),
+    ("bass", BASS, ("Samples", "Drums", "Kicks"), "Bass"),
+])
+def test_rim_and_bass_in_a_wrong_folder_are_refused(
+        fake, tmp_path, project, category, params, wrong, needle):
+    wav = place_sample(category, params, project)
+    moved = _move(wav, project.joinpath(*wrong))
+    refused_without_connecting(fake, tmp_path, moved, needle)
+
+
+def test_clap_in_the_rim_and_bass_folders_is_refused(fake, tmp_path, project):
+    for parts, needle in ((("Samples", "Drums", "Rims"), "Claps"), (("Samples", "Bass"), "Claps")):
+        wav = place_sample("clap", CLAP, project, name=parts[-1].lower())
+        refused_without_connecting(fake, tmp_path, _move(wav, project.joinpath(*parts)), needle)
+
+
+@pytest.mark.parametrize("category, params", [("rim", RIM), ("bass", BASS)])
+def test_unregistered_rim_and_bass_are_refused_before_any_message(
+        fake, tmp_path, project, monkeypatch, category, params):
+    wav = place_sample(category, params, project)
+    monkeypatch.delitem(categories._REGISTRY, category)
+    refused_without_connecting(fake, tmp_path, wav, category)
+
+
 def refused_without_connecting(fake, tmp_path, wav, needle):
     code, out, prompts = run(fake, tmp_path, wav, [])
     assert code == live_import.EXIT_SETUP_ERROR, out
