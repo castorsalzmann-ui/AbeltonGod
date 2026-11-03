@@ -117,3 +117,105 @@ def test_end_to_end_one_preset_per_category(tmp_path):
     assert summary["failed"] == 0 and summary["checks"] > 100
     assert {c for c, v in summary["categories"].items() if v["registered"]} >= {
         "kick", "clap", "hat"}
+
+
+# --- #364: negative tests and --expect-fail ---------------------------------------------------
+
+def test_riff_size_field_mismatch_is_flagged(tmp_path):
+    p = tmp_path / "a.wav"
+    data = bytearray(make_wav(p))
+    data[4:8] = struct.pack("<I", len(data))  # should be len - 8
+    p.write_bytes(bytes(data))
+    meta = meta_for(bytes(data))
+    res = smoke.Results()
+    smoke.check_audio(res, "t", p, meta)
+    assert "riff size field" in failed(res), res.rows
+
+
+def test_library_overwrite_instead_of_002_suffix_is_flagged(tmp_path, monkeypatch):
+    import library
+
+    real = library.place_sample
+    seen: dict[str, Path] = {}
+
+    def overwriting(category, params, project, **kw):
+        path = real(category, params, project, **kw)
+        # a broken collision rule: the second call hands back the first name again
+        return seen.setdefault(str(project), path)
+
+    monkeypatch.setattr(library, "place_sample", overwriting)
+    res = smoke.Results()
+    smoke.smoke_library(res, tmp_path)
+    bad = failed(res)
+    assert any(n.endswith("collision gets _002, first untouched") for n in bad), res.rows
+    clean = smoke.Results()
+    monkeypatch.setattr(library, "place_sample", real)
+    smoke.smoke_library(clean, tmp_path / "clean")
+    assert failed(clean) == set(), clean.rows
+    assert len(clean.rows) >= 5
+
+
+@pytest.mark.parametrize("fault", ["wrong-bytes", "raises"])
+def test_rerender_from_sidecar_faults_are_flagged(tmp_path, monkeypatch, fault):
+    import audio_engine.io as engine_io
+
+    def broken(path, **kw):
+        if fault == "raises":
+            raise RuntimeError("boom")
+        return b"not the wav"
+
+    monkeypatch.setattr(engine_io, "rerender_from_sidecar", broken)
+    res = smoke.Results()
+    smoke.smoke_categories(res, tmp_path, 1, ["kick"])
+    bad = {n for n, ok, _ in res.rows if not ok}
+    expected = ("re-render from sidecar is byte-identical" if fault == "wrong-bytes"
+                else "re-render from sidecar")
+    assert any(n.endswith(expected) for n in bad), res.rows
+
+
+def test_toolbox_names_check_can_fail(tmp_path, monkeypatch):
+    from orchestrator.tools import Toolbox
+
+    monkeypatch.setattr(Toolbox, "names", property(lambda self: ("only_this",)))
+    res = smoke.Results()
+    smoke.smoke_tools(res, tmp_path)
+    assert "toolbox: names" in {n for n, ok, _ in res.rows if not ok}, res.rows
+
+
+def test_split_known_matches_name_or_detail_and_reports_stale():
+    rows = [("kick/x: DC offset", False, "dc=0.01"), ("bass/y: length", False, "9 s")]
+    known, unexpected, stale = smoke.split_known(rows, ["DC offset", "nothing-matches"])
+    assert known == [rows[0]] and unexpected == [rows[1]] and stale == ["nothing-matches"]
+    assert smoke.split_known(rows, ["9 s"])[0] == [rows[1]]  # detail text matches too
+    assert smoke.split_known(rows, []) == ([], rows, [])
+
+
+def _fake_run(monkeypatch, rows):
+    def categories(res, work, limit, only):
+        for name, ok, detail in rows:
+            res.check(name, ok, detail)
+        return {}
+
+    monkeypatch.setattr(smoke, "smoke_categories", categories)
+    monkeypatch.setattr(smoke, "smoke_library", lambda res, work: None)
+    monkeypatch.setattr(smoke, "smoke_tools", lambda res, work: {})
+
+
+def test_expect_fail_exit_codes(monkeypatch, tmp_path, capsys):
+    _fake_run(monkeypatch, [("bass/a: DC offset", False, "dc=0.02"), ("bass/a: length", True, "")])
+    keep = ["--keep", str(tmp_path)]
+    assert smoke.main(keep) == 1  # no flag: the failure counts
+    assert smoke.main([*keep, "--expect-fail", "bass/a: DC offset"]) == 0
+    out = capsys.readouterr().out
+    assert "KNOWN bass/a: DC offset: dc=0.02" in out
+    # a known one that started passing fails the run, so the flag gets removed
+    assert smoke.main([*keep, "--expect-fail", "DC offset", "--expect-fail", "length"]) == 1
+    assert "no failing check matches" in capsys.readouterr().out
+    # an unrelated failure is not hidden by the flag
+    _fake_run(monkeypatch, [("bass/a: DC offset", False, ""), ("bass/a: tail", False, "")])
+    assert smoke.main([*keep, "--expect-fail", "DC offset"]) == 1
+    summary_path = tmp_path / "s.json"
+    smoke.main([*keep, "--expect-fail", "DC offset", "--json", str(summary_path)])
+    import json
+    s = json.loads(summary_path.read_text("utf-8"))
+    assert s["failed"] == 1 and s["known"] == 1

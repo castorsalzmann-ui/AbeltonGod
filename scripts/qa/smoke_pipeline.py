@@ -1,6 +1,7 @@
 """End-to-end smoke test of what ``main`` can do today, as a user would run it (QA tool).
 
     python scripts/qa/smoke_pipeline.py [--presets-per-category N] [--keep DIR] [--json FILE]
+                                      [--expect-fail SUBSTRING ...]
 
 Needs only ``PYTHONPATH=src`` (or an install), no Ableton. Per category the CLI
 ``python -m audio_engine.kick --category <c>`` lists the presets and renders each one with 2
@@ -16,8 +17,10 @@ Then, once: library placement (folder layout, ``_002`` collision suffix), the
 ``generate_sample`` + ``import_sample`` run with the fake AbletonOSC server from ``tests/bridge``.
 **Nothing here talks to Live**; the fake server is a test double, never evidence for Ableton.
 
-Exit code 0 only if every check passed. Categories are read from the engine registry, so a new
-category on main is picked up without changes here.
+Exit code 0 only if every check passed, or the only failures are known ones named with
+``--expect-fail SUBSTRING`` (reported as KNOWN; a substring that matches no failure fails the
+run). Categories are read from the engine registry, so a new category on main is picked up
+without changes here.
 """
 
 from __future__ import annotations
@@ -55,6 +58,17 @@ class Results:
     @property
     def failed(self) -> list[tuple[str, bool, str]]:
         return [r for r in self.rows if not r[1]]
+
+
+def split_known(failed: list[tuple[str, bool, str]], expect: list[str]):
+    """Split failures into (known, unexpected) by ``--expect-fail`` substrings (name or detail).
+
+    Also returns the substrings that matched no failure: a known issue that started passing.
+    """
+    known = [r for r in failed if any(e in r[0] or e in r[2] for e in expect)]
+    unexpected = [r for r in failed if r not in known]
+    stale = [e for e in expect if not any(e in r[0] or e in r[2] for r in failed)]
+    return known, unexpected, stale
 
 
 def read_wav(data: bytes) -> dict:
@@ -199,7 +213,7 @@ def smoke_library(res: Results, work: Path) -> None:
         project = work / "lib" / cat
         project.mkdir(parents=True)
         try:
-            params = {"schema_version": "0.1" if cat == "kick" else "0.1", "seed": 5}
+            params = {"schema_version": "0.1", "seed": 5}
             if cat == "kick":
                 params = {"schema_version": "0.2", "seed": 5, "length_ms": 150.0,
                           "amp_decay_ms": 60.0, "drive": 0.0, "bpm": 136}
@@ -210,8 +224,9 @@ def smoke_library(res: Results, work: Path) -> None:
             res.check(f"library/{cat}: place_sample", False, f"{type(exc).__name__}: {exc}")
             continue
         folder = library_folder(project, category=cat)
-        res.check(f"library/{cat}: under Samples/<group>/", first.parts[-4:-3] == ("Samples",)
-                  or "Samples" in first.parts, str(first.relative_to(project)))
+        rel = first.relative_to(project)
+        res.check(f"library/{cat}: under Samples/<group>/",
+                  rel.parts[0] == "Samples" and len(rel.parts) >= 3, str(rel))
         res.check(f"library/{cat}: folder is library_folder()", first.parent == folder)
         second = place_sample(cat, params, project, name="smoke")
         res.check(f"library/{cat}: collision gets _002, first untouched",
@@ -261,9 +276,8 @@ def smoke_tools(res: Results, work: Path) -> dict:
         session = make_session(tmp, fake)
         box = Toolbox(session.tools() + SampleTools(session).tools(),
                       capability_gate=session.gate())
-        res.check("toolbox: names", {t.name for t in box.tools} >= {
-            "generate_kick", "list_tracks", "import_sample", "generate_sample"}
-            if hasattr(box, "tools") else True)
+        res.check("toolbox: names", {"generate_kick", "list_tracks", "import_sample",
+                                     "generate_sample"} <= set(box.names), str(box.names))
         tz = timezone(timedelta(hours=1))
         guard = Guard(make_policy(), log_path=tmp / "usage.jsonl", clock=lambda: 1000.0,
                       now=lambda: datetime(2026, 10, 28, 12, 0, tzinfo=tz))
@@ -305,6 +319,11 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--categories", nargs="+", help="only these categories (default: all)")
     ap.add_argument("--keep", help="render into this folder and keep it")
     ap.add_argument("--json", help="write the summary here")
+    ap.add_argument("--expect-fail", action="append", default=[], metavar="SUBSTRING",
+                    help="known issue: failures whose check name or detail contains SUBSTRING are "
+                         "reported as KNOWN and do not fail the run; if nothing matches it any "
+                         "more (the bug was fixed), the run fails so the flag gets removed. "
+                         "May be repeated.")
     args = ap.parse_args(argv)
     res = Results()
     with tempfile.TemporaryDirectory() as td:
@@ -314,12 +333,19 @@ def main(argv: list[str] | None = None) -> int:
         smoke_library(res, work)
         tools = smoke_tools(res, work)
     total = len(res.rows)
-    summary = {"checks": total, "failed": len(res.failed), "categories": cats, "tools": tools,
-               "failures": [{"check": n, "detail": d} for n, _, d in res.failed]}
+    known, unexpected, stale = split_known(res.failed, args.expect_fail)
+    for n, _, d in known:
+        print(f"KNOWN {n}: {d}")
+    for sub in stale:
+        print(f"FAIL --expect-fail {sub!r}: no failing check matches any more; remove the flag")
+    summary = {"checks": total, "failed": len(unexpected), "known": len(known),
+               "stale_expect_fail": stale, "categories": cats, "tools": tools,
+               "failures": [{"check": n, "detail": d} for n, _, d in unexpected],
+               "known_failures": [{"check": n, "detail": d} for n, _, d in known]}
     print(json.dumps(summary, indent=1))
     if args.json:
         Path(args.json).write_text(json.dumps(summary, indent=1), encoding="utf-8")
-    return 0 if not res.failed else 1
+    return 0 if not unexpected and not stale else 1
 
 
 if __name__ == "__main__":
