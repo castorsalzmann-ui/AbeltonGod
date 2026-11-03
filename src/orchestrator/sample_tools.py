@@ -29,6 +29,7 @@ from typing import Any
 from audio_engine.clap_variants import make_variants
 from audio_engine.hat_variants import make_variants as hat_variants
 from audio_engine.presets import load_preset, preset_names
+from audio_engine.snare_variants import make_variants as snare_variants
 from library import place_sample
 from orchestrator.kick_tools import (
     FILES_PER_KICK,
@@ -79,6 +80,7 @@ class CategoryAdapter:
 ADAPTERS: Mapping[str, CategoryAdapter] = {
     "clap": CategoryAdapter("clap", "clap-params.schema.json", make_variants, noun="clap"),
     "hat": CategoryAdapter("hat", "hat-params.schema.json", hat_variants, noun="hat"),
+    "snare": CategoryAdapter("snare", "snare-params.schema.json", snare_variants, noun="snare"),
 }
 CLAP_CONTRACT = ADAPTERS["clap"].contract
 CATEGORIES = tuple(ADAPTERS)
