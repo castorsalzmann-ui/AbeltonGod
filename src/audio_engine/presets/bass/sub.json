@@ -1,0 +1,11 @@
+{
+  "schema_version": "0.1",
+  "preset": "sub",
+  "seed": 1,
+  "saw_level": 0,
+  "sine_level": 0.9,
+  "sub_octave_level": 0.3,
+  "lp_hz": 200,
+  "lp_env_amount": 0,
+  "drive": 0
+}

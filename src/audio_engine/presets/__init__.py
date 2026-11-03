@@ -68,6 +68,15 @@ HAT_DESCRIPTIONS = {
 }
 
 
+BASS_DESCRIPTIONS = {
+    "default": "The contract defaults written out (note 43, saw plus sine, 250 ms gate).",
+    "sub": "Sine with a small octave-below sine, low cutoff, no filter envelope, no drive.",
+    "rolling": "Gate about one 16th at 136 BPM, short release, deeper filter envelope.",
+    "bright": "Saw, square and sine, higher cutoff, more resonance, deeper filter envelope.",
+    "low": "The defaults on note 31 with a longer gate (a researcher hypothesis for the note).",
+}
+
+
 class UnknownPresetError(KeyError):
     """No preset with this name. The message lists the valid names."""
 
@@ -82,6 +91,8 @@ def _folder(category: str) -> Path:
         return PRESETS_DIR / "clap"
     if category == "hat":
         return PRESETS_DIR / "hat"
+    if category == "bass":
+        return PRESETS_DIR / "bass"
     raise ValueError(f"no presets for category {category!r}")
 
 
@@ -101,5 +112,7 @@ def load_preset(name: str, category: str = "kick") -> dict[str, Any]:
 
 
 def describe(name: str, category: str = "kick") -> str:
-    table = {"clap": CLAP_DESCRIPTIONS, "hat": HAT_DESCRIPTIONS}.get(category, DESCRIPTIONS)
+    table = {
+        "clap": CLAP_DESCRIPTIONS, "hat": HAT_DESCRIPTIONS, "bass": BASS_DESCRIPTIONS,
+    }.get(category, DESCRIPTIONS)
     return table.get(name, "")

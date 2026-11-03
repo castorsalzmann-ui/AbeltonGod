@@ -1,0 +1,7 @@
+{
+  "schema_version": "0.1",
+  "preset": "low",
+  "seed": 1,
+  "note": 31,
+  "gate_ms": 300
+}
