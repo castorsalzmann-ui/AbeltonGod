@@ -284,7 +284,7 @@ def collect_active_work(issues: list[dict], head_refs: dict[int, str]) -> list[d
 
 
 GH_PREFIX = "https://github.com/castorsalzmann-ui/AbeltonGod/"
-ACTION_KINDS = ("Merge", "Test", "Entscheidung", "Schließen")
+ACTION_KINDS = ("Merge", "Test", "Entscheidung", "Schließen", "Hören")
 
 
 def collect_user_actions(repo: Path, issues: list[dict]) -> list[dict]:
