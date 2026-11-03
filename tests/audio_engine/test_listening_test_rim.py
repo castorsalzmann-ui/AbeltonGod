@@ -149,17 +149,50 @@ def test_key_maps_every_blind_name(built):
     assert rows[f"R1_{'ABCDE'[order[4]]}.wav"][0] == ltr.RENDERS["tight"][0]
 
 
+# Hand-written expectation for every render: (preset, overrides). Not taken from the module.
+EXPECTED = {
+    "clave": ("clave", {}),
+    "high": ("high", {}),
+    "long": ("long", {}),
+    "rim": ("rim", {}),
+    "tight": ("tight", {}),
+    "click0": ("rim", {"click_level": 0.0}),
+    "click3": ("rim", {"click_level": 0.6, "click_ms": 3}),
+    "click1": ("rim", {"click_level": 0.6, "click_ms": 1}),
+    "click02": ("rim", {"click_level": 0.6, "click_ms": 0.2}),
+    "hp200": ("high", {"hp_hz": 200}),
+    "hp500": ("high", {"hp_hz": 500}),
+    "hp700": ("high", {"hp_hz": 700}),
+    "ratio2": ("rim", {"f2_ratio": 2.0}),
+    "ratio366": ("rim", {"f2_ratio": 3.66}),
+    "ratio5": ("rim", {"f2_ratio": 5.0}),
+    "single": ("rim", {"level2": 0.0}),
+}
+# Which render ids each item holds, written out by hand.
+EXPECTED_ITEMS = {
+    "R1": {"clave", "high", "long", "rim", "tight"},
+    "R0": {"rim"},
+    "R2": {"click0", "click3", "click1", "click02"},
+    "R3": {"hp200", "hp500", "hp700"},
+    "R4": {"ratio2", "ratio366", "ratio5", "single"},
+}
+
+
 def test_renders_are_the_documented_parameters():
-    # expected values written out here, not taken from the module's table
-    base = load_preset("rim", "rim")
-    want = render_rim({**base, "seed": 1, "peak_ceiling_dbfs": -0.3, "level2": 0.0})[0]
-    assert np.array_equal(ltr.RENDERS["single"][1](), want)
-    high = load_preset("high", "rim")
-    want = render_rim({**high, "seed": 1, "peak_ceiling_dbfs": -0.3, "hp_hz": 700})[0]
-    assert np.array_equal(ltr.RENDERS["hp700"][1](), want)
-    want = render_rim({**base, "seed": 1, "peak_ceiling_dbfs": -0.3,
-                       "click_level": 0.6, "click_ms": 0.2})[0]
-    assert np.array_equal(ltr.RENDERS["click02"][1](), want)
+    assert set(ltr.RENDERS) == set(EXPECTED) and len(EXPECTED) == 16
+    for rid, (preset, changes) in EXPECTED.items():
+        want = render_rim({**load_preset(preset, "rim"), "seed": 1,
+                           "peak_ceiling_dbfs": -0.3, **changes})[0]
+        assert np.array_equal(ltr.RENDERS[rid][1](), want), rid
+    for item, ids in ltr.ITEMS.items():
+        assert set(ids) == EXPECTED_ITEMS[item], item
+
+
+def test_renders_check_can_fail():
+    # the check is not vacuous: a wrong ratio is not equal to the documented render
+    want = render_rim({**load_preset("rim", "rim"), "seed": 1, "peak_ceiling_dbfs": -0.3,
+                       "f2_ratio": 5.0 * 0.98})[0]
+    assert not np.array_equal(ltr.RENDERS["ratio5"][1](), want)
 
 
 def test_listener_doc_hides_names_control_and_key():
@@ -169,6 +202,22 @@ def test_listener_doc_hides_names_control_and_key():
                  "level2", "f1_hz", "kontroll", "identisch", "schluessel", "schlüssel",
                  "lead", "listening_test_rim", "pegelangleich"):
         assert word not in low, word
+    # beyond the keyword list: every parameter name, preset name and render id from the
+    # engine, every render description, and the numeric values that distinguish the files
+    names = {"seed", "hp_hz", "f1_hz", "f2_ratio", "level2", "click_level", "click_ms"}
+    names |= {k for preset, _ in EXPECTED.values() for k in load_preset(preset, "rim")}
+    names |= {preset for preset, _ in EXPECTED.values()}
+    names |= set(ltr.RENDERS) | {d.lower() for d, _ in ltr.RENDERS.values()}
+    names -= {"schema_version", "preset", "rim"}  # "rim" is the topic of the document
+    words = set(re.findall(r"[a-z0-9_]+", low))
+    for name in sorted(names):
+        assert name.lower() not in low if " " in name else name.lower() not in words, name
+    for number in ("3,66", "3.66", "0,2 ms", "0.2 ms", "700 hz", "200 hz", "500 hz", "0,6",
+                   "-8 db", "-6 db", "-14 db", "closed-std", "dense"):
+        assert number not in low, number
     lead = (DOCS / "LISTENING_TEST_RIM_LEAD.md").read_text(encoding="utf-8")
     assert "python -m audio_engine.listening_test_rim --out" in lead
     assert "Schluessel.md" in lead
+    # lead doc carries the second-control note and the measured hp_hz numbers (issue #365)
+    assert "Zweite Kontrolle" in lead and "-18,1 / -24,7 / -28,8" in lead
+    assert "Unterschied klein bei 200" not in lead
