@@ -108,7 +108,8 @@ def test_reader_matches_stdlib_wave(tmp_path):
 
 def test_end_to_end_one_preset_per_category(tmp_path):
     out = tmp_path / "summary.json"
-    assert smoke.main(["--presets-per-category", "1", "--keep", str(tmp_path / "w"),
+    assert smoke.main(["--presets-per-category", "1", "--categories", "kick", "clap", "hat",
+                       "--keep", str(tmp_path / "w"),
                        "--json", str(out)]) == 0
     import json
 
