@@ -138,28 +138,40 @@ class CappedHookCLI(FakeCLI):
     """A CLI that ignores the client's 7-day hook timeout and uses CAP_S instead: what #83 V10
     checks for (not verified). On expiry it blocks the call and makes the next model call."""
 
-    CAP_S = 0.3
+    CAP_S = 0.3  # short only where the timeout is the subject; otherwise pass cap_s >= 5 s
+
+    def __init__(self, script, options, cap_s=None):
+        super().__init__(script, options)
+        self.cap_s = self.CAP_S if cap_s is None else cap_s
 
     async def _run_tool(self, use):
-        self.hook_matchers = [(m, ids, self.CAP_S) for m, ids, _ in self.hook_matchers]
+        self.hook_matchers = [(m, ids, self.cap_s) for m, ids, _ in self.hook_matchers]
         return await super()._run_tool(use)
 
 
 class CappedFactory(FakeCLIFactory):
+    cap_s = None
+
     def __call__(self, options):
-        cli = CappedHookCLI(self.scripts[min(len(self.made), len(self.scripts) - 1)], options)
+        # Only the second CLI (the request under test) gets the short cap; the first request is
+        # setup and must not time out on a loaded runner (#336).
+        cli = CappedHookCLI(self.scripts[min(len(self.made), len(self.scripts) - 1)], options,
+                            self.cap_s if self.made else 5.0)
         self.made.append(cli)
         self.options.append(options)
         return cli
 
 
-@pytest.mark.parametrize("decide_s", [0.0, 0.8])
+# cap_s: with no wait the cap only has to be longer than a slow runner needs (#336: 0.3 s was
+# exceeded under CPU load, 8 of 30 runs); with a wait the short cap is the test's subject.
+@pytest.mark.parametrize("decide_s, cap_s", [(0.0, 5.0), (0.8, 0.3)])
 def test_cli_hook_timeout_never_leads_to_a_live_write(tmp_path, make_guard, events, clients,
-                                                      fake, decide_s):
+                                                      fake, decide_s, cap_s):
     """#83 V10 handled without the experiment: if the CLI's hook timeout fired while the user
     decides, the CLI goes on without the guard; then the import must not run."""
     session = make_session(tmp_path, fake)
     factory = CappedFactory(*scripts())
+    factory.cap_s = cap_s
     approver = Approver(True, during=lambda: time.sleep(decide_s))
     orch = Orchestrator(make_guard(), make_client(clients, factory), toolbox(session),
                         profile="p", approver=approver, context=session.context)
