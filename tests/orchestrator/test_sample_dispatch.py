@@ -69,6 +69,9 @@ class Fake:
 CLAP_ONLY = {"clap": ADAPTERS["clap"]}  # the table of PR #266/#287, before the hat row (#294)
 CLAP_HAT = {k: ADAPTERS[k] for k in ("clap", "hat")}  # the table of PR #302, before snare (#317)
 
+# the table before the rim and bass rows (#355)
+CLAP_HAT_SNARE = {k: ADAPTERS[k] for k in ("clap", "hat", "snare")}
+
 
 def table(*extra):
     return {**CLAP_ONLY, **{a.name: a for a in extra}}
@@ -226,8 +229,8 @@ HAT = {"category": "hat", "preset": "closed-std", "prompt": "", "seed": 3, "vari
        "adjust": [{"key": "decay_ms", "value": 60}]}
 
 
-def test_default_table_is_clap_hat_snare():
-    assert list(ADAPTERS) == ["clap", "hat", "snare"]
+def test_default_table_is_clap_hat_snare_rim_bass():
+    assert list(ADAPTERS) == ["clap", "hat", "snare", "rim", "bass"]
     assert ADAPTERS["hat"].contract == "hat-params.schema.json"
 
 
@@ -328,11 +331,11 @@ def test_hat_files_count_against_the_guard_cap(tmp_path, make_guard):
 def test_kick_and_tom_stay_refused_with_the_default_table(tmp_path, make_guard):
     session, _, box = box_for(tmp_path, ADAPTERS)
     approver = Approver(True)
-    for category in ("kick", "tom", "rim"):
+    for category in ("kick", "tom"):
         assert run(make_guard(), box, {**HAT, "category": category}, approver).is_error
     assert approver.asked == []
     assert build_request({**HAT, "category": "kick"})[1] == [
-        "category 'kick' is not available yet; available: clap, hat, snare"]
+        "category 'kick' is not available yet; available: clap, hat, snare, rim, bass"]
     assert not list(Path(session.project_dir).rglob("*.wav"))
 
 
@@ -344,7 +347,7 @@ SNARE = {"category": "snare", "preset": "default", "prompt": "", "seed": 3, "var
 
 
 def test_snare_row_changes_enum_and_texts_but_not_the_shape_or_the_budget(v01_clap_presets):
-    before, after = tool_input_schema(CLAP_HAT), tool_input_schema()
+    before, after = tool_input_schema(CLAP_HAT), tool_input_schema(CLAP_HAT_SNARE)
     assert digest(after) == SNARE_SCHEMA_SHA256 != digest(before)
     assert after["properties"]["category"]["enum"] == ["clap", "hat", "snare"]
     assert strip(after) == strip(before)  # same shape; enum and description text differ
@@ -352,7 +355,7 @@ def test_snare_row_changes_enum_and_texts_but_not_the_shape_or_the_budget(v01_cl
     for preset in ("default", "tight", "long", "bright", "tonal"):
         assert preset in after["description"]
     assert "body_hz" in after["description"]
-    assert SampleTools(_NoSession()).tools()[0].max_files_written == 16
+    assert SampleTools(_NoSession(), CLAP_HAT_SNARE).tools()[0].max_files_written == 16
 
 
 def test_snare_generates_through_the_adapter(tmp_path, make_guard):
@@ -406,3 +409,171 @@ def test_snare_files_count_against_the_guard_cap(tmp_path, make_guard):
     ok = run(make_guard(max_files_written=10), box, {**SNARE, "variants": 5})
     assert ok.is_error is False, ok.content
     assert len(list(Path(session.project_dir).rglob("*.wav"))) == 5
+
+
+# --- rim and bass (#355) ---------------------------------------------------------------------
+
+# Written down from a run on this branch (sha256 of json.dumps(schema, sort_keys=True)); the
+# snare pins above are the "before". The first uses the v0.1 clap preset list, the second the
+# current one (xtreme-* names).
+RIM_BASS_SCHEMA_SHA256 = "90592a9575dfcd15443615eda99a76cc16dd8becb6842b361e0226f9812154f3"
+RIM_BASS_SCHEMA_WITH_XTREME_SHA256 = (
+    "050cd5b8364e4e2069d18bd86b32e5866517abc1abd65c6d318e739f192bfd0e")
+RIM ={"category": "rim", "preset": "clave", "prompt": "", "seed": 3, "variants": 2,
+       "adjust": [{"key": "f1_hz", "value": 1200}]}
+BASS = {"category": "bass", "preset": "rolling", "prompt": "", "seed": 3, "variants": 2,
+        "adjust": [{"key": "note", "value": 40}]}
+RIM_PRESETS = ["clave", "high", "long", "rim", "tight"]
+BASS_PRESETS = ["bright", "default", "low", "rolling", "sub"]
+
+
+def test_rim_and_bass_rows_change_enum_and_texts_but_not_the_shape_or_the_budget(
+        v01_clap_presets):
+    before, after = tool_input_schema(CLAP_HAT_SNARE), tool_input_schema()
+    assert digest(before) == SNARE_SCHEMA_SHA256  # the old pin still holds for the old table
+    assert digest(after) == RIM_BASS_SCHEMA_SHA256 != digest(before)
+    assert after["properties"]["category"]["enum"] == ["clap", "hat", "snare", "rim", "bass"]
+    assert strip(after) == strip(before)
+    assert optional_fields(after) == 0
+    for preset in RIM_PRESETS + BASS_PRESETS:
+        assert preset in after["description"]
+    for key in ("f2_ratio", "click_ms", "lp_env_amount", "sub_octave_level"):
+        assert key in after["description"]
+    assert SampleTools(_NoSession()).tools()[0].max_files_written == 16
+
+
+def test_rim_and_bass_table_with_the_xtreme_names_keeps_the_shape():
+    now = tool_input_schema()
+    assert digest(now) == RIM_BASS_SCHEMA_WITH_XTREME_SHA256
+    assert strip(now) == strip(tool_input_schema(CLAP_ONLY))
+    assert optional_fields(now) == 0
+    assert now["required"] == ["category", "preset", "prompt", "seed", "variants", "adjust"]
+
+
+def test_rim_and_bass_adapters_point_at_their_own_engine_and_presets():
+    for name, presets in (("rim", RIM_PRESETS), ("bass", BASS_PRESETS)):
+        a = ADAPTERS[name]
+        assert a.name == name and a.contract == f"{name}-params.schema.json"
+        assert sorted(a.presets) == presets
+        assert a.make_variants.__module__ == f"audio_engine.{name}_variants"
+
+
+@pytest.mark.parametrize("args,folder,key,value", [
+    (RIM, "Rims", "f1_hz", 1200), (BASS, "Bass", "note", 40)])
+def test_rim_and_bass_generate_through_their_adapter(tmp_path, make_guard, args, folder, key,
+                                                     value):
+    session, _, box = box_for(tmp_path, ADAPTERS)
+    name = args["category"]
+    result = run(make_guard(), box, args)
+    assert result.is_error is False, result.content
+    assert result.content["category"] == name
+    assert [s["sample_id"] for s in result.content["samples"]] == [f"{name}-1", f"{name}-2"]
+    wavs = sorted(Path(session.project_dir).rglob("*.wav"))
+    assert len(wavs) == 2 and all(folder in w.parts for w in wavs), wavs
+    meta = json.loads(wavs[0].with_suffix(".json").read_text(encoding="utf-8"))
+    assert meta["category"] == name and meta["parameters"]["preset"] == args["preset"]
+    assert meta["parameters"][key] == value
+    assert session.entry(f"{name}-2").category == name
+
+
+@pytest.mark.parametrize("args", [RIM, BASS])
+def test_rim_and_bass_are_deterministic_for_equal_arguments(tmp_path, make_guard, args):
+    runs = []
+    for sub in ("a", "b"):
+        (tmp_path / sub).mkdir()
+        session, _, box = box_for(tmp_path / sub, ADAPTERS)
+        assert run(make_guard(), box, args).is_error is False
+        runs.append([w.read_bytes() for w in sorted(Path(session.project_dir).rglob("*.wav"))])
+    assert runs[0] == runs[1]
+
+
+def test_rim_and_bass_refusals_write_nothing(tmp_path, make_guard):
+    session, _, box = box_for(tmp_path, ADAPTERS)
+    bad = [
+        {**RIM, "preset": "default"},  # a bass/snare preset, not a rim one
+        {**RIM, "preset": "short"},  # a clap preset
+        {**RIM, "prompt": "dark"},
+        {**RIM, "adjust": [{"key": "f1_hz", "value": 100}]},
+        {**RIM, "adjust": [{"key": "f2_ratio", "value": 6}]},
+        {**RIM, "adjust": [{"key": "polarity", "value": 0}]},
+        {**RIM, "adjust": [{"key": "note", "value": 40}]},  # a bass key
+        {**RIM, "variants": 9},
+        {**BASS, "preset": "clave"},  # a rim preset
+        {**BASS, "prompt": "dark"},
+        {**BASS, "adjust": [{"key": "note", "value": 23}]},
+        {**BASS, "adjust": [{"key": "note", "value": 40.5}]},  # integer field
+        {**BASS, "adjust": [{"key": "lp_hz", "value": 5000}]},
+        {**BASS, "adjust": [{"key": "f1_hz", "value": 1200}]},  # a rim key
+        {**BASS, "variants": 0},
+    ]
+    for args in bad:
+        assert run(make_guard(), box, args).is_error, args
+    assert not list(Path(session.project_dir).rglob("*.wav"))
+    assert not list(Path(session.project_dir).rglob("*.json"))
+    assert session.sample_ids() == ()
+
+
+@pytest.mark.parametrize("args", [RIM, BASS])
+def test_rim_and_bass_files_count_against_the_guard_cap(tmp_path, make_guard, args):
+    session, _, box = box_for(tmp_path, ADAPTERS)
+    refused = run(make_guard(max_files_written=10), box, {**args, "variants": 6})
+    assert refused.is_error
+    assert not list(Path(session.project_dir).rglob("*.wav"))
+    ok = run(make_guard(max_files_written=10), box, {**args, "variants": 5})
+    assert ok.is_error is False, ok.content
+    assert len(list(Path(session.project_dir).rglob("*.wav"))) == 5
+
+
+def test_max_variants_fit_the_request_file_budget(tmp_path, make_guard):
+    for args in (RIM, BASS):
+        sub = tmp_path / args["category"]
+        sub.mkdir()
+        session, _, box = box_for(sub, ADAPTERS)
+        r = run(make_guard(max_files_written=16), box, {**args, "variants": 8})
+        assert r.is_error is False, r.content
+        assert len(list(Path(session.project_dir).rglob("*.wav"))) == 8
+
+
+def _random_adjust(category, rng):
+    """Valid values drawn over the whole contract range of 1-3 random adjustable keys."""
+    from orchestrator.sample_tools import adjustable_keys
+
+    keys = adjustable_keys(ADAPTERS[category])
+    out = []
+    for key in rng.sample(sorted(keys), rng.randint(1, 3)):
+        spec = keys[key]
+        if "enum" in spec:
+            value = rng.choice(spec["enum"])
+        elif spec.get("type") == "integer":
+            value = rng.randint(spec["minimum"], spec["maximum"])
+        else:
+            value = round(rng.uniform(spec["minimum"], spec["maximum"]), 3)
+        out.append({"key": key, "value": value})
+    return out
+
+
+@pytest.mark.parametrize("category", ["rim", "bass"])
+def test_random_in_range_adjust_values_are_accepted_and_out_of_range_refused(category):
+    """Property test over the contract ranges (seeded): in-range builds, a step outside fails."""
+    import random
+
+    from orchestrator.sample_tools import adjustable_keys
+
+    rng = random.Random(355)
+    keys = adjustable_keys(ADAPTERS[category])
+    for _ in range(200):
+        adjust = _random_adjust(category, rng)
+        values, problems = build_request(
+            {"category": category, "preset": "", "prompt": "", "seed": rng.randint(0, 2**32 - 1),
+             "variants": rng.randint(1, 8), "adjust": adjust})
+        # cross-field rules are the engine's; the tool-level check has no problem for a range value
+        assert problems == [], (adjust, problems)
+        for item in adjust:
+            assert values[item["key"]] == item["value"]
+    for key, spec in keys.items():
+        if "minimum" in spec:
+            for value in (spec["minimum"] - 1e-3, spec["maximum"] + 1e-3):
+                _, problems = build_request({"category": category, "preset": "", "prompt": "",
+                                             "seed": 1, "variants": 1,
+                                             "adjust": [{"key": key, "value": value}]})
+                assert problems and key in problems[0], (key, value)
