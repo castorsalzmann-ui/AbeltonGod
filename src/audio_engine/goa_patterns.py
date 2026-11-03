@@ -38,7 +38,10 @@ Bass octave jumps      root octave in the pitch     ``octave_jump_prob`` 0 for b
                        notes after the first
 Variation bar          fresh bar every 4th bar      every 8th bar
 Line keys              ``kind``, ``scale``, ``bpm`` ``role``, ``mode``, ``bpm_hint``
-Roll patterns          only the off-kick roll       also offbeat_8th, gallop, full_16th
+Roll patterns          ``roll=``: off_kick_16th     also offbeat_8th, gallop, full_16th
+                       (default), offbeat_8th,
+                       gallop (16th grid); true
+                       triplet: bass_triplet_gallop
 =====================  ===========================  ================================
 
 Format decision (lead, 2026-11-03): the keys of this module (``kind``, ``scale``,
@@ -185,31 +188,105 @@ def _phrase(bars: int, motif_bars: int, make_bar) -> list[dict[int, int]]:
 # ---------------------------------------------------------------- generators
 
 
+ROLLS = ("off_kick_16th", "offbeat_8th", "gallop")
+TRIPLET_GALLOP = "triplet_gallop"
+ROLL_CHOICES = (*ROLLS, TRIPLET_GALLOP)
+# roll -> (steps used inside a bar, weight per step % 4, default density). The default
+# roll is the original one; its entries must not change (byte-identity test).
+_ROLL_GRID: dict[str, tuple[tuple[int, ...], dict[int, float], float]] = {
+    "off_kick_16th": (tuple(s for s in range(STEPS_PER_BAR) if s % 4 != 0),
+                      {2: 3.0, 3: 2.0, 1: 1.0}, 0.75),
+    # one note on the off-beat 8th of every beat (step % 4 == 2); density 1.0 keeps all four
+    "offbeat_8th": (tuple(s for s in range(STEPS_PER_BAR) if s % 4 == 2),
+                    {2: 1.0}, 1.0),
+    # 16th-grid gallop: the 16th right after the kick and the 16th right before the next
+    # one (step % 4 in (1, 3)); the G1 note calls this a guess, not an established rhythm
+    "gallop": (tuple(s for s in range(STEPS_PER_BAR) if s % 4 in (1, 3)),
+               {1: 1.5, 3: 1.5}, 1.0),
+}
+_BASS_POOL = (0, 7, 1, 4)  # root, octave (index 7), 2nd degree, fifth
+_BASS_POOL_W = (6.0, 2.0, 1.5, 1.0)
+TRIPLET_GATE_BEATS = 0.2
+TRIPLET_VELOCITY, TRIPLET_ACCENT_VELOCITY = 100, 127
+
+
 def bass_line(
-    root: int, scale: str = "phrygian", bars: int = 4, density: float = 0.75,
+    root: int, scale: str = "phrygian", bars: int = 4, density: float | None = None,
     accent: float = 0.2, slide: float = 0.0, seed: int = 0, bpm: float = DEFAULT_BPM,
+    roll: str = "off_kick_16th",
 ) -> dict[str, Any]:
-    """Rolling off-beat bass: never on step % 4 == 0, notes on root/octave/2nd/fifth."""
+    """Rolling bass on the 16th grid, never on step % 4 == 0; notes on root/octave/2nd/fifth.
+
+    ``roll`` picks the rhythm: ``off_kick_16th`` (default, the three 16ths after the kick,
+    thinned by ``density``, default 0.75), ``offbeat_8th`` (step 2 of each beat, default
+    density 1.0) or ``gallop`` (steps 1 and 3 of each beat, default density 1.0). A true
+    triplet gallop does not fit the 16-step grid; see ``bass_triplet_gallop``.
+    """
     _check_common(root, scale, bars, seed, bpm)
+    if roll not in ROLLS:
+        raise ValueError(f"roll must be one of {list(ROLLS)} (triplet: bass_triplet_gallop)")
+    grid_t, wmap, default_density = _ROLL_GRID[roll]
+    if density is None:
+        density = default_density
     for n, v in (("density", density), ("accent", accent), ("slide", slide)):
         _check_fraction(n, v)
     rng = random.Random(f"goa-bass:{seed}")
-    grid = [s for s in range(STEPS_PER_BAR) if s % 4 != 0]
-    weights = [{2: 3.0, 3: 2.0, 1: 1.0}[s % 4] for s in grid]
-    pool = (0, 7, 1, 4)  # root, octave (index 7), 2nd degree, fifth
-    pool_w = (6.0, 2.0, 1.5, 1.0)
+    grid = list(grid_t)
+    weights = [wmap[s % 4] for s in grid]
 
     def make_bar(_b: int) -> dict[int, int]:
         chosen = _sample(rng, grid, weights, _count(density, len(grid)))
         notes = {}
         for j, s in enumerate(chosen):
-            idx = 0 if j == 0 else _pick(rng, pool, pool_w)  # bar starts on the root
+            idx = 0 if j == 0 else _pick(rng, _BASS_POOL, _BASS_POOL_W)  # bar starts on root
             notes[s] = scale_pitch(root, scale, idx)
         return notes
 
     bar_notes = _phrase(bars, 1, make_bar)
     extra = {"density": density, "accent_amount": accent, "slide_amount": slide}
+    if roll != "off_kick_16th":  # the default keeps its exact key set
+        extra["roll"] = roll
     return _assemble("bass", bar_notes, root, scale, seed, bpm, accent, slide, rng, extra)
+
+
+def bass_triplet_gallop(
+    root: int, scale: str = "phrygian", bars: int = 4, density: float = 1.0,
+    accent: float = 0.2, seed: int = 0, bpm: float = DEFAULT_BPM,
+) -> dict[str, Any]:
+    """Triplet gallop bass as a NATIVE arrangement pattern (``arrangement_midi``).
+
+    Each beat is split in three triplet 8ths; the first belongs to the kick, the bass uses
+    the second and third (starts at beat + 1/3 and beat + 2/3, exact at PPQ 480). Pitches
+    follow the same pool as ``bass_line``; the bar starts on the root; accents are an exact
+    count. Returns ``{"length_beats", "notes"}`` only (no 16th grid, so no acid_line).
+    Whether this is the rhythm the user means by Goa is not established (G1 finding 9).
+    """
+    _check_common(root, scale, bars, seed, bpm)
+    _check_fraction("density", density)
+    _check_fraction("accent", accent)
+    rng = random.Random(f"goa-bass-triplet:{seed}")
+    slots = list(range(8))  # slot = 2 * beat + (0 for beat+1/3, 1 for beat+2/3)
+    weights = [1.5 if s % 2 == 0 else 2.0 for s in slots]
+
+    def make_bar(_b: int) -> dict[int, int]:
+        chosen = _sample(rng, slots, weights, _count(density, len(slots)))
+        notes = {}
+        for j, s in enumerate(chosen):
+            idx = 0 if j == 0 else _pick(rng, _BASS_POOL, _BASS_POOL_W)
+            notes[s] = scale_pitch(root, scale, idx)
+        return notes
+
+    bar_notes = _phrase(bars, 1, make_bar)
+    flat = [(b, s, p) for b, nb in enumerate(bar_notes) for s, p in sorted(nb.items())]
+    accented = set(_sample(rng, list(range(len(flat))), [1.0] * len(flat),
+                           _count(accent, len(flat))))
+    notes_out = []
+    for i, (b, s, p) in enumerate(flat):
+        start = 4.0 * b + s // 2 + (s % 2 + 1) / 3.0
+        notes_out.append({"pitch": p, "start": start, "duration": TRIPLET_GATE_BEATS,
+                          "velocity": TRIPLET_ACCENT_VELOCITY if i in accented
+                          else TRIPLET_VELOCITY})
+    return {"length_beats": 4.0 * bars, "notes": notes_out}
 
 
 def lead_line(
@@ -326,12 +403,43 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--density", type=float)
     p.add_argument("--accent", type=float)
     p.add_argument("--slide", type=float)
+    p.add_argument("--roll", choices=ROLL_CHOICES,
+                   help="bass only: rhythm (default off_kick_16th; triplet_gallop is written "
+                        "through arrangement_midi)")
     p.add_argument("--pattern", choices=ARP_PATTERNS, help="arp only")
     p.add_argument("--octaves", type=int, help="arp only")
     p.add_argument("--progression", help="arp only: comma-separated degrees 0-6, one per bar")
     p.add_argument("--out", required=True, help="output .mid path")
     p.add_argument("--json", dest="json_out", help="optional: also write the line as JSON")
     return p
+
+
+def _main_triplet(a: argparse.Namespace, params: dict[str, Any]) -> int:
+    from audio_engine import arrangement_midi
+
+    kw = {k: v for k, v in params.items() if k != "slide"}
+    if a.slide:
+        print("error: --slide does not apply to triplet_gallop", file=sys.stderr)
+        return 2
+    try:
+        pat = bass_triplet_gallop(**kw)
+        arr = {"format": "goa_arrangement", "version": "0.1-proposal",
+               "title": "goa-bass triplet gallop", "tempo": a.bpm,
+               "key": {"root": _NAMES[a.root % 12], "scale": a.scale},
+               "elements": [{"name": "bass", "pattern": pat}],
+               "sections": [{"name": "Bass", "bars": a.bars, "energy": 1.0,
+                             "elements": ["bass"]}]}
+        data = arrangement_midi.arrangement_to_midi(arr)
+    except ValueError as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 2
+    if json_path := a.json_out:
+        Path(json_path).write_text(json.dumps(pat, sort_keys=True, indent=2) + "\n",
+                                   encoding="utf-8")
+    Path(a.out).write_bytes(data)
+    print(f"wrote {a.out}: bass triplet_gallop, {a.bars} bars, {len(pat['notes'])} notes, "
+          f"{a.bpm:g} BPM")
+    return 0
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -341,6 +449,13 @@ def main(argv: list[str] | None = None) -> int:
     for k, v in (("density", a.density), ("accent", a.accent), ("slide", a.slide)):
         if v is not None:
             params[k] = v
+    if a.roll is not None and a.kind != "bass":
+        print("error: --roll applies to --kind bass only", file=sys.stderr)
+        return 2
+    if a.roll == TRIPLET_GALLOP:
+        return _main_triplet(a, params)
+    if a.roll is not None:
+        params["roll"] = a.roll
     if a.kind == "arp":
         if a.pattern is not None:
             params["pattern"] = a.pattern
