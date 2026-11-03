@@ -76,3 +76,14 @@ def test_the_high_pass_is_what_fixes_it(monkeypatch: pytest.MonkeyPatch) -> None
     the preset test above turns red for exactly this reason."""
     monkeypatch.setattr(analysis, "T60_HP_HZ", 0.0)
     assert _t60(load_preset("tight", "snare")) > 300.0
+
+
+def test_rise_time_stays_on_the_unfiltered_signal() -> None:
+    """A 0 -> 0.5 DC step. Unfiltered, the 1 ms (48 sample) RMS envelope is 0.5*sqrt(k/48) while
+    k samples of the window are inside the step: 10 % of the peak at k=1, 90 % at k=39, so the
+    rise is 38 samples = 0.792 ms. A 30 Hz high-pass on this path would change it (the step
+    becomes a decaying edge)."""
+    x = np.zeros(SR // 2)
+    x[SR // 10:] = 0.5
+    got = analysis.analyse_nonpitched(x, SR)["rise_time_ms"]
+    assert got == pytest.approx(0.792, abs=0.01)  # the high-passed path reads 0.75
