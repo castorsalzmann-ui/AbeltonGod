@@ -26,9 +26,11 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import Any
 
+from audio_engine.bass_variants import make_variants as bass_variants
 from audio_engine.clap_variants import make_variants
 from audio_engine.hat_variants import make_variants as hat_variants
 from audio_engine.presets import load_preset, preset_names
+from audio_engine.rim_variants import make_variants as rim_variants
 from audio_engine.snare_variants import make_variants as snare_variants
 from library import place_sample
 from orchestrator.kick_tools import (
@@ -81,6 +83,8 @@ ADAPTERS: Mapping[str, CategoryAdapter] = {
     "clap": CategoryAdapter("clap", "clap-params.schema.json", make_variants, noun="clap"),
     "hat": CategoryAdapter("hat", "hat-params.schema.json", hat_variants, noun="hat"),
     "snare": CategoryAdapter("snare", "snare-params.schema.json", snare_variants, noun="snare"),
+    "rim": CategoryAdapter("rim", "rim-params.schema.json", rim_variants, noun="rim"),
+    "bass": CategoryAdapter("bass", "bass-params.schema.json", bass_variants, noun="bass"),
 }
 CLAP_CONTRACT = ADAPTERS["clap"].contract
 CATEGORIES = tuple(ADAPTERS)
