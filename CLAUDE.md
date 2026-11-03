@@ -89,6 +89,7 @@ Add one line per recurring waste pattern: pattern → what to do instead.
 - Command whose exit code matters piped through `| tail` → `set -o pipefail` or no pipe (a 403 push looked successful; #19).
 - Files changed with Bash scripts (`python - <<EOF`, `sed -i`) → use Edit/Write; Bash edits are invisible to the budget watch and harder to review (#19).
 - Fault injection that removes a check → first check whether the same protection also exists higher up; otherwise the mutant survives for the wrong reason (a redundant inner lock cost three runs; #19).
+- Two pytest sessions in one checkout share `--basetemp=.pytest_tmp` and wipe each other (FileExistsError, INTERNALERROR; #331) → one pytest session per worktree, never in the main clone while another agent runs there; second session: `--basetemp=.pytest_tmp_<name>`.
 - PR branch behind `main` → `git merge origin/main` into the branch and push normally; rebase + force-push is blocked in cloud sessions. Check `mergeable_state` right after opening a PR: a conflicted PR gets no CI run (#28).
 
 ## Workflow
