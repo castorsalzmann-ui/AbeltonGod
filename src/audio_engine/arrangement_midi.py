@@ -51,7 +51,7 @@ Track 0 (conductor): name, tempo, time signature 4/4, a text event ``key: <root>
 one marker per section (text = section name) at its first tick, end-of-track at the end
 of the last section. Then one track per element: track name, notes, end-of-track at the
 same final tick (so every track has the full length). PPQ 480, all notes on channel 1.
-Same input gives the same bytes.
+Same input gives the same bytes. The writer refuses to overwrite an existing file.
 """
 
 from __future__ import annotations
@@ -61,6 +61,7 @@ import math
 import os
 import re
 import struct
+import tempfile
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
@@ -351,17 +352,32 @@ def arrangement_to_midi(arr: Mapping[str, Any]) -> bytes:
 
 
 def write_arrangement_midi(arr: Mapping[str, Any], path: str | Path) -> Path:
-    """Write the .mid. Bytes are computed first (an invalid arrangement writes nothing);
-    the file appears under its final name only when complete."""
+    """Write the .mid. Bytes are computed first (an invalid arrangement writes nothing).
+
+    An existing target (file, folder or dangling link) is REFUSED with FileExistsError and
+    left untouched, like ``write_kick``. The bytes go to a private temp file made with
+    ``tempfile.mkstemp`` in the target folder (a foreign ``x.mid.tmp`` is never touched)
+    and are linked to the final name, which fails if the name appeared meanwhile; the
+    temp file is removed on every path.
+    """
     data = arrangement_to_midi(arr)
     p = Path(path)
-    tmp = p.with_name(p.name + ".tmp")
+    if os.path.lexists(p):
+        raise FileExistsError(f"{p} already exists; choose another name (nothing was written)")
+    folder = p.parent
+    if not folder.is_dir():
+        raise FileNotFoundError(f"cannot write {p}: folder {folder} does not exist")
+    fd, tmp_name = tempfile.mkstemp(prefix=p.name + ".", suffix=".tmp", dir=folder)
     try:
-        tmp.write_bytes(data)
-        os.replace(tmp, p)
+        with os.fdopen(fd, "wb") as fh:
+            fh.write(data)
+        try:
+            os.link(tmp_name, p)  # fails if p exists: never overwrites
+        except FileExistsError as exc:
+            raise FileExistsError(f"{p} already exists; choose another name") from exc
     finally:
-        if tmp.exists():
-            tmp.unlink()
+        if os.path.lexists(tmp_name):
+            os.unlink(tmp_name)
     return p
 
 

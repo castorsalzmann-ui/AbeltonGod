@@ -42,3 +42,17 @@ def test_bad_file_exit_code(tmp_path, capsys):
     p.write_bytes(b"\x00\x01garbage")
     assert als.main([str(p)]) == 2
     assert als.main([str(tmp_path / "missing.als")]) == 2
+
+
+def test_decompressed_size_cap(tmp_path, monkeypatch):
+    monkeypatch.setattr(als, "MAX_BYTES", 1000)
+    p = tmp_path / "big.als"
+    p.write_bytes(gzip.compress(b"<Ableton>" + b" " * 5000 + b"</Ableton>"))  # tiny on disk
+    assert p.stat().st_size < 1000
+    try:
+        als.load_set(p)
+    except ValueError as exc:
+        assert "exceeds" in str(exc)
+    else:
+        raise AssertionError("size cap not applied")
+    assert als.main([str(p)]) == 2

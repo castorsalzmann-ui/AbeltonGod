@@ -13,20 +13,28 @@ so a different Live schema shows up as a gap instead of a wrong number.
 from __future__ import annotations
 
 import gzip
+import io
 import sys
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
+MAX_BYTES = 200 * 2**20  # cap on the decompressed XML
 TRACK_TAGS = ("MidiTrack", "AudioTrack", "GroupTrack", "ReturnTrack")
 
 
 def load_set(path: str | Path) -> ET.Element:
     raw = Path(path).read_bytes()
     try:
-        raw = gzip.decompress(raw)
+        with gzip.GzipFile(fileobj=io.BytesIO(raw)) as gz:
+            data = gz.read(MAX_BYTES + 1)
+        if len(data) > MAX_BYTES:
+            raise ValueError(f"{path}: decompressed size exceeds {MAX_BYTES // 2**20} MB")
+        raw = data
     except OSError as exc:  # not gzip: maybe already plain XML
         if not raw.lstrip().startswith(b"<"):
             raise ValueError(f"{path}: neither gzip nor XML ({exc})") from exc
+        if len(raw) > MAX_BYTES:
+            raise ValueError(f"{path}: size exceeds {MAX_BYTES // 2**20} MB") from exc
     return ET.fromstring(raw)
 
 

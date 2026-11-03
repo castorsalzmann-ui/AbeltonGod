@@ -247,10 +247,41 @@ def test_invalid_input_is_refused_and_writes_nothing(name, tmp_path):
 def test_write_failure_leaves_no_temp_file(tmp_path, monkeypatch):
     def boom(src, dst):
         raise OSError("disk full")
-    monkeypatch.setattr(am.os, "replace", boom)
+    monkeypatch.setattr(am.os, "link", boom)
     with pytest.raises(OSError):
         am.write_arrangement_midi(am.demo_arrangement(), tmp_path / "x.mid")
     assert list(tmp_path.iterdir()) == []
+
+
+def test_existing_target_is_refused_and_untouched(tmp_path):
+    out = tmp_path / "x.mid"
+    out.write_bytes(b"precious")
+    with pytest.raises(FileExistsError):
+        am.write_arrangement_midi(am.demo_arrangement(), out)
+    assert out.read_bytes() == b"precious" and list(tmp_path.iterdir()) == [out]
+
+
+def test_foreign_tmp_file_is_never_touched(tmp_path):
+    foreign = tmp_path / "x.mid.tmp"
+    foreign.write_bytes(b"not ours")
+    out = tmp_path / "x.mid"
+    am.write_arrangement_midi(am.demo_arrangement(), out)
+    assert foreign.read_bytes() == b"not ours"
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["x.mid", "x.mid.tmp"]
+    assert out.read_bytes() == am.arrangement_to_midi(am.demo_arrangement())
+
+
+def test_missing_folder_error_names_requested_file(tmp_path, capsys):
+    target = tmp_path / "nope" / "o.mid"
+    assert am.main([str(target)]) == 2
+    msg = capsys.readouterr().out
+    assert str(target) in msg and ".tmp" not in msg
+
+
+def test_cli_refuses_existing_file(tmp_path, capsys):
+    out = tmp_path / "o.mid"
+    out.write_bytes(b"x")
+    assert am.main([str(out)]) == 2 and out.read_bytes() == b"x"
 
 
 def test_cli_error_exit_code(tmp_path, capsys):
