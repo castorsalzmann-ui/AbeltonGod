@@ -1,0 +1,10 @@
+{
+  "schema_version": "0.1",
+  "preset": "clave",
+  "seed": 1,
+  "f1_hz": 2500,
+  "level2": 0,
+  "decay1_ms": 60,
+  "hp_hz": 800,
+  "click_level": 0.1
+}

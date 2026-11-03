@@ -85,6 +85,20 @@ def test_open_hat_is_cut_before_next_slot(built):
     assert np.abs(x[s[1] - 2 * fade : s[1] - fade]).max() > 20 * abs(x[s[1] - 1])
 
 
+def test_cut_fade_is_3_ms():
+    # a long constant "hit": the cut slot ends in a fade of exactly 144 samples (3 ms at 48 kHz)
+    s, e = lth.slot_starts("open"), lth.slot_ends("open")
+    slot = e[0] - s[0]
+    out = lth.hat_loop(np.ones(slot + 5000), "open")
+    seg = out[s[0] : e[0]]
+    # the falling ramp's first sample is exactly 1.0, so the fade is the 144 samples from
+    # slot-144 on: slot-144 still 1.0, slot-143 already below it, last sample 0
+    assert seg[slot - 145] == 1.0
+    assert seg[slot - 144] == 1.0
+    assert seg[slot - 143] < 1.0
+    assert seg[slot - 1] == 0.0
+
+
 def test_levels_from_files_on_disk(built):
     # independent of measure(): file minus kick loop = hat loop; RMS over the window of several
     # slots (first, middle, last full one) must agree across the files of an item

@@ -48,7 +48,7 @@ def _clap_sidecar(directory: Path, engine_version: str = "0.1.0") -> Path:
 def test_registry_and_contract_agree() -> None:
     schema = json.loads(METADATA_SCHEMA_FILE.read_text(encoding="utf-8"))
     assert tuple(schema["properties"]["category"]["enum"]) == CONTRACT_CATEGORIES
-    assert registered_categories() == ("kick", "clap", "hat")
+    assert registered_categories() == ("kick", "clap", "hat", "snare", "rim", "bass")
     assert get_category("kick").engine == {"name": ENGINE_NAME, "version": ENGINE_VERSION}
 
 
@@ -121,4 +121,4 @@ def test_place_sample_kick_matches_place_kick(tmp_path: Path) -> None:
 
 def test_unknown_category_name_is_refused() -> None:
     with pytest.raises(CategoryUnavailable, match="unknown category"):
-        get_category("snare")
+        get_category("perc")

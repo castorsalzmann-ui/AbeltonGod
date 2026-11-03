@@ -1,0 +1,7 @@
+{
+  "schema_version": "0.1",
+  "preset": "tight",
+  "seed": 1,
+  "noise_decay_ms": 90,
+  "body_decay_ms": 70
+}

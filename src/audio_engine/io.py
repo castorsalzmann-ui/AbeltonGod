@@ -181,7 +181,7 @@ def write_kick(
     # One line on purpose: the interrupt-sweep tests address write_kick by line number (#183).
     cat, stamp = get_category(category), _created_at_text(created_at)
     wav_bytes, audio, resolved = _renderer(category)(params)
-    features = cat.analyse(audio, resolved["sample_rate"])
+    features = cat.features(audio, resolved)
     if features["peak_dbfs"] is None:
         # Issue #7: a sidecar always carries a real level. Silence is a bug, not a sample.
         raise ValueError("Render is silent (peak 0); refusing to write a WAV and sidecar.")
