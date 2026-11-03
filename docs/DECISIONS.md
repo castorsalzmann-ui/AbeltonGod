@@ -304,3 +304,11 @@ The researchers for 04b clusters 1 (Agent SDK behaviour) and 2 (tool-schema gene
 **Reason.** One global engine version would make every kick sidecar unreadable after any clap or hat change (research note `2026-11-02_next-category-proposal.md`, section 7).
 
 **Consequences.** #229 defines the category field and the per-category version in the sidecar. The strict tool budget (24 of 24 optional parameters) still decides how `generate_clap` is wired (design choice later, orchestrator-engineer).
+
+## D-026 · 2026-11-03 · accepted — Goa plugin: GO, built as deterministic MIDI + rendered one-shots (user "Goa go!" 13:32, lead decisions on the open questions)
+
+**Decision.** (1) The Goa plugin (#338) is a go. (2) Lead decisions on the seven open questions of `docs/research/2026-11-03_goa-synth-voice-plan.md` section 8, valid until the user answers differently: **MIDI into Live's own synths is the primary route** (editable; Drift is the default patch because it exists in every edition, Analog is the second recipe); rendered WAV one-shots only for what the existing voices already do (rolling-bass notes from `bass.py`, kicks, percussion); **default bass rhythm is the off-kick 16th roll**, off-beat 8th and triplet gallop are selectable variants; arrangements default to a **long authentic build** with an optional 16-bar DJ-friendly intro/outro; long render times for baked loops are acceptable (not a real-time path). (3) No taste claim is made without user reference tracks; Class B windows stay hypotheses. (4) Unchanged: no Max for Live, nothing written to Live that is not `tested`, deliverables are files the user imports, same params + seed = identical bytes, no listening claims.
+
+**Reason.** The user gave the go; the questions cannot block pioneer work, and the defaults keep every step reversible.
+
+**Consequences.** Work packages: Goa bass presets + blind listening package; pattern variants + full-song multitrack SMF generator; lead/pad/pluck voice spec and Drift/Analog patch recipes (docs). New contracts only through `contract-change` PRs; a lead/pad audio voice waits for the spec and a user listening round.
