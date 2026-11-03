@@ -595,7 +595,9 @@ def test_dc_of_neutral_renders_is_small() -> None:
 
 
 def test_presets_are_valid_and_named_like_their_file() -> None:
-    assert preset_names("bass") == ["bright", "default", "low", "rolling", "sub"]
+    assert preset_names("bass") == [
+        "bright", "default", "goa-roll-long", "goa-roll-medium", "goa-roll-short", "low",
+        "rolling", "sub"]
     for name in preset_names("bass"):
         p = load_preset(name, "bass")
         assert p["preset"] == name
@@ -634,6 +636,9 @@ GOLDEN_VERSION = "0.1.0"
 GOLDEN: dict = {
     "preset-bright": "526b4872e63cee2b3a2b2c5fe418f0e7c00011a4139f66a0e533d8bd51f10464",
     "preset-default": "8fd29c62935ee6736ca06251a43b2ad5c94474183698359931062cd5c9f871d3",
+    "preset-goa-roll-long": "1b3cd53fffbefdcffd47ed3a2505f4813bd44397e813e82390e2fe6e48ea5454",
+    "preset-goa-roll-medium": "685dbddd4dee22a03e7d5115e50a0641fafa1a42b47816ec4ea7c12c4d04c0e6",
+    "preset-goa-roll-short": "495f5f1075eb6e4f3092da6687cd3f507b1bb6908487da34ac34abff08c07f71",
     "preset-low": "83b70b00c68e1adaa5080700a5117b4da20ba9fe4a3f32eedf9519ab4e2649cf",
     "preset-rolling": "db969617c32b038c99dc22bf3ef02697f90fdee0e6c13adabe60fe902d044078",
     "preset-sub": "2c71272b1dc92bc75e9b068043edab0e888efacb38bd6b950652613fa23d8e40",

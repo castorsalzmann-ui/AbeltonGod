@@ -92,6 +92,12 @@ BASS_DESCRIPTIONS = {
     "rolling": "Gate about one 16th at 136 BPM, short release, deeper filter envelope.",
     "bright": "Saw, square and sine, higher cutoff, more resonance, deeper filter envelope.",
     "low": "The defaults on note 31 with a longer gate (a researcher hypothesis for the note).",
+    "goa-roll-short": "Goa rolling-bass hypothesis: gate about 0.6 of a 16th at 140-146 BPM, "
+    "fast filter closing, saw plus sine on note 36.",
+    "goa-roll-medium": "Goa rolling-bass hypothesis: gate about 0.8 of a 16th at 140-146 BPM, "
+    "medium filter closing, saw plus sine on note 36.",
+    "goa-roll-long": "Goa rolling-bass hypothesis: gate just under one 16th at 140-146 BPM, "
+    "slower filter closing, saw plus sine on note 36.",
 }
 
 

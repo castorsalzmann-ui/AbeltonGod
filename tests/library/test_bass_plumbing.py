@@ -61,7 +61,8 @@ def test_cli_lists_and_renders_bass_presets(tmp_path) -> None:
     out, err = io.StringIO(), io.StringIO()
     assert cli.main(["--category", "bass", "--list-presets"], out, err) == 0
     assert [ln.split()[0] for ln in out.getvalue().splitlines()] == [
-        "bright", "default", "low", "rolling", "sub"]
+        "bright", "default", "goa-roll-long", "goa-roll-medium", "goa-roll-short", "low",
+        "rolling", "sub"]
     out, err = io.StringIO(), io.StringIO()
     code = cli.main(["--category", "bass", "--preset", "rolling", "--variants", "3",
                      "--out", str(tmp_path)], out, err)
