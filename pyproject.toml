@@ -25,6 +25,7 @@ dev = [
   "pytest>=8",
   "pytest-xdist>=3.5",  # runs the CPU-bound audio tests on all cores (-n auto)
   "ruff>=0.6",
+  "setuptools>=68",  # the #314 packaging regression test imports setuptools (Python 3.12 venvs ship without it)
 ]
 
 [tool.setuptools.packages.find]
