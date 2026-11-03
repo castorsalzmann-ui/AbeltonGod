@@ -111,6 +111,46 @@ def test_kick_still_imports_and_is_labelled(fake, tmp_path, project):
     assert any("Spielt der Kick?" in q for q in prompts)
 
 
+HAT = {"schema_version": "0.1", "seed": 5}
+
+
+def test_hat_imports_with_the_same_tested_functions(fake, tmp_path, project):
+    wav = place_sample("hat", HAT, project, name="closed")
+    assert wav.parent == project / "Samples" / "Drums" / "Hats"
+    code, out, prompts = run(fake, tmp_path, wav, ["y", "0", "y", "n", "y"])
+    assert code == 0, out
+    assert sent(fake) == [(CREATE_CLIP, (0, 0, str(wav)))]  # no rename, no new function
+    assert "Sample: hat: closed" in out
+    assert any("Spielt der Hat?" in q for q in prompts)
+    b = block(out)
+    assert b["sample_category"] == "hat"
+    assert b["clip_slot.create_audio_clip"] == "PASS"
+
+
+def test_hat_in_the_clap_folder_is_refused(fake, tmp_path, project):
+    wav = place_sample("hat", HAT, project)
+    claps = project / "Samples" / "Drums" / "Claps"
+    claps.mkdir()
+    moved = wav.rename(claps / wav.name)
+    wav.with_suffix(".json").rename(claps / wav.with_suffix(".json").name)
+    refused_without_connecting(fake, tmp_path, moved, "Hats")
+
+
+def test_clap_in_the_hat_folder_is_refused(fake, tmp_path, project):
+    wav = place_sample("clap", CLAP, project)
+    hats = project / "Samples" / "Drums" / "Hats"
+    hats.mkdir()
+    moved = wav.rename(hats / wav.name)
+    wav.with_suffix(".json").rename(hats / wav.with_suffix(".json").name)
+    refused_without_connecting(fake, tmp_path, moved, "Claps")
+
+
+def test_unregistered_hat_is_refused_before_any_message(fake, tmp_path, project, monkeypatch):
+    wav = place_sample("hat", HAT, project)
+    monkeypatch.delitem(categories._REGISTRY, "hat")
+    refused_without_connecting(fake, tmp_path, wav, "hat")
+
+
 def refused_without_connecting(fake, tmp_path, wav, needle):
     code, out, prompts = run(fake, tmp_path, wav, [])
     assert code == live_import.EXIT_SETUP_ERROR, out
