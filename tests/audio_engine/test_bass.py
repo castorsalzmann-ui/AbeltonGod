@@ -478,24 +478,46 @@ def test_attack_time_on_a_peak_envelope() -> None:
     _check_attack()
 
 
-def _check_release_and_length() -> None:
+def _release_cases():
+    """16 seeded cases, release_ms >= 4 periods of f0 (rule 8 reads only there)."""
     rng = np.random.default_rng(14)
     for _ in range(16):
         note = int(rng.integers(35, 56))
-        per = SR / _f0(note)
-        release = float(rng.uniform(max(5.0, 4 * per / SR * 1000), 400))
-        gate = float(rng.uniform(50, 600))
-        audio, p = _r(note=note, release_ms=release, gate_ms=gate, offset_ms=0)
+        per_ms = 1000.0 / _f0(note)
+        release = float(rng.uniform(max(5.0, 4 * per_ms), 400))
+        yield note, per_ms, release, float(rng.uniform(50, 600))
+
+
+def _release_offset_ms(audio, p, gate: float, release: float) -> float:
+    """Rule 8, read literally: time from the gate end to the last sample with |x| >= 0.01 x the
+    stationary peak, minus 0.99 * release_ms (0 = the ramp itself reaches 0.01 there; the rule
+    says the result lies between -1 period and 0)."""
+    a, length, _ = _window(p)
+    stat = np.max(np.abs(audio[a : a + length]))
+    g = round(gate * SR / 1000)
+    last = g + int(np.nonzero(np.abs(audio[g:]) >= 0.01 * stat)[0][-1])
+    return (last - g) / SR * 1000 - 0.99 * release
+
+
+def _check_release(render=None) -> None:
+    render = render or _r
+    for note, per_ms, release, gate in _release_cases():
+        audio, p = render(note=note, release_ms=release, gate_ms=gate, offset_ms=0)
+        off = _release_offset_ms(audio, p, gate, release)
+        # at most one period before 0.99 * release; 2 samples of slack for rounding; the rule
+        # claims no upper bound; 1 ms is a sanity limit (the ramp is below 0.01 after that)
+        assert -per_ms - 2 / SR * 1000 <= off <= 1.0, (note, release, gate, off, per_ms)
+
+
+def _check_length() -> None:
+    for note, _, release, gate in _release_cases():
+        audio, _p = _r(note=note, release_ms=release, gate_ms=gate, offset_ms=0)
         assert len(audio) == round((gate + release) * SR / 1000)  # exact (rule 8)
-        g = round(gate * SR / 1000)
-        a, length, _ = _window(p)
-        stat = np.max(np.abs(audio[a : a + length]))
-        w = int(per)
-        lead = np.array([np.max(np.abs(audio[i : i + w])) for i in range(g, len(audio) - w)])
-        below = np.nonzero(lead < 0.01 * stat)[0]  # -40 dB; leading window: a peak per period
-        t40 = (below[0] if len(below) else len(lead)) / SR * 1000
-        assert 0.99 * release - per / SR * 1000 - 1.0 <= t40 <= 0.99 * release + 1.0, (
-            note, release, t40)
+
+
+def _check_release_and_length() -> None:
+    _check_length()
+    _check_release()
 
 
 def test_gate_and_release_from_the_quantised_length_and_a_peak_envelope() -> None:
@@ -681,6 +703,34 @@ def test_mutants_are_caught(monkeypatch, name: str, check, mult: dict) -> None:
     _scaled(monkeypatch, **mult)
     with pytest.raises(AssertionError):
         check()
+
+
+def _release_renderer(delta_periods: float = 0.0, slope: float = 1.0):
+    """Mutant renderer for the release assertion alone: the ramp length is changed by
+    delta_periods periods and/or its slope by `slope`, and the file is cut or zero-padded back to
+    the exact length, so the length assert cannot be what catches it. The mutant release is
+    clipped to the contract range 5..400 ms (cases that need more are weaker, not rejected)."""
+
+    def render(**kw):
+        n = round((kw["gate_ms"] + kw["release_ms"]) * SR / 1000)
+        per_ms = 1000.0 / _f0(kw["note"])
+        rel = min(max((kw["release_ms"] + delta_periods * per_ms) / slope, 5.0), 400.0)
+        audio, p = _r(**{**kw, "release_ms": rel})
+        audio = audio[:n]
+        return np.pad(audio, (0, n - len(audio))), p
+
+    return render
+
+
+@pytest.mark.parametrize("name,kw", [
+    ("ramp-1.5-periods-short", {"delta_periods": -1.5}),
+    ("ramp-1.5-periods-long", {"delta_periods": 1.5}),
+    ("ramp-slope-x2", {"slope": 2.0}),
+    ("ramp-slope-x0.5", {"slope": 0.5}),
+], ids=lambda v: v if isinstance(v, str) else "")
+def test_release_assertion_catches_a_changed_ramp(name: str, kw: dict) -> None:
+    with pytest.raises(AssertionError):
+        _check_release(_release_renderer(**kw))
 
 
 def test_mutant_wrong_cutoff_law_is_caught(monkeypatch) -> None:
