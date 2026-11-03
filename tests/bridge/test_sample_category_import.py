@@ -207,6 +207,53 @@ def test_unregistered_rim_and_bass_are_refused_before_any_message(
     refused_without_connecting(fake, tmp_path, wav, category)
 
 
+SNARE = {"schema_version": "0.1", "seed": 8}
+
+
+def test_snare_imports_with_the_same_tested_functions(fake, tmp_path, project):
+    wav = place_sample("snare", SNARE, project, name="crack")
+    assert wav.parent == project / "Samples" / "Drums" / "Snares"
+    code, out, prompts = run(fake, tmp_path, wav, ["y", "0", "y", "n", "y"])
+    assert code == 0, out
+    assert sent(fake) == [(CREATE_CLIP, (0, 0, str(wav)))]  # no rename, no new function
+    assert "Sample: snare: crack" in out
+    assert any("Spielt der Snare?" in q for q in prompts)
+    b = block(out)
+    assert b["sample_category"] == "snare"
+    assert b["clip_slot.create_audio_clip"] == "PASS"
+    assert b["clip_file_path_read"] == repr(str(wav))
+
+
+@pytest.mark.parametrize("wrong", [
+    ("Samples", "Drums", "Claps"), ("Samples", "Drums", "Kicks"), ("Samples", "Drums", "Hats"),
+    ("Samples", "Drums", "Rims"), ("Samples", "Bass"),
+])
+def test_snare_in_a_wrong_folder_is_refused(fake, tmp_path, project, wrong):
+    wav = place_sample("snare", SNARE, project)
+    moved = _move(wav, project.joinpath(*wrong))
+    refused_without_connecting(fake, tmp_path, moved, "Snares")
+
+
+@pytest.mark.parametrize("category, params, parts", [
+    ("clap", CLAP, ("Samples", "Drums", "Snares")),
+    ("hat", HAT, ("Samples", "Drums", "Snares")),
+    ("rim", RIM, ("Samples", "Drums", "Snares")),
+    ("kick", KICK, ("Samples", "Drums", "Snares")),
+])
+def test_other_categories_in_the_snare_folder_are_refused(
+        fake, tmp_path, project, category, params, parts):
+    wav = place_sample(category, params, project)
+    moved = _move(wav, project.joinpath(*parts))
+    refused_without_connecting(fake, tmp_path, moved, {"clap": "Claps", "hat": "Hats",
+                                                       "rim": "Rims", "kick": "Kicks"}[category])
+
+
+def test_unregistered_snare_is_refused_before_any_message(fake, tmp_path, project, monkeypatch):
+    wav = place_sample("snare", SNARE, project)
+    monkeypatch.delitem(categories._REGISTRY, "snare")
+    refused_without_connecting(fake, tmp_path, wav, "snare")
+
+
 def refused_without_connecting(fake, tmp_path, wav, needle):
     code, out, prompts = run(fake, tmp_path, wav, [])
     assert code == live_import.EXIT_SETUP_ERROR, out
@@ -219,9 +266,9 @@ def test_unknown_category_is_refused_before_any_message(fake, tmp_path, project)
     wav = place_sample("clap", CLAP, project)
     side = wav.with_suffix(".json")
     meta = json.loads(side.read_text(encoding="utf-8"))
-    meta["category"] = "snare"
+    meta["category"] = "cowbell"  # not in the contract (snare is, since #308)
     side.write_text(json.dumps(meta), encoding="utf-8")
-    refused_without_connecting(fake, tmp_path, wav, "snare")
+    refused_without_connecting(fake, tmp_path, wav, "cowbell")
 
 
 def test_unregistered_category_is_refused_before_any_message(fake, tmp_path, project,
