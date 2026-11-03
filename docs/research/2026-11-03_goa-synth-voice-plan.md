@@ -8,7 +8,7 @@ Read for this note: `CLAUDE.md`; [Goa musicology and sound (G1)](2026-11-03_goa-
 
 ## Short version
 
-1. **The repo already has a bass voice** (`bass.py`, contract `bass-params` v0.1): additive saw/square/sine/sub-octave, 2nd-order high-pass, a low-pass with a per-note exponential cutoff envelope and resonance, gate, drive. G1 section 3.1 was written before it and lists "no bass voice exists"; that row is out of date (documented: `bass.py` module docstring). A rolling-bass one-shot is therefore a **parameter-range question, not a new engine**, as far as the contract ranges reach (section 3).
+1. **The repo already has a bass voice** (`bass.py`, contract `bass-params` v0.1): additive saw/square/sine/sub-octave, 2nd-order high-pass, a low-pass with a per-note exponential cutoff envelope and resonance, gate, drive. G1 section 3.1 omits `bass.py` and treats the rolling-bass voice as still to be built; that row is out of date (documented: `bass.py` module docstring). A rolling-bass one-shot is therefore a **parameter-range question, not a new engine**, as far as the contract ranges reach (section 3).
 2. **No lead or pad voice exists.** Lead needs: pitch range above the bass contract (`note` max 55 = 196 Hz), unison with detune, glide, accents. Pad needs a long attack (`amp_attack_ms` max 30 ms in the bass contract) and a slow, wide, low-level stationary body. Both would be new voices with new contracts (`contract-change` issues; section 6).
 3. **The cutoff sweep over 8-32 bars has no representation in a one-shot.** The `bass-params` cutoff envelope is per note and decays; a bar-scale sweep (G1: "filter cutoff as an instrument") is either baked into a rendered loop (new engine work) or drawn by the user in Live (G3: filter automation write is not a `tested` capability; CC-to-parameter mapping not established).
 4. **Recommended split (hypothesis, for the user to confirm):** notes, rhythm, accents, slides and arrangement go as MIDI (existing `goa_patterns.py` + `arrangement_midi.py`); the **rolling-bass one-shot** and **sub drone** can be rendered now with the existing bass voice for A/B against a Live-synth recipe; **lead, pad, pluck and riser** are MIDI + recipe first and rendered only after the user names references and decides that a fixed rendered sound is wanted.
@@ -105,7 +105,7 @@ Scope of "recommended": hypothesis; the user decides after the ears step in sect
 | One-shot player for rendered WAVs (bass note, riser) | rendered WAV dragged onto a track; MIDI plays it | Simpler (Standard, documented) | whether Simpler suits one-shot bass notes, what pitch tracking it offers and how it handles retrigger: **not established**; to be checked by the user (T-S below) |
 | Cutoff sweep | user-drawn automation, or baked loop | Auto Filter / device filter | writing automation into a clip: not a `tested` capability; MIDI CC mapping: not established |
 | Delay / space | recipe only | Delay, Reverb (documented Standard); Echo: not established | none |
-| Drift (Poly/Unison etc.) | edition membership documented | | Drift is the only Standard synth I can name with a documented Mono Glide; the Cycling '74 page says glide needs mono mode and legato playing (G1 4.2) |
+| Drift (Poly/Unison etc.) | edition membership documented | | Both Drift (Mono Glide) and Analog (Glide with Legato) document glide (G1 4.2); the Cycling '74 page says glide needs mono mode and legato playing (G1 4.2) |
 
 ## 5. Reference intake (replaces the hypotheses)
 
@@ -153,7 +153,7 @@ User check list for edition facts (2 minutes, not a listening test): (T-E) open 
 2. **audio-engineer, small:** extra roll patterns (off-beat 8th, gallop, full 16th) in `goa_patterns.py` only if listening item S2 shows the user wants them.
 3. **contract-change (audio-engineer):** a `lead-params` v0.1 only after reference intake (section 5) and the stage-2 answers; proposals for fields come from section 2.2, none until then.
 4. **researcher:** read the University of Helsinki copy of the thesis for scales and bass rhythm (G1 gap) and open Live's Instrument Reference for Collision, Electric, Tension, Simpler (parameters not read in G1/G3).
-5. **side-finding candidate:** G1 section 3.1 says the repo has no bass voice; `bass.py` exists. Only a doc nit, listed here so it is not lost.
+5. **side-finding candidate:** G1 section 3.1 omits `bass.py` and treats the bass voice as still to be built; `bass.py` exists. Only a doc nit, listed here so it is not lost.
 
 ## 8. Open questions for the user
 
@@ -174,6 +174,6 @@ User check list for edition facts (2 minutes, not a listening test): (T-E) open 
 
 ## State update proposal (for the PR body; the lead edits `CURRENT_STATE.md`)
 
-- Goa synth-voice plan written: `docs/research/2026-11-03_goa-synth-voice-plan.md` (Refs #338). Correction recorded: a bass voice exists (`bass.py`); G1 section 3.1 predates it.
+- Goa synth-voice plan written: `docs/research/2026-11-03_goa-synth-voice-plan.md` (Refs #338). Correction recorded: a bass voice exists (`bass.py`); G1 section 3.1 omits it and treats the voice as still to be built.
 - Known gap: no Goa reference audio; no lead/pad voice or contract; automation write to Live not available.
 - Next: user answers section 8 and names references; then the follow-up issues in section 7.
