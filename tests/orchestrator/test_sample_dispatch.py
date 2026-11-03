@@ -416,15 +416,22 @@ def test_snare_files_count_against_the_guard_cap(tmp_path, make_guard):
 # Written down from a run on this branch (sha256 of json.dumps(schema, sort_keys=True)); the
 # snare pins above are the "before". The first uses the v0.1 clap preset list, the second the
 # current one (xtreme-* names).
-RIM_BASS_SCHEMA_SHA256 = "90592a9575dfcd15443615eda99a76cc16dd8becb6842b361e0226f9812154f3"
+#
+# #385 (Goa bass presets goa-roll-short/-medium/-long): only the bass preset names inside the
+# description text changed; shape, required fields and budget are untouched (0 optional params).
+# Old pins, taken on origin/main (3779f0b) before the Goa presets:
+#   RIM_BASS_SCHEMA_SHA256              90592a9575dfcd15443615eda99a76cc16dd8becb6842b361e0226f9812154f3
+#   RIM_BASS_SCHEMA_WITH_XTREME_SHA256  050cd5b8364e4e2069d18bd86b32e5866517abc1abd65c6d318e739f192bfd0e
+RIM_BASS_SCHEMA_SHA256 = "5776a82beb99ea2e673baff97908ecad019fd5237f4155294b8022fd8eee68c8"
 RIM_BASS_SCHEMA_WITH_XTREME_SHA256 = (
-    "050cd5b8364e4e2069d18bd86b32e5866517abc1abd65c6d318e739f192bfd0e")
+    "ed212dc5ac548349e5d854ea07358869a1441f74dafd41a05d7b52e1a5a68953")
 RIM ={"category": "rim", "preset": "clave", "prompt": "", "seed": 3, "variants": 2,
        "adjust": [{"key": "f1_hz", "value": 1200}]}
 BASS = {"category": "bass", "preset": "rolling", "prompt": "", "seed": 3, "variants": 2,
         "adjust": [{"key": "note", "value": 40}]}
 RIM_PRESETS = ["clave", "high", "long", "rim", "tight"]
-BASS_PRESETS = ["bright", "default", "low", "rolling", "sub"]
+BASS_PRESETS = ["bright", "default", "goa-roll-long", "goa-roll-medium", "goa-roll-short", "low",
+                "rolling", "sub"]
 
 
 def test_rim_and_bass_rows_change_enum_and_texts_but_not_the_shape_or_the_budget(
