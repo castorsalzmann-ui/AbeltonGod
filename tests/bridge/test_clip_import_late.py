@@ -27,6 +27,7 @@ from test_clip_import import (
 from bridge.capabilities import CapabilityGate
 from bridge.clip_import import (
     READBACK_AFTER_TIMEOUT_FACTOR,
+    READBACK_WINDOW_S,
     ActionLog,
     ClipImporter,
     ImportAborted,
@@ -63,6 +64,12 @@ def log(tmp_path):
 LABEL = {CREATE_TRACK: "create_audio_track", CREATE_CLIP: "create_audio_clip"}
 NAMES = ("1-Audio", "2-MIDI", "3-Audio")
 WINDOW_S = 0.3  # read-back window for cases that never match
+# A clip that shows up between the first read-back (about TEST_TIMEOUT_S after the write) and
+# the end of the settlement window (TEST_TIMEOUT_S + READBACK_WINDOW_S after it), with this
+# much room on both sides. 3 x TEST_TIMEOUT_S sat exactly on the window end and failed 5 of 40
+# runs under CPU load (#371).
+LATE_CLIP_DELAY_S = 2 * TEST_TIMEOUT_S
+LATE_CLIP_MARGIN_S = 0.5
 
 
 def run_new_track(imp, path):
@@ -150,9 +157,15 @@ def test_settled_write_logs_the_late_reply_and_allows_undo(ibridge, audio_set, l
     assert tuple(t["name"] for t in audio_set.tracks) == NAMES
 
 
+def test_late_clip_delay_keeps_room_on_both_sides_of_the_window():
+    """The delay of the next test is not on the edge of the window (#371)."""
+    assert LATE_CLIP_DELAY_S >= TEST_TIMEOUT_S + LATE_CLIP_MARGIN_S  # not at the first read
+    assert LATE_CLIP_DELAY_S <= TEST_TIMEOUT_S + READBACK_WINDOW_S - LATE_CLIP_MARGIN_S
+
+
 def test_change_visible_only_at_a_later_poll_is_settled(ibridge, audio_set, log, tmp_path):
     """The settlement polls within the window, not just once (cf. review #167 R5)."""
-    audio_set.clip_delay_s = 3 * TEST_TIMEOUT_S  # clip appears after the first reads
+    audio_set.clip_delay_s = LATE_CLIP_DELAY_S  # clip appears after the first reads
     audio_set.drop_next_marker_after.add(CREATE_CLIP)
     # The write keeps the short deadline (ShortWrites in ibridge); the importer's timeout_s
     # only sizes the read-backs (3 x), which must be answered: >= 5 s (#329).
