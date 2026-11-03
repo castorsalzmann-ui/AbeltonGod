@@ -4,7 +4,7 @@ KI-Musikproduktions-Copilot für Ableton Live 12 (Windows), Schwerpunkt Techno u
 
 Der Copilot soll Samples erzeugen und verfeinern, Arrangements vorschlagen, beim Mixing helfen und dabei erklären, was er tut. Er ersetzt keine kreativen Entscheidungen, sondern unterstützt einen eigenen Signature Sound.
 
-**Stand (03.11.2026):** Der Kick-Generator ist abgeschlossen (Hörtest 3, Preset `dense`); Kick-Prompts mit Schlüsselwörtern sind gemergt, das Hörpaket liegt beim Nutzer. Der Kick lässt sich per Terminal-Chat mit Claude erzeugen und in ein Ableton-Projekt importieren, jeweils durch den Ressourcen-Wächter; der Abnahmelauf am PC steht aus. Ein Arrangement-Planer (auch als Claude-Werkzeug `plan_arrangement`) erzeugt Pläne aus Genre, Tempo und Länge; ins Live schreiben kann er noch nicht. Neue Kategorien: Clap (inkl. Xtreme-Presets) und Hat sind als Stimmen gemergt, Hörantworten stehen aus; Clap-Import in Live ist nur gegen eine Simulation getestet. Snare, Rim und Bass sind in Arbeit (gestapelte Pull Requests, noch nicht auf `main`). Dazu ein `.mid`-Schreiber für Acid-Linien (Test in Live offen) und eine Parkplatz-Idee für ein Goa-Plugin (Go/No-Go beim Nutzer).
+**Stand (03.11.2026):** Der Kick-Generator ist abgeschlossen (Hörtest 3, Preset `dense`); Kick-Prompts mit Schlüsselwörtern sind gemergt, das Hörpaket liegt beim Nutzer (Keyword-Reihe in der Roadmap daher noch „In Arbeit“). Der Kick lässt sich per Terminal-Chat mit Claude erzeugen und in ein Ableton-Projekt importieren, jeweils durch den Ressourcen-Wächter; der Abnahmelauf am PC steht aus. Ein Arrangement-Planer (auch als Claude-Werkzeug `plan_arrangement`) erzeugt Pläne aus Genre, Tempo und Länge; ins Live schreiben kann er noch nicht. Neue Kategorien: Clap (inkl. Xtreme-Presets) und Hat sind als Stimmen gemergt, Hörantworten stehen aus; Clap- und Hat-Import in Live sind nur gegen eine Simulation getestet. Snare, Rim und Bass sind als Stimmen gemergt (Snare mit Claude-Adapter), noch nicht angehört und nicht in Live probiert; Rim- und Bass-Adapter sind in Arbeit (Pull Request 358). Dazu ein `.mid`-Schreiber für Acid-Linien (Test in Live offen) und, als Parkplatz-Idee mit Go/No-Go beim Nutzer, ein Goa-Plugin: Recherche, Mustergenerator und Arrangement-Export als `.mid` liegen auf `main`, ohne Klang und ohne Test in Live. Alle offenen Hörtests: [Issue 356](https://github.com/castorsalzmann-ui/AbeltonGod/issues/356).
 
 **Cockpit:** Roadmap, Forschungsnotizen, offene Aufgaben für den Nutzer und wer gerade arbeitet: [Projekt-Cockpit](https://castorsalzmann-ui.github.io/AbeltonGod/) (aktualisiert sich alle 30 Minuten selbst; der Banner oben zeigt das Alter der Daten). Was nur der Nutzer tun kann, steht in [`docs/WAITING_ON_USER.md`](docs/WAITING_ON_USER.md), die Feature-Tabelle in [`docs/ROADMAP.md`](docs/ROADMAP.md), der ausführliche Stand in [`docs/CURRENT_STATE.md`](docs/CURRENT_STATE.md).
 
@@ -22,8 +22,8 @@ Eine lokale Python-Audio-Engine erzeugt Samples, eine Remote-Script-Bridge (Able
 | 03 | Sample-Import: Kick landet im Ableton-Projekt | fertig |
 | 04a | Resource Guard: Grenzen für Tokens, Aufrufe, Kosten, Zeit, Schleifen, Datei- und Ableton-Schreibzugriffe | fertig |
 | 04b | Claude-Orchestrator: Sprache → validierte Parameter → Engine → Import | in Arbeit (Abnahmelauf am PC offen) |
-| 05 | Kick-Charakter: Preset `dense`, Hörtests, Keyword-Prompts | fertig (Hörtests abgeschlossen; Keyword-Hörpaket beim Nutzer) |
-| 06 | Weitere Klangkategorien (Clap, Hat, Snare, Rim, Bass) | in Arbeit (Clap und Hat gemergt, Hörtests offen; Snare, Rim, Bass in gestapelten Pull Requests) |
+| 05 | Kick-Charakter: Preset `dense`, Hörtests, Keyword-Prompts | Kick fertig (Hörtests abgeschlossen); Keyword-Prompts in Arbeit (Hörpaket beim Nutzer) |
+| 06 | Weitere Klangkategorien (Clap, Hat, Snare, Rim, Bass) | in Arbeit (Clap, Hat, Snare, Rim, Bass als Stimmen gemergt; Hörtests und Live-Import offen) |
 
 Phasenspezifikationen: [`docs/phases/`](docs/phases/).
 
