@@ -266,7 +266,10 @@ def smoke_tools(res: Results, work: Path) -> dict:
     # changes it by design. Shape (strict, enum = table) is what is checked above.
 
     fake = FakeAbletonOSC()
-    audio_set(fake)
+    audio_set(fake)  # resets num_scenes to 4
+    # All categories import into track 1, one slot each (never overwrites); 4 scenes ran out once
+    # a 5th adapter existed (#366). One spare scene as headroom.
+    fake.num_scenes = len(ADAPTERS) + 1
     try:
         tmp = work / "tools"
         tmp.mkdir()
