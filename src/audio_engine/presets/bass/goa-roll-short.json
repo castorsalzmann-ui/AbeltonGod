@@ -1,0 +1,16 @@
+{
+  "schema_version": "0.1",
+  "preset": "goa-roll-short",
+  "seed": 1,
+  "note": 36,
+  "saw_level": 0.9,
+  "sine_level": 0.4,
+  "gate_ms": 62,
+  "release_ms": 12,
+  "amp_attack_ms": 1.5,
+  "hp_hz": 30,
+  "lp_hz": 320,
+  "lp_q": 2,
+  "lp_env_amount": 2.5,
+  "lp_env_decay_ms": 8
+}
