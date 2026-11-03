@@ -15,6 +15,5 @@ What only the user can do. The lead keeps this table current after every merge o
 | Entscheidung | https://github.com/castorsalzmann-ui/AbeltonGod/issues/284 | Vertragsfrage `acid_line`: eigenes Austauschformat festschreiben (Contract-Change), ja oder nein? | 2026-11-02 |
 | Entscheidung | https://github.com/castorsalzmann-ui/AbeltonGod/issues/301 | Kick-0.1-Sidecar gilt mit fremdem Engine-Namen: Vertrag anpassen? | 2026-11-02 |
 | Entscheidung | https://github.com/castorsalzmann-ui/AbeltonGod/issues/311 | Clap `peak_ceiling_dbfs` Maximum -12,0 zu streng für laute Presets: Grenze ändern? | 2026-11-02 |
-| Entscheidung | https://github.com/castorsalzmann-ui/AbeltonGod/issues/313 | Snare-Sidecar `t60_ms` falsch (324 ms): Messung oder Vertrag ändern? | 2026-11-02 |
 | Entscheidung | https://github.com/castorsalzmann-ui/AbeltonGod/issues/335 | Bass: Standard-Drive 0 oder DC-Blocker (DC-Offset bei Drive 0,2)? | 2026-11-03 |
 | Entscheidung | https://github.com/castorsalzmann-ui/AbeltonGod/issues/338 | Goa-Plugin (Pionierarbeit): Go oder No-Go? Dazu 3-5 Goa-Referenztracks nennen | 2026-11-03 |
