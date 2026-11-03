@@ -420,8 +420,8 @@ def test_snare_files_count_against_the_guard_cap(tmp_path, make_guard):
 # #385 (Goa bass presets goa-roll-short/-medium/-long): only the bass preset names inside the
 # description text changed; shape, required fields and budget are untouched (0 optional params).
 # Old pins, taken on origin/main (3779f0b) before the Goa presets:
-#   RIM_BASS_SCHEMA_SHA256              90592a9575dfcd15443615eda99a76cc16dd8becb6842b361e0226f9812154f3
-#   RIM_BASS_SCHEMA_WITH_XTREME_SHA256  050cd5b8364e4e2069d18bd86b32e5866517abc1abd65c6d318e739f192bfd0e
+#   RIM_BASS_SCHEMA_SHA256 was  90592a9575dfcd15443615eda99a76cc16dd8becb6842b361e0226f9812154f3
+#   ..._WITH_XTREME_SHA256 was  050cd5b8364e4e2069d18bd86b32e5866517abc1abd65c6d318e739f192bfd0e
 RIM_BASS_SCHEMA_SHA256 = "5776a82beb99ea2e673baff97908ecad019fd5237f4155294b8022fd8eee68c8"
 RIM_BASS_SCHEMA_WITH_XTREME_SHA256 = (
     "ed212dc5ac548349e5d854ea07358869a1441f74dafd41a05d7b52e1a5a68953")
