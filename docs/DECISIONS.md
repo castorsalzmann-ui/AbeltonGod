@@ -312,3 +312,11 @@ The researchers for 04b clusters 1 (Agent SDK behaviour) and 2 (tool-schema gene
 **Reason.** The user gave the go; the questions cannot block pioneer work, and the defaults keep every step reversible.
 
 **Consequences.** Work packages: Goa bass presets + blind listening package; pattern variants + full-song multitrack SMF generator; lead/pad/pluck voice spec and Drift/Analog patch recipes (docs). New contracts only through `contract-change` PRs; a lead/pad audio voice waits for the spec and a user listening round.
+
+## D-027 · 2026-11-04 · accepted — Goa scope split and configurability (user, 2026-11-04 06:58; amends D-026)
+
+**Decision.** (1) The open questions from the reference measurements (bass rhythm, form, tempo) are **not decided by the lead; they are configurable parameters**. Bass rhythm: `off_kick_16th`, `offbeat_8th`, ghosted off-beat, `gallop` (selectable). Form: kick-less intro length (0..N bars), number of breakdowns (0..N), kick-less or kick-on outro, optional DJ intro/outro. Tempo: free in a range (default stays a lead default, changeable). Defaults are only defaults; no measured value is hard-coded as "the Goa sound" (measured from 3 tracks, low confidence). (2) **Kick, bass, percussion (hat, snare, clap, rim) come from the existing engines** and their presets (incl. the three `goa-roll-*` bass presets). The **Goa plugin owns only the melodic elements**: lead, arp, pad, pluck/acid line (MIDI into Live's own instruments per D-026). The arrangement generator composes both; the rhythm section is not reimplemented inside the Goa plugin. (3) Unchanged from D-026: no Max for Live, nothing written to Live that is not `tested`, files are the delivery path, deterministic output, no listening claims.
+
+**Reason.** The user wants all measurement-derived choices configurable and one owner per sound: the engines for the rhythm section, the Goa plugin for melody.
+
+**Consequences.** Supersedes the D-026 wording that put bass patterns inside the Goa plugin. Work: configurable form/rhythm/tempo parameters in `goa_arrangement`; rhythm tracks sourced from the engine presets; melodic generators (lead, arp, pad, pluck) as the Goa plugin proper.
