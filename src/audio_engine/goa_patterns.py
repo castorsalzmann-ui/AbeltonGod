@@ -188,7 +188,7 @@ def _phrase(bars: int, motif_bars: int, make_bar) -> list[dict[int, int]]:
 # ---------------------------------------------------------------- generators
 
 
-ROLLS = ("off_kick_16th", "offbeat_8th", "gallop")
+ROLLS = ("off_kick_16th", "offbeat_8th", "gallop", "offbeat_ghost")
 TRIPLET_GALLOP = "triplet_gallop"
 ROLL_CHOICES = (*ROLLS, TRIPLET_GALLOP)
 # roll -> (steps used inside a bar, weight per step % 4, default density). The default
@@ -207,6 +207,10 @@ _ROLL_GRID: dict[str, tuple[tuple[int, ...], dict[int, float], float]] = {
 _BASS_POOL = (0, 7, 1, 4)  # root, octave (index 7), 2nd degree, fifth
 _BASS_POOL_W = (6.0, 2.0, 1.5, 1.0)
 TRIPLET_GATE_BEATS = 0.2
+# offbeat_ghost: share of beats that carry the off-beat 8th (step 2) and each neighbouring 16th
+# (steps 1 and 3). PROPOSAL values from docs/research/2026-11-03_goa-reference-measurements.md
+# (50-65 % and 28-38 %, mid-points; two tracks, low confidence), defaults only.
+GHOST_MAIN_SHARE, GHOST_SIDE_SHARE = 0.575, 0.33
 TRIPLET_VELOCITY, TRIPLET_ACCENT_VELOCITY = 100, 127
 
 
@@ -225,6 +229,8 @@ def bass_line(
     _check_common(root, scale, bars, seed, bpm)
     if roll not in ROLLS:
         raise ValueError(f"roll must be one of {list(ROLLS)} (triplet: bass_triplet_gallop)")
+    if roll == "offbeat_ghost":
+        return _bass_ghost(root, scale, bars, accent, slide, seed, bpm)
     grid_t, wmap, default_density = _ROLL_GRID[roll]
     if density is None:
         density = default_density
@@ -246,6 +252,36 @@ def bass_line(
     extra = {"density": density, "accent_amount": accent, "slide_amount": slide}
     if roll != "off_kick_16th":  # the default keeps its exact key set
         extra["roll"] = roll
+    return _assemble("bass", bar_notes, root, scale, seed, bpm, accent, slide, rng, extra)
+
+
+def _bass_ghost(
+    root: int, scale: str, bars: int, accent: float, slide: float, seed: int, bpm: float,
+) -> dict[str, Any]:
+    """Off-beat 8th on ``GHOST_MAIN_SHARE`` of all beats, the 16th before and after it on
+    ``GHOST_SIDE_SHARE`` of all beats each (exact counts over the whole span, positions seeded);
+    never on a kick step. ``density`` does not apply."""
+    for n, v in (("accent", accent), ("slide", slide)):
+        _check_fraction(n, v)
+    rng = random.Random(f"goa-bass-ghost:{seed}")
+    beats = list(range(bars * 4))
+    flat = [1.0] * len(beats)
+    chosen = {
+        2: _sample(rng, beats, flat, _count(GHOST_MAIN_SHARE, len(beats))),
+        1: _sample(rng, beats, flat, _count(GHOST_SIDE_SHARE, len(beats))),
+        3: _sample(rng, beats, flat, _count(GHOST_SIDE_SHARE, len(beats))),
+    }
+    bar_notes: list[dict[int, int]] = []
+    for b in range(bars):
+        steps = sorted(4 * (bt % 4) + off for off, bl in chosen.items() for bt in bl
+                       if bt // 4 == b)
+        notes = {}
+        for j, s in enumerate(steps):
+            idx = 0 if j == 0 else _pick(rng, _BASS_POOL, _BASS_POOL_W)
+            notes[s] = scale_pitch(root, scale, idx)
+        bar_notes.append(notes)
+    extra = {"density": None, "accent_amount": accent, "slide_amount": slide,
+             "roll": "offbeat_ghost"}
     return _assemble("bass", bar_notes, root, scale, seed, bpm, accent, slide, rng, extra)
 
 
