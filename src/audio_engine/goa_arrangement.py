@@ -313,7 +313,8 @@ def render_readme(arr: dict[str, Any], mid_name: str, params: dict[str, Any]) ->
         "length (gate) and the ghost velocity rule in the MIDI, and the rendered WAVs in "
         "`samples/`. The MIDI bass notes are key-dependent (they start at "
         f"MIDI {ROOT_OFFSET['bass'] + ROOT_NAMES.index(arr['key']['root'])} for this key "
-        "and follow the scale), so the sampler pitch of the bass one-shot must be matched to the key by hand.",
+        "and follow the scale), so the sampler pitch of the bass one-shot must be matched "
+        "to the key by hand.",
         "",
         "Defaults are only defaults (D-027); no value above is a measured fact about Goa.",
         "",
