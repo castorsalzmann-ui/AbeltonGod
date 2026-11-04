@@ -1,10 +1,14 @@
 """Complete Goa-style track as ONE multitrack Standard MIDI File (format 1).
 
     python -m audio_engine.goa_arrangement --out DIR --seed 1 --bpm 145 [--dj-intro-outro 16]
+        [--roll off_kick_16th|offbeat_8th|offbeat_ghost|gallop|triplet_gallop]
+        [--intro-bars N] [--breakdowns 0-2] [--outro kick_on|kick_less --outro-bars N]
 
-Writes ``DIR/goa_seed<N>_<BPM>bpm.mid`` and ``DIR/README.md`` (what is in each track and
-which Live instrument to put on it). Nothing is sent to Live and nothing here is verified
-in Live: the user drags the file into the Arrangement (import tests T1-T8 in
+Writes ``DIR/goa_seed<N>_<BPM>bpm.mid``, ``DIR/README.md`` (chosen options, what is in each
+track, which Live instrument to put on it) and ``DIR/samples/`` (kick, bass, hat one-shots
+rendered by the engines from presets, see ``goa_rhythm``; ``--no-samples`` skips them).
+Nothing is sent to Live and nothing here is verified in Live: the user drags the file into
+the Arrangement (import tests T1-T8 in
 docs/research/2026-11-03_goa-arrangement-delivery-to-live.md). No listening claim is made.
 
 Same parameters and seed give byte-identical files (local ``random.Random`` / hashed
@@ -34,7 +38,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from audio_engine import acid_midi, arrangement_midi, goa_patterns
+from audio_engine import acid_midi, arrangement_midi, goa_patterns, goa_rhythm
 
 PPQ = acid_midi.PPQ
 BAR_BEATS = 4
@@ -42,9 +46,18 @@ MIN_BPM, MAX_BPM = goa_patterns.MIN_BPM, goa_patterns.MAX_BPM
 DEFAULT_BPM = goa_patterns.DEFAULT_BPM
 ROOT_NAMES = ("C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B")
 ELEMENTS = ("kick", "bass", "lead", "arp", "pad", "perc")
-KICK_PITCH, HAT_CLOSED, HAT_PEDAL, SHAKER = 36, 42, 44, 70
+KICK_PITCH, HAT_CLOSED, HAT_PEDAL, SHAKER = (
+    goa_rhythm.KICK_PITCH, goa_rhythm.HAT_CLOSED, goa_rhythm.HAT_PEDAL, goa_rhythm.SHAKER)
 ROOT_OFFSET = {"bass": 24, "pad": 48, "arp": 48, "lead": 60}  # + pitch class (C = 0)
 DJ_BARS_CHOICES = (0, 8, 16, 24, 32)
+INTRO_BARS_CHOICES = (0, 8, 16, 24, 32)  # kick-less intro in front (0 = none)
+OUTRO_BARS_CHOICES = (8, 16, 24, 32)
+BREAKDOWN_CHOICES = (0, 1, 2)
+OUTRO_MODES = ("kick_on", "kick_less")
+# Tempo: the hard limits are goa_patterns.MIN_BPM..MAX_BPM (135-150). The reference
+# measurements (3 tracks, low confidence) put the PROPOSAL range at 140-150; inside the hard
+# limits the tempo is free. Only the default (145) is a default.
+REFERENCE_BPM_RANGE = (140.0, 150.0)
 PAD_GAP_BEATS = 0.05
 
 # Chord degree per bar over an 8-bar phrase (HYPOTHESES; one is picked per cycle by seed).
@@ -104,22 +117,8 @@ def _line_to_native(line: dict[str, Any]) -> dict[str, Any]:
                       for n in notes]}
 
 
-def _hits(pitch: int, starts: list[float], dur: float, vel: int) -> list[dict[str, Any]]:
-    return [{"pitch": pitch, "start": s, "duration": dur, "velocity": vel} for s in starts]
-
-
-def kick_pattern() -> dict[str, Any]:
-    return {"length_beats": 4, "notes": _hits(KICK_PITCH, [0.0, 1.0, 2.0, 3.0], 0.25, 110)}
-
-
-def perc_pattern(energy: float) -> dict[str, Any]:
-    """Off-beat closed hat always; ghost 16ths from energy 0.5; shaker 16ths from 0.8."""
-    notes = _hits(HAT_CLOSED, [b + 0.5 for b in range(4)], 0.125, 85)
-    if energy >= 0.5:
-        notes += _hits(HAT_PEDAL, [b + o for b in range(4) for o in (0.25, 0.75)], 0.0625, 55)
-    if energy >= 0.8:
-        notes += _hits(SHAKER, [i * 0.25 for i in range(16)], 0.0625, 45)
-    return {"length_beats": 4, "notes": notes}
+kick_pattern = goa_rhythm.kick_pattern  # rhythm voices live in goa_rhythm (D-027)
+perc_pattern = goa_rhythm.perc_pattern
 
 
 def pad_pattern(scale: str, root: int, prog: tuple[int, ...]) -> dict[str, Any]:
@@ -138,8 +137,26 @@ def pad_pattern(scale: str, root: int, prog: tuple[int, ...]) -> dict[str, Any]:
     return {"length_beats": float(len(prog) * BAR_BEATS), "notes": notes}
 
 
-def _plan(dj_bars: int) -> list[tuple[str, int, float, tuple[str, ...], int]]:
-    plan = list(PLAN)
+def _plan(
+    dj_bars: int, intro_bars: int = 0, breakdowns: int = 2, outro: str = "kick_on",
+    outro_bars: int = 8,
+) -> list[tuple[str, int, float, tuple[str, ...], int]]:
+    """Section list. Defaults reproduce the original 224-bar plan. ``breakdowns`` 1 drops
+    "Break 1" and its "Return"; 0 also drops "Break 2". ``intro_bars`` adds a kick-less intro
+    (pad + perc) in front; ``outro`` "kick_less" ends on pad + perc without kick."""
+    drop: set[str] = set()
+    if breakdowns < 2:
+        drop |= {"Break 1", "Return"}
+    if breakdowns < 1:
+        drop.add("Break 2")
+    plan = [p for p in PLAN if p[0] not in drop]
+    last = plan[-1]
+    if outro == "kick_less":
+        plan[-1] = ("Outro", outro_bars, 0.30, (_D, _P), last[4])
+    else:
+        plan[-1] = ("Outro", outro_bars, last[2], last[3], last[4])
+    if intro_bars:
+        plan.insert(0, ("Intro no kick", intro_bars, 0.22, (_D, _P), 0))
     if dj_bars:
         plan.insert(0, ("DJ Intro", dj_bars, 0.25, (_K, _P), 0))
         plan.append(("DJ Outro", dj_bars, 0.30, (_K, _B, _P), 2))
@@ -148,7 +165,11 @@ def _plan(dj_bars: int) -> list[tuple[str, int, float, tuple[str, ...], int]]:
 
 def build_arrangement(
     seed: int = 0, bpm: float = DEFAULT_BPM, root: str = "A", scale: str = "phrygian",
-    roll: str = "off_kick_16th", dj_bars: int = 0,
+    roll: str = "off_kick_16th", dj_bars: int = 0, intro_bars: int = 0, breakdowns: int = 2,
+    outro: str = "kick_on", outro_bars: int = 8,
+    kick_preset: str = goa_rhythm.DEFAULT_KICK_PRESET,
+    bass_preset: str = goa_rhythm.DEFAULT_BASS_PRESET,
+    hat_preset: str = goa_rhythm.DEFAULT_HAT_PRESET,
 ) -> dict[str, Any]:
     """Return the ``goa_arrangement`` dict (arrangement_midi input) for a whole track."""
     if isinstance(seed, bool) or not isinstance(seed, int):
@@ -163,6 +184,15 @@ def build_arrangement(
         raise ValueError(f"dj_intro_outro must be one of {list(DJ_BARS_CHOICES)} bars")
     if isinstance(bpm, bool) or not isinstance(bpm, (int, float)) or not MIN_BPM <= bpm <= MAX_BPM:
         raise ValueError(f"bpm must be a number {MIN_BPM:g}-{MAX_BPM:g}")
+    for name, val, choices in (("intro_bars", intro_bars, INTRO_BARS_CHOICES),
+                               ("breakdowns", breakdowns, BREAKDOWN_CHOICES),
+                               ("outro_bars", outro_bars, OUTRO_BARS_CHOICES)):
+        if isinstance(val, bool) or val not in choices:
+            raise ValueError(f"{name} must be one of {list(choices)}")
+    if outro not in OUTRO_MODES:
+        raise ValueError(f"outro must be one of {list(OUTRO_MODES)}")
+    kit = goa_rhythm.resolve_kit(kick_preset, bass_preset, hat_preset)
+    gate_ms = goa_rhythm.bass_gate_ms(kit)
     pc = ROOT_NAMES.index(root)
     roots = {k: v + pc for k, v in ROOT_OFFSET.items()}
 
@@ -173,23 +203,25 @@ def build_arrangement(
 
     sections: list[dict[str, Any]] = []
     first_pattern: dict[str, dict[str, Any]] = {}
-    for idx, (name, bars, energy, active, cycle) in enumerate(_plan(dj_bars)):
+    for idx, (name, bars, energy, active, cycle) in enumerate(
+            _plan(dj_bars, intro_bars, breakdowns, outro, outro_bars)):
         lbars = min(bars, goa_patterns.MAX_BARS)
         common = {"root": 0, "scale": scale, "bars": lbars, "bpm": float(bpm)}
         over: dict[str, dict[str, Any]] = {}
         for el in active:
             if el == "bass":
                 if roll == goa_patterns.TRIPLET_GALLOP:
-                    over[el] = goa_patterns.bass_triplet_gallop(
+                    raw = goa_patterns.bass_triplet_gallop(
                         roots["bass"], scale, lbars, 1.0, 0.2,
                         _sub_seed(seed, "bass", cycle), float(bpm))
                 else:
                     kw: dict[str, Any] = {}
                     if roll == "off_kick_16th":
                         kw["density"] = round(0.5 + 0.4 * energy, 2)
-                    over[el] = _line_to_native(goa_patterns.bass_line(
+                    raw = _line_to_native(goa_patterns.bass_line(
                         **{**common, "root": roots["bass"]}, seed=_sub_seed(seed, "bass", cycle),
                         roll=roll, **kw))
+                over[el] = goa_rhythm.shape_bass(raw, roll, gate_ms, float(bpm))
             elif el == "lead":
                 over[el] = _line_to_native(goa_patterns.lead_line(
                     **{**common, "root": roots["lead"]}, seed=_sub_seed(seed, "lead", idx),
@@ -225,15 +257,31 @@ def total_bars(arr: dict[str, Any]) -> int:
     return sum(s["bars"] for s in arr["sections"])
 
 
+OPTION_DEFAULTS: dict[str, Any] = {
+    "roll": "off_kick_16th", "dj_bars": 0, "intro_bars": 0, "breakdowns": 2,
+    "outro": "kick_on", "outro_bars": 8, "kick_preset": goa_rhythm.DEFAULT_KICK_PRESET,
+    "bass_preset": goa_rhythm.DEFAULT_BASS_PRESET, "hat_preset": goa_rhythm.DEFAULT_HAT_PRESET,
+}
+
+
+def full_options(params: dict[str, Any]) -> dict[str, Any]:
+    """Every option with its chosen (or default) value; used for the README."""
+    return {"seed": params.get("seed", 0), **{k: params.get(k, v)
+                                              for k, v in OPTION_DEFAULTS.items()}}
+
+
 def render_readme(arr: dict[str, Any], mid_name: str, params: dict[str, Any]) -> str:
+    opts = full_options(params)
     bpm = arr["tempo"]
     bars_total = total_bars(arr)
     minutes = bars_total * 4 * 60 / bpm / 60
+    lo, hi = REFERENCE_BPM_RANGE
+    kit = goa_rhythm.resolve_kit(opts["kick_preset"], opts["bass_preset"], opts["hat_preset"])
     lines = [
-        f"# Goa track, seed {params['seed']}, {bpm:g} BPM",
+        f"# Goa track, seed {opts['seed']}, {bpm:g} BPM",
         "",
         f"File: `{mid_name}` (Standard MIDI File, format 1, 4/4, PPQ {PPQ}). "
-        f"Key {arr['key']['root']} {arr['key']['scale']}, bass roll `{params['roll']}`, "
+        f"Key {arr['key']['root']} {arr['key']['scale']}, "
         f"{bars_total} bars (about {minutes:.1f} minutes at {bpm:g} BPM).",
         "",
         "Status: generated by code (`python -m audio_engine.goa_arrangement`). "
@@ -241,20 +289,42 @@ def render_readme(arr: dict[str, Any], mid_name: str, params: dict[str, Any]) ->
         "`docs/research/2026-11-03_goa-arrangement-delivery-to-live.md`. The musical choices "
         "are hypotheses, not Goa facts.",
         "",
+        "## Chosen options",
+        "",
+        "| Option | Value |",
+        "| --- | --- |",
+        f"| tempo | {bpm:g} BPM (limits {goa_patterns.MIN_BPM:g}-{goa_patterns.MAX_BPM:g}; "
+        f"reference-measurement range {lo:g}-{hi:g}: "
+        f"{'inside' if lo <= bpm <= hi else 'outside'}) |",
+        f"| bass rhythm (`roll`) | `{opts['roll']}` |",
+        f"| kick-less intro | {opts['intro_bars']} bars |",
+        f"| breakdowns | {opts['breakdowns']} |",
+        f"| outro | `{opts['outro']}`, {opts['outro_bars']} bars |",
+        f"| DJ intro/outro | {opts['dj_bars']} bars each |",
+        f"| kick preset | `{opts['kick_preset']}` |",
+        f"| bass preset | `{opts['bass_preset']}` (gate {goa_rhythm.bass_gate_ms(kit):g} ms = "
+        f"MIDI note length; one-shot pitch MIDI {goa_rhythm.bass_note(kit)}) |",
+        f"| hat preset | `{opts['hat_preset']}` |",
+        "",
+        "Defaults are only defaults (D-027); no value above is a measured fact about Goa.",
+        "",
         "## Import",
         "",
         "1. New Live set. Drag the `.mid` onto the Arrangement at bar 1: one MIDI track per "
         "element below is expected (not verified).",
         f"2. If Live does not take the tempo, set {bpm:g} BPM by hand.",
-        "3. Put an instrument on every track (the file has no devices). Default synth is Drift "
-        "(in every Live 12 edition); Analog is the second recipe.",
+        "3. Put an instrument on every track (the file has no devices). Melodic tracks: Drift "
+        "(in every Live 12 edition), Analog is the second recipe. Rhythm tracks: the one-shot "
+        "WAVs in `samples/` (rendered by the kick, bass and hat engines from the presets above) "
+        "in a Drum Rack or Simpler.",
         "",
         "## Tracks",
         "",
         "| Track | Content | Put on it |",
         "| --- | --- | --- |",
         "| kick | four on the floor, MIDI 36 | " + SYNTH_HINTS["kick"] + " |",
-        "| bass | seeded rolling bass line, changes per cycle | " + SYNTH_HINTS["bass"] + " |",
+        f"| bass | `{opts['roll']}` rhythm, line changes per cycle | " + SYNTH_HINTS["bass"]
+        + " |",
         "| lead | seeded ostinato lead, new line per section | " + SYNTH_HINTS["lead"] + " |",
         "| arp | 16th arpeggio over the chord of each bar | " + SYNTH_HINTS["arp"] + " |",
         "| pad | triads held over equal chord runs | " + SYNTH_HINTS["pad"] + " |",
@@ -278,19 +348,30 @@ def render_readme(arr: dict[str, Any], mid_name: str, params: dict[str, Any]) ->
     return "\n".join(lines)
 
 
-def write_track(out_dir: str | Path, **params: Any) -> tuple[Path, Path]:
-    """Write ``.mid`` and README into ``out_dir``. Refuses if either exists (nothing written)."""
+def write_track(
+    out_dir: str | Path, render_samples: bool = True, **params: Any
+) -> tuple[Path, Path]:
+    """Write ``.mid``, README and (default) ``samples/*.wav`` into ``out_dir``. Refuses if any
+    target exists (nothing written)."""
     arr = build_arrangement(**params)
     arrangement_midi.validate_arrangement(arr)  # fail before anything is created
+    opts = full_options(params)
+    kit = goa_rhythm.resolve_kit(opts["kick_preset"], opts["bass_preset"], opts["hat_preset"])
     d = Path(out_dir)
-    stem = f"goa_seed{params.get('seed', 0)}_{float(arr['tempo']):g}bpm"
+    stem = f"goa_seed{opts['seed']}_{float(arr['tempo']):g}bpm"
     mid, readme = d / f"{stem}.mid", d / "README.md"
-    for p in (mid, readme):
+    wavs = goa_rhythm.render_kit(kit) if render_samples else []
+    targets = [mid, readme] + [d / goa_rhythm.SAMPLE_DIR / n for n, _, _ in wavs]
+    for p in targets:
         if p.exists() or p.is_symlink():
             raise FileExistsError(f"{p} already exists; choose another folder (nothing written)")
     d.mkdir(parents=True, exist_ok=True)
-    text = render_readme(arr, mid.name, {"seed": params.get("seed", 0),
-                                         "roll": params.get("roll", "off_kick_16th")})
+    text = render_readme(arr, mid.name, params)
+    if wavs:
+        (d / goa_rhythm.SAMPLE_DIR).mkdir(exist_ok=True)
+        for name, data, _desc in wavs:
+            with open(d / goa_rhythm.SAMPLE_DIR / name, "xb") as fh:
+                fh.write(data)
     arrangement_midi.write_arrangement_midi(arr, mid)
     try:
         with open(readme, "x", encoding="utf-8", newline="\n") as fh:
@@ -311,6 +392,17 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--root", choices=ROOT_NAMES, default="A")
     p.add_argument("--scale", choices=sorted(goa_patterns.SCALES), default="phrygian")
     p.add_argument("--roll", choices=goa_patterns.ROLL_CHOICES, default="off_kick_16th")
+    p.add_argument("--intro-bars", type=int, default=0, choices=INTRO_BARS_CHOICES,
+                   help="kick-less intro bars in front (default 0)")
+    p.add_argument("--breakdowns", type=int, default=2, choices=BREAKDOWN_CHOICES,
+                   help="number of breakdowns (default 2 = original plan)")
+    p.add_argument("--outro", choices=OUTRO_MODES, default="kick_on")
+    p.add_argument("--outro-bars", type=int, default=8, choices=OUTRO_BARS_CHOICES)
+    p.add_argument("--kick-preset", default=goa_rhythm.DEFAULT_KICK_PRESET)
+    p.add_argument("--bass-preset", default=goa_rhythm.DEFAULT_BASS_PRESET)
+    p.add_argument("--hat-preset", default=goa_rhythm.DEFAULT_HAT_PRESET)
+    p.add_argument("--no-samples", action="store_true",
+                   help="do not render the rhythm one-shots into DIR/samples")
     p.add_argument("--dj-intro-outro", dest="dj_bars", type=int, nargs="?", const=16,
                    default=0, help="bars of DJ intro and outro (flag alone = 16; 8-32)")
     return p
@@ -319,8 +411,11 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     a = build_parser().parse_args(argv)
     try:
-        mid, readme = write_track(a.out, seed=a.seed, bpm=a.bpm, root=a.root, scale=a.scale,
-                                  roll=a.roll, dj_bars=a.dj_bars)
+        mid, readme = write_track(
+            a.out, render_samples=not a.no_samples, seed=a.seed, bpm=a.bpm, root=a.root,
+            scale=a.scale, roll=a.roll, dj_bars=a.dj_bars, intro_bars=a.intro_bars,
+            breakdowns=a.breakdowns, outro=a.outro, outro_bars=a.outro_bars,
+            kick_preset=a.kick_preset, bass_preset=a.bass_preset, hat_preset=a.hat_preset)
     except (ValueError, OSError) as e:
         print(f"error: {e}", file=sys.stderr)
         return 2
