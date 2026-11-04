@@ -193,6 +193,9 @@ def test_cli_options_readme_and_samples(tmp_path):
                    "| breakdowns | 1 |", "`kick_less`, 16 bars", "`goa-roll-long` (gate 100 ms",
                    "| DJ intro/outro | 0 bars each |", "Intro no kick"):
         assert needle in text, needle
+    assert "NOT derived from presets" in text and "rendered WAV only" in text
+    assert "key-dependent" in text and "MIDI 33 for this key" in text  # root A: 24 + 9
+    assert "the rendered one-shot is at MIDI 36" in text
     # samples are exactly what the engines render from the presets
     for cat, preset in (("kick", "dense"), ("bass", "goa-roll-long"), ("hat", "closed-std")):
         wav = (out / "samples" / f"{cat}_{preset}.wav").read_bytes()

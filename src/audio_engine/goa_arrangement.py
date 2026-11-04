@@ -303,8 +303,17 @@ def render_readme(arr: dict[str, Any], mid_name: str, params: dict[str, Any]) ->
         f"| DJ intro/outro | {opts['dj_bars']} bars each |",
         f"| kick preset | `{opts['kick_preset']}` |",
         f"| bass preset | `{opts['bass_preset']}` (gate {goa_rhythm.bass_gate_ms(kit):g} ms = "
-        f"MIDI note length; one-shot pitch MIDI {goa_rhythm.bass_note(kit)}) |",
-        f"| hat preset | `{opts['hat_preset']}` |",
+        f"MIDI note length; the rendered one-shot is at MIDI {goa_rhythm.bass_note(kit)}) |",
+        f"| hat preset | `{opts['hat_preset']}` (rendered WAV only; the MIDI hat pattern does "
+        "not depend on it) |",
+        "",
+        "What comes from presets and what does not: the MIDI note patterns (bass roll "
+        "including `offbeat_ghost`, kick, hat/shaker) are fixed code in `goa_patterns` and "
+        "`goa_rhythm`, NOT derived from presets. From the presets come only the bass note "
+        "length (gate) and the ghost velocity rule in the MIDI, and the rendered WAVs in "
+        "`samples/`. The MIDI bass notes are key-dependent (they start at "
+        f"MIDI {ROOT_OFFSET['bass'] + ROOT_NAMES.index(arr['key']['root'])} for this key and follow the scale), so the sampler "
+        "pitch of the bass one-shot must be matched to the key by hand.",
         "",
         "Defaults are only defaults (D-027); no value above is a measured fact about Goa.",
         "",
@@ -367,12 +376,12 @@ def write_track(
             raise FileExistsError(f"{p} already exists; choose another folder (nothing written)")
     d.mkdir(parents=True, exist_ok=True)
     text = render_readme(arr, mid.name, params)
+    arrangement_midi.write_arrangement_midi(arr, mid)  # MIDI first, then the samples
     if wavs:
         (d / goa_rhythm.SAMPLE_DIR).mkdir(exist_ok=True)
         for name, data, _desc in wavs:
             with open(d / goa_rhythm.SAMPLE_DIR / name, "xb") as fh:
                 fh.write(data)
-    arrangement_midi.write_arrangement_midi(arr, mid)
     try:
         with open(readme, "x", encoding="utf-8", newline="\n") as fh:
             fh.write(text)
