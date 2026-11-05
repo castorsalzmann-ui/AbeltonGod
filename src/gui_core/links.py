@@ -216,6 +216,88 @@ def _reason(model: CategoryFormModel, spec: FieldSpec, lo: float, hi: float,
     return f"{spec.label}: {span}{tail}."
 
 
+def _nearest_accepted(model: CategoryFormModel, name: str) -> float | int | None:
+    """The value of ``name`` closest to the current one that the engine accepts with every other
+    field as it is, or ``None``. Coarse scan over the slider positions, then bisection to the
+    edge on the side of the current value."""
+    spec = model.spec(name)
+    vmap = map_of(spec)
+    current, problem = model.parse(name)
+    if problem:
+        return None
+    stride = max(1, vmap.pos_max // 60)
+    positions = sorted({*range(0, vmap.pos_max + 1, stride), vmap.pos_max})
+    here = vmap.to_pos(current)
+    good = [p for p in positions if _accepts(model, name, vmap.from_pos(p))[0]]
+    if not good:
+        return None
+    best = min(good, key=lambda p: abs(p - here))
+    value = vmap.from_pos(best)
+    toward = [p for p in positions if (p > best) == (here > best) and p != best]
+    if toward:  # the grid point next to ``best`` on the side of the current value is refused
+        bad_pos = min(toward, key=lambda p: abs(p - best))
+        bad = vmap.from_pos(bad_pos)
+        if not _accepts(model, name, bad)[0]:
+            edge = _bisect(model, spec, float(value), float(bad))
+            edge = _grid(spec, edge, up=bad < value)
+            if _accepts(model, name, edge)[0]:
+                value = edge
+    return int(value) if spec.kind == "int" else float(value)
+
+
+MAX_REPAIRS = 6
+
+
+@dataclass(frozen=True)
+class Repair:
+    notices: list[str]  # German, one per moved field
+    moved: list[str]  # names of the fields that were moved
+
+
+def repair(model: CategoryFormModel, changed: str | None = None) -> Repair:
+    """Bring a refused combination back into what the engine accepts; German notices.
+
+    Called after a change that the per-field limits cannot see (a field switched off, a choice
+    such as the sample rate changed). The engine's own error line names the fields involved;
+    the one (not ``changed``) that can be moved the least makes the form valid again and is set
+    to the nearest accepted value. Nothing changes when the form is valid or no single field
+    can fix it; the caller then still has the engine's message ("Ungültige Kombination").
+    """
+    notices: list[str] = []
+    moved: list[str] = []
+    for _ in range(MAX_REPAIRS):
+        issue = model.cross_issue()
+        if issue is None:
+            break
+        names = {s.name for s in model.specs}
+        involved = [w for w in dict.fromkeys(_WORD.findall(issue)) if w in names]
+        best: tuple[float, str, float | int] | None = None
+        for name in involved:
+            spec = model.spec(name)
+            if (name == changed or name not in model.active or spec.kind not in ("int", "float")
+                    or spec.zero_ok or name == "length_beats"):
+                continue
+            value = _nearest_accepted(model, name)
+            if value is None:
+                continue
+            vmap = map_of(spec)
+            cost = abs(vmap.to_pos(model.parse(name)[0]) - vmap.to_pos(value))
+            if best is None or cost < best[0]:
+                best = (cost, name, value)
+        if best is None:
+            break
+        _, name, value = best
+        moved.append(name)
+        spec = model.spec(name)
+        model.set_text(name, repr(value) if isinstance(value, float) else str(value))
+        others = ", ".join(_label(model, w) for w in involved if w != name) or "den anderen Feldern"
+        notices.append(
+            f"{spec.label} wurde auf {map_of(spec).format(value)} gesetzt, damit die Kombination "
+            f"mit {others} gültig bleibt (Regel des Kontrakts)."
+        )
+    return Repair(notices, moved)
+
+
 def limits(model: CategoryFormModel, skip: str | None = None) -> dict[str, Limit]:
     """Limits of every numeric field (``skip``: the field being edited right now)."""
     return {

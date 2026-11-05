@@ -8,7 +8,8 @@ Interface (signals use the contract field name):
 * ``activeToggled(name, on)``: the user clicked the dot ("send this value" / "use the default").
 * ``committed(name)``: a drag, key press or typed entry is finished (heavier updates may run).
 * ``resetRequested(name)``: double click on a slider or knob.
-* ``set_value`` / ``set_active`` / ``set_limits`` / ``set_note`` / ``set_invalid``: show state.
+* ``set_value`` / ``set_active`` / ``set_limits`` / ``set_derived_note`` / ``set_edit_note`` /
+  ``set_invalid``: show state.
 
 A number control keeps the exact value it is given; dragging produces rounded values; a typed
 value is clamped into the contract range and the limits of linked parameters.
@@ -97,7 +98,10 @@ class ParamControl(QWidget):
         self.note.setWordWrap(True)
         self.note.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Minimum)
         self.note.hide()
-        self.limit_reason = ""
+        self.limit_reason = ""  # why a linked parameter limits this field (German)
+        self.edit_note = ""  # what happened to the last typed value; stays until the next edit
+        self.derived_note = ""  # what the engine made of this field
+        self.show_limit_note = False  # slider rows show the limit under the slider
         self._active = True
         self.setToolTip(spec.description)
 
@@ -115,12 +119,44 @@ class ParamControl(QWidget):
     def _after_active(self) -> None:  # subclasses restyle
         pass
 
-    def set_note(self, text: str, error: bool = False) -> None:
+    def _finish(self, row: QHBoxLayout) -> None:
+        """Lay out ``row`` with the note label below it (the note is never parentless)."""
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(0)
+        outer.addLayout(row)
+        outer.addWidget(self.note)
+
+    def _show_note(self) -> None:
+        """One line below the control: the typed-value note first, then the engine's derived
+        value, then (slider rows only) the limit reason."""
+        if self.edit_note:
+            text, error = self.edit_note, True
+        elif self.derived_note:
+            text, error = self.derived_note, False
+        elif self.show_limit_note and self.limit_reason:
+            text, error = self.limit_reason, True
+        else:
+            text, error = "", False
+        name = "linkhint" if error else "muted"
+        if self.note.objectName() != name:
+            self.note.setObjectName(name)
+            self.note.style().unpolish(self.note)
+            self.note.style().polish(self.note)
         self.note.setText(text)
-        self.note.setObjectName("linkhint" if error else "muted")
-        self.note.style().unpolish(self.note)
-        self.note.style().polish(self.note)
         self.note.setVisible(bool(text))
+
+    def set_derived_note(self, text: str) -> None:
+        self.derived_note = text
+        self._show_note()
+
+    def set_edit_note(self, text: str) -> None:
+        self.edit_note = text
+        self._show_note()
+
+    def clear_edit_note(self) -> None:
+        if self.edit_note:
+            self.set_edit_note("")
 
     def set_invalid(self, message: str | None) -> None:
         self.setToolTip(message or self.spec.description)
@@ -158,6 +194,8 @@ class NumberControl(ParamControl):
             row.addWidget(self.label)
             row.addStretch(1)
             lay.addLayout(row)
+            self.note.setAlignment(Qt.AlignmentFlag.AlignHCenter)
+            lay.addWidget(self.note)  # a wrapped line under the knob (clamped entry)
             self.setFixedWidth(em * 9)
         else:
             self.slider = TrackSlider(self.vmap, accent=accent)
@@ -173,6 +211,7 @@ class NumberControl(ParamControl):
             row.addWidget(self.readout)
             outer.addLayout(row)
             outer.addWidget(self.note)
+            self.show_limit_note = True
         self.slider.setAccessibleName(spec.label)
         self.slider.setToolTip(spec.description)
         self.slider.userChanged.connect(self._slid)
@@ -199,14 +238,14 @@ class NumberControl(ParamControl):
         self.slider.set_limits(lo, hi)
         self.limit_reason = reason
         self.slider.setToolTip((self.spec.description + "\n\n" + reason).strip())
-        if self.style_name == "row":
-            self.set_note(reason, error=True)
+        self._show_note()
 
     @property
     def limits(self) -> tuple[float, float]:
         return self.slider.limits
 
     def _slid(self, value: float) -> None:
+        self.clear_edit_note()
         self._value = value
         self.readout.show_text(self.vmap.format(value), muted=False)
         self.edited.emit(self.name, value)
@@ -222,7 +261,7 @@ class NumberControl(ParamControl):
                                   if unit else raw)
         if number is None:
             self.readout.show_text(self.vmap.format(self._value), muted=not self._active)
-            self.set_note("Bitte eine Zahl eingeben.", error=True)
+            self.set_edit_note("Bitte eine Zahl eingeben.")
             return
         value = self.vmap.clamp(number)
         lo, hi = self.slider.limits
@@ -231,13 +270,17 @@ class NumberControl(ParamControl):
                 value = max(value, lo)
             if hi < self.vmap.maximum:
                 value = min(value, hi)
+        outside = value != number
         if self.vmap.integer:
             value = int(round(value))  # an int the user typed into a float field stays an int
-        if value != number:
-            self.set_note(f"{raw} liegt außerhalb des erlaubten Bereichs, gesetzt auf "
-                          f"{self.vmap.format(value)}.", error=True)
-        elif self.style_name == "row":
-            self.set_note(self.limit_reason, error=bool(self.limit_reason))
+        if outside:
+            self.set_edit_note(f"{raw} liegt außerhalb des erlaubten Bereichs, gesetzt auf "
+                               f"{self.vmap.format(value)}.")
+        elif value != number:
+            self.set_edit_note(f"{raw} ist keine ganze Zahl, gesetzt auf "
+                               f"{self.vmap.format(value)}.")
+        else:
+            self.clear_edit_note()
         self.set_value(value)
         self.edited.emit(self.name, value)
         self.committed.emit(self.name)
@@ -255,7 +298,7 @@ class SeedControl(ParamControl):
         self.edit.setToolTip(spec.description)
         self.edit.edited.connect(self._typed)
         self.label.setFixedWidth(em * 15)
-        row = QHBoxLayout(self)
+        row = QHBoxLayout()
         row.setContentsMargins(0, 0, 0, 0)
         row.addWidget(self.dot)  # hidden, keeps the label column aligned
         row.addWidget(self.label)
@@ -264,6 +307,7 @@ class SeedControl(ParamControl):
         self.range_label = QLabel(spec.range_text)
         self.range_label.setObjectName("muted")
         row.addWidget(self.range_label)
+        self._finish(row)
 
     def set_value(self, value: int | str) -> None:
         if self.edit.text() != str(value):
@@ -295,13 +339,11 @@ class ChoiceControl(ParamControl):
         self.seg.setToolTip(spec.description)
         self.seg.chosen.connect(self._chosen)
         self.label.setFixedWidth(em * 15)
-        outer = QVBoxLayout(self)
-        outer.setContentsMargins(0, 0, 0, 0)
         row = QHBoxLayout()
         row.addWidget(self.dot)
         row.addWidget(self.label)
         row.addWidget(self.seg, 1)
-        outer.addLayout(row)
+        self._finish(row)
 
     def set_value(self, text: str) -> None:
         self.seg.set_index(self.texts.index(text) if text in self.texts else -1)
@@ -332,12 +374,12 @@ class BoolControl(ParamControl):
         self.toggle.setToolTip(spec.description)
         self.toggle.toggled.connect(self._toggled)
         self.label.setFixedWidth(em * 15)
-        row = QHBoxLayout(self)
-        row.setContentsMargins(0, 0, 0, 0)
+        row = QHBoxLayout()
         row.addWidget(self.dot)
         row.addWidget(self.label)
         row.addWidget(self.toggle)
         row.addStretch(1)
+        self._finish(row)
 
     def set_value(self, text: str) -> None:
         self.toggle.blockSignals(True)

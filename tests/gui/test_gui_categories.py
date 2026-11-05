@@ -114,7 +114,7 @@ def test_a_typed_number_outside_the_range_is_clamped_not_sent(window):
     assert "liegt außerhalb" in c.note.text()
 
 
-def test_cross_rule_of_the_engine_cannot_be_dialled_in_for_bass(window):
+def test_cross_rule_of_the_engine_is_kept_by_the_bass_controls(window):
     go(window, "bass")
     hp = window.panel.controls["hp_hz"]
     lo, hi = hp.limits
@@ -122,7 +122,7 @@ def test_cross_rule_of_the_engine_cannot_be_dialled_in_for_bass(window):
     hp.readout.setText("120")
     hp.readout.entered.emit("120")  # would break hp_hz < 0.8 * f0: clamped to the limit
     assert hp.value() == hi and window.render_button.isEnabled()
-    assert window.model.is_valid and "höchstens" in hp.note.text()
+    assert window.model.is_valid and "außerhalb" in hp.note.text()
     # moving the partner moves the limit: a higher note allows a higher high-pass
     note = window.panel.controls["note"]
     note.readout.setText("55")

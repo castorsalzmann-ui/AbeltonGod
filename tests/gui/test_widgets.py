@@ -392,3 +392,150 @@ def test_random_user_actions_never_produce_an_invalid_combination(make_panel, ca
             chips = p.chips
             chips.buttons[rng.randrange(len(chips.buttons))].click()
         assert p.model.issues() == [], (category, step, name, p.model.issues())
+
+
+# --- review round 1: notes, dots and choices ---------------------------------------------------
+
+def type_in(c, text):
+    c.readout.setText(text)
+    c.readout.entered.emit(text)
+
+
+def visible_note(panel, c) -> bool:
+    n = c.note
+    return (not n.isWindow() and n.parent() is not None and n.isVisibleTo(panel)
+            and n.text() != "")
+
+
+def test_knob_clamp_note_is_a_visible_child_of_the_page_not_a_stray_window(make_panel):
+    p = make_panel("kick")
+    knob = p.controls["drive"]
+    assert knob.style_name == "knob" and not knob.note.isWindow()
+    type_in(knob, "99999")
+    assert knob.value() == 1 and visible_note(p, knob)
+    assert "außerhalb" in knob.note.text() and "gesetzt auf 1" in knob.note.text()
+    assert knob.isAncestorOf(knob.note) and p.isAncestorOf(knob.note)
+    type_in(knob, "0.5")  # a valid entry removes the note
+    assert not knob.note.isVisibleTo(p)
+
+
+@pytest.mark.parametrize(("typed", "expected", "word"), [
+    ("0", 50, "außerhalb"), ("1e9", 1500, "außerhalb"), ("12,5 ms", 50, "außerhalb"),
+])
+def test_slider_row_keeps_its_clamp_note_after_the_page_refreshes(make_panel, typed, expected,
+                                                                   word):
+    p = make_panel("bass")
+    p.advanced.set_expanded(True)
+    gate = p.controls["gate_ms"]
+    assert gate.style_name == "row"
+    type_in(gate, typed)  # typing commits: the page refreshes (final=True) right after
+    assert gate.value() == expected and visible_note(p, gate), typed
+    assert word in gate.note.text()
+    p._refresh(skip=None, final=True)  # any later refresh keeps it
+    assert visible_note(p, gate)
+    gate.slider.move_to_position(300)  # the next user edit of the field removes it
+    assert not gate.note.isVisibleTo(p)
+
+
+def test_a_typed_fraction_in_a_whole_number_field_is_rounded_with_a_note(make_panel):
+    p = make_panel("bass")
+    p.advanced.set_expanded(True)
+    note = p.controls["note"]
+    type_in(note, "43,6")
+    assert note.value() == 44 and visible_note(p, note)
+    assert "keine ganze Zahl" in note.note.text()
+    p.chips.buttons[0].click()  # a preset change clears the old remark
+    assert not note.note.isVisibleTo(p)
+
+
+def test_switching_a_dot_off_that_breaks_a_partner_moves_the_partner(make_panel):
+    p = make_panel("rim")
+    f1, hp = p.controls["f1_hz"], p.controls["hp_hz"]
+    type_in(f1, "3500")
+    type_in(hp, "2800")  # hp_hz < 0.8 * 3500
+    assert p.model.is_valid
+    f1.dot.setChecked(False)  # f1_hz falls back to 455 Hz: hp_hz 2800 would be refused
+    assert p.model.is_valid and "f1_hz" not in p.model.active
+    assert hp.value() < 364.01  # moved to what 0.8 * 455 allows
+    assert "Hochpass wurde auf" in p.link_label.text()
+    assert "Frequenz 1" in p.link_label.text()
+    assert "außerhalb" not in hp.note.text()  # no stale remark about the old typed value
+
+
+def test_changing_the_sample_rate_moves_a_filter_that_would_pass_nyquist(make_panel):
+    p = make_panel("bass")
+    p.advanced.set_expanded(True)
+    lp = p.controls["lp_hz"]
+    type_in(lp, "4000")
+    assert p.model.is_valid
+    amount = p.controls["lp_env_amount"]
+    type_in(amount, "2.5")  # cutoff at t = 0: lp_hz * 2^2.5 must stay under 0.45 * sample_rate
+    assert p.model.is_valid
+    p.controls["sample_rate"].seg.buttons[0].click()  # 44100
+    assert p.model.text["sample_rate"] == "44100" and p.model.is_valid
+    assert "Samplerate" in p.link_label.text() or "Tiefpass" in p.link_label.text()
+
+
+def test_a_refused_combination_that_cannot_be_repaired_still_blocks_render(qapp, tmp_path):
+    from gui.main_window import MainWindow
+
+    class Quiet:
+        available = True
+
+        def play(self, wav_path):
+            pass
+
+        def stop(self):
+            pass
+
+    w = MainWindow(out_dir=tmp_path / "out", backend=Quiet(), opener=lambda p: True)
+    w.show()
+    try:
+        w.categories.setCurrentRow(CATEGORY_KEYS.index("bass"))
+        # set programmatically, as no control can produce it any more
+        w.model.set_active("hp_hz", True)
+        w.model.set_text("hp_hz", "120")
+        w.panel.changed.emit()
+        assert not w.render_button.isEnabled()
+        assert "Rendern nicht möglich" in w.status.text()
+        assert "Ungültige Kombination" in w.status.text()
+        w.start_render()
+        assert w.handle is None
+    finally:
+        w.close()
+
+
+@pytest.mark.parametrize("seed", [1, 2, 3, 4, 5, 6, 4242])
+@pytest.mark.parametrize("category", CATEGORY_KEYS)
+def test_random_actions_with_dots_choices_and_presets_keep_the_form_accepted(make_panel, category,
+                                                                              seed):
+    """Property: drags, typed values (also far outside), dot toggles, enum and switch clicks and
+    preset changes never leave a combination the engine refuses (200 actions per run)."""
+    from gui.widgets import BoolControl, ChoiceControl
+
+    rng = random.Random(f"{category}-{seed}")
+    p = make_panel(category)
+    numbers = [c for n, c in p.controls.items() if isinstance(c, NumberControl)
+               and n != "variants"]
+    choices = [c for c in p.controls.values() if isinstance(c, ChoiceControl | BoolControl)]
+    for step in range(200):
+        r = rng.random()
+        if r < 0.30:
+            c = rng.choice(numbers)
+            c.slider.move_to_position(rng.randint(0, c.vmap.pos_max))
+        elif r < 0.50:
+            c = rng.choice(numbers)
+            lo, hi = c.vmap.minimum, c.vmap.maximum
+            type_in(c, repr(round(rng.uniform(lo - (hi - lo), hi + (hi - lo)), 3)))
+        elif r < 0.75:
+            c = rng.choice(numbers)
+            c.dot.setChecked(not c.dot.isChecked())
+        elif r < 0.92 and choices:
+            c = rng.choice(choices)
+            if isinstance(c, ChoiceControl):
+                c.seg.buttons[rng.randrange(len(c.seg.buttons))].click()
+            else:
+                c.toggle.setChecked(not c.toggle.isChecked())
+        else:
+            p.chips.buttons[rng.randrange(len(p.chips.buttons))].click()
+        assert p.model.issues() == [], (category, seed, step, p.model.issues())

@@ -142,8 +142,16 @@ class CategoryPanel(QScrollArea):
         self._notices = links.activate(self.model, name)
         text = value if isinstance(value, str) else _text_of(spec, value)
         self.model.set_text(name, text)
+        self._repair(name)
         self._refresh(skip=name)
         self.changed.emit()
+
+    def _repair(self, changed: str) -> None:
+        """Re-check the combination after a change the limits cannot see (a dot, a choice)."""
+        fixed = links.repair(self.model, changed=changed)
+        self._notices += fixed.notices
+        for moved in fixed.moved:
+            self.controls[moved].clear_edit_note()  # an old remark about that value is stale
 
     def _committed(self, name: str) -> None:
         if not self._syncing:
@@ -160,6 +168,8 @@ class CategoryPanel(QScrollArea):
         else:
             self._notices = []
             self.model.set_active(name, False)
+        self.controls[name].clear_edit_note()
+        self._repair(name)
         self._refresh(skip=None, final=True)
         self.changed.emit()
 
@@ -168,6 +178,8 @@ class CategoryPanel(QScrollArea):
             return
         self._notices = []
         self.model.reset_field(name)
+        self.controls[name].clear_edit_note()
+        self._repair(name)
         self._refresh(skip=None, final=True)
         self.changed.emit()
 
@@ -176,6 +188,8 @@ class CategoryPanel(QScrollArea):
         """Show the model's state (after a preset change)."""
         self._syncing = True
         try:
+            for c in self.controls.values():
+                c.clear_edit_note()
             self.chips.set_current(self.model.preset)
             self.preset_text.setText(self.model.preset_description())
             self._refresh(skip=None, final=True)
@@ -200,10 +214,7 @@ class CategoryPanel(QScrollArea):
                 if isinstance(c, NumberControl) and name in lims:
                     lim = lims[name]
                     c.set_limits(lim.lo, lim.hi, lim.reason)
-                if name in derived.notes:
-                    c.set_note(derived.notes[name])
-                elif isinstance(c, NumberControl) and c.style_name == "row" and not c.limit_reason:
-                    c.set_note("")
+                c.set_derived_note(derived.notes.get(name, ""))
             self._show_links(lims, links_issue=model.cross_issue())
         finally:
             self._syncing = was
