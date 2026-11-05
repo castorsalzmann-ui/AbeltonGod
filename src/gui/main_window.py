@@ -19,18 +19,21 @@ from PySide6.QtWidgets import (
     QPushButton,
     QSizePolicy,
     QSplitter,
+    QStackedWidget,
     QVBoxLayout,
     QWidget,
 )
 
-from gui_core.categories import CATEGORIES
-from gui_core.form import KickFormModel
+from gui_core.categories import CATEGORIES, LIBRARY_LABEL
+from gui_core.form import CategoryFormModel
 from gui_core.paths import default_output_dir
 from gui_core.preview import ERROR, PLAYING, PlaybackBackend, PreviewController
 from gui_core.render import RenderHandle, RenderJob, RenderResult, RenderService
 
 from .audio import choose_backend
-from .kick_panel import KickPanel
+from .category_panel import CategoryPanel
+from .drag import PATH_ROLE, DragList
+from .library_panel import LibraryPanel
 from .waveform_widget import WaveformWidget
 
 
@@ -59,7 +62,9 @@ class MainWindow(QMainWindow):
         self.service = service or RenderService()
         self.preview = PreviewController(backend or choose_backend())
         self.opener = opener
-        self.model = KickFormModel()
+        self.models = {c.key: CategoryFormModel(c.key) for c in CATEGORIES}
+        self.form_key = CATEGORIES[0].key  # the category whose form Render uses
+        self.on_library = False
         self.handle: RenderHandle | None = None
         self._bridge = _Bridge()
         self._bridge.progress.connect(self._on_progress)
@@ -73,14 +78,14 @@ class MainWindow(QMainWindow):
 
         self.categories = QListWidget()
         self.categories.setObjectName("categories")
-        for entry in CATEGORIES:
-            text = entry.label if entry.enabled else f"{entry.label}  ({entry.note})"
+        for entry in (*CATEGORIES, None):
+            label = LIBRARY_LABEL if entry is None else entry.label
+            text = label if entry is None or entry.enabled else f"{label}  ({entry.note})"
             item = QListWidgetItem(text)
             item.setSizeHint(QSize(0, self.fontMetrics().height() * 2))
-            if not entry.enabled:
+            if entry is not None and not entry.enabled:
                 item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEnabled)
             self.categories.addItem(item)
-        self.categories.setCurrentRow(0)
         m = self.fontMetrics().horizontalAdvance("M")  # layout in font units: follows the DPI
         self.categories.setFixedWidth(m * 20)
         outer.addWidget(self.categories)
@@ -88,10 +93,18 @@ class MainWindow(QMainWindow):
         split = QSplitter()
         split.setChildrenCollapsible(False)
         outer.addWidget(split, 1)
-        self.panel = KickPanel(self.model)
-        self.panel.setMinimumWidth(m * 44)
-        self.panel.changed.connect(self._update_state)
-        split.addWidget(self.panel)
+        self.stack = QStackedWidget()
+        self.stack.setMinimumWidth(m * 44)
+        self.panels: dict[str, CategoryPanel] = {}
+        for c in CATEGORIES:
+            panel = CategoryPanel(self.models[c.key])
+            panel.changed.connect(self._update_state)
+            self.panels[c.key] = panel
+            self.stack.addWidget(panel)
+        self.library = LibraryPanel()
+        self.library.selected.connect(self._load_preview)
+        self.stack.addWidget(self.library)
+        split.addWidget(self.stack)
         right = self._build_right()
         right.setMinimumWidth(m * 38)
         split.addWidget(right)
@@ -101,6 +114,9 @@ class MainWindow(QMainWindow):
         self.timer = QTimer(self)
         self.timer.setInterval(30)
         self.timer.timeout.connect(self._tick)
+        self.library.folder = Path(self.folder_edit.text().strip() or ".")
+        self.categories.currentRowChanged.connect(self.show_page)
+        self.categories.setCurrentRow(0)
         self._update_state()
         self.resize(m * 112, self.fontMetrics().height() * 42)
 
@@ -141,7 +157,7 @@ class MainWindow(QMainWindow):
         heading = QLabel("Ergebnisse")
         heading.setObjectName("heading")
         lay.addWidget(heading)
-        self.results = QListWidget()
+        self.results = DragList()  # rows can be dragged out as WAV files
         self.results.setObjectName("results")
         self.results.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.results.setTextElideMode(Qt.TextElideMode.ElideRight)
@@ -169,6 +185,27 @@ class MainWindow(QMainWindow):
         lay.addWidget(self.preview_info)
         return box
 
+    # --- pages -------------------------------------------------------------------------
+    @property
+    def model(self) -> CategoryFormModel:
+        return self.models[self.form_key]
+
+    @property
+    def panel(self) -> CategoryPanel:
+        return self.panels[self.form_key]
+
+    def show_page(self, row: int) -> None:
+        """Row ``len(CATEGORIES)`` is the library, the others are category forms."""
+        if row < 0:
+            return
+        self.on_library = row >= len(CATEGORIES)
+        if self.on_library:
+            self.library.set_folder(Path(self.folder_edit.text().strip() or "."))
+        else:
+            self.form_key = CATEGORIES[row].key
+        self.stack.setCurrentIndex(row)
+        self._update_state()
+
     # --- state -------------------------------------------------------------------------
     @property
     def running(self) -> bool:
@@ -182,12 +219,15 @@ class MainWindow(QMainWindow):
         self.status.style().polish(self.status)
 
     def _update_state(self) -> None:
-        issues = self.model.issues()
-        self.render_button.setEnabled(not issues and not self.running)
+        issues = [] if self.on_library else self.model.issues()
+        self.render_button.setEnabled(not issues and not self.running and not self.on_library)
         self.cancel_button.setEnabled(self.running)
         if self.running:
             return
-        if issues:
+        if self.on_library:
+            if self.status.text().startswith("Rendern nicht möglich"):
+                self.set_status("")
+        elif issues:
             self.set_status("Rendern nicht möglich: " + " | ".join(issues), error=True)
         elif self.status.property("level") == "error" and self.status.text().startswith(
             "Rendern nicht möglich"
@@ -205,11 +245,11 @@ class MainWindow(QMainWindow):
             self.folder_edit.setText(picked)
 
     def start_render(self) -> None:
-        if self.running or not self.model.is_valid:
+        if self.running or self.on_library or not self.model.is_valid:
             return
         job = RenderJob(
             self.model.build_request(), Path(self.folder_edit.text().strip()),
-            self.model.preset, self.model.overrides(),
+            self.model.preset, self.model.overrides(), self.form_key,
         )
         total = int(job.request["variants"])
         self.progress.setRange(0, total)
@@ -234,10 +274,10 @@ class MainWindow(QMainWindow):
         first_new = self.results.count()
         for f in result.files:
             item = QListWidgetItem(
-                f"{f.wav_path.name}    Seed {f.seed}"
+                f"{result.job.category}  {f.wav_path.name}    Seed {f.seed}"
                 + (f"    Spitze {f.peak_dbfs:.1f} dBFS" if f.peak_dbfs is not None else "")
             )
-            item.setData(Qt.ItemDataRole.UserRole, str(f.wav_path))
+            item.setData(PATH_ROLE, str(f.wav_path))
             self.results.addItem(item)
         self.result_paths.extend(f.wav_path for f in result.files)
         n = len(result.files)
@@ -250,14 +290,17 @@ class MainWindow(QMainWindow):
             self.progress.setValue(self.progress.maximum())
         if n:
             self.results.setCurrentRow(first_new)
+        if self.on_library:
+            self.library.refresh()
         self._update_state()
 
     # --- preview -----------------------------------------------------------------------
     def _result_selected(self, row: int) -> None:
         item = self.results.item(row)
-        if item is None:
-            return
-        path = Path(item.data(Qt.ItemDataRole.UserRole))
+        if item is not None:
+            self._load_preview(Path(item.data(PATH_ROLE)))
+
+    def _load_preview(self, path: Path) -> None:
         if self.preview.load(path):
             wf = self.preview.waveform
             self.wave.set_waveform(wf)

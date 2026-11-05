@@ -19,10 +19,28 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from audio_engine import (
+    bass_variants,
+    clap_variants,
+    hat_variants,
+    rim_variants,
+    snare_variants,
+)
+from audio_engine import (
+    variants as kick_variants,
+)
+from audio_engine.categories import get_category
 from audio_engine.io import write_kick
-from audio_engine.params import KickParamsError, resolve_kick_params
 from audio_engine.presets import UnknownPresetError, describe
-from audio_engine.variants import make_variants
+
+_VARIANTS: dict[str, Callable[[dict[str, Any], int], list[dict[str, Any]]]] = {
+    "kick": kick_variants.make_variants,
+    "clap": clap_variants.make_variants,
+    "hat": hat_variants.make_variants,
+    "snare": snare_variants.make_variants,
+    "rim": rim_variants.make_variants,
+    "bass": bass_variants.make_variants,
+}
 
 MAX_DESCRIPTION = 500  # sample-metadata: description maxLength (same cut as the CLI)
 
@@ -37,6 +55,7 @@ class RenderJob:
     out_dir: Path
     preset: str
     overrides: dict[str, Any] = field(default_factory=dict)
+    category: str = "kick"
 
 
 @dataclass(frozen=True)
@@ -82,7 +101,7 @@ def run_job(
     files: list[RenderedFile] = []
     try:
         variants, stems, descriptions = _plan(job)
-    except (KickParamsError, UnknownPresetError, ValueError, KeyError, TypeError) as exc:
+    except (UnknownPresetError, ValueError, KeyError, TypeError) as exc:
         return RenderResult(job, (), ErrorInfo("invalid_params", _first_line(exc), str(exc)))
     except Exception as exc:  # noqa: BLE001 - a result object, not a crash
         return RenderResult(job, (), _internal(exc))
@@ -92,7 +111,8 @@ def run_job(
         for i, (params, stem, text) in enumerate(zip(variants, stems, descriptions, strict=True)):
             if cancel.is_set():
                 return RenderResult(job, tuple(files), cancelled=True)
-            wav, sidecar = writer(params, job.out_dir, name=stem, description=text)
+            extra = {} if job.category == "kick" else {"category": job.category}
+            wav, sidecar = writer(params, job.out_dir, name=stem, description=text, **extra)
             files.append(RenderedFile(
                 i, Path(wav), Path(sidecar), int(params["seed"]), dict(params), _peak(sidecar)
             ))
@@ -100,6 +120,9 @@ def run_job(
                 progress(i + 1, total)
     except OSError as exc:
         return RenderResult(job, tuple(files), _output_error(exc, len(files), total))
+    except ValueError as exc:  # e.g. "the click has no energy": a parameter mix the engine refuses
+        err = ErrorInfo("invalid_params", _first_line(exc), str(exc))
+        return RenderResult(job, tuple(files), err)
     except Exception as exc:  # noqa: BLE001
         return RenderResult(job, tuple(files), _internal(exc))
     if cancel.is_set() and len(files) < total:  # pragma: no cover - loop returns earlier
@@ -110,13 +133,16 @@ def run_job(
 def _plan(job: RenderJob) -> tuple[list[dict[str, Any]], list[str], list[str]]:
     if str(job.out_dir).strip() in ("", "."):  # Path("") is "." = the current folder
         raise ValueError("Kein Ausgabeordner angegeben.")
+    if job.category not in _VARIANTS:
+        raise ValueError(f"Unbekannte Kategorie: {job.category}")
     request = dict(job.request)
-    base = resolve_kick_params(request)
-    variants = make_variants(request, base["variants"])  # all made and checked before writing
+    # The category's own resolve and variant maker, as the CLI uses them (no rules re-written).
+    base = get_category(job.category).resolve(request)
+    variants = _VARIANTS[job.category](request, base["variants"])  # all made before writing
     suffix = "_custom" if job.overrides else ""
     stem = f"{job.preset}_s{base['seed']}"
     stems = [f"{stem}_v{i}{suffix}" for i in range(len(variants))]
-    text = describe(job.preset, "kick")
+    text = describe(job.preset, job.category)
     custom = ", ".join(f"{k}={v}" for k, v in job.overrides.items())
     n, seed = len(variants), base["seed"]
     descriptions = []

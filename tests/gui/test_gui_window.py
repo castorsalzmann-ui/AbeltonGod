@@ -68,10 +68,11 @@ def type_into(edit: QLineEdit, text: str) -> None:
 def test_window_builds_with_categories(window):
     assert window.windowTitle() == "AbeltonGod"
     items = [window.categories.item(i) for i in range(window.categories.count())]
-    assert items[0].text() == "Kick" and items[0].flags() & Qt.ItemFlag.ItemIsEnabled
-    for it in items[1:]:
-        assert "kommt in GUI-1" in it.text()
-        assert not it.flags() & Qt.ItemFlag.ItemIsEnabled
+    assert [i.text() for i in items] == [
+        "Kick", "Hi-Hat", "Snare", "Clap", "Rim", "Bass", "Bibliothek"
+    ]
+    for it in items:
+        assert it.flags() & Qt.ItemFlag.ItemIsEnabled
     assert window.render_button.isEnabled() and not window.cancel_button.isEnabled()
     assert window.render_button.text() == "Rendern"
 
@@ -132,7 +133,7 @@ def test_render_lists_file_and_preview_player_loads_it(qapp, window):
         path = Path(window.results.item(row).data(Qt.ItemDataRole.UserRole))
         assert path.is_file()
         assert path.parent == Path(window.folder_edit.text())
-    assert window.results.item(0).text().startswith("punchy_s")
+    assert window.results.item(0).text().startswith("kick  punchy_s")
     # first new result is selected and loaded
     assert window.results.currentRow() == 0
     assert window.preview.state == LOADED
