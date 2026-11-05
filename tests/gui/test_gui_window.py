@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
+import os
 import time
 from pathlib import Path
 
 import pytest
 
-pytest.importorskip("PySide6.QtWidgets")
+if os.environ.get("ABELTONGOD_REQUIRE_GUI") == "1":  # CI: a missing Qt must fail, not skip
+    import PySide6.QtWidgets  # noqa: F401
+else:
+    pytest.importorskip("PySide6.QtWidgets", exc_type=ImportError)
 
 from PySide6.QtCore import Qt  # noqa: E402
 from PySide6.QtTest import QTest  # noqa: E402

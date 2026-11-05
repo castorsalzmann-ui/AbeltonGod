@@ -258,7 +258,13 @@ class KickFormModel:
         else:
             req["schema_version"] = self._preset_values.get("schema_version", "0.2")
         req["preset"] = self.preset
-        return req
+        # Key order as the CLI builds it (preset file order, new fields, variants last), so the
+        # sidecar's "parameters" object is byte-identical too.
+        ordered = {k: req.pop(k) for k in list(self._preset_values) if k in req and k != "variants"}
+        variants = req.pop("variants")
+        ordered.update(req)
+        ordered["variants"] = variants
+        return ordered
 
     def build_request(self) -> dict[str, Any]:
         problems = self.field_issues()

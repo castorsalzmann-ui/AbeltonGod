@@ -6,6 +6,7 @@ import errno
 import hashlib
 import io
 import json
+import re
 import threading
 from pathlib import Path
 
@@ -58,6 +59,11 @@ def test_same_params_and_seed_give_the_bytes_of_the_cli(tmp_path):
     assert code == 0
     for f in result.files:
         assert f.wav_path.read_bytes() == (cli_out / f.wav_path.name).read_bytes()
+        # sidecar: identical bytes except the creation time stamp
+        def body(p: Path) -> str:
+            return re.sub(r'"created_at": "[^"]*"', "", p.read_text(encoding="utf-8"))
+
+        assert body(f.json_path) == body(cli_out / f.json_path.name)
 
 
 def test_overrides_match_cli_set_and_are_named_custom(tmp_path):

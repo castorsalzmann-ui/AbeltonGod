@@ -141,3 +141,5 @@ class KickPanel(QScrollArea):
             edit.setToolTip(problems[name] if bad else self.model.spec(name).description)
             edit.style().unpolish(edit)
             edit.style().polish(edit)
+        if problems:  # show the first invalid field, it may be scrolled out of view
+            self.ensureWidgetVisible(self.edits[next(iter(problems))], 0, 40)
