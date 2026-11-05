@@ -162,7 +162,8 @@ def test_drag_out_offers_the_wav_as_file_url(qapp, window, tmp_path):
     wav = Path(window.results.item(0).data(PATH_ROLE))
     mime = window.results.mimeData([window.results.item(0)])
     assert mime.hasUrls()
-    assert [u.toLocalFile() for u in mime.urls()] == [str(wav)]
+    # Qt gives forward slashes on Windows: compare as paths, not as strings
+    assert [Path(u.toLocalFile()) for u in mime.urls()] == [wav]
     assert mime.urls()[0].scheme() == "file"
     assert isinstance(window.results, DragList)
     assert window.results.dragEnabled()
@@ -171,7 +172,7 @@ def test_drag_out_offers_the_wav_as_file_url(qapp, window, tmp_path):
     lib = window.library
     assert lib.list.dragEnabled()
     urls = lib.list.mimeData([lib.list.item(0)]).urls()
-    assert [u.toLocalFile() for u in urls] == [str(wav)]
+    assert [Path(u.toLocalFile()) for u in urls] == [wav]
 
 
 def test_drag_mime_skips_missing_files(tmp_path):
