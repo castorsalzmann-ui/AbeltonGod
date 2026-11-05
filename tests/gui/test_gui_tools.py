@@ -26,12 +26,12 @@ from live_helpers import (  # noqa: E402
     write_wav,
     writes,
 )
-from PySide6.QtWidgets import QCheckBox, QComboBox, QLineEdit  # noqa: E402
 
 from audio_engine import goa_arrangement, goa_melody  # noqa: E402
 from guard import Guard  # noqa: E402
 from gui.app import create_app  # noqa: E402
 from gui.main_window import MainWindow  # noqa: E402
+from gui.widgets import NumberControl, PresetChips, Segmented, StepEdit, Toggle  # noqa: E402
 from gui_core import goa  # noqa: E402
 from gui_core.chat import ChatSession  # noqa: E402
 from orchestrator.fake_model import FakeModel  # noqa: E402
@@ -112,15 +112,20 @@ def test_goa_form_has_a_widget_for_every_cli_option(window, mode, module):
     dests = {a.dest for a in module.build_parser()._actions if a.dest not in ("help", "out")}
     assert set(form.edits) == dests
     for dest in dests:
-        assert form.edits[dest].accessibleName() or dest in form.voice_boxes
+        assert form.edits[dest].accessibleName() or isinstance(form.edits[dest], NumberControl)
     # optional options have a switch, the others do not
     assert set(form.checks) == {s.dest for s in form.model.specs if s.optional}
 
 
 def set_enum(form, dest, text):
     box = form.edits[dest]
-    assert isinstance(box, QComboBox)
-    box.setCurrentText(text)
+    assert isinstance(box, Segmented | PresetChips)
+    box.buttons[box.items.index(text)].click()
+
+
+def type_text(edit, text):
+    edit.setText(text)
+    edit.edited.emit(text) if isinstance(edit, StepEdit) else edit.textEdited.emit(text)
 
 
 def test_goa_invalid_value_blocks_render_with_the_modules_message(qapp, window):
@@ -128,19 +133,27 @@ def test_goa_invalid_value_blocks_render_with_the_modules_message(qapp, window):
     p = window.goa
     form = p.forms[goa.ARRANGEMENT]
     assert p.render_button.isEnabled()
-    edit = form.edits["bpm"]
-    assert isinstance(edit, QLineEdit)
-    edit.setText("200")
-    edit.textEdited.emit("200")
-    assert not p.render_button.isEnabled()
-    assert "Rendern nicht möglich" in p.status.text() and "bpm must be" in p.status.text()
-    assert p.table.rowCount() == 0 and p.timeline.plan is None
-    edit.setText("145")
-    edit.textEdited.emit("145")
-    assert p.render_button.isEnabled() and p.table.rowCount() == 19
-    edit.setText("abc")
-    edit.textEdited.emit("abc")
+    edit = form.edits["seed"]
+    assert isinstance(edit, StepEdit)
+    type_text(edit, "abc")
     assert edit.property("invalid") is True and not p.render_button.isEnabled()
+    assert "Rendern nicht möglich" in p.status.text()
+    assert p.table.rowCount() == 0 and p.timeline.plan is None
+    type_text(edit, "0")
+    assert edit.property("invalid") is False and p.render_button.isEnabled()
+    assert p.table.rowCount() == 19
+
+
+def test_goa_tempo_slider_cannot_leave_the_generators_range(qapp, window):
+    go(window, "goa")
+    p = window.goa
+    bpm = p.forms[goa.ARRANGEMENT].edits["bpm"]
+    assert isinstance(bpm, NumberControl)
+    bpm.readout.setText("200")
+    bpm.readout.entered.emit("200")  # generator range is 135 to 150 BPM
+    assert p.model.text["bpm"] == "150" and p.render_button.isEnabled()
+    bpm.slider.move_to_position(0)
+    assert p.model.text["bpm"] == "135" and p.table.rowCount() == 19
 
 
 def test_goa_preview_shows_the_generators_plan(window):
@@ -171,8 +184,7 @@ def test_goa_render_writes_the_cli_folder_and_shows_the_readme(qapp, window, ope
     go(window, "goa")
     p = window.goa
     form = p.forms[goa.ARRANGEMENT]
-    form.edits["seed"].setText("1")
-    form.edits["seed"].textEdited.emit("1")
+    type_text(form.edits["seed"], "1")
     form.edits["no_samples"].setChecked(True)  # keeps the test short; samples: gui_core test
     folder = Path(p.folder_edit.text())
     assert folder.name == "goa_seed1_145bpm" and not folder.exists()
@@ -209,11 +221,10 @@ def test_goa_existing_folder_is_an_error_and_nothing_is_overwritten(qapp, window
 def test_goa_melody_mode_renders_the_melody_cli_output(qapp, window):
     go(window, "goa")
     p = window.goa
-    p.mode_box.setCurrentIndex(1)
+    p.mode_seg.buttons[1].click()
     assert p.mode == goa.MELODY and p.form_stack.currentWidget() is p.forms[goa.MELODY]
     form = p.forms[goa.MELODY]
-    form.edits["seed"].setText("3")
-    form.edits["seed"].textEdited.emit("3")
+    type_text(form.edits["seed"], "3")
     folder = Path(p.folder_edit.text())
     assert folder.name == "goa_melody_seed3_145bpm"
     p.render_button.click()
@@ -221,9 +232,9 @@ def test_goa_melody_mode_renders_the_melody_cli_output(qapp, window):
     assert p.result.ok, p.result.error
     got = hashlib.sha256((folder / "goa_melody_seed3_145bpm.mid").read_bytes()).hexdigest()
     assert got == "9a601a7381fbaf7ffb5bb9354bed1ccad7cb78a41261648ddace68ab4ddd0579"
-    # voices as check boxes: switching one off removes its track from the preview
-    boxes = form.voice_boxes["voices"]
-    boxes["pad"].setChecked(False)
+    # voices as chips: switching one off removes its track from the preview
+    chips = form.edits["voices"]
+    chips.buttons[chips.items.index("pad")].click()
     assert form.model.text["voices"] == "lead,arp,pluck"
     assert "pad" not in p.summary.text().split("Spuren:")[1]
 
@@ -236,8 +247,7 @@ def test_goa_optional_switch_activates_the_field(window):
     form.checks["density"].setChecked(True)
     assert edit.isEnabled() and "density" in form.model.active
     assert not window.goa.render_button.isEnabled()  # active but empty
-    edit.setText("lead=0.5")
-    edit.textEdited.emit("lead=0.5")
+    type_text(edit, "lead=0.5")
     assert window.goa.render_button.isEnabled()
 
 
@@ -384,16 +394,19 @@ def test_chat_page_without_key_says_so_and_cannot_send(qapp, tmp_path, monkeypat
         w.close()
 
 
-def test_every_goa_checkbox_and_combo_reflects_the_model_after_a_mode_switch(window):
+def test_every_goa_switch_and_button_row_reflects_the_model_after_a_mode_switch(window):
     go(window, "goa")
     p = window.goa
     for mode in goa.MODES:
         form = p.forms[mode]
         for dest, edit in form.edits.items():
             spec = form.model.spec(dest)
-            if isinstance(edit, QComboBox):
+            if isinstance(edit, Segmented):
                 if dest in form.model.active:  # a switched-off optional shows its first choice
-                    assert edit.currentText() == form.model.text[dest]
-            elif isinstance(edit, QCheckBox):
+                    assert edit.items[edit.index()] == form.model.text[dest]
+            elif isinstance(edit, PresetChips) and not edit.multi:
+                if dest in form.model.active:
+                    assert edit.current() == form.model.text[dest]
+            elif isinstance(edit, Toggle):
                 assert edit.isChecked() == (form.model.text[dest] == "ja")
             assert edit.isEnabled() == (dest in form.model.active), (mode, dest, spec.kind)

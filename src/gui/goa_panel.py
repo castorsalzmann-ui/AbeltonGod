@@ -10,10 +10,6 @@ from pathlib import Path
 
 from PySide6.QtCore import QObject, Qt, Signal
 from PySide6.QtWidgets import (
-    QCheckBox,
-    QComboBox,
-    QFormLayout,
-    QGridLayout,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -29,12 +25,24 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from audio_engine import goa_patterns
+from gui_core.form import FieldSpec, parse_number
 from gui_core.goa import GROUPS, MODE_LABELS, MODES, GoaFormModel, OptionSpec, TimelinePlan
 from gui_core.goa_render import GoaJob, GoaResult, GoaService
 from gui_core.paths import default_output_dir
 
 from .timeline_widget import TimelineWidget
 from .tool_style import STYLE
+from .widgets import (
+    ActiveDot,
+    NumberControl,
+    PresetChips,
+    Segmented,
+    StepEdit,
+    Toggle,
+    heading,
+    muted,
+)
 
 BODY_HOOK = "goa_body"  # objectName of the page body: a hook for later skins/extra panels
 
@@ -44,8 +52,10 @@ class _Signals(QObject):
 
 
 class OptionForm(QScrollArea):
-    """One mode's options. ``edits[dest]`` is the editing widget (QLineEdit, QComboBox,
-    QCheckBox, or a QWidget holding one QCheckBox per voice for ``multi``)."""
+    """One mode's options, built from the widget kit. ``edits[dest]`` is the editing widget:
+    ``NumberControl`` (bpm), ``Segmented`` / ``PresetChips`` (choices, voices), ``Toggle``
+    (flags) or ``StepEdit`` / ``QLineEdit`` (numbers and texts the generator checks itself).
+    ``checks[dest]`` is the dot of an optional option (sent only when on)."""
 
     changed = Signal()
 
@@ -55,71 +65,110 @@ class OptionForm(QScrollArea):
         self.setWidgetResizable(True)
         self.setFrameShape(QScrollArea.Shape.NoFrame)
         self.edits: dict[str, QWidget] = {}
-        self.checks: dict[str, QCheckBox] = {}
-        self.voice_boxes: dict[str, dict[str, QCheckBox]] = {}
+        self.checks: dict[str, ActiveDot] = {}
+        self.hints: dict[str, QLabel] = {}
         self._syncing = False
         root = QWidget()
         root.setObjectName("root")
         lay = QVBoxLayout(root)
+        lay.setContentsMargins(8, 4, 12, 16)
+        lay.setSpacing(6)
         self.setWidget(root)
         for group in GROUPS:
             specs = [s for s in model.specs if s.group == group]
             if not specs:
                 continue
-            head = QLabel(group)
-            head.setObjectName("heading")
-            lay.addWidget(head)
-            grid = QGridLayout()
-            grid.setColumnStretch(0, 3)
-            grid.setColumnStretch(1, 3)
-            grid.setColumnStretch(2, 3)
-            for row, spec in enumerate(specs):
-                self._add_row(grid, row, spec)
-            lay.addLayout(grid)
+            lay.addWidget(heading(group))
+            for spec in specs:
+                lay.addWidget(self._row(spec))
         lay.addStretch(1)
         self.sync_from_model()
 
-    def _add_row(self, grid: QGridLayout, row: int, spec: OptionSpec) -> None:
-        if spec.optional:
-            label: QWidget = QCheckBox(spec.label)
-            label.toggled.connect(lambda on, d=spec.dest: self._toggled(d, on))
-            self.checks[spec.dest] = label  # type: ignore[assignment]
-        else:
-            label = QLabel(spec.label)
-        label.setToolTip(spec.help)
-        edit: QWidget
-        if spec.kind == "flag":
-            edit = QCheckBox("ja")
-            edit.toggled.connect(lambda on, d=spec.dest: self._edited(d, "ja" if on else "nein"))
-        elif spec.kind == "enum":
-            edit = QComboBox()
-            edit.addItems(list(spec.choices))
-            edit.currentTextChanged.connect(lambda t, d=spec.dest: self._edited(d, t))
-        elif spec.kind == "multi":
-            edit = QWidget()
-            h = QHBoxLayout(edit)
-            h.setContentsMargins(0, 0, 0, 0)
-            boxes = {}
-            for v in spec.choices:
-                cb = QCheckBox(v)
-                cb.toggled.connect(lambda _on, d=spec.dest: self._voices_edited(d))
-                h.addWidget(cb)
-                boxes[v] = cb
-            self.voice_boxes[spec.dest] = boxes
-        else:
-            edit = QLineEdit()
-            edit.textEdited.connect(lambda t, d=spec.dest: self._edited(d, t))
+    def _row(self, spec: OptionSpec) -> QWidget:
+        em = self.fontMetrics().horizontalAdvance("M")
+        edit = self._editor(spec)
         edit.setToolTip(spec.help)
-        if not isinstance(edit, QWidget) or spec.kind != "multi":
-            edit.setAccessibleName(spec.label)
         self.edits[spec.dest] = edit
-        hint = QLabel(spec.range_text)
-        hint.setObjectName("muted")
-        hint.setWordWrap(True)
-        hint.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Minimum)
-        grid.addWidget(label, row, 0)
-        grid.addWidget(edit, row, 1)
-        grid.addWidget(hint, row, 2)
+        if isinstance(edit, NumberControl):
+            edit.setFixedWidth(16777215)
+            return edit  # brings its own label
+        box = QWidget()
+        outer = QVBoxLayout(box)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(0)
+        row = QHBoxLayout()
+        row.setContentsMargins(0, 0, 0, 0)
+        dot = ActiveDot()
+        policy = dot.sizePolicy()
+        policy.setRetainSizeWhenHidden(True)
+        dot.setSizePolicy(policy)
+        if spec.optional:
+            dot.toggled.connect(lambda on, d=spec.dest: self._toggled(d, on))
+            self.checks[spec.dest] = dot
+        else:
+            dot.hide()
+        label = QLabel(spec.label)
+        label.setToolTip(spec.help)
+        label.setFixedWidth(em * 15)
+        label.setFixedHeight(int(self.fontMetrics().height() * 1.9))  # first line of the editor
+        top = Qt.AlignmentFlag.AlignTop
+        row.addWidget(dot, 0, top)
+        row.addWidget(label, 0, top)
+        is_number = isinstance(edit, StepEdit)
+        if is_number:
+            edit.setFixedWidth(em * 12)
+            row.setSpacing(8)
+        row.addWidget(edit, 0 if is_number else 1, top)
+        hint = muted(spec.range_text if isinstance(edit, StepEdit | QLineEdit) else "")
+        hint.setVisible(isinstance(edit, StepEdit | QLineEdit))
+        self.hints[spec.dest] = hint
+        if is_number:
+            row.addWidget(hint, 1)
+            outer.addLayout(row)
+        else:
+            outer.addLayout(row)
+            outer.addWidget(hint)
+        return box
+
+    def _editor(self, spec: OptionSpec) -> QWidget:
+        if spec.kind == "flag":
+            tg = Toggle()
+            tg.toggled.connect(lambda on, d=spec.dest: self._edited(d, "ja" if on else "nein"))
+            tg.setAccessibleName(spec.label)
+            return tg
+        if spec.kind == "multi":
+            chips = PresetChips(list(spec.choices), multi=True)
+            chips.changed.connect(lambda sel, d=spec.dest: self._edited(d, ",".join(sel)))
+            chips.setAccessibleName(spec.label)
+            return chips
+        if spec.kind == "enum":
+            if len(spec.choices) <= 4 and max(len(c) for c in spec.choices) <= 8:
+                seg = Segmented(list(spec.choices))
+                seg.chosen.connect(
+                    lambda i, d=spec.dest, s=spec: self._edited(d, s.choices[i]))
+                seg.setAccessibleName(spec.label)
+                return seg
+            chips = PresetChips(list(spec.choices))
+            chips.chosen.connect(lambda text, d=spec.dest: self._edited(d, text))
+            chips.setAccessibleName(spec.label)
+            return chips
+        if spec.dest == "bpm":
+            fs = FieldSpec(
+                name="bpm", label=spec.label, kind="float", minimum=goa_patterns.MIN_BPM,
+                maximum=goa_patterns.MAX_BPM, default=None, choices=(), unit="BPM",
+                description=spec.help)
+            c = NumberControl(fs, style="row", always_active=True)
+            c.edited.connect(lambda _n, v, d=spec.dest: self._edited(d, f"{v:g}"))
+            return c
+        if spec.kind in ("int", "float"):
+            se = StepEdit()
+            se.edited.connect(lambda text, d=spec.dest: self._edited(d, text))
+            se.setAccessibleName(spec.label)
+            return se
+        le = QLineEdit()
+        le.textEdited.connect(lambda text, d=spec.dest: self._edited(d, text))
+        le.setAccessibleName(spec.label)
+        return le
 
     # --- user edits ----------------------------------------------------------------------
     def _toggled(self, dest: str, on: bool) -> None:
@@ -133,14 +182,8 @@ class OptionForm(QScrollArea):
         if self._syncing:
             return
         self.model.set_text(dest, text)
-        self._mark()
-        self.changed.emit()
-
-    def _voices_edited(self, dest: str) -> None:
-        if self._syncing:
-            return
-        chosen = [v for v, cb in self.voice_boxes[dest].items() if cb.isChecked()]
-        self.model.set_text(dest, ",".join(chosen))
+        if dest in self.checks and not self.checks[dest].isChecked():
+            self.model.set_active(dest, True)  # touching an optional value sends it
         self._mark()
         self.changed.emit()
 
@@ -151,16 +194,20 @@ class OptionForm(QScrollArea):
             for dest, edit in self.edits.items():
                 text = self.model.text[dest]
                 spec = self.model.spec(dest)
-                if isinstance(edit, QComboBox):
-                    edit.setCurrentText(text)
-                elif isinstance(edit, QCheckBox):
+                if isinstance(edit, NumberControl):
+                    number = parse_number(text)
+                    if number is not None:
+                        edit.set_value(number)
+                elif isinstance(edit, Segmented):
+                    edit.set_index(spec.choices.index(text) if text in spec.choices else -1)
+                elif isinstance(edit, PresetChips) and edit.multi:
+                    edit.set_selected([v for v in text.split(",") if v])
+                elif isinstance(edit, PresetChips):
+                    edit.set_current(text)
+                elif isinstance(edit, Toggle):
                     edit.setChecked(text == "ja")
-                elif isinstance(edit, QLineEdit):
+                elif isinstance(edit, QLineEdit) and edit.text() != text:
                     edit.setText(text)
-                elif spec.kind == "multi":
-                    chosen = set(text.split(","))
-                    for v, cb in self.voice_boxes[dest].items():
-                        cb.setChecked(v in chosen)
                 if dest in self.checks:
                     self.checks[dest].setChecked(dest in self.model.active)
         finally:
@@ -170,12 +217,17 @@ class OptionForm(QScrollArea):
     def _mark(self) -> None:
         problems = self.model.field_issues()
         for dest, edit in self.edits.items():
-            edit.setEnabled(dest in self.model.active)
+            active = dest in self.model.active
+            edit.setEnabled(active)
             bad = dest in problems
-            edit.setProperty("invalid", bad)
+            if isinstance(edit, QLineEdit) and bool(edit.property("invalid")) != bad:
+                edit.setProperty("invalid", bad)
+                edit.style().unpolish(edit)
+                edit.style().polish(edit)
             edit.setToolTip(problems[dest] if bad else self.model.spec(dest).help)
-            edit.style().unpolish(edit)
-            edit.style().polish(edit)
+            if dest in self.hints and isinstance(edit, QLineEdit):
+                spec = self.model.spec(dest)
+                self.hints[dest].setText(problems[dest] if bad else spec.range_text)
 
 
 class GoaPanel(QWidget):
@@ -201,13 +253,11 @@ class GoaPanel(QWidget):
 
         outer = QHBoxLayout(self)
         left = QVBoxLayout()
-        self.mode_box = QComboBox()
-        for m in MODES:
-            self.mode_box.addItem(MODE_LABELS[m], m)
-        self.mode_box.currentIndexChanged.connect(self._mode_changed)
-        top = QFormLayout()
-        top.addRow("Erzeuger", self.mode_box)
-        left.addLayout(top)
+        left.addWidget(heading("Erzeuger"))
+        self.mode_seg = Segmented([MODE_LABELS[m] for m in MODES], accent=True)
+        self.mode_seg.set_index(0)
+        self.mode_seg.chosen.connect(lambda i: self.set_mode(MODES[i]))
+        left.addWidget(self.mode_seg)
         self.forms = {m: OptionForm(self.models[m]) for m in MODES}
         self.form_stack = QStackedWidget()
         for m in MODES:
@@ -293,8 +343,9 @@ class GoaPanel(QWidget):
         self.status.style().unpolish(self.status)
         self.status.style().polish(self.status)
 
-    def _mode_changed(self, _i: int) -> None:
-        self.mode = self.mode_box.currentData()
+    def set_mode(self, mode: str) -> None:
+        self.mode = mode
+        self.mode_seg.set_index(MODES.index(mode))
         self.form_stack.setCurrentIndex(MODES.index(self.mode))
         self._folder_auto = True
         self.refresh()

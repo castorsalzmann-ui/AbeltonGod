@@ -11,7 +11,6 @@ from pathlib import Path
 
 from PySide6.QtCore import QObject, Signal
 from PySide6.QtWidgets import (
-    QCheckBox,
     QComboBox,
     QFileDialog,
     QFormLayout,
@@ -20,7 +19,6 @@ from PySide6.QtWidgets import (
     QPlainTextEdit,
     QPushButton,
     QSizePolicy,
-    QSpinBox,
     QVBoxLayout,
     QWidget,
 )
@@ -41,6 +39,7 @@ from gui_core.live import (
 from gui_core.tasks import start_task
 
 from .tool_style import STYLE
+from .widgets import Stepper, ToggleRow, heading
 
 BODY_HOOK = "live_body"
 NEW_TRACK_TEXT = "Neue Audiospur am Ende"
@@ -75,9 +74,7 @@ class LivePanel(QWidget):
         self._signals.imported.connect(self._on_imported)
 
         lay = QVBoxLayout(self)
-        head = QLabel("Live-Import")
-        head.setObjectName("heading")
-        lay.addWidget(head)
+        lay.addWidget(heading("Live-Import"))
         intro = QLabel(
             "Importiert eine WAV als Clip in die Session-Ansicht des geöffneten Live-Sets, über "
             "AbletonOSC. Nur mit einem Test-Set benutzen. Hier ist nichts in Live getestet, "
@@ -102,8 +99,7 @@ class LivePanel(QWidget):
         self.track_box = QComboBox()
         self.track_box.addItem(NEW_TRACK_TEXT, None)
         form.addRow("Ziel-Spur", self.track_box)
-        self.slot_spin = QSpinBox()
-        self.slot_spin.setRange(0, 999)
+        self.slot_spin = Stepper(0, 999)
         self.slot_spin.setSpecialValueText("erste freie Zelle")
         form.addRow("Szene (Zelle)", self.slot_spin)
         lay.addLayout(form)
@@ -112,7 +108,7 @@ class LivePanel(QWidget):
         self.gate_label.setWordWrap(True)
         self.gate_label.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Minimum)
         lay.addWidget(self.gate_label)
-        self.unverified_check = QCheckBox(
+        self.unverified_check = ToggleRow(
             "Ich weiß, dass diese Live-Funktionen 'nicht verifiziert' sind, und will trotzdem "
             "importieren")
         lay.addWidget(self.unverified_check)
@@ -129,7 +125,7 @@ class LivePanel(QWidget):
         self.plan_text.setPlaceholderText("Hier steht der Plan, bevor etwas an Live geht.")
         self.plan_text.setMaximumHeight(self.fontMetrics().height() * 10)
         lay.addWidget(self.plan_text)
-        self.testset_check = QCheckBox(
+        self.testset_check = ToggleRow(
             "Das geöffnete Set ist ein eigenes Test-Set (kein echtes Projekt)")
         lay.addWidget(self.testset_check)
         self.import_button = QPushButton("In Live importieren")
@@ -140,7 +136,7 @@ class LivePanel(QWidget):
         self.status.setWordWrap(True)
         self.status.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Minimum)
         lay.addWidget(self.status)
-        lay.addWidget(self._heading("Aktions-Log dieses Laufs"))
+        lay.addWidget(heading("Aktions-Log dieses Laufs"))
         self.log_view = QPlainTextEdit()
         self.log_view.setReadOnly(True)
         lay.addWidget(self.log_view, 1)
@@ -158,12 +154,6 @@ class LivePanel(QWidget):
         self._show_gate()
         self.reload_library()
         self._update_state()
-
-    @staticmethod
-    def _heading(text: str) -> QLabel:
-        label = QLabel(text)
-        label.setObjectName("heading")
-        return label
 
     # --- gate ----------------------------------------------------------------------------
     def registry(self) -> CapabilityRegistry:

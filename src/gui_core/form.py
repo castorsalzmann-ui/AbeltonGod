@@ -254,6 +254,16 @@ class CategoryFormModel:
         self._by_name[name]  # KeyError for an unknown field
         self.text[name] = text
 
+    def reset_field(self, name: str) -> None:
+        """Back to the preset: its value (and sent) if the preset has the field, else off."""
+        spec = self._by_name[name]
+        if name in self._preset_values:
+            self.text[name] = _text_of(spec, self._preset_values[name])
+            self.active.add(name)
+        elif name not in ALWAYS_ACTIVE:
+            self.text[name] = self._placeholder(spec)
+            self.active.discard(name)
+
     def set_active(self, name: str, on: bool) -> None:
         if name in ALWAYS_ACTIVE:
             return
@@ -334,6 +344,25 @@ class CategoryFormModel:
         for name in self.specs_names():
             if name in self.active:
                 req[name] = self.parse(name)[0]
+        return self._assemble(req)
+
+    def probe_request(self, name: str, value: Any) -> dict[str, Any]:
+        """The request as it would be with ``name`` active and set to ``value``.
+
+        Used by the link rules to ask the engine's own ``resolve`` whether a value is allowed.
+        Fields whose text is invalid are left out; ``length_beats`` is left out too (its rule
+        renders the kick, too slow to ask on every slider step).
+        """
+        req: dict[str, Any] = {}
+        for n in self.specs_names():
+            if n in self.active and n != "length_beats":
+                value_n, problem = self.parse(n)
+                if problem is None:
+                    req[n] = value_n
+        req[name] = value
+        return self._assemble(req)
+
+    def _assemble(self, req: dict[str, Any]) -> dict[str, Any]:
         gates = [self._by_name[n].gate_version for n in req if self._by_name[n].gate_version]
         if gates:
             req["schema_version"] = gates[0]
