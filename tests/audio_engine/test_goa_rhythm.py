@@ -84,7 +84,7 @@ def test_perc_tracks_property(seed):
 
 def test_all_voices_off_gives_original_six_tracks():
     t = tracks(seed=1, snare_preset="none", clap_pattern="none", rim_preset="none")
-    assert list(t) == ["kick", "bass", "lead", "arp", "pad", "perc"]
+    assert list(t) == ["kick", "bass", "lead", "arp", "pad", "pluck", "perc"]
 
 
 def test_perc_option_changes_only_that_track():
