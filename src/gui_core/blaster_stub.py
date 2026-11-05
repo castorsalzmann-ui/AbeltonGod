@@ -1,9 +1,9 @@
-"""STUB laser engine for tests and screenshots only. It is NOT the laser engine of issue #416.
+"""STUB laser engine for fast tests only. It is NOT the laser engine (``audio_engine.laser``).
 
-A seeded sine sweep with an exponential decay, driven by the adapter parameters. It exists so
-the blaster window can be tested before ``audio_engine.laser`` is merged. The normal start of
-the window never uses it; ``python -m gui.blaster --screenshot`` may, and then says so in the
-window title. It makes no statement about how a real shot sounds.
+A seeded sine sweep with an exponential decay that follows the contract fields
+``pitch_start_hz``, ``pitch_end_hz``, ``length_ms`` and ``stereo_width``. It exists so window
+tests do not pay the real engine's render time. The normal start of the window never uses it,
+and it makes no statement about how a real shot sounds.
 """
 
 from __future__ import annotations
@@ -14,10 +14,10 @@ import numpy as np
 
 
 class StubLaserEngine:
-    sample_rate = 22050
+    sample_rate = 48000
     is_stub = True
 
-    def __init__(self, stereo: bool = False) -> None:
+    def __init__(self, stereo: bool = True) -> None:
         self.stereo = stereo
         self.calls: list[tuple[dict[str, Any], int]] = []
 
@@ -30,7 +30,7 @@ class StubLaserEngine:
         phase0 = np.random.default_rng(int(seed)).uniform(0, 2 * np.pi)
         x = np.sin(phase0 + 2 * np.pi * np.cumsum(f) / self.sample_rate)
         x = x * np.exp(-5.0 * t) * 0.8
-        if self.stereo:
-            w = float(params.get("stereo_width", 0.5))
-            return np.stack([x, x * (1.0 - 0.5 * w)], axis=1)
-        return x
+        if not self.stereo:
+            return x
+        w = float(params.get("stereo_width", 0.0))
+        return np.stack([x, x * (1.0 - 0.5 * w)], axis=1)

@@ -222,6 +222,7 @@ class BlasterWidget(QWidget):
         self.ready = True  # False: no engine, the glow stays dark
         self.animation = True
         self.pressed = False
+        self.busy = False
         self.hover = False
         self.t = ANIM_SECONDS  # seconds since the last shot; >= ANIM_SECONDS means at rest
         self.trace: list[tuple[float, float]] = []
@@ -237,6 +238,11 @@ class BlasterWidget(QWidget):
 
     def set_ready(self, ready: bool) -> None:
         self.ready = ready
+        self.update()
+
+    def set_busy(self, busy: bool) -> None:
+        """A shot is being rendered: the energy cell shows "charging" (two segments)."""
+        self.busy = busy
         self.update()
 
     def set_trace(self, peaks: list[tuple[float, float]]) -> None:
@@ -411,8 +417,12 @@ class BlasterWidget(QWidget):
         p.setPen(QPen(QColor(skin.STEEL_DK), 3))
         p.setBrush(skin.qc("#0a1226", 0.95))
         p.drawRoundedRect(glass, 18, 18)
-        lit_n = CELL_SEGMENTS if flash <= 0 and self.t >= ANIM_SECONDS else max(
-            2, int(CELL_SEGMENTS * min(1.0, 0.25 + 0.75 * (self.t / ANIM_SECONDS))))
+        if self.busy:
+            lit_n = 2
+        elif flash <= 0 and self.t >= ANIM_SECONDS:
+            lit_n = CELL_SEGMENTS
+        else:
+            lit_n = max(2, int(CELL_SEGMENTS * min(1.0, 0.25 + 0.75 * (self.t / ANIM_SECONDS))))
         seg_w = (glass.width() - 24) / CELL_SEGMENTS
         for i in range(CELL_SEGMENTS):
             r = QRectF(glass.x() + 14 + i * seg_w, glass.y() + 9, seg_w - 4,

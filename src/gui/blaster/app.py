@@ -24,6 +24,7 @@ def take_screenshots(out_dir: Path, sizes=DEFAULT_SIZES) -> list[Path]:
     otherwise the clearly marked stub (the window title says so). The name carries size and
     device pixel ratio."""
     import tempfile
+    import time
 
     from PySide6.QtWidgets import QApplication
 
@@ -34,19 +35,22 @@ def take_screenshots(out_dir: Path, sizes=DEFAULT_SIZES) -> list[Path]:
 
     out_dir.mkdir(parents=True, exist_ok=True)
     engine, _ = load_engine()
-    engine = engine or StubLaserEngine(stereo=True)
+    engine = engine or StubLaserEngine()
     written: list[Path] = []
     for w, h in sizes:
         with tempfile.TemporaryDirectory(prefix="abeltongod-blaster-shot-") as tmp:
             win = BlasterWindow(out_dir=Path(tmp), engine=engine, work_dir=Path(tmp) / "w")
             win.resize(w, h)
             win.show()
-            win.pull_trigger()
-            win.pull_trigger()
-            QApplication.processEvents()
-            win.gun.t = 0.04  # freeze the flash for the picture
+            for dim in ("pew", "plasma"):
+                win.select_dimension(dim)
+                win.pull_trigger()
+                deadline = time.monotonic() + 30
+                while win.busy and time.monotonic() < deadline:
+                    QApplication.processEvents()
+                    time.sleep(0.01)
             win.gun._stop_animation()
-            win.gun.t = 0.04
+            win.gun.t = 0.04  # freeze the flash for the picture
             win.gun.update()
             QApplication.processEvents()
             pm = win.grab()

@@ -1,17 +1,16 @@
 """Blaster service layer (no Qt): settings, shots, shot history, bank export.
 
-The window pulls a trigger -> :meth:`BlasterSession.fire` renders the next shot through a
-:class:`LaserEngine` (``audio_engine.laser.render_laser(params, seed)``, issue #416), keeps it in
-a short history and plays a 16-bit copy through the preview backend. Nothing here judges how a
+Pulling the trigger renders the next shot through ``audio_engine.laser.render_laser(params,
+seed)`` (contract ``contracts/laser-params.schema.json``, float64 ``(n, 2)``), keeps it in a
+short history and plays a 16-bit copy through the preview backend. Nothing here judges how a
 shot sounds, and nothing here talks to Live.
 
-Adapter boundary. The laser engine is built in parallel. Everything that depends on its final
-parameter names lives in :func:`to_engine_params` and :class:`CategoryBankWriter`; the rest of
-the GUI only knows the 0-100 sliders of :class:`BlasterSettings`. Until the engine is merged,
-:func:`load_engine` reports "not available" and tests use ``gui_core.blaster_stub``.
+The window renders off the GUI thread: :meth:`BlasterSession.render_shot` is pure (safe in a
+worker thread), :meth:`BlasterSession.commit` runs in the GUI thread and touches the history.
+:meth:`BlasterSession.fire` is both in one call (tests, scripts).
 
-Same settings + same seed give the same samples (the engine's promise) and therefore the same
-WAV bytes (the encoder here is deterministic).
+Same settings + same seed give the same samples (the engine's contract) and therefore the same
+WAV bytes (``audio_engine.io.encode_wav`` is deterministic).
 """
 
 from __future__ import annotations
@@ -20,7 +19,6 @@ import importlib
 import importlib.util
 import math
 import shutil
-import struct
 import tempfile
 from collections.abc import Callable
 from dataclasses import dataclass, field, replace
@@ -30,36 +28,34 @@ from typing import Any, Protocol
 import numpy as np
 
 from audio_engine.io import encode_wav
+from library.layout import LibraryLayout
 
 from .preview import NoBackend, PlaybackBackend
 
-DEFAULT_SAMPLE_RATE = 44100
+SAMPLE_RATE = 48000  # contract default; sent in every request
+BIT_DEPTH = 24
 MAX_SHOT_SECONDS = 10.0
 HISTORY_LIMIT = 40
 BANK_MAX = 64
-SLIDER_MIN, SLIDER_MAX = 0, 100
-EXPORT_BITS = 24
+SEED_MAX = 4_294_967_295  # contract: seed 0 .. 2^32 - 1
 PLAY_BITS = 16
 
 
 @dataclass(frozen=True)
 class Dimension:
-    key: str
+    key: str  # the contract's `family`
     label: str  # German, short
-    hint: str  # German, one line: what the family is meant to be (not how it sounds)
+    hint: str  # German: how the family is built (not how it sounds)
     accent: str  # glow colour of the blaster for this dimension
 
 
-# Working names of the shot families. The engine decides its final set (#416); this list is the
-# adapter's view and is aligned when the engine is wired in. Nothing says what a family sounds
-# like beyond its name.
 DIMENSIONS: tuple[Dimension, ...] = (
-    Dimension("classic", "Klassik", "Absteigender Strahl, der Klassiker", "#ff4a2a"),
-    Dimension("plasma", "Plasma", "Dichter, rauer Strahl", "#ff3df0"),
-    Dimension("ion", "Ion", "Heller, schmaler Strahl", "#27e0ff"),
-    Dimension("void", "Void", "Tiefer Riss mit langem Nachhall", "#8b5cff"),
-    Dimension("subboom", "Sub-Boom", "Kurzer Schlag mit Tiefbass", "#ffb21f"),
-    Dimension("glitch", "Glitch", "Zerhackter Strahl", "#3dff8c"),
+    Dimension("pew", "Klassik", "Sinus-Träger mit Sweep", "#ff4a2a"),
+    Dimension("plasma", "Plasma", "Bandbegrenzter Sägezahn-Träger", "#ff3df0"),
+    Dimension("ion", "Ion", "Sinus mit zwei unharmonischen Obertönen", "#27e0ff"),
+    Dimension("rift", "Riss", "Zwei gegenläufige Sweeps", "#8b5cff"),
+    Dimension("subboom", "Sub-Boom", "Sweep plus Sub-Ebene", "#ffb21f"),
+    Dimension("glitch", "Glitch", "Gehaltene Tonhöhenstufen mit Gate", "#3dff8c"),
 )
 DIMENSION_KEYS = tuple(d.key for d in DIMENSIONS)
 
@@ -75,68 +71,113 @@ class BlasterError(Exception):
     """A user-facing problem; the message is German."""
 
 
+# ---- sliders: position 0-100 -> contract field ---------------------------------------------
+@dataclass(frozen=True)
+class SliderSpec:
+    name: str  # also the contract field
+    label: str  # German
+    lo: float
+    hi: float  # contract range
+    kind: str  # "exp" | "lin" | "int"
+    default: float  # contract default
+    unit: str = ""
+    only_family: str | None = None  # the field has an effect in this family only
+
+    def value(self, pos: int) -> float | int:
+        t = pos / 100.0
+        if self.kind == "int":
+            return int(round(self.lo + (self.hi - self.lo) * t))
+        v = self.lo * (self.hi / self.lo) ** t if self.kind == "exp" else (
+            self.lo + (self.hi - self.lo) * t)
+        return min(self.hi, max(self.lo, round(v, 4)))
+
+    def position(self, value: float) -> int:
+        if self.kind == "exp":
+            t = math.log(value / self.lo) / math.log(self.hi / self.lo)
+        else:
+            t = (value - self.lo) / (self.hi - self.lo)
+        return int(round(100 * min(1.0, max(0.0, t))))
+
+    def readout(self, pos: int) -> str:
+        v = self.value(pos)
+        if self.unit == "Hz":
+            return f"{v / 1000:.1f} kHz".replace(".", ",") if v >= 1000 else f"{v:.0f} Hz"
+        if self.unit == "ms":
+            return f"{v / 1000:.2f} s".replace(".", ",") if v >= 1000 else f"{v:.0f} ms"
+        if self.unit == "%":
+            return f"{round(v * 100)} %"
+        if self.unit == "x":
+            return f"{v:.2f}".replace(".", ",")
+        return f"{v}"
+
+
+SLIDERS: tuple[SliderSpec, ...] = (
+    SliderSpec("pitch_start_hz", "Start-Ton", 40, 8000, "exp", 3000, "Hz"),
+    SliderSpec("pitch_end_hz", "End-Ton", 40, 8000, "exp", 200, "Hz"),
+    SliderSpec("sweep_ms", "Sweep-Zeit", 10, 2000, "exp", 150, "ms"),
+    SliderSpec("sweep_curve", "Sweep-Kurve", 0.2, 6, "exp", 1, "x"),
+    SliderSpec("length_ms", "Länge", 100, 3000, "exp", 500, "ms"),
+    SliderSpec("attack_ms", "Anstieg", 0, 50, "lin", 0.5, "ms"),
+    SliderSpec("decay_ms", "Zerfall", 20, 3000, "exp", 250, "ms"),
+    SliderSpec("fm_amount", "FM", 0, 1, "lin", 0, "%"),
+    SliderSpec("ring_amount", "Ring", 0, 1, "lin", 0, "%"),
+    SliderSpec("noise_level", "Rauschen", 0, 1, "lin", 0, "%"),
+    SliderSpec("crackle", "Knistern", 0, 1, "lin", 0, "%"),
+    SliderSpec("echo_mix", "Echo", 0, 1, "lin", 0, "%"),
+    SliderSpec("stereo_width", "Breite", 0, 1, "lin", 0, "%"),
+    SliderSpec("variation", "Variation", 0, 1, "lin", 0, "%"),
+    SliderSpec("drive", "Drive", 0, 1, "lin", 0, "%"),
+    SliderSpec("glitch_steps", "Glitch-Stufen", 2, 24, "int", 8, "", "glitch"),
+)
+SLIDER_NAMES = tuple(s.name for s in SLIDERS)
+SLIDER_BY_NAME = {s.name: s for s in SLIDERS}
+DEFAULT_POSITIONS = tuple(s.position(s.default) for s in SLIDERS)
+
+
 @dataclass(frozen=True)
 class BlasterSettings:
-    """What the window's controls hold: a dimension and six sliders (0-100)."""
+    """A dimension (contract ``family``) and one 0-100 position per slider of :data:`SLIDERS`."""
 
-    dimension: str = "classic"
-    pitch: int = 50
-    sweep: int = 50
-    length: int = 40
-    roughness: int = 30
-    echo: int = 20
-    width: int = 50
+    dimension: str = "pew"
+    positions: tuple[int, ...] = DEFAULT_POSITIONS
 
     def __post_init__(self) -> None:
         if self.dimension not in DIMENSION_KEYS:
             raise ValueError(f"Unbekannte Dimension: {self.dimension}")
-        for name in SLIDER_NAMES:
-            v = getattr(self, name)
-            if isinstance(v, bool) or not isinstance(v, int) or not SLIDER_MIN <= v <= SLIDER_MAX:
-                raise ValueError(f"{name} muss eine ganze Zahl von 0 bis 100 sein, nicht {v!r}.")
+        if len(self.positions) != len(SLIDERS):
+            raise ValueError(
+                f"{len(SLIDERS)} Reglerwerte erwartet, {len(self.positions)} erhalten.")
+        for spec, v in zip(SLIDERS, self.positions, strict=True):
+            if isinstance(v, bool) or not isinstance(v, int) or not 0 <= v <= 100:
+                raise ValueError(f"{spec.label} muss eine ganze Zahl von 0 bis 100 sein, "
+                                 f"nicht {v!r}.")
 
+    def position(self, name: str) -> int:
+        return self.positions[SLIDER_NAMES.index(name)]
 
-SLIDER_NAMES = ("pitch", "sweep", "length", "roughness", "echo", "width")
-SLIDER_LABELS = {
-    "pitch": "Tonhöhe", "sweep": "Sweep", "length": "Länge",
-    "roughness": "Rauheit", "echo": "Echo", "width": "Breite",
-}
-
-
-def _lerp_exp(lo: float, hi: float, t: float) -> float:
-    return lo * (hi / lo) ** t
+    def with_positions(self, **kw: int) -> BlasterSettings:
+        pos = list(self.positions)
+        for name, v in kw.items():
+            pos[SLIDER_NAMES.index(name)] = v
+        return replace(self, positions=tuple(pos))
 
 
 def to_engine_params(s: BlasterSettings) -> dict[str, Any]:
-    """Slider positions -> engine parameters (physical units). ADAPTER: the names follow the
-    brief of issue #416 (pitch start/end, sweep, length, FM, noise, tail, width) and are the one
-    place to change when the laser contract fixes the final names. The seed is not part of it."""
-    start = _lerp_exp(200.0, 8000.0, s.pitch / 100)
-    octaves = 5.0 * s.sweep / 100
-    end = max(20.0, start * 2.0 ** (-octaves))
-    return {
-        "family": s.dimension,
-        "pitch_start_hz": round(start, 2),
-        "pitch_end_hz": round(end, 2),
-        "length_ms": round(_lerp_exp(60.0, 1500.0, s.length / 100), 1),
-        "fm_amount": round(s.roughness / 100, 3),
-        "noise_amount": round(s.roughness / 200, 3),
-        "tail_amount": round(s.echo / 100, 3),
-        "stereo_width": round(s.width / 100, 3),
+    """Request for ``render_laser`` / ``write_sample("laser", ...)`` without the seed. Every
+    field is a contract field with its contract range; the fields the sliders do not cover
+    (fm_ratio, ring_hz, noise_hz, echo_ms, echo_feedback, offset_ms, peak_ceiling_dbfs,
+    polarity, bpm) keep their contract defaults."""
+    p: dict[str, Any] = {
+        "schema_version": "0.1", "family": s.dimension,
+        "sample_rate": SAMPLE_RATE, "bit_depth": BIT_DEPTH,
     }
+    for spec, pos in zip(SLIDERS, s.positions, strict=True):
+        p[spec.name] = spec.value(pos)
+    return p
 
 
-def readout(name: str, value: int) -> str:
-    """German text next to a slider: the physical value that goes to the engine."""
-    p = to_engine_params(replace(BlasterSettings(), **{name: value}))
-    if name == "pitch":
-        hz = p["pitch_start_hz"]
-        return f"{hz / 1000:.1f} kHz".replace(".", ",") if hz >= 1000 else f"{hz:.0f} Hz"
-    if name == "sweep":
-        return f"−{5.0 * value / 100:.1f} Okt".replace(".", ",")
-    if name == "length":
-        return f"{p['length_ms']:.0f} ms"
-    return f"{value} %"
+def readout(name: str, pos: int) -> str:
+    return SLIDER_BY_NAME[name].readout(pos)
 
 
 # ---- engine adapter -----------------------------------------------------------------------
@@ -144,7 +185,7 @@ class LaserEngine(Protocol):
     sample_rate: int
 
     def render(self, params: dict[str, Any], seed: int) -> np.ndarray:
-        """Float samples in [-1, 1]: shape ``(n,)`` (mono) or ``(n, 2)`` (stereo)."""
+        """Float samples in [-1, 1]: shape ``(n, 2)`` (stereo) or ``(n,)``."""
         ...
 
 
@@ -153,14 +194,14 @@ class ModuleLaserEngine:
 
     def __init__(self, module: Any) -> None:
         self._render = module.render_laser
-        self.sample_rate = int(getattr(module, "SAMPLE_RATE", DEFAULT_SAMPLE_RATE))
+        self.sample_rate = SAMPLE_RATE
 
     def render(self, params: dict[str, Any], seed: int) -> np.ndarray:
         return np.asarray(self._render(params, seed))
 
 
 def load_engine() -> tuple[LaserEngine | None, str]:
-    """The real engine, or ``(None, German reason)`` while ``audio_engine.laser`` is missing."""
+    """The real engine, or ``(None, German reason)`` if ``audio_engine.laser`` is not loadable."""
     try:
         if importlib.util.find_spec("audio_engine.laser") is None:
             return None, "Laser-Engine nicht verfügbar (audio_engine.laser fehlt)."
@@ -178,7 +219,7 @@ class Shot:
     settings: BlasterSettings
     params: dict[str, Any]
     samples: np.ndarray = field(repr=False, compare=False)
-    sample_rate: int = DEFAULT_SAMPLE_RATE
+    sample_rate: int = SAMPLE_RATE
     wav_path: Path | None = None  # 24-bit, what is dragged out
     play_path: Path | None = None  # 16-bit copy for the audio backend
 
@@ -222,23 +263,30 @@ def check_samples(raw: Any) -> np.ndarray:
     return a
 
 
-def encode_shot_wav(samples: np.ndarray, sr: int, bits: int) -> bytes:
-    """PCM WAV of a mono or stereo shot (deterministic). Mono goes through the engine's own
-    encoder; stereo is the same bytes with a two-channel header and interleaved frames."""
-    if samples.ndim == 1:
-        return encode_wav(samples, sr, bits)
-    wav = bytearray(encode_wav(samples.reshape(-1), sr, bits))  # interleaved L R L R ...
-    width = bits // 8
-    struct.pack_into("<HHIIHH", wav, 20, 1, 2, sr, sr * 2 * width, 2 * width, bits)
-    return bytes(wav)
-
-
 @dataclass(frozen=True)
 class FireResult:
     shot: Shot | None
     message: str  # German; "" when everything worked
     error: bool = False
     played: bool = False
+
+
+def render_with(engine: LaserEngine | None, reason: str, settings: BlasterSettings,
+                seed: int) -> tuple[np.ndarray, dict[str, Any]]:
+    """Samples and engine params for ``(settings, seed)``; raises :class:`BlasterError`.
+    Pure: no state is touched, so it may run in a worker thread."""
+    if engine is None:
+        raise BlasterError(reason)
+    params = to_engine_params(settings)
+    try:
+        raw = engine.render(dict(params), int(seed))
+    except BlasterError:
+        raise
+    except ValueError as exc:
+        raise BlasterError(f"Ungültige Parameter: {exc}") from exc
+    except Exception as exc:  # noqa: BLE001 - a message, never a crash
+        raise BlasterError(f"Schuss fehlgeschlagen: {type(exc).__name__}: {exc}") from exc
+    return check_samples(raw), params
 
 
 class BlasterSession:
@@ -266,35 +314,21 @@ class BlasterSession:
             tempfile.mkdtemp(prefix="abeltongod-blaster-")
         )
 
+    @property
+    def sample_rate(self) -> int:
+        return getattr(self.engine, "sample_rate", SAMPLE_RATE)
+
     # ---- shots ------------------------------------------------------------------------
     def render_shot(
         self, settings: BlasterSettings, seed: int
     ) -> tuple[np.ndarray, dict[str, Any]]:
-        """Samples and engine params for ``(settings, seed)``; raises :class:`BlasterError`."""
-        if self.engine is None:
-            raise BlasterError(self.unavailable_reason)
-        params = to_engine_params(settings)
-        try:
-            raw = self.engine.render(dict(params), int(seed))
-        except BlasterError:
-            raise
-        except ValueError as exc:
-            raise BlasterError(f"Ungültige Parameter: {exc}") from exc
-        except Exception as exc:  # noqa: BLE001 - a message, never a crash in the paint loop
-            raise BlasterError(f"Schuss fehlgeschlagen: {type(exc).__name__}: {exc}") from exc
-        return check_samples(raw), params
+        return render_with(self.engine, self.unavailable_reason, settings, seed)
 
-    def fire(self, play: bool = True) -> FireResult:
-        """Pull the trigger: render the shot for the next seed, keep it, play it. The seed
-        counter only advances for a shot that was rendered."""
-        seed = self.next_seed
-        try:
-            samples, params = self.render_shot(self.settings, seed)
-        except BlasterError as exc:
-            return FireResult(None, str(exc), error=True)
-        sr = getattr(self.engine, "sample_rate", DEFAULT_SAMPLE_RATE)
+    def commit(self, settings: BlasterSettings, seed: int, samples: np.ndarray,
+               params: dict[str, Any], play: bool = True) -> FireResult:
+        """Keep a rendered shot (files, history, seed counter) and play it. GUI thread."""
         self._count += 1
-        shot = Shot(self._count, seed, self.settings, params, samples, sr)
+        shot = Shot(self._count, seed, settings, params, samples, self.sample_rate)
         try:
             shot = self._write_files(shot)
         except OSError as exc:
@@ -304,9 +338,17 @@ class BlasterSession:
         self.next_seed = seed + 1
         self.history.insert(0, shot)
         self._trim()
-        if not play:
-            return FireResult(shot, "")
-        return self._play(shot)
+        return self._play(shot) if play else FireResult(shot, "")
+
+    def fire(self, play: bool = True) -> FireResult:
+        """Render and commit the next shot in the calling thread. The seed counter only
+        advances for a shot that was rendered."""
+        seed = self.next_seed
+        try:
+            samples, params = self.render_shot(self.settings, seed)
+        except BlasterError as exc:
+            return FireResult(None, str(exc), error=True)
+        return self.commit(self.settings, seed, samples, params, play)
 
     def replay(self, shot: Shot) -> FireResult:
         return self._play(shot)
@@ -328,9 +370,9 @@ class BlasterSession:
         self.work_dir.mkdir(parents=True, exist_ok=True)
         wav = self.work_dir / f"{stem}.wav"
         play = self.work_dir / f"{stem}.play16.wav"
-        wav.write_bytes(encode_shot_wav(shot.samples, shot.sample_rate, EXPORT_BITS))
+        wav.write_bytes(encode_wav(shot.samples, shot.sample_rate, BIT_DEPTH))
         try:
-            play.write_bytes(encode_shot_wav(shot.samples, shot.sample_rate, PLAY_BITS))
+            play.write_bytes(encode_wav(shot.samples, shot.sample_rate, PLAY_BITS))
         except OSError:
             wav.unlink(missing_ok=True)
             raise
@@ -357,24 +399,22 @@ class BlasterSession:
 
 # ---- bank export --------------------------------------------------------------------------
 class BankWriter(Protocol):
-    def write(self, shot_params: dict[str, Any], seed: int, samples: np.ndarray, sr: int,
-              folder: Path, stem: str, description: str) -> tuple[Path, Path]:
-        """Write ``<stem>.wav`` + sidecar into ``folder`` (never overwriting); return both."""
+    def write(self, params: dict[str, Any], seed: int, folder: Path, stem: str,
+              description: str) -> tuple[Path, Path]:
+        """Render and write ``<stem>.wav`` + sidecar into ``folder`` (never overwriting)."""
         ...
 
 
 class CategoryBankWriter:
-    """Real writer: the engine's own sidecar path (``audio_engine.io.write_sample("laser", ...)``,
-    the sample-metadata contract). Needs the laser category to be registered (#416); until then
-    it raises :class:`BlasterError`. How the engine's request object is built from the blaster's
-    params is verified when the engine is wired in."""
+    """The repo's writer: ``audio_engine.io.write_sample("laser", ...)`` renders through the
+    laser category and writes WAV + sidecar (sample-metadata contract, no overwrite)."""
 
-    def write(self, shot_params, seed, samples, sr, folder, stem, description):
+    def write(self, params, seed, folder, stem, description):
         from audio_engine.categories import CategoryUnavailable
         from audio_engine.io import write_sample
 
         try:
-            return write_sample("laser", {**shot_params, "seed": seed}, folder, name=stem,
+            return write_sample("laser", {**params, "seed": seed}, folder, name=stem,
                                 description=description)
         except CategoryUnavailable as exc:
             raise BlasterError(f"Bank nicht möglich: {exc}") from exc
@@ -406,47 +446,56 @@ def unique_folder(parent: Path, base: str = "laser_bank") -> Path:
     raise BlasterError("Kein freier Bank-Ordnername gefunden.")
 
 
+def bank_parent(chosen: Path) -> Path:
+    """``<chosen>/Samples/FX/Lasers``: the library layout's laser folder below ``chosen``."""
+    return Path(chosen).joinpath(*LibraryLayout().parts_for("laser"))
+
+
 def export_bank(
-    session: BlasterSession,
+    settings: BlasterSettings,
+    first_seed: int,
     count: int,
-    parent: Path,
+    chosen: Path,
     writer: BankWriter | None = None,
+    progress: Callable[[int, int], None] | None = None,
 ) -> BankResult:
-    """Render ``count`` shots with the session's settings for the next ``count`` seeds and write
-    them with sidecars into a NEW folder below ``parent``. The seed counter advances by the
-    number of shots written. Existing files are never touched. A failure keeps what was
-    written before it and says how many files that were."""
+    """Write ``count`` shots (seeds ``first_seed`` ...) with sidecars into a NEW folder
+    ``<chosen>/Samples/FX/Lasers/laser_bank_NNN``. Pure with respect to the session (safe in a
+    worker thread). Existing files are never touched. A failure keeps what was written before
+    it and says how many files that were; a bank that wrote nothing removes its empty folder."""
     if isinstance(count, bool) or not isinstance(count, int) or not 1 <= count <= BANK_MAX:
         return BankResult(None, (), 0, f"Die Bank braucht 1 bis {BANK_MAX} Schüsse.", True)
+    if not 0 <= first_seed <= SEED_MAX - count:
+        return BankResult(None, (), count, "Der Start-Seed passt nicht für diese Bankgröße.",
+                          True)
     writer = writer or CategoryBankWriter()
-    settings, first = session.settings, session.next_seed
-    # Render everything first, so an engine failure creates no folder at all.
-    shots: list[tuple[int, np.ndarray, dict[str, Any]]] = []
     try:
-        for i in range(count):
-            samples, params = session.render_shot(settings, first + i)
-            shots.append((first + i, samples, params))
-    except BlasterError as exc:
-        return BankResult(None, (), count, str(exc), True)
-    sr = getattr(session.engine, "sample_rate", DEFAULT_SAMPLE_RATE)
-    try:
-        folder = unique_folder(Path(parent))
+        folder = unique_folder(bank_parent(Path(chosen)))
     except (OSError, BlasterError) as exc:
         return BankResult(None, (), count, f"Ordner konnte nicht angelegt werden: {exc}", True)
     dim = dimension(settings.dimension)
+    params = to_engine_params(settings)
     written: list[tuple[Path, Path]] = []
     try:
-        for i, (seed, samples, params) in enumerate(shots, 1):
+        for i in range(count):
+            seed = first_seed + i
             stem = f"laser_{settings.dimension}_s{seed}"
-            text = f"Laser-Schuss, Dimension {dim.label}, Seed {seed}, Blaster-Bank Nr. {i}."
-            written.append(writer.write(params, seed, samples, sr, folder, stem, text))
+            text = f"Laser-Schuss, Dimension {dim.label}, Seed {seed}, Blaster-Bank Nr. {i + 1}."
+            written.append(writer.write(params, seed, folder, stem, text))
+            if progress:
+                progress(i + 1, count)
     except (OSError, BlasterError, ValueError) as exc:
         msg = f"Bank abgebrochen nach {len(written)} von {count} Dateien: {exc}"
-        session.next_seed = first + len(written)
+        if not written:
+            try:
+                folder.rmdir()
+            except OSError:
+                pass
+            return BankResult(None, (), count, msg, True)
         return BankResult(folder, tuple(written), count, msg, True)
-    session.next_seed = first + count
+    except Exception as exc:  # noqa: BLE001 - a result, not a crash in the worker thread
+        msg = (f"Bank abgebrochen nach {len(written)} von {count} Dateien: "
+               f"{type(exc).__name__}: {exc}")
+        return BankResult(folder if written else None, tuple(written), count, msg, True)
     return BankResult(folder, tuple(written), count,
                       f"Bank mit {count} Schüssen geschrieben: {folder}")
-
-
-Opener = Callable[[Path], bool]

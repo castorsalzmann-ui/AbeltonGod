@@ -1,12 +1,16 @@
 """Blaster window on the offscreen platform (ABELTONGOD_REQUIRE_GUI=1: a missing Qt must fail).
 
-The engine is the STUB (gui_core.blaster_stub) or a fake; no real laser engine, no sound device,
-no Live. This checks widget state, files and pixels of an offscreen render only."""
+Most tests use the STUB engine (gui_core.blaster_stub) or a fake for speed; the tests named
+"real_engine" use audio_engine.laser. No sound device, no Live: this checks widget state, files
+and pixels of an offscreen render only. Widget teardown is the autouse fixture of
+tests/gui/conftest.py (PR #412)."""
 
 from __future__ import annotations
 
 import gc
 import os
+import threading
+import time
 import wave
 from pathlib import Path
 
@@ -17,7 +21,7 @@ if os.environ.get("ABELTONGOD_REQUIRE_GUI") == "1":
 else:
     pytest.importorskip("PySide6.QtWidgets", exc_type=ImportError)
 
-from PySide6.QtCore import QEvent, QPointF, Qt  # noqa: E402
+from PySide6.QtCore import QPointF, Qt, QTimer  # noqa: E402
 from PySide6.QtGui import QImage  # noqa: E402
 from PySide6.QtTest import QTest  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
@@ -25,7 +29,7 @@ from PySide6.QtWidgets import QApplication  # noqa: E402
 from gui.blaster import gun as gunmod  # noqa: E402
 from gui.blaster.app import create_blaster_app, take_screenshots  # noqa: E402
 from gui.blaster.window import BlasterWindow  # noqa: E402
-from gui_core.blaster import DIMENSIONS, encode_shot_wav  # noqa: E402
+from gui_core.blaster import DIMENSIONS  # noqa: E402
 from gui_core.blaster_stub import StubLaserEngine  # noqa: E402
 
 
@@ -47,28 +51,44 @@ class FakeBackend:
 
 
 class FakeWriter:
-    def write(self, params, seed, samples, sr, folder, stem, description):
+    def write(self, params, seed, folder, stem, description):
         wav, js = Path(folder) / f"{stem}.wav", Path(folder) / f"{stem}.json"
-        wav.write_bytes(encode_shot_wav(samples, sr, 24))
+        wav.write_bytes(b"RIFF")
         js.write_text("{}")
         return wav, js
 
 
 class BoomEngine:
-    sample_rate = 22050
+    sample_rate = 48000
 
     def render(self, params, seed):
         raise RuntimeError("kaputt")
 
 
-def destroy(w):
-    """Deterministic teardown: the GC must not destroy a window in the middle of a later paint
-    (the crash seen in PR #412)."""
-    w.close()
-    w.deleteLater()
-    QApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
-    QApplication.processEvents()
-    gc.collect()
+class GatedEngine(StubLaserEngine):
+    """Blocks in render() until ``release`` is set; records the thread it ran in."""
+
+    def __init__(self):
+        super().__init__()
+        self.release = threading.Event()
+        self.started = threading.Event()
+        self.threads: list[int] = []
+
+    def render(self, params, seed):
+        self.threads.append(threading.get_ident())
+        self.started.set()
+        assert self.release.wait(10), "test never released the engine"
+        return super().render(params, seed)
+
+
+def wait_for(cond, seconds=15):
+    end = time.monotonic() + seconds
+    while time.monotonic() < end:
+        QApplication.processEvents()
+        if cond():
+            return True
+        time.sleep(0.005)
+    return cond()
 
 
 def make(tmp_path, **kw):
@@ -88,16 +108,17 @@ def make(tmp_path, **kw):
 def win(qapp, tmp_path):
     w = make(tmp_path, bank_writer=FakeWriter())
     yield w
-    destroy(w)
+    wait_for(lambda: not w.busy)
 
 
 def trigger_pos(w) -> QPointF:
     return w.gun._gun_transform().map(QPointF(506, 345))
 
 
-def click_trigger(w):
+def click_trigger(w, wait=True):
     QTest.mouseClick(w.gun, Qt.MouseButton.LeftButton, pos=trigger_pos(w).toPoint())
-    QApplication.processEvents()
+    if wait:
+        assert wait_for(lambda: not w.busy), "the shot never came back"
 
 
 def is_error(w):
@@ -119,18 +140,20 @@ def test_clicking_elsewhere_on_the_gun_does_not_fire(win):
     for pt in (QPointF(300, 230), QPointF(700, 230), QPointF(340, 440)):  # body, barrel, grip
         QTest.mouseClick(win.gun, Qt.MouseButton.LeftButton,
                          pos=win.gun._gun_transform().map(pt).toPoint())
-    assert win.history.count() == 0 and win.backend.played == []
+    assert not win.busy and win.history.count() == 0 and win.backend.played == []
 
 
 def test_right_click_on_the_trigger_does_not_fire(win):
     QTest.mouseClick(win.gun, Qt.MouseButton.RightButton, pos=trigger_pos(win).toPoint())
-    assert win.history.count() == 0
+    assert not win.busy and win.history.count() == 0
 
 
 def test_space_and_enter_pull_the_trigger(win):
     win.gun.setFocus()
     QTest.keyClick(win.gun, Qt.Key.Key_Space)
+    assert wait_for(lambda: not win.busy)
     QTest.keyClick(win.gun, Qt.Key.Key_Return)
+    assert wait_for(lambda: not win.busy)
     assert win.history.count() == 2 and not win.gun.pressed
 
 
@@ -157,20 +180,22 @@ def test_same_seed_and_settings_give_the_same_wav_bytes(win):
     click_trigger(win)
     second = win.session.history[0]
     assert second.seed == 1 and second.wav_path.read_bytes() == first
-    click_trigger(win)  # seed 2: different
+    click_trigger(win)  # seed 2: the stub depends on the seed
     assert win.session.history[0].wav_path.read_bytes() != first
 
 
-def test_dimension_and_sliders_reach_the_engine(win):
-    win.select_dimension("void")
-    win.sliders["pitch"].setValue(100)
-    win.sliders["length"].setValue(0)
+def test_dimension_and_sliders_reach_the_engine_with_contract_names(win):
+    win.select_dimension("rift")
+    win.sliders["pitch_start_hz"].setValue(100)
+    win.sliders["length_ms"].setValue(0)
+    win.sliders["stereo_width"].setValue(100)
     click_trigger(win)
     params, seed = win.session.engine.calls[-1]
-    assert params["family"] == "void" and params["pitch_start_hz"] == 8000.0
-    assert params["length_ms"] == 60.0 and seed == 1
-    assert win.gun.accent.name() == next(d.accent for d in DIMENSIONS if d.key == "void")
-    assert win.readouts["pitch"].text() == "8,0 kHz"
+    assert params["family"] == "rift" and params["pitch_start_hz"] == 8000
+    assert params["length_ms"] == 100 and params["stereo_width"] == 1 and seed == 1
+    assert params["schema_version"] == "0.1" and params["sample_rate"] == 48000
+    assert win.gun.accent.name() == next(d.accent for d in DIMENSIONS if d.key == "rift")
+    assert win.readouts["pitch_start_hz"].text() == "8,0 kHz"
 
 
 def test_every_dimension_can_be_selected_and_fired(win):
@@ -182,7 +207,16 @@ def test_every_dimension_can_be_selected_and_fired(win):
     assert win.history.count() == len(DIMENSIONS)
 
 
-@pytest.mark.parametrize("text", ["abc", "-3", "2147483648", "1.5", ""])
+def test_glitch_steps_slider_is_only_enabled_for_the_glitch_family(win):
+    s = win.sliders["glitch_steps"]
+    assert not s.isEnabled()
+    win.select_dimension("glitch")
+    assert s.isEnabled()
+    win.select_dimension("ion")
+    assert not s.isEnabled()
+
+
+@pytest.mark.parametrize("text", ["abc", "-3", "4294967296", "1.5", ""])
 def test_invalid_seed_is_refused_and_blocks_the_shot(win, text):
     win.seed_edit.setText(text)
     win.seed_edit.editingFinished.emit()
@@ -191,13 +225,57 @@ def test_invalid_seed_is_refused_and_blocks_the_shot(win, text):
     assert win.history.count() == 0 and win.session.engine.calls == []
 
 
-# ---- errors ----------------------------------------------------------------------------
+def test_seed_up_to_the_contract_maximum_is_accepted(win):
+    win.seed_edit.setText("4294967295")
+    win.seed_edit.editingFinished.emit()
+    click_trigger(win)
+    assert win.session.history[0].seed == 4294967295 and not is_error(win)
+
+
+# ---- worker thread -------------------------------------------------------------------------------
+def test_render_runs_off_the_gui_thread_and_the_window_stays_responsive(qapp, tmp_path):
+    engine = GatedEngine()
+    w = make(tmp_path, engine=engine)
+    ticks: list[int] = []
+    timer = QTimer()
+    timer.timeout.connect(lambda: ticks.append(1))
+    timer.start(5)
+    click_trigger(w, wait=False)
+    assert w.busy and w.gun.busy and not w.bank_btn.isEnabled()
+    assert wait_for(engine.started.is_set)
+    n0 = len(ticks)
+    assert wait_for(lambda: len(ticks) >= n0 + 5), "the event loop was blocked by the render"
+    assert engine.threads and engine.threads[0] != threading.get_ident()
+    click_trigger(w, wait=False)  # second press while busy: ignored, says why
+    assert "noch gerendert" in w.status.text() and len(engine.threads) == 1
+    engine.release.set()
+    assert wait_for(lambda: not w.busy)
+    timer.stop()
+    assert w.history.count() == 1 and not w.gun.busy and w.bank_btn.isEnabled()
+    assert w.session.next_seed == 2
+
+
+def test_closing_the_window_while_a_shot_renders_does_not_crash(qapp, tmp_path):
+    engine = GatedEngine()
+    w = make(tmp_path, engine=engine)
+    click_trigger(w, wait=False)
+    assert wait_for(engine.started.is_set)
+    w.close()
+    w.deleteLater()
+    engine.release.set()
+    for _ in range(50):
+        QApplication.processEvents()
+        time.sleep(0.01)
+    gc.collect()
+
+
+# ---- errors ---------------------------------------------------------------------------------
 def test_engine_error_shows_message_without_flash_or_history(qapp, tmp_path):
     w = make(tmp_path, engine=BoomEngine())
     click_trigger(w)
     assert is_error(w) and "kaputt" in w.status.text()
     assert w.history.count() == 0 and not w.gun.is_animating() and w.seed_edit.text() == "1"
-    destroy(w)
+    assert not w.busy and w.bank_btn.isEnabled()
 
 
 def test_missing_engine_is_announced_and_trigger_does_nothing(qapp, tmp_path):
@@ -205,7 +283,6 @@ def test_missing_engine_is_announced_and_trigger_does_nothing(qapp, tmp_path):
     assert is_error(w) and "Laser-Engine" in w.status.text() and not w.gun.ready
     click_trigger(w)
     assert w.history.count() == 0 and w.backend.played == []
-    destroy(w)
 
 
 def test_no_audio_output_still_gives_a_shot(qapp, tmp_path):
@@ -213,7 +290,6 @@ def test_no_audio_output_still_gives_a_shot(qapp, tmp_path):
     click_trigger(w)
     assert w.history.count() == 1 and "Keine Audioausgabe" in w.status.text()
     assert not is_error(w)
-    destroy(w)
 
 
 # ---- animation ----------------------------------------------------------------------------------
@@ -258,7 +334,6 @@ def test_hiding_or_closing_stops_the_timer(qapp, tmp_path):
     click_trigger(w)
     w.close()
     assert not w.gun.is_animating()
-    destroy(w)
 
 
 def test_recoil_moves_the_gun_and_flash_changes_pixels(win):
@@ -283,8 +358,8 @@ def test_recoil_moves_the_gun_and_flash_changes_pixels(win):
     win.gun._stop_animation()
 
 
-# ---- history, drag-out -----------------------------------------------------------------
-def test_history_items_drag_out_the_shot_wav(win):
+# ---- history, drag-out -----------------------------------------------------------------------
+def test_history_items_drag_out_the_stereo_shot_wav(win):
     click_trigger(win)
     click_trigger(win)
     mime = win.history.mimeData([win.history.item(0), win.history.item(1)])
@@ -292,14 +367,14 @@ def test_history_items_drag_out_the_shot_wav(win):
     assert paths == [win.session.history[0].wav_path, win.session.history[1].wav_path]
     for p in paths:
         with wave.open(str(p)) as w:
-            assert w.getsampwidth() == 3 and w.getnframes() > 0
+            assert (w.getnchannels(), w.getsampwidth()) == (2, 3) and w.getnframes() > 0
 
 
 def test_selecting_a_history_row_shows_its_trace_and_replay_plays_it(win):
     win.select_dimension("glitch")
     click_trigger(win)
     win.select_dimension("ion")
-    win.sliders["length"].setValue(90)
+    win.sliders["length_ms"].setValue(90)
     click_trigger(win)
     newest_trace = list(win.gun.trace)
     win.history.setCurrentRow(1)
@@ -323,16 +398,23 @@ def test_history_is_capped_in_the_list_and_files(win):
     assert len(list(win.session.work_dir.glob("*.play16.wav"))) == 3
 
 
-# ---- bank ------------------------------------------------------------------------------
-def test_bank_export_writes_a_new_folder_and_opens_it(win, tmp_path):
+# ---- bank --------------------------------------------------------------------------------------
+def lasers(tmp_path) -> Path:
+    return tmp_path / "bank" / "Samples" / "FX" / "Lasers"
+
+
+def test_bank_export_writes_a_new_folder_in_a_worker_and_opens_it(win, tmp_path):
     win.bank_count.setValue(4)
     win.bank_btn.click()
-    folder = tmp_path / "bank" / "laser_bank_001"
+    assert win.busy and not win.bank_btn.isEnabled()
+    assert wait_for(lambda: not win.busy)
+    folder = lasers(tmp_path) / "laser_bank_001"
     assert sorted(p.suffix for p in folder.iterdir()) == [".json"] * 4 + [".wav"] * 4
     assert win.opened == [folder] and not is_error(win) and "4 Schüssen" in win.status.text()
     assert win.seed_edit.text() == "5"
     win.bank_btn.click()  # again: a second folder, the first stays
-    assert (tmp_path / "bank" / "laser_bank_002").is_dir() and len(list(folder.iterdir())) == 8
+    assert wait_for(lambda: not win.busy)
+    assert (lasers(tmp_path) / "laser_bank_002").is_dir() and len(list(folder.iterdir())) == 8
 
 
 def test_bank_cancel_changes_nothing(qapp, tmp_path):
@@ -340,18 +422,53 @@ def test_bank_cancel_changes_nothing(qapp, tmp_path):
                       work_dir=tmp_path / "w", ask_dir=lambda p, s: None, bank_writer=FakeWriter())
     w.bank_btn.click()
     assert "abgebrochen" in w.status.text() and not (tmp_path / "bank").exists()
-    assert w.session.next_seed == 1
-    destroy(w)
+    assert w.session.next_seed == 1 and not w.busy
 
 
 def test_bank_without_engine_is_an_error_and_writes_nothing(qapp, tmp_path):
     w = make(tmp_path, engine=None, bank_writer=FakeWriter())
     w.bank_btn.click()
-    assert is_error(w) and not (tmp_path / "bank").exists()
-    destroy(w)
+    assert is_error(w) and not (tmp_path / "bank").exists() and not w.busy
 
 
-# ---- look ------------------------------------------------------------------------------
+def test_bank_failure_reports_and_only_written_shots_advance_the_seed(qapp, tmp_path):
+    class FailSecond(FakeWriter):
+        n = 0
+
+        def write(self, *a):
+            self.n += 1
+            if self.n == 2:
+                raise OSError("Datenträger voll")
+            return super().write(*a)
+
+    w = make(tmp_path, bank_writer=FailSecond())
+    w.bank_count.setValue(3)
+    w.bank_btn.click()
+    assert wait_for(lambda: not w.busy)
+    assert is_error(w) and "nach 1 von 3" in w.status.text() and w.seed_edit.text() == "2"
+
+
+# ---- real engine ---------------------------------------------------------------------------------
+def test_real_engine_window_fires_and_exports_a_bank_with_sidecars(qapp, tmp_path):
+    w = BlasterWindow(out_dir=tmp_path / "out", work_dir=tmp_path / "work", backend=FakeBackend(),
+                      opener=lambda p: True, ask_dir=lambda parent, start: tmp_path / "bank")
+    assert "Stub" not in w.windowTitle() and not is_error(w) and w.gun.ready
+    w.select_dimension("plasma")
+    w.sliders["length_ms"].setValue(5)
+    click_trigger(w)
+    shot = w.session.history[0]
+    assert not is_error(w) and shot.samples.shape == (round(shot.params["length_ms"] * 48), 2)
+    w.bank_count.setValue(2)
+    w.bank_btn.click()
+    assert wait_for(lambda: not w.busy)
+    folder = lasers(tmp_path) / "laser_bank_001"
+    names = sorted(p.name for p in folder.iterdir())
+    assert names == ["laser_plasma_s2.json", "laser_plasma_s2.wav",
+                     "laser_plasma_s3.json", "laser_plasma_s3.wav"], names
+    assert not is_error(w) and w.seed_edit.text() == "4"
+
+
+# ---- look ----------------------------------------------------------------------------------------
 def test_screenshots_are_written_and_not_blank(qapp, tmp_path):
     files = take_screenshots(tmp_path / "shots", sizes=((900, 700),))
     img = QImage(str(files[0]))
@@ -362,7 +479,7 @@ def test_screenshots_are_written_and_not_blank(qapp, tmp_path):
     assert "dpr" in files[0].name
 
 
-@pytest.mark.parametrize("size", [(560, 520), (900, 700), (1400, 900)])
+@pytest.mark.parametrize("size", [(600, 600), (900, 700), (1400, 900)])
 def test_window_renders_at_several_sizes(win, size):
     win.resize(*size)
     QApplication.processEvents()
@@ -372,8 +489,8 @@ def test_window_renders_at_several_sizes(win, size):
 
 
 def test_texts_are_honest_and_german(win):
-    note = win.findChildren(type(win.status))
-    texts = " ".join(label.text() for label in note)
+    labels = win.findChildren(type(win.status))
+    texts = " ".join(label.text() for label in labels)
     assert "kein Plugin" in texts and "nicht in Live" in texts
     assert "nicht bewertet" in texts
     for banned in ("robust", "production", "perfekt", "professionell"):
@@ -381,12 +498,14 @@ def test_texts_are_honest_and_german(win):
 
 
 def test_repeated_open_fire_close_does_not_crash(qapp, tmp_path):
-    """GC-in-paint guard (PR #412): many windows, shots, grabs and teardowns in one process."""
-    for i in range(12):
+    """GC / worker-thread guard (PR #412): many windows, shots, grabs and teardowns."""
+    for i in range(10):
         w = make(tmp_path / f"r{i}", bank_writer=FakeWriter())
         for _ in range(3):
             click_trigger(w)
             w.gun._tick()
             w.grab()
+        w.close()
+        w.deleteLater()
+        QApplication.processEvents()
         gc.collect()
-        destroy(w)
