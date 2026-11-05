@@ -55,7 +55,7 @@ def check_help(exe: str) -> str:
         assert name in r.stdout, f"{name} missing from --help"
     # every tool's own --help must load its module inside the bundle
     for tool in ("kick", "goa-arrangement", "goa-melody", "live-import", "bridge-check", "chat",
-                 "plan", "als-inspect"):
+                 "plan", "arrangement-midi"):
         t = run([exe, tool, "--help"])
         assert t.returncode == 0, f"{tool} --help exit {t.returncode}: {t.stderr[-500:]}"
     return "--help and --help of 8 tools ok"
