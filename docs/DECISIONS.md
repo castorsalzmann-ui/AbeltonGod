@@ -320,3 +320,11 @@ The researchers for 04b clusters 1 (Agent SDK behaviour) and 2 (tool-schema gene
 **Reason.** The user wants all measurement-derived choices configurable and one owner per sound: the engines for the rhythm section, the Goa plugin for melody.
 
 **Consequences.** Supersedes the D-026 wording that put bass patterns inside the Goa plugin. Work: configurable form/rhythm/tempo parameters in `goa_arrangement`; rhythm tracks sourced from the engine presets; melodic generators (lead, arp, pad, pluck) as the Goa plugin proper.
+
+## D-028 · 2026-11-05 · accepted — Finalisation without user listening or Live tests (user, 2026-11-05 09:17: "keine Hörtests mehr, ungeblockt finalisieren")
+
+**Decision.** (1) No work item waits for a listening test or a test in Live any more. The lead decides the open questions below; every decision is reversible. (2) Honest status stays: everything that touches Live remains `supported`/`unknown` in `contracts/capabilities.json`, nothing is claimed as heard or tested in Live; listening and Live tests become **optional later verification**, listed as such in `docs/WAITING_ON_USER.md`. (3) Category freeze: kick, hat, snare, clap, rim, bass and the Goa arrangement are the MVP scope; no new category (#151 toms stays parking-lot). (4) Decisions: **#335 bass** keeps drive 0.2 and gets a fixed DC blocker as last stage (measured DC must be below a threshold the engineer states in the test); **#284 `acid_line`** gets no contract now (stays research until Live tests exist); **#311 clap** keeps `peak_ceiling_dbfs` max -12.0, presets must comply (no contract change); **#174 guard limits** unchanged; **#338 Goa**: engines own kick/bass/percussion, the Goa plugin owns lead/arp/pad/pluck (D-027). (5) Remaining build work: #392 (rhythm section from engines), Goa melodic generators, #335, then final docs (user guide, state, roadmap).
+
+**Reason.** The user has no time for listening rounds now; the product must be complete and documented as far as it can be verified without him.
+
+**Consequences.** Cockpit and `WAITING_ON_USER.md` show no blocking items. Taste claims stay forbidden; quality is only claimed where measured.
