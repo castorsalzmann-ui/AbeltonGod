@@ -67,7 +67,7 @@ One row per feature. The cockpit reads this table (`scripts/qa/cockpit_collect.p
 | Drum-Kit-Aufbau und Mixer (Drum Rack, Pegel) | 07 | Parkplatz | 2026-11-02_drum-kit-assembly-and-mixer-feasibility.md, 2026-11-02_drum-rack-choke-and-oneshot-placement.md | https://github.com/castorsalzmann-ui/AbeltonGod/pull/332, https://github.com/castorsalzmann-ui/AbeltonGod/pull/260 |
 | Kick im Mix (Pegel, Sidechain, Loudness) | 07 | Parkplatz | 2026-10-29_kick-in-tracks.md, 2026-10-29_mix-loudness-targets.md, 2026-11-02_toms-percs-and-sidechain-feasibility.md | - |
 | Mix-Analyse und Mastering | 07 | Parkplatz | 2026-10-29_mix-loudness-targets.md | - |
-| Desktop-UI mit Sample-Picker | 08 | Parkplatz | 2026-10-29_desktop-window-windows.md | - |
+| Desktop-UI mit Sample-Picker | 08 | In Arbeit | 2026-10-29_desktop-window-windows.md | - |
 | Persönliches Klangprofil (Hör- und Wahl-Log) | 08 | Parkplatz | - | https://github.com/castorsalzmann-ui/AbeltonGod/issues/110 |
 | Generatives Audio-Backend | 08 | Parkplatz | 2026-10-29_ai-audio-one-shots.md | D-005 gilt bis zur Wiedereröffnung |
 | Eigene VST3-Plugins (JUCE) | 08 | Parkplatz | - | - |
