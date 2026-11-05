@@ -15,7 +15,7 @@ from typing import Any
 
 import numpy as np
 
-from . import ENGINE_NAME, ENGINE_VERSION, analysis, bass, clap, hat, kick, rim, snare
+from . import ENGINE_NAME, ENGINE_VERSION, analysis, bass, clap, hat, kick, laser, rim, snare
 from .params import resolve_kick_params
 
 # Categories named by contracts/sample-metadata.schema.json (a test compares with the file).
@@ -105,6 +105,16 @@ _REGISTRY: dict[str, Category] = {
         resolve=rim.resolve_rim_params,
         render=lambda params: rim.render_rim(params),
         analyse=lambda audio, sr: analysis.analyse_nonpitched(audio, sr),
+    ),
+    "laser": Category(
+        name="laser",
+        engine_name=laser.LASER_NAME,
+        engine_version=laser.LASER_VERSION,
+        metadata_schema_version="0.2",
+        default_stem="laser",
+        resolve=laser.resolve_laser_params,
+        render=lambda params: laser.render_laser_category(params),
+        analyse=laser.analyse_laser,
     ),
     "bass": Category(
         name="bass",
