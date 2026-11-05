@@ -226,9 +226,9 @@ def low_pass(x: np.ndarray, sr: int, p: dict[str, Any], starts: list[int]) -> np
     """
     m = len(x)
     lp, end = float(p["lp_hz"]), float(p["lp_sweep_hz"])
+    if float(p["lp_sweep_ms"]) <= 0.0 and lp >= 20000.0:
+        return x  # 20000 = off only without a sweep (contract point 18)
     if float(p["lp_sweep_ms"]) <= 0.0 or lp == end:
-        if lp >= 20000.0:
-            return x
         secs = filter_sections("lp", sr, lp, p["filter_slope"], p["lp_resonance"])
         return apply_sections(x, secs)
     hi = max(lp, end)

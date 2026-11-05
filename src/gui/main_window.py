@@ -113,7 +113,7 @@ class MainWindow(QMainWindow):
         split.setChildrenCollapsible(False)
         outer.addWidget(split, 1)
         self.stack = QStackedWidget()
-        self.stack.setMinimumWidth(m * 44)
+        self.stack.setMinimumWidth(m * 50)  # five knobs (9 m each) plus the page margins
         self.panels: dict[str, CategoryPanel] = {}
         for c in CATEGORIES:
             panel = CategoryPanel(self.models[c.key])

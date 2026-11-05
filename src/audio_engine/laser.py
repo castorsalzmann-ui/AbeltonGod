@@ -49,6 +49,7 @@ LASER_NAME = "abeltongod-audio-engine-laser"
 # Bump on every change that alters rendered bytes (D-013 per category, D-025); update the golden
 # hashes in tests/audio_engine/test_laser.py in the same PR.
 LASER_VERSION = "0.2.0"
+LASER_VERSION_V01 = "0.1.0"  # still reported for schema 0.1 requests: their bytes are unchanged
 LASER_SCHEMA_FILE = CONTRACTS_DIR / "laser-params.schema.json"
 
 FAMILIES = ("pew", "plasma", "ion", "rift", "subboom", "glitch")
@@ -138,6 +139,12 @@ def resolve_laser_params(params: dict[str, Any]) -> dict[str, Any]:
         ):
             resolved["bpm"] = SYNC_DEFAULT_BPM
     return resolved
+
+
+def engine_version_for(params: dict[str, Any]) -> str:
+    """Sidecar engine version: 0.1.0 for schema 0.1 parameters (same bytes as engine 0.1.0, so
+    existing sidecars keep re-rendering), 0.2.0 for schema 0.2."""
+    return LASER_VERSION if params.get("schema_version") == V02 else LASER_VERSION_V01
 
 
 def v02_properties(schema: dict[str, Any] | None = None) -> dict[str, Any]:

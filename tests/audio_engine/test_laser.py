@@ -417,7 +417,8 @@ def test_write_sample_sidecar_and_rerender_roundtrip(tmp_path: Path) -> None:
         wav_path, json_path = write_sample("laser", params, tmp_path, name=name)
         meta = json.loads(json_path.read_text("utf-8"))
         assert meta["category"] == "laser" and meta["schema_version"] == "0.2"
-        assert meta["engine"] == {"name": laser.LASER_NAME, "version": laser.LASER_VERSION}
+        # schema 0.1 requests keep engine 0.1.0: same bytes, so old sidecars still re-render
+        assert meta["engine"] == {"name": laser.LASER_NAME, "version": "0.1.0"}
         wav = wav_path.read_bytes()
         assert hashlib.sha256(wav).hexdigest() == meta["sha256"]
         ints, channels, _ = decode(wav)

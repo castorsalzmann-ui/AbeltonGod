@@ -40,6 +40,9 @@ class Category:
     analyse: Callable[[np.ndarray, int], dict[str, Any]]
     # Optional: features that need the resolved parameters (bass: the gate window, #328).
     analyse_resolved: Callable[[np.ndarray, int, dict[str, Any]], dict[str, Any]] | None = None
+    # Optional: engine version by parameters (laser: 0.1 requests keep reporting 0.1.0 because
+    # their bytes did not change, so existing sidecars still re-render, #425).
+    version_for: Callable[[dict[str, Any]], str] | None = None
 
     def features(self, audio: np.ndarray, resolved: dict[str, Any]) -> dict[str, Any]:
         """Sidecar features of a render of this category."""
@@ -51,6 +54,12 @@ class Category:
     @property
     def engine(self) -> dict[str, str]:
         return {"name": self.engine_name, "version": self.engine_version}
+
+    def engine_for(self, params: dict[str, Any]) -> dict[str, str]:
+        """Engine identity to write into / expect from a sidecar with these parameters."""
+        if self.version_for is None:
+            return self.engine
+        return {"name": self.engine_name, "version": self.version_for(params)}
 
 
 _REGISTRY: dict[str, Category] = {
@@ -110,6 +119,7 @@ _REGISTRY: dict[str, Category] = {
         name="laser",
         engine_name=laser.LASER_NAME,
         engine_version=laser.LASER_VERSION,
+        version_for=laser.engine_version_for,
         metadata_schema_version="0.2",
         default_stem="laser",
         resolve=laser.resolve_laser_params,

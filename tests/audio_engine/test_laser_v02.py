@@ -807,3 +807,98 @@ def test_fault_injection_on_shared_invariants_with_v02_stages(monkeypatch, targe
     monkeypatch.setattr(laser, target, fault)
     with pytest.raises(AssertionError):
         check_render(FULL)
+
+
+# --- review round 1 (#429): the cutoffs in the render path, 20000 with a sweep, old sidecars -----
+
+NOISE_ONLY = {**V2, "pitch_start_hz": 40, "pitch_end_hz": 40, "decay_ms": 3000, "length_ms": 800,
+              "noise_level": 1.0, "noise_hz": 3000}
+
+
+def bin_gain(a: np.ndarray, b: np.ndarray, f: float) -> float:
+    """sqrt of the median per-bin power ratio b / a around f (0.1 - 0.7 s; same noise in both
+    renders, so the ratio is the filter's power gain times one constant)."""
+    seg = slice(int(0.1 * SR), int(0.7 * SR))
+    fa = np.abs(np.fft.rfft(mid(a)[seg] * np.hanning(seg.stop - seg.start))) ** 2
+    fb = np.abs(np.fft.rfft(mid(b)[seg] * np.hanning(seg.stop - seg.start))) ** 2
+    freqs = np.fft.rfftfreq(seg.stop - seg.start, 1 / SR)
+    sel = (freqs > 0.99 * f) & (freqs < 1.01 * f)
+    return float(math.sqrt(np.median(fb[sel] / fa[sel])))
+
+
+@pytest.mark.parametrize("kind,field", [("hp", "hp_hz"), ("lp", "lp_hz")])
+@pytest.mark.parametrize("slope,order", [(12, 2), (24, 4)])
+@pytest.mark.parametrize("fc", [400.0, 900.0])
+def test_rendered_cutoff_is_the_minus_3_db_point(
+    kind: str, field: str, slope: int, order: int, fc: float
+) -> None:
+    dry = render_laser(NOISE_ONLY, 1)
+    wet = render_laser({**NOISE_ONLY, field: fc, "filter_slope": slope}, 1)
+    ref_f = 8 * fc if kind == "hp" else fc / 8  # far in the pass band: gain known from the formula
+    k = bin_gain(dry, wet, ref_f) / butterworth_gain(kind, ref_f, fc, order)
+    for f, tol in ((fc, 0.02), (fc * 0.7, 0.06), (fc * 1.4, 0.06)):
+        got = bin_gain(dry, wet, f) / k
+        assert got == pytest.approx(butterworth_gain(kind, f, fc, order), rel=tol), (f, got)
+
+
+@pytest.mark.parametrize("kind", ["hp", "lp"])
+def test_cutoff_check_turns_red_when_the_cutoff_is_off_by_2_percent(monkeypatch, kind) -> None:
+    original = laser_fx.filter_sections
+
+    def shifted(k, sr, f0, slope, resonance=0.0):
+        return original(k, sr, f0 * (1.02 if k == kind else 1.0), slope, resonance)
+
+    check = test_rendered_cutoff_is_the_minus_3_db_point
+    field = f"{kind}_hz"
+    check(kind, field, 24, 4, 900.0)  # green without the fault
+    monkeypatch.setattr(laser_fx, "filter_sections", shifted)
+    with pytest.raises(AssertionError):
+        check(kind, field, 24, 4, 900.0)
+
+
+def test_lp_20000_is_a_real_start_cutoff_when_a_sweep_runs() -> None:
+    """Contract point 18: with lp_sweep_ms above 0, lp_hz 20000 is not 'off'; also when
+    lp_sweep_hz equals it (a constant 20000 Hz low-pass, not a bypass)."""
+    n = 24000
+    t = np.arange(n) / SR
+    x = np.stack([np.sin(2 * math.pi * 21000 * t)] * 2, axis=1)  # above the cutoff
+    base = {"lp_hz": 20000.0, "lp_sweep_hz": 20000.0, "filter_slope": 24, "lp_resonance": 0.0}
+    off = laser_fx.low_pass(x, SR, {**base, "lp_sweep_ms": 0.0}, [0])
+    assert np.array_equal(off, x)  # no sweep: bypass
+    on = laser_fx.low_pass(x, SR, {**base, "lp_sweep_ms": 100.0}, [0])
+    want = butterworth_gain("lp", 21000.0, 20000.0, 4)
+    assert want < 0.9
+    assert rms(on[n // 2 :, 0]) * math.sqrt(2) == pytest.approx(want, rel=0.02)
+    closing = laser_fx.low_pass(x, SR, {**base, "lp_sweep_hz": 500.0, "lp_sweep_ms": 100.0}, [0])
+    assert rms(closing[n // 2 :, 0]) < 1e-6  # a 20000 -> 500 Hz sweep ends closed
+    # and through a render: the sweep from 20000 changes the bytes against no filter at all
+    a = render_laser({**V2, "length_ms": 600, "noise_level": 0.5}, 1)
+    b = render_laser({**V2, "length_ms": 600, "noise_level": 0.5, "lp_sweep_ms": 200,
+                      "lp_sweep_hz": 800}, 1)
+    assert not np.array_equal(a, b)
+
+
+def test_old_01_sidecars_still_rerender_without_allow_engine_mismatch(tmp_path: Path) -> None:
+    from audio_engine.io import EngineVersionMismatch
+
+    for name in ("ion", "plasma-driven"):  # schema 0.1 presets
+        params = load_preset(name, "laser")
+        assert params["schema_version"] == "0.1"
+        wav_path, json_path = write_sample("laser", params, tmp_path, name=name)
+        meta = json.loads(json_path.read_text("utf-8"))
+        assert meta["engine"] == {"name": "abeltongod-audio-engine-laser", "version": "0.1.0"}
+        # the golden pinned before engine 0.2.0 (test_laser.GOLDEN): same bytes, same sidecar
+        wav = wav_path.read_bytes()
+        assert rerender_from_sidecar(json_path) == wav
+    # a hand-written old sidecar (engine 0.1.0, parameters schema 0.1) re-renders as is
+    old = json.loads(json_path.read_text("utf-8"))
+    assert old["engine"]["version"] == "0.1.0" and old["parameters"]["schema_version"] == "0.1"
+    # schema 0.2 sidecars are stamped 0.2.0, and a 0.2 sidecar claiming 0.1.0 is refused
+    wav_path, json_path = write_sample("laser", load_preset("blaster", "laser"), tmp_path,
+                                       name="b")
+    meta = json.loads(json_path.read_text("utf-8"))
+    assert meta["engine"]["version"] == "0.2.0"
+    meta["engine"]["version"] = "0.1.0"
+    json_path.write_text(json.dumps(meta), encoding="utf-8")
+    with pytest.raises(EngineVersionMismatch):
+        rerender_from_sidecar(json_path)

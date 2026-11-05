@@ -15,11 +15,12 @@ else:
 
 from PySide6.QtCore import Qt, QUrl  # noqa: E402
 from PySide6.QtTest import QTest  # noqa: E402
-from PySide6.QtWidgets import QComboBox, QLabel, QLineEdit  # noqa: E402
+from PySide6.QtWidgets import QLineEdit  # noqa: E402
 
 from gui.app import create_app  # noqa: E402
 from gui.drag import PATH_ROLE, DragList, file_mime  # noqa: E402
 from gui.main_window import MainWindow  # noqa: E402
+from gui.widgets import BoolControl, Segmented  # noqa: E402
 from gui_core.form import CATEGORY_KEYS, CategoryFormModel  # noqa: E402
 
 
@@ -66,47 +67,67 @@ def go(window, key: str) -> None:
     window.categories.setCurrentRow(list(CATEGORY_KEYS).index(key))
 
 
-def test_every_category_page_lists_every_contract_field_with_its_range(window):
+def test_every_category_page_has_a_control_for_every_contract_field(window):
     for key in CATEGORY_KEYS:
         go(window, key)
         assert window.form_key == key and window.stack.currentWidget() is window.panel
         model = CategoryFormModel(key)
-        labels = {lab.text() for lab in window.panel.findChildren(QLabel)}
-        assert set(window.panel.edits) == {s.name for s in model.specs}, key
+        assert set(window.panel.controls) == {s.name for s in model.specs}, key
         for spec in model.specs:
-            assert spec.range_text in labels, (key, spec.name)
-            assert window.panel.checks[spec.name].text() == spec.label
+            assert window.panel.controls[spec.name].label.text() == spec.label
         assert window.render_button.isEnabled(), key
-        assert window.panel.preset_box.count() == len(model.preset_names())
+        assert len(window.panel.chips.buttons) == len(model.preset_names())
+        assert window.panel.chips.current() == model.preset
 
 
-def test_enum_and_bool_fields_are_drop_downs(window):
+def test_enum_fields_are_button_rows_and_bool_fields_are_switches(window):
     go(window, "hat")
-    assert isinstance(window.panel.edits["model"], QComboBox)
-    assert [window.panel.edits["model"].itemText(i) for i in range(2)] == ["metal_bank", "noise"]
+    seg = window.panel.controls["model"].seg
+    assert isinstance(seg, Segmented) and seg.items == ["metal_bank", "noise"]
     go(window, "clap")
-    box = window.panel.edits["tail_reverse"]
-    assert isinstance(box, QComboBox) and [box.itemText(i) for i in range(2)] == ["nein", "ja"]
+    box = window.panel.controls["tail_reverse"]
+    assert isinstance(box, BoolControl) and box.texts == ["nein", "ja"]
+    box.toggle.setChecked(True)
+    assert window.model.text["tail_reverse"] == "ja" and "tail_reverse" in window.model.active
 
 
-def test_invalid_input_is_per_category_and_does_not_leak_to_others(window):
+def test_a_bad_seed_is_per_category_and_does_not_leak_to_others(window):
     go(window, "snare")
-    window.panel.checks["body_hz"].setChecked(True)  # not in the preset: switched off by default
-    type_into(window.panel.edits["body_hz"], "50")
+    seed = window.panel.controls["seed"]
+    type_into(seed.edit, "abc")
+    seed.edit.edited.emit("abc")
     assert not window.render_button.isEnabled()
-    assert "Körper-Frequenz" in window.status.text()
+    assert "Seed" in window.status.text()
     go(window, "rim")
     assert window.render_button.isEnabled() and window.status.text() == ""
     go(window, "snare")
     assert not window.render_button.isEnabled()
 
 
-def test_cross_rule_of_the_engine_disables_render_for_bass(window):
+def test_a_typed_number_outside_the_range_is_clamped_not_sent(window):
+    go(window, "snare")
+    c = window.panel.controls["body_hz"]
+    c.readout.setText("50")
+    c.readout.entered.emit("50")
+    assert c.value() == 120 and window.model.text["body_hz"] == "120.0"  # contract minimum
+    assert "body_hz" in window.model.active and window.render_button.isEnabled()
+    assert "liegt außerhalb" in c.note.text()
+
+
+def test_cross_rule_of_the_engine_is_kept_by_the_bass_controls(window):
     go(window, "bass")
-    window.panel.checks["hp_hz"].setChecked(True)
-    type_into(window.panel.edits["hp_hz"], "120")
-    assert not window.render_button.isEnabled()
-    assert "Ungültige Kombination" in window.status.text()
+    hp = window.panel.controls["hp_hz"]
+    lo, hi = hp.limits
+    assert hi < hp.spec.maximum and "Note (MIDI)" in hp.limit_reason
+    hp.readout.setText("120")
+    hp.readout.entered.emit("120")  # would break hp_hz < 0.8 * f0: clamped to the limit
+    assert hp.value() == hi and window.render_button.isEnabled()
+    assert window.model.is_valid and "außerhalb" in hp.note.text()
+    # moving the partner moves the limit: a higher note allows a higher high-pass
+    note = window.panel.controls["note"]
+    note.readout.setText("55")
+    note.readout.entered.emit("55")
+    assert hp.limits[1] > hi
 
 
 def test_render_in_another_category_lists_the_file(qapp, window):
