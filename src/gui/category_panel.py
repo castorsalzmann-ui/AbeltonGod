@@ -1,4 +1,5 @@
-"""Kick parameter panel: one row per contract field. State and checks live in KickFormModel."""
+"""Parameter panel of one category: one row per contract field. State and checks live in
+CategoryFormModel."""
 
 from __future__ import annotations
 
@@ -14,13 +15,13 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from gui_core.form import ALWAYS_ACTIVE, KickFormModel
+from gui_core.form import ALWAYS_ACTIVE, CategoryFormModel
 
 
-class KickPanel(QScrollArea):
+class CategoryPanel(QScrollArea):
     changed = Signal()
 
-    def __init__(self, model: KickFormModel) -> None:
+    def __init__(self, model: CategoryFormModel) -> None:
         super().__init__()
         self.model = model
         self.setWidgetResizable(True)
@@ -53,9 +54,9 @@ class KickPanel(QScrollArea):
             grid.setColumnStretch(2, 2)
         counters = {False: 0, True: 0}
         for spec in model.specs:
-            grid = extra if spec.optional_v03 else main
-            row = counters[spec.optional_v03]
-            counters[spec.optional_v03] += 1
+            grid = extra if spec.gate_version else main
+            row = counters[bool(spec.gate_version)]
+            counters[bool(spec.gate_version)] += 1
             check = QCheckBox(spec.label)
             check.setToolTip(spec.description)
             if spec.name in ALWAYS_ACTIVE:
@@ -64,9 +65,9 @@ class KickPanel(QScrollArea):
             else:
                 check.toggled.connect(lambda on, n=spec.name: self._toggled(n, on))
             self.checks[spec.name] = check
-            if spec.kind == "enum":
+            if spec.kind in ("enum", "bool"):
                 edit: QLineEdit | QComboBox = QComboBox()
-                edit.addItems([str(c) for c in spec.choices])
+                edit.addItems(list(spec.choice_texts))
                 edit.currentTextChanged.connect(lambda t, n=spec.name: self._edited(n, t))
             else:
                 edit = QLineEdit()
@@ -82,8 +83,10 @@ class KickPanel(QScrollArea):
 
         lay.addWidget(self._heading("Parameter"))
         lay.addLayout(main)
-        lay.addWidget(self._heading("Erweiterte Felder (Kontrakt 0.3)"))
-        lay.addLayout(extra)
+        gates = sorted({s.gate_version for s in model.specs if s.gate_version})
+        if gates:  # kick 0.3 fields, clap 0.2 fields
+            lay.addWidget(self._heading(f"Erweiterte Felder (Kontrakt {', '.join(gates)})"))
+            lay.addLayout(extra)
         lay.addStretch(1)
         self.sync_from_model()
 

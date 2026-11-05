@@ -15,9 +15,12 @@ class CategoryEntry:
 
 CATEGORIES: tuple[CategoryEntry, ...] = (
     CategoryEntry("kick", "Kick", True, ""),
-    CategoryEntry("hat", "Hi-Hat", False, "kommt in GUI-1"),
-    CategoryEntry("snare", "Snare", False, "kommt in GUI-1"),
-    CategoryEntry("clap", "Clap", False, "kommt in GUI-1"),
-    CategoryEntry("rim", "Rim", False, "kommt in GUI-1"),
-    CategoryEntry("bass", "Bass", False, "kommt in GUI-1"),
+    CategoryEntry("hat", "Hi-Hat", True, ""),
+    CategoryEntry("snare", "Snare", True, ""),
+    CategoryEntry("clap", "Clap", True, ""),
+    CategoryEntry("rim", "Rim", True, ""),
+    CategoryEntry("bass", "Bass", True, ""),
 )
+
+LIBRARY_KEY = "library"
+LIBRARY_LABEL = "Bibliothek"

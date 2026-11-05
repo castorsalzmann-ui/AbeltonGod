@@ -1,8 +1,10 @@
-"""Kick parameter form model, built from contracts/kick-params.schema.json (no Qt).
+"""Parameter form model for every sample category, built from its contract (no Qt).
 
 The model holds, per contract field, the text the user typed and whether the field is sent at
-all ("active"). Ranges, defaults, enums come from the contract, never from a copy. The shell
-only shows this state; every check lives here.
+all ("active"). Ranges, defaults and enums come from ``contracts/<category>-params.schema.json``
+(read at run time), never from a copy. Cross-field and version rules are not re-implemented:
+the category's own ``resolve`` function (``audio_engine.categories``) decides. The shell only
+shows this state; every check lives here.
 """
 
 from __future__ import annotations
@@ -11,48 +13,68 @@ import re
 from dataclasses import dataclass
 from typing import Any
 
-from audio_engine.params import (
-    KICK_SCHEMA_FILE,
-    KickParamsError,
-    load_schema,
-    resolve_kick_params,
-    v03_properties,
-)
+from audio_engine.categories import get_category
+from audio_engine.params import CONTRACTS_DIR, load_schema
 from audio_engine.presets import describe, load_preset, preset_names
 
+CATEGORY_KEYS = ("kick", "hat", "snare", "clap", "rim", "bass")
 # Contract fields the form does not edit as a value: the format version is derived, the preset
 # name has its own drop-down.
 HIDDEN_FIELDS = ("schema_version", "preset")
 ALWAYS_ACTIVE = ("seed", "variants")
-V03 = "0.3"
-DEFAULT_PRESET = "punchy"
+DEFAULT_PRESETS = {
+    "kick": "punchy", "hat": "closed-std", "snare": "default", "clap": "default",
+    "rim": "rim", "bass": "default",
+}
+DEFAULT_PRESET = DEFAULT_PRESETS["kick"]
+YES, NO = "ja", "nein"
 
 LABELS_DE: dict[str, str] = {
-    "seed": "Seed",
-    "variants": "Varianten",
-    "bpm": "Tempo",
-    "sample_rate": "Samplerate",
-    "bit_depth": "Bittiefe",
-    "length_ms": "Länge",
-    "pitch_start_hz": "Tonhöhe Start",
-    "pitch_end_hz": "Tonhöhe Ende",
-    "pitch_decay_ms": "Pitch-Abfall",
-    "amp_attack_ms": "Anstieg",
-    "amp_decay_ms": "Ausklang (-60 dB)",
-    "click_level": "Klick-Pegel",
-    "click_tone_hz": "Klick-Frequenz",
-    "drive": "Drive",
-    "tone": "Klang (dunkel/hell)",
-    "peak_ceiling_dbfs": "Spitzenpegel",
-    "tail_note": "Endton (MIDI-Note)",
-    "length_beats": "Länge in Beats",
-    "click_decay_ms": "Klick-Abfall",
-    "click_q": "Klick-Güte (Q)",
-    "polarity": "Polarität",
-    "offset_ms": "Vorlauf",
-    "clip_db": "Clip",
+    # shared
+    "seed": "Seed", "variants": "Varianten", "bpm": "Tempo", "sample_rate": "Samplerate",
+    "bit_depth": "Bittiefe", "length_ms": "Länge", "drive": "Drive", "polarity": "Polarität",
+    "offset_ms": "Vorlauf", "peak_ceiling_dbfs": "Spitzenpegel", "hp_hz": "Hochpass",
+    "lp_hz": "Tiefpass", "bp_hz": "Bandpass-Frequenz", "bp_q": "Bandpass-Güte (Q)",
+    "gate_ms": "Gate", "click_level": "Klick-Pegel",
+    # kick
+    "pitch_start_hz": "Tonhöhe Start", "pitch_end_hz": "Tonhöhe Ende",
+    "pitch_decay_ms": "Pitch-Abfall", "amp_attack_ms": "Anstieg",
+    "amp_decay_ms": "Ausklang (-60 dB)", "click_tone_hz": "Klick-Frequenz",
+    "tone": "Klang (dunkel/hell)", "tail_note": "Endton (MIDI-Note)",
+    "length_beats": "Länge in Beats", "click_decay_ms": "Klick-Abfall",
+    "click_q": "Klick-Güte (Q)", "clip_db": "Clip",
+    # clap
+    "bursts": "Anzahl Bursts", "burst_spacing_ms": "Burst-Abstand",
+    "burst_decay_ms": "Burst-Abfall", "burst_level_falloff": "Burst-Pegelabfall",
+    "tail_level": "Nachhall-Pegel", "tail_decay_ms": "Nachhall-Abfall", "room": "Raum",
+    "room_length_ms": "Raumlänge", "fold": "Wavefolder", "crush": "Crush",
+    "rate_div": "Sample-Teiler", "ring_hz": "Ringmod-Frequenz", "ring_mix": "Ringmod-Anteil",
+    "comb_hz": "Kamm-Frequenz", "comb_fb": "Kamm-Rückkopplung", "tail_reverse": "Tail umkehren",
+    # hat
+    "model": "Modell", "decay_ms": "Abfall", "attack_ms": "Anstieg", "metal": "Metall",
+    "pitch_scale": "Tonhöhen-Skala", "color": "Farbe", "bp_mix": "Bandpass-Anteil",
+    "peak_hz": "Peak-Frequenz", "peak_db": "Peak-Pegel", "body_mix": "Körper-Anteil",
+    "decay_hi_ratio": "Höhen-Abfall (Verhältnis)", "choke_ms": "Choke",
+    # snare
+    "body_hz": "Körper-Frequenz", "mode_ratio": "Obermode-Verhältnis",
+    "pitch_drop": "Pitch-Absenkung", "pitch_drop_ms": "Pitch-Absenkzeit",
+    "body_decay_ms": "Körper-Abfall", "body2_decay_ratio": "Körper-2-Abfallverhältnis",
+    "body_level": "Körper-Pegel", "noise_decay_ms": "Rausch-Abfall",
+    "noise_band_mix": "Rausch-Bandanteil", "noise_hp_hz": "Rausch-Hochpass",
+    "noise_lp_hz": "Rausch-Tiefpass", "noise_attack_ms": "Rausch-Anstieg",
+    "tone_peak_hz": "Klang-Peak-Frequenz", "tone_peak_db": "Klang-Peak-Pegel",
+    # rim
+    "f1_hz": "Frequenz 1", "f2_ratio": "Frequenz-2-Verhältnis", "level2": "Pegel 2",
+    "decay1_ms": "Abfall 1", "decay2_ms": "Abfall 2", "click_ms": "Klick-Länge",
+    # bass
+    "note": "Note (MIDI)", "cents": "Feinstimmung", "saw_level": "Sägezahn-Pegel",
+    "square_level": "Rechteck-Pegel", "sine_level": "Sinus-Pegel",
+    "sub_octave_level": "Sub-Oktave-Pegel", "release_ms": "Release",
+    "lp_q": "Tiefpass-Güte (Q)", "lp_env_amount": "Filter-Hüllkurve Stärke",
+    "lp_env_decay_ms": "Filter-Hüllkurve Abfall",
 }
-_UNIT_BY_NAME = {"bpm": "BPM", "length_beats": "Beats", "tail_note": "MIDI"}
+_UNIT_BY_NAME = {"bpm": "BPM", "length_beats": "Beats", "tail_note": "MIDI", "note": "MIDI",
+                 "cents": "Cent", "bursts": "", "rate_div": ""}
 _UNIT_BY_SUFFIX = (("_dbfs", "dBFS"), ("_db", "dB"), ("_ms", "ms"), ("_hz", "Hz"))
 
 
@@ -60,21 +82,33 @@ _UNIT_BY_SUFFIX = (("_dbfs", "dBFS"), ("_db", "dB"), ("_ms", "ms"), ("_hz", "Hz"
 class FieldSpec:
     name: str
     label: str
-    kind: str  # "int" | "float" | "enum"
+    kind: str  # "int" | "float" | "enum" | "bool"
     minimum: float | None
     maximum: float | None
     default: Any  # None = the contract gives no default
     choices: tuple[Any, ...]
     unit: str
     description: str  # contract text, shown as tooltip
-    optional_v03: bool  # lives in the schema_version 0.3 branch
+    gate_version: str | None = None  # lives in the branch of this schema_version
+    zero_ok: bool = False  # 0 = "off" besides the range (hat choke_ms, clap gate_ms)
+
+    @property
+    def optional_v03(self) -> bool:  # kept for the first GUI's name
+        return self.gate_version is not None
+
+    @property
+    def choice_texts(self) -> tuple[str, ...]:
+        if self.kind == "bool":
+            return (NO, YES)
+        return tuple(str(c) for c in self.choices)
 
     @property
     def range_text(self) -> str:
-        if self.kind == "enum":
-            return " / ".join(str(c) for c in self.choices)
+        if self.kind in ("enum", "bool"):
+            return " / ".join(self.choice_texts)
         unit = f" {self.unit}" if self.unit else ""
-        return f"{_fmt(self.minimum)} bis {_fmt(self.maximum)}{unit}"
+        text = f"{_fmt(self.minimum)} bis {_fmt(self.maximum)}{unit}"
+        return f"0 (aus) oder {text}" if self.zero_ok else text
 
 
 def _fmt(x: Any) -> str:
@@ -90,27 +124,58 @@ def _unit(name: str) -> str:
     return ""
 
 
-def _spec(name: str, d: dict[str, Any], v03: bool) -> FieldSpec:
+def _spec(name: str, d: dict[str, Any], gate: str | None) -> FieldSpec:
+    zero_ok = False
+    if "oneOf" in d or "anyOf" in d:  # "0 = off, otherwise a range" (const 0 + number branch)
+        branches = d.get("oneOf") or d["anyOf"]
+        number = next(b for b in branches if b.get("type") == "number")
+        zero_ok = any(b.get("const") == 0 for b in branches)
+        d = {**d, **number}
     if "enum" in d:
         kind, lo, hi, choices = "enum", None, None, tuple(d["enum"])
+    elif d.get("type") == "boolean":
+        kind, lo, hi, choices = "bool", None, None, (False, True)
     else:
         kind = "int" if d["type"] == "integer" else "float"
         lo, hi, choices = d["minimum"], d["maximum"], ()
     return FieldSpec(
         name=name, label=LABELS_DE.get(name, name), kind=kind, minimum=lo, maximum=hi,
         default=d.get("default"), choices=choices, unit=_unit(name),
-        description=str(d.get("description", "")), optional_v03=v03,
+        description=str(d.get("description", "")), gate_version=gate, zero_ok=zero_ok,
     )
 
 
-def kick_field_specs() -> list[FieldSpec]:
-    """Every editable contract field: the ``properties`` first, then the 0.3 branch."""
-    schema = load_schema(KICK_SCHEMA_FILE)
+def schema_path(category: str):
+    if category not in CATEGORY_KEYS:
+        raise KeyError(f"unknown category {category!r}")
+    return CONTRACTS_DIR / f"{category}-params.schema.json"
+
+
+def field_specs(category: str) -> list[FieldSpec]:
+    """Every editable contract field: ``properties`` first, then each schema_version branch."""
+    schema = load_schema(schema_path(category))
     specs = [
-        _spec(n, d, False) for n, d in schema["properties"].items() if n not in HIDDEN_FIELDS
+        _spec(n, d, None) for n, d in schema["properties"].items() if n not in HIDDEN_FIELDS
     ]
-    specs += [_spec(n, d, True) for n, d in v03_properties(schema).items()]
+    for gate, props in gated_branches(schema).items():
+        specs += [_spec(n, d, gate) for n, d in props.items()]
     return specs
+
+
+def gated_branches(schema: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    """``{schema_version: properties}`` for each ``if schema_version == X then properties``."""
+    out: dict[str, dict[str, Any]] = {}
+    for branch in schema.get("allOf", ()):
+        const = (
+            branch.get("if", {}).get("properties", {}).get("schema_version", {}).get("const")
+        )
+        if const is not None and "properties" in branch.get("then", {}):
+            out[const] = branch["then"]["properties"]
+    return out
+
+
+def kick_field_specs() -> list[FieldSpec]:
+    return field_specs("kick")
 
 
 _INT_RE = re.compile(r"[+-]?\d+")
@@ -129,7 +194,9 @@ def parse_number(text: str) -> int | float | None:
     return float(t)
 
 
-def _text_of(value: Any) -> str:
+def _text_of(spec: FieldSpec | None, value: Any) -> str:
+    if isinstance(value, bool):
+        return YES if value else NO
     # repr: the shortest text that parses back to the same float (no lost digits).
     return repr(value) if isinstance(value, float) else str(value)
 
@@ -138,32 +205,34 @@ class FormError(ValueError):
     """``build_request`` on a form with problems."""
 
 
-class KickFormModel:
-    def __init__(self, preset: str = DEFAULT_PRESET) -> None:
-        self.specs = kick_field_specs()
+class CategoryFormModel:
+    def __init__(self, category: str = "kick", preset: str | None = None) -> None:
+        self.category = category
+        self.specs = field_specs(category)
         self._by_name = {s.name: s for s in self.specs}
         self.text: dict[str, str] = {}
         self.active: set[str] = set()
-        self.preset = preset
+        self._schema = load_schema(schema_path(category))
+        self._versions = list(self._schema["properties"]["schema_version"].get("enum", []))
+        self.preset = ""
         self._preset_values: dict[str, Any] = {}
-        self.set_preset(preset)
+        self.set_preset(preset or DEFAULT_PRESETS[category])
 
     # --- presets -----------------------------------------------------------------------
-    @staticmethod
-    def preset_names() -> list[str]:
-        return preset_names("kick")
+    def preset_names(self) -> list[str]:
+        return preset_names(self.category)
 
     def preset_description(self) -> str:
-        return describe(self.preset, "kick")
+        return describe(self.preset, self.category)
 
     def set_preset(self, name: str) -> None:
-        values = load_preset(name, "kick")  # UnknownPresetError for a made-up name
+        values = load_preset(name, self.category)  # UnknownPresetError for a made-up name
         self.preset = name
         self._preset_values = values
         self.active = {"seed", "variants"}
         for spec in self.specs:
             if spec.name in values:
-                self.text[spec.name] = _text_of(values[spec.name])
+                self.text[spec.name] = _text_of(spec, values[spec.name])
                 self.active.add(spec.name)
             else:
                 self.text[spec.name] = self._placeholder(spec)
@@ -172,10 +241,10 @@ class KickFormModel:
     @staticmethod
     def _placeholder(spec: FieldSpec) -> str:
         if spec.default is not None:
-            return _text_of(spec.default)
-        if spec.kind == "enum":
-            return _text_of(spec.choices[0])
-        return _text_of(spec.minimum)
+            return _text_of(spec, spec.default)
+        if spec.kind in ("enum", "bool"):
+            return spec.choice_texts[0]
+        return _text_of(spec, spec.minimum)
 
     # --- editing -----------------------------------------------------------------------
     def spec(self, name: str) -> FieldSpec:
@@ -195,16 +264,28 @@ class KickFormModel:
     def parse(self, name: str) -> tuple[Any, str | None]:
         """``(value, None)`` or ``(None, German problem)`` for one field's text."""
         spec = self._by_name[name]
-        value = parse_number(self.text.get(name, ""))
+        raw = self.text.get(name, "").strip()
+        if spec.kind == "bool":
+            if raw in (YES, NO):
+                return raw == YES, None
+            return None, f"Erlaubt: {spec.range_text}."
+        if spec.kind == "enum":
+            for c, t in zip(spec.choices, spec.choice_texts, strict=True):
+                if raw == t:
+                    return c, None
+            number = parse_number(raw)
+            if number is not None:
+                for c in spec.choices:
+                    if not isinstance(c, str) and number == c:
+                        return c, None
+            return None, f"Erlaubt: {spec.range_text}."
+        value = parse_number(raw)
         if value is None:
             return None, "Bitte eine Zahl eingeben."
-        if spec.kind == "enum":
-            for c in spec.choices:
-                if value == c:
-                    return c, None
-            return None, f"Erlaubt: {spec.range_text}."
         if spec.kind == "int" and not isinstance(value, int):
             return None, "Bitte eine ganze Zahl eingeben."
+        if spec.zero_ok and value == 0:
+            return value, None
         if not (spec.minimum <= value <= spec.maximum):  # type: ignore[operator]
             return None, f"Erlaubter Bereich: {spec.range_text}."
         return value, None
@@ -222,16 +303,16 @@ class KickFormModel:
         return [s.name for s in self.specs]
 
     def cross_issue(self) -> str | None:
-        """Contract rules between fields, checked by the engine's own validation.
+        """Contract rules between fields, checked by the category's own resolve function.
 
-        Skipped while a field is invalid. A ``length_beats`` request is only checked when the
-        render runs (the contract's -60 dB rule needs renders).
+        Skipped while a field is invalid. A kick ``length_beats`` request is only checked when
+        the render runs (the contract's -60 dB rule needs renders).
         """
         if self.field_issues() or "length_beats" in self.active:
             return None
         try:
-            resolve_kick_params(self._request_unchecked())
-        except KickParamsError as exc:
+            get_category(self.category).resolve(self._request_unchecked())
+        except ValueError as exc:
             return "Ungültige Kombination: " + str(exc).replace("\n", " ")
         return None
 
@@ -253,10 +334,12 @@ class KickFormModel:
         for name in self.specs_names():
             if name in self.active:
                 req[name] = self.parse(name)[0]
-        if any(self._by_name[n].optional_v03 for n in req):
-            req["schema_version"] = V03
+        gates = [self._by_name[n].gate_version for n in req if self._by_name[n].gate_version]
+        if gates:
+            req["schema_version"] = gates[0]
         else:
-            req["schema_version"] = self._preset_values.get("schema_version", "0.2")
+            fallback = self._versions[0] if self._versions else "0.1"
+            req["schema_version"] = self._preset_values.get("schema_version", fallback)
         req["preset"] = self.preset
         # Key order as the CLI builds it (preset file order, new fields, variants last), so the
         # sidecar's "parameters" object is byte-identical too.
@@ -284,3 +367,12 @@ class KickFormModel:
             k: v for k, v in req.items()
             if k not in skip and (k not in self._preset_values or self._preset_values[k] != v)
         }
+
+
+class KickFormModel(CategoryFormModel):
+    def __init__(self, preset: str = DEFAULT_PRESET) -> None:
+        super().__init__("kick", preset)
+
+    @staticmethod
+    def preset_names() -> list[str]:  # type: ignore[override]
+        return preset_names("kick")
