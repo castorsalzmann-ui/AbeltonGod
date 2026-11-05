@@ -31,8 +31,11 @@ ROOT = Path(__file__).resolve().parents[1]
 NAME = "AbeltonGod"
 PACKAGES = ("audio_engine", "bridge", "library", "orchestrator", "guard", "launcher")
 # Third-party packages whose data/binaries (and lazily imported submodules) must come along.
-COLLECT_ALL = ("claude_agent_sdk", "mcp", "jsonschema", "jsonschema_specifications",
+COLLECT_ALL = ("claude_agent_sdk", "jsonschema", "jsonschema_specifications",
                "referencing", "pythonosc")
+# mcp: collect_all imports every submodule and mcp.cli exits without its optional typer extra
+# (CI run 42080769820), so only its data is collected; the code is found by static analysis.
+COLLECT_DATA = ("mcp",)
 # GUI follow-up (D-029, #403) is one line each: add "gui", "gui_core" to PACKAGES and
 # "PySide6" to COLLECT_ALL (then the GUI can be started from launcher.cli.run_default).
 SIDE_DIRS = ("contracts", "config")
@@ -84,6 +87,8 @@ def pyinstaller_args(dist: Path, work: Path, info: Path) -> list[str]:
         args += ["--collect-submodules", pkg]
     for pkg in COLLECT_ALL:
         args += ["--collect-all", pkg]
+    for pkg in COLLECT_DATA:
+        args += ["--collect-data", pkg]
     for mod in script_imports():
         args += ["--hidden-import", mod]
     args.append(str(ROOT / "src" / "launcher" / "exe_entry.py"))
