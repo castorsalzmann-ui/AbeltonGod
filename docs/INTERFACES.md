@@ -12,7 +12,7 @@ Machine-readable contracts live in `contracts/`. This file explains them. Changi
 | `contracts/snare-params.schema.json` | Orchestrator / CLI → audio engine | v0.1 proposal (#272); no engine yet; ranges are placeholders the engine PR measures and may adjust |
 | `contracts/rim-params.schema.json` | Orchestrator / CLI → audio engine | v0.1 proposal (#296); no engine yet; ranges are hypotheses from one weak source plus placeholders the engine PR measures and may adjust |
 | `contracts/bass-params.schema.json` | Orchestrator / CLI → audio engine | v0.1 proposal (#320); no engine yet; ranges are placeholders (one tutorial is the only source) the engine PR measures and may adjust |
-| `contracts/laser-params.schema.json` | Blaster GUI / CLI / orchestrator → audio engine | v0.1 proposal (#416, D-030); stereo category `(n, 2)`; engine `abeltongod-audio-engine-laser` (#421); `sample-metadata` has category `laser` |
+| `contracts/laser-params.schema.json` | Blaster GUI / CLI / orchestrator → audio engine | v0.1 proposal (#416, D-030), v0.2 salvo / filter / delay / reverb (#425, D-031); stereo category `(n, 2)`; engine `abeltongod-audio-engine-laser` (#421); `sample-metadata` has category `laser` |
 | `contracts/capabilities.json` (+ `capabilities.schema.json`) | Bridge → orchestrator | v1 — statuses updated in Phase 02 (#42: entry `track.mute.get` added, no format change) and Phase 03 (#50: `clip_slot.create_audio_clip` → `tested`, no format change; #143: `song.create_audio_track` → `tested`, own `tested` entries `track.has_audio_input.get`, `clip_slot.has_clip.get`, `clip.file_path.get`, `song.num_scenes.get` (no borrowed gate any more), no format change; one undo may revert track + clip together; #140: 12 Arrangement-check entries added as `unknown`, no format change) |
 | `contracts/guard-policy.schema.json` → `config/guard-policy.json` | User config → resource guard | v1 — default values are untuned starting points |
 | `contracts/tool-list-tracks.schema.json`, `contracts/tool-import-sample.schema.json` | Claude (tool arguments) → orchestrator | v1 (#81) — input schemas only; not wired yet |
@@ -131,6 +131,17 @@ No tool schema (`generate_bass`) exists.
 - Fields: `pitch_start_hz` / `pitch_end_hz` / `sweep_ms` / `sweep_curve`, `length_ms` (100 .. 3000), `attack_ms`, `decay_ms` (time to -60 dB), `fm_amount` / `fm_ratio`, `ring_amount` / `ring_hz`, `noise_level` / `noise_hz`, `crackle`, `glitch_steps`, `echo_mix` / `echo_ms` / `echo_feedback`, `stereo_width`, `variation`, plus the shared `seed`, `variants`, `bpm`, `sample_rate`, `bit_depth`, `drive`, `polarity`, `offset_ms`, `peak_ceiling_dbfs`, `preset`.
 - No cross-field rule; out-of-range values are rejected, never clamped. Fields marked "no effect at 0" are documented in their descriptions. With `noise_level`, `crackle` and `variation` all 0 the output is seed-independent.
 - All ranges and defaults are proposals for a wide space, not measured; no claim about how a family sounds.
+
+**v0.2 (#425, D-031, contract only; the engine follows in the next PR and rejects non-default v0.2 fields until then).** `schema_version` `0.2` adds four optional groups, declared in the `allOf` 0.2 branch (as kick v0.3, so v0.1 requests, sidecars and bytes do not change; the sidecar's `parameters.schema_version` may be `0.1` or `0.2`). Everything defaults to off; a 0.2 document with only defaults renders the same bytes as at 0.1. `length_ms` goes up to 6000 for 0.2 (0.1 keeps 3000). Exact formulas: schema `$comment` points 15-22.
+
+| Group | Fields (range, default) |
+| --- | --- |
+| Salvo | `salvo_count` (1..5, 1), `salvo_rate_mode` (`ms` / `hz` / `sync`, `ms`), `salvo_spacing_ms` (20..1000, 150), `salvo_rate_hz` (1..40, 8), `salvo_sync_note` (1/4, 1/8, 1/16, 1/32, each plain / `T` triplet / `D` dotted, `1/16`; uses `bpm`, 120 if absent), `salvo_rate_ramp` (-1..1, 0; rate rises above 0), `salvo_pan_mode` (`center`, `alternate_lr`, `alternate_rl`, `sweep_lr`, `sweep_rl`, `random`), `salvo_pan_width` (0..1, 1), `salvo_level_step_db` (-12..12, 0), `salvo_pitch_step_st` (-12..12, 0), `salvo_humanize` (0..1, 0) |
+| Filter | `filter_slope` (12 / 24, 24), `hp_hz` (20..1000, 20 = off), `lp_hz` (200..20000, 20000 = off), `lp_resonance` (0..1, 0), `lp_sweep_ms` (0..3000, 0 = off), `lp_sweep_hz` (100..20000, 200) |
+| Delay (on the v0.1 echo) | `echo_sync` (`off` or a note value, `off`), `echo_damp_hz` (500..20000, 20000 = off), `echo_pingpong` (0..1, 0) |
+| Reverb | `reverb_mix` (0..1, 0 = off), `reverb_size` (0..1, 0.5), `reverb_decay_ms` (100..6000, 1500), `reverb_damp_hz` (1000..20000, 6000), `reverb_predelay_ms` (0..200, 0), `reverb_width` (0..1, 1) |
+
+- Chain: salvo -> echo -> drive -> filter -> reverb -> fade -> ceiling. Tails are part of the file length (nothing extends it); a tail still running at the end is cut by a 5 ms fade (50 ms with reverb), the last sample is 0, the peak ceiling holds over the whole mix. Shots starting within 10 ms of the end (or beyond) are dropped. No cross-field rule: every in-range combination is valid.
 
 No tool schema (`generate_laser`) exists.
 

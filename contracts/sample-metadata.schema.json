@@ -126,7 +126,7 @@
           "engine": { "properties": { "name": { "const": "abeltongod-audio-engine-laser" } } },
           "parameters": {
             "required": ["schema_version", "seed"],
-            "properties": { "schema_version": { "const": "0.1" } }
+            "properties": { "schema_version": { "enum": ["0.1", "0.2"] } }
           }
         }
       }

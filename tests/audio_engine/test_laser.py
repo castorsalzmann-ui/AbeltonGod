@@ -26,6 +26,11 @@ ROOT = Path(__file__).resolve().parents[2]
 SCHEMA = json.loads((ROOT / "contracts" / "laser-params.schema.json").read_text("utf-8"))
 PROPS = SCHEMA["properties"]
 RANGE_FIELDS = [k for k, v in PROPS.items() if "minimum" in v and k not in ("seed", "variants")]
+V01_MAX = {"length_ms": 3000}  # schema_version 0.1 caps the length below the 0.2 maximum
+
+
+def v01_max(name: str) -> float:
+    return V01_MAX.get(name, PROPS[name]["maximum"])
 FAMILIES = ["pew", "plasma", "ion", "rift", "subboom", "glitch"]
 
 
@@ -33,7 +38,7 @@ def random_params(rng: random.Random, edge: float = 0.2) -> dict:
     """A request over the whole contract range; each field sometimes at an edge."""
     p: dict = {"schema_version": "0.1", "family": rng.choice(FAMILIES)}
     for name in RANGE_FIELDS:
-        lo, hi = PROPS[name]["minimum"], PROPS[name]["maximum"]
+        lo, hi = PROPS[name]["minimum"], v01_max(name)
         if rng.random() < edge:
             p[name] = rng.choice((lo, hi))
         elif PROPS[name]["type"] == "integer":
@@ -151,7 +156,7 @@ def test_corner_requests_hold_all_invariants(family: str, corner: str) -> None:
     pick = 0 if corner == "min" else 1
     p = {"schema_version": "0.1", "seed": 3, "family": family}
     for name in RANGE_FIELDS:
-        p[name] = (PROPS[name]["minimum"], PROPS[name]["maximum"])[pick]
+        p[name] = (PROPS[name]["minimum"], v01_max(name))[pick]
     p["glitch_steps"] = (2, 24)[pick]
     check_render(p)
 
@@ -330,7 +335,7 @@ def test_bad_inputs_are_rejected() -> None:
     ok = {"schema_version": "0.1", "seed": 1}
     for bad in ({**ok, "family": "laser"}, {**ok, "wobble": 1}, {**ok, "decay_ms": float("nan")},
                 {**ok, "decay_ms": float("inf")}, {**ok, "decay_ms": "250"},
-                {**ok, "glitch_steps": 3.5}, {"seed": 1, "schema_version": "0.2"}):
+                {**ok, "glitch_steps": 3.5}, {"seed": 1, "schema_version": "0.3"}):
         with pytest.raises(LaserParamsError):
             resolve_laser_params(bad)
     with pytest.raises(LaserParamsError):
@@ -339,6 +344,19 @@ def test_bad_inputs_are_rejected() -> None:
         render_laser({}, -1)
     with pytest.raises(LaserParamsError):
         render_laser({"decay_ms": 5}, 1)
+
+
+def test_v02_defaults_render_the_v01_bytes_and_v02_fields_are_refused_until_implemented() -> None:
+    for name in preset_names("laser"):
+        p = load_preset(name, "laser")
+        a = render_laser(p, p["seed"])
+        b = render_laser({**p, "schema_version": "0.2"}, p["seed"])
+        assert np.array_equal(a, b), name
+    r = resolve_laser_params({"schema_version": "0.2", "seed": 1, "salvo_rate_mode": "sync"})
+    assert r["salvo_count"] == 1 and r["bpm"] == 120 and r["reverb_mix"] == 0
+    assert resolve_laser_params(r) == r
+    with pytest.raises(LaserParamsError, match="reverb_mix"):
+        render_laser({"schema_version": "0.2", "reverb_mix": 0.3}, 1)
 
 
 def test_resolving_twice_is_stable() -> None:
