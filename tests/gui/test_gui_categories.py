@@ -125,7 +125,7 @@ def test_library_page_lists_filters_and_previews(qapp, window):
         go(window, key)
         window.render_button.click()
         assert wait_for(qapp, lambda: not window.running)
-    window.categories.setCurrentRow(window.categories.count() - 1)  # Bibliothek
+    window.categories.setCurrentRow(window.library_row)  # Bibliothek
     assert window.on_library and window.stack.currentWidget() is window.library
     assert not window.render_button.isEnabled()
     window.start_render()  # also refused when called directly
@@ -148,7 +148,7 @@ def test_library_shows_bad_files_as_unlesbar(qapp, window, tmp_path):
     out = tmp_path / "out"
     out.mkdir()
     (out / "broken.wav").write_bytes(b"RIFF")
-    window.categories.setCurrentRow(window.categories.count() - 1)
+    window.categories.setCurrentRow(window.library_row)
     assert window.library.list.count() == 1
     assert "unlesbar" in window.library.list.item(0).text()
     window.library.list.setCurrentRow(0)  # preview of a non-engine file reports, never raises
@@ -168,7 +168,7 @@ def test_drag_out_offers_the_wav_as_file_url(qapp, window, tmp_path):
     assert isinstance(window.results, DragList)
     assert window.results.dragEnabled()
 
-    window.categories.setCurrentRow(window.categories.count() - 1)
+    window.categories.setCurrentRow(window.library_row)
     lib = window.library
     assert lib.list.dragEnabled()
     urls = lib.list.mimeData([lib.list.item(0)]).urls()
