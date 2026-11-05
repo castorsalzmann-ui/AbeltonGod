@@ -34,6 +34,12 @@ dev = [
   "setuptools>=68",  # the #314 packaging regression test imports setuptools (Python 3.12 venvs ship without it)
 ]
 
+# Build-only: scripts/build_exe.py bundles the tools into AbeltonGod.exe (#401). Not needed to
+# run or test the project; kept out of the runtime dependencies on purpose.
+build = [
+  "pyinstaller>=6.10",
+]
+
 [tool.setuptools.packages.find]
 where = ["src"]
 
