@@ -19,7 +19,7 @@ from . import ENGINE_NAME, ENGINE_VERSION, analysis, bass, clap, hat, kick, rim,
 from .params import resolve_kick_params
 
 # Categories named by contracts/sample-metadata.schema.json (a test compares with the file).
-CONTRACT_CATEGORIES = ("kick", "clap", "hat", "snare", "rim", "bass")
+CONTRACT_CATEGORIES = ("kick", "clap", "hat", "snare", "rim", "bass", "laser")
 
 
 class CategoryUnavailable(ValueError):
