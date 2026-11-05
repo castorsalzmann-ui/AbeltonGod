@@ -15,11 +15,13 @@ else:
 
 from PySide6.QtCore import Qt  # noqa: E402
 from PySide6.QtTest import QTest  # noqa: E402
-from PySide6.QtWidgets import QComboBox, QLabel, QLineEdit  # noqa: E402
+from PySide6.QtWidgets import QLineEdit  # noqa: E402
 
 from gui.app import create_app  # noqa: E402
 from gui.main_window import MainWindow  # noqa: E402
+from gui.widgets import Segmented  # noqa: E402
 from gui_core.form import kick_field_specs  # noqa: E402
+from gui_core.form_layout import main_controls  # noqa: E402
 from gui_core.preview import ERROR, LOADED, PLAYING  # noqa: E402
 
 
@@ -78,54 +80,68 @@ def test_window_builds_with_categories(window):
     assert window.render_button.text() == "Rendern"
 
 
-def test_form_lists_every_contract_field_with_its_range(window):
-    labels = {lab.text() for lab in window.panel.findChildren(QLabel)}
+def test_form_has_a_control_and_label_for_every_contract_field(window):
     for spec in kick_field_specs():
-        assert spec.name in window.panel.edits
-        assert spec.range_text in labels, spec.name
-        assert window.panel.checks[spec.name].text() == spec.label
-    assert isinstance(window.panel.edits["sample_rate"], QComboBox)
-    assert window.panel.preset_box.count() >= 5
+        assert spec.name in window.panel.controls
+        assert window.panel.controls[spec.name].label.text() == spec.label
+    assert isinstance(window.panel.controls["sample_rate"].seg, Segmented)
+    assert len(window.panel.chips.buttons) >= 5
 
 
-def test_invalid_input_disables_render_and_shows_message(window):
-    drive = window.panel.edits["drive"]
-    type_into(drive, "7")
+def test_main_controls_are_knobs_and_the_rest_waits_in_the_collapsed_section(window):
+    panel = window.panel
+    assert [k.name for k in panel.knobs] == list(main_controls("kick"))
+    assert 3 <= len(panel.knobs) <= 5
+    assert not panel.advanced.is_expanded() and not panel.advanced.body.isVisibleTo(panel)
+    panel.advanced.set_expanded(True)
+    assert panel.controls["amp_decay_ms"].isVisibleTo(panel)
+    assert not panel.controls["amp_decay_ms"].style_name == "knob"
+
+
+def test_a_bad_seed_disables_render_and_shows_message(window):
+    seed = window.panel.controls["seed"]
+    type_into(seed.edit, "x")
+    seed.edit.edited.emit("x")
     assert not window.render_button.isEnabled()
-    assert "Rendern nicht möglich" in window.status.text() and "Drive" in window.status.text()
+    assert "Rendern nicht möglich" in window.status.text() and "Seed" in window.status.text()
     assert window.status.property("level") == "error"
-    assert drive.property("invalid") is True
-    type_into(drive, "0,3")
-    assert window.render_button.isEnabled()
-    assert drive.property("invalid") is False
+    assert seed.edit.property("invalid") is True
+    type_into(seed.edit, "7")
+    seed.edit.edited.emit("7")
+    assert window.render_button.isEnabled() and seed.edit.property("invalid") is False
     assert window.status.text() == ""
 
 
 def test_start_render_refuses_invalid_form_even_when_called_directly(window):
-    type_into(window.panel.edits["drive"], "7")
+    seed = window.panel.controls["seed"]
+    seed.edit.setText("x")
+    seed.edit.edited.emit("x")
     window.start_render()
     assert window.handle is None and not window.running
     assert window.results.count() == 0
 
 
-def test_switching_a_field_off_ignores_its_bad_value(window):
-    type_into(window.panel.edits["tone"], "abc")
-    assert not window.render_button.isEnabled()
-    window.panel.checks["tone"].setChecked(False)
+def test_switching_a_field_off_ignores_its_value_and_shows_the_default(window):
+    c = window.panel.controls["tone"]
+    c.readout.setText("0.7")
+    c.readout.entered.emit("0.7")
+    assert c.value() == 0.7 and "tone" in window.model.active
+    c.dot.setChecked(False)
+    assert "tone" not in window.model.active and not c.is_active()
     assert window.render_button.isEnabled()
-    assert not window.panel.edits["tone"].isEnabled()
 
 
 def test_preset_change_updates_the_fields(window):
-    window.panel.preset_box.setCurrentText("dense")
+    window.panel.chips.buttons[window.panel.chips.items.index("dense")].click()
     assert window.model.preset == "dense"
     from audio_engine.presets import load_preset
 
-    assert window.panel.edits["seed"].text() == str(load_preset("dense")["seed"])
+    assert window.panel.controls["seed"].edit.text() == str(load_preset("dense")["seed"])
 
 
 def test_render_lists_file_and_preview_player_loads_it(qapp, window):
-    type_into(window.panel.edits["variants"], "2")
+    window.panel.controls["variants"].readout.setText("2")
+    window.panel.controls["variants"].readout.entered.emit("2")
     window.render_button.click()
     assert wait_for(qapp, lambda: window.results.count() == 2)
     assert window.status.text().startswith("Fertig: 2 Datei(en)")
