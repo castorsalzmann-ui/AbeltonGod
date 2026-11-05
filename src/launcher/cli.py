@@ -99,6 +99,18 @@ def _pause(read: Callable[[str], str]) -> None:
         pass
 
 
+def run_default(read: Callable[[str], str], out: TextIO) -> int:
+    """The no-argument (double-click) path. Today: the text menu. Later (D-029, #403) this is
+    the one place that starts the GUI (``python -m gui``) and falls back to the menu when
+    PySide6 is missing."""
+    problems = install_problems()
+    if problems:
+        out.write("Installation unvollstaendig:\n  " + "\n  ".join(problems) + "\n")
+        _pause(read)
+        return EXIT_SETUP
+    return menu(read, out)
+
+
 def main(argv: list[str] | None = None, *, read: Callable[[str], str] = input,
          out: TextIO | None = None) -> int:
     out = out or sys.stdout
@@ -110,12 +122,7 @@ def main(argv: list[str] | None = None, *, read: Callable[[str], str] = input,
                 pass
     args = sys.argv[1:] if argv is None else list(argv)
     if not args:
-        problems = install_problems()
-        if problems:
-            out.write("Installation unvollstaendig:\n  " + "\n  ".join(problems) + "\n")
-            _pause(read)
-            return EXIT_SETUP
-        return menu(read, out)
+        return run_default(read, out)
     first, rest = args[0], args[1:]
     if first == "--version":
         out.write(version_line() + "\n")

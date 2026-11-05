@@ -33,6 +33,8 @@ PACKAGES = ("audio_engine", "bridge", "library", "orchestrator", "guard", "launc
 # Third-party packages whose data/binaries (and lazily imported submodules) must come along.
 COLLECT_ALL = ("claude_agent_sdk", "mcp", "jsonschema", "jsonschema_specifications",
                "referencing", "pythonosc")
+# GUI follow-up (D-029, #403) is one line each: add "gui", "gui_core" to PACKAGES and
+# "PySide6" to COLLECT_ALL (then the GUI can be started from launcher.cli.run_default).
 SIDE_DIRS = ("contracts", "config")
 DATA_SEP = ";" if sys.platform == "win32" else ":"
 
