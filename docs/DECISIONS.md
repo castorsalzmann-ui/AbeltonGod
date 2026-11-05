@@ -328,3 +328,5 @@ The researchers for 04b clusters 1 (Agent SDK behaviour) and 2 (tool-schema gene
 **Reason.** The user has no time for listening rounds now; the product must be complete and documented as far as it can be verified without him.
 
 **Consequences.** Cockpit and `WAITING_ON_USER.md` show no blocking items. Taste claims stay forbidden; quality is only claimed where measured.
+
+**Amendment 2026-11-05 (D-028 item 4, #335 / PR #395).** The bass DC stage is not a fixed linear high-pass but `bass.dc_block` (subtracts `c * amp_envelope` before the peak ceiling). Reason (measured by author, confirmed by independent review): a 1st-order 5 Hz high-pass leaves |mean|/peak up to 0.05 and file-end clicks on short notes. Independent measurement: worst |mean|/peak 1.08e-6 over 8 presets + 150 random draws (main: 0.2426); fundamental level change 0.00000 dB; headroom cost -0.7 to -1.0 dB after peak normalisation. The intent of D-028 (DC below a stated limit, no cut of fundamentals) is met. Engine version bass 0.2.0.
