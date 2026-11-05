@@ -132,7 +132,7 @@ No tool schema (`generate_bass`) exists.
 - No cross-field rule; out-of-range values are rejected, never clamped. Fields marked "no effect at 0" are documented in their descriptions. With `noise_level`, `crackle` and `variation` all 0 the output is seed-independent.
 - All ranges and defaults are proposals for a wide space, not measured; no claim about how a family sounds.
 
-**v0.2 (#425, D-031, contract only; the engine follows in the next PR and rejects non-default v0.2 fields until then).** `schema_version` `0.2` adds four optional groups, declared in the `allOf` 0.2 branch (as kick v0.3, so v0.1 requests, sidecars and bytes do not change; the sidecar's `parameters.schema_version` may be `0.1` or `0.2`). Everything defaults to off; a 0.2 document with only defaults renders the same bytes as at 0.1. `length_ms` goes up to 6000 for 0.2 (0.1 keeps 3000). Exact formulas: schema `$comment` points 15-22.
+**v0.2 (#425, D-031; rendered by engine 0.2.0, presets `blaster`, `blaster-double`, `blaster-triple-lrl`, `blaster-burst5`, `blaster-echo`, `blaster-reverb`).** `render_laser` treats a request that carries a v0.2 field but no `schema_version` as 0.2; the CLI `--set` of a v0.2 field (text values allowed for the v0.2 enums) selects 0.2. `schema_version` `0.2` adds four optional groups, declared in the `allOf` 0.2 branch (as kick v0.3, so v0.1 requests, sidecars and bytes do not change; the sidecar's `parameters.schema_version` may be `0.1` or `0.2`). Everything defaults to off; a 0.2 document with only defaults renders the same bytes as at 0.1. `length_ms` goes up to 6000 for 0.2 (0.1 keeps 3000). Exact formulas: schema `$comment` points 15-22.
 
 | Group | Fields (range, default) |
 | --- | --- |

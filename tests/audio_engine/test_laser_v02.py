@@ -18,7 +18,6 @@ import pytest
 from test_laser import FAMILIES, PROPS, SCHEMA, check_render, decode
 
 from audio_engine import cli, laser, laser_fx
-from audio_engine.categories import get_category
 from audio_engine.io import encode_wav, rerender_from_sidecar, write_sample
 from audio_engine.laser import LaserParamsError, render_laser, resolve_laser_params
 from audio_engine.presets import load_preset, preset_names
@@ -644,14 +643,6 @@ def test_reverb_fade_is_50_ms_and_dry_fade_is_5_ms() -> None:
 
 # --- presets, files, CLI ----------------------------------------------------------------------
 
-GOLDEN_V02 = {
-    "blaster": "08339cbe082ec138699d58bca65594dde83f02bd93b0e2185b8794011c6b7277",
-    "blaster-burst5": "fd0ac80ff07cec258d099127257f4c23686a2ef1f326b7a13347969d0214f8af",
-    "blaster-double": "9afff649a1ddb5a6d0046fd8801367ed0700f9248566ca3f3df8744afe038377",
-    "blaster-echo": "6c900608e9b818170f95c61b7147aa4e9cc22173c9c8a93394fa559725fdf3d6",
-    "blaster-reverb": "f4638a524b97f0ea144a48832c5440a163b0fd3edd503ed1f39c184f91db9e86",
-    "blaster-triple-lrl": "cf4829fd345e7fa0f14028b6305a1e7b6fb066407494fff9c58ea3d42d8d0e68",
-}
 BLASTER = ("blaster", "blaster-double", "blaster-triple-lrl", "blaster-burst5", "blaster-echo",
            "blaster-reverb")
 
@@ -674,15 +665,8 @@ def test_new_presets_exist_and_blaster_has_the_requested_values() -> None:
     assert burst["salvo_count"] == 5 and burst["salvo_rate_ramp"] > 0
 
 
-@pytest.mark.parametrize("name", BLASTER)
-def test_new_presets_render_valid_and_are_pinned(name: str) -> None:
-    p = load_preset(name, "laser")
-    assert p["preset"] == name
-    check_render(p)
-    r = resolve_laser_params(p)
-    audio, rr = get_category("laser").render(r)
-    wav = encode_wav(audio, rr["sample_rate"], rr["bit_depth"])
-    assert hashlib.sha256(wav).hexdigest() == GOLDEN_V02[name], name
+#  (validity and the SHA-256 pins of every preset: test_laser.py, which parametrises over
+#  preset_names("laser"))
 
 
 def test_sidecar_roundtrip_for_v02_presets(tmp_path: Path) -> None:
@@ -794,3 +778,32 @@ def test_fault_injection_turns_the_checks_red(monkeypatch, name: str) -> None:
     monkeypatch.setattr(module, attr, fault)
     with pytest.raises(AssertionError):
         check()
+
+
+# --- fault injection on the shared invariants, with a request that uses every v0.2 stage --------
+
+FULL = {"schema_version": "0.2", "seed": 1, "length_ms": 600, "decay_ms": 200, "salvo_count": 3,
+        "salvo_pan_mode": "alternate_lr", "lp_hz": 4000, "lp_sweep_ms": 100, "hp_hz": 60,
+        "echo_mix": 0.3, "echo_sync": "1/16", "echo_damp_hz": 4000, "echo_pingpong": 0.5,
+        "reverb_mix": 0.3, "stereo_width": 0.3}
+
+
+def test_check_render_is_green_for_a_request_with_every_v02_stage() -> None:
+    check_render(FULL)
+
+
+@pytest.mark.parametrize(
+    "target,fault",
+    [
+        ("_normalise", lambda x, c, b: x * 1.5),
+        ("_normalise", lambda x, c, b: x * 1.02 * 10 ** (c / 20) / np.abs(x).max()),
+        ("_remove_mean", lambda x: x + 0.05),
+        ("_fade_out", lambda x, sr, ms: x),
+        ("file_samples", lambda p: int(round(p["length_ms"] * p["sample_rate"] / 1000)) + 1),
+    ],
+    ids=["gain-1.5", "ceiling-plus-2pct", "dc-offset", "no-fade", "length-plus-1"],
+)
+def test_fault_injection_on_shared_invariants_with_v02_stages(monkeypatch, target, fault) -> None:
+    monkeypatch.setattr(laser, target, fault)
+    with pytest.raises(AssertionError):
+        check_render(FULL)

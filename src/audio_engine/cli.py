@@ -105,12 +105,14 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def parse_overrides(items: list[str], allow_strings: bool = False) -> dict[str, Any]:
+def parse_overrides(
+    items: list[str], text_fields: frozenset[str] = frozenset()
+) -> dict[str, Any]:
     """``["a=1", "b=2.5"]`` -> ``{"a": 1, "b": 2.5}``. Values must be finite JSON numbers.
 
-    ``allow_strings`` (laser v0.2 enum fields such as ``salvo_pan_mode=alternate_lr`` or
-    ``echo_sync=1/8``): a value that is not a number is kept as text; the contract then
-    accepts or rejects it.
+    ``text_fields`` (laser v0.2 text enums such as ``salvo_pan_mode=alternate_lr`` or
+    ``echo_sync=1/8``): for these a value that is not a number is kept as text; the contract
+    then accepts or rejects it. Every other field stays numbers-only.
     """
     out: dict[str, Any] = {}
     for item in items:
@@ -127,7 +129,7 @@ def parse_overrides(items: list[str], allow_strings: bool = False) -> dict[str, 
             value = json.loads(text.strip(), parse_constant=_reject_constant)
         except ValueError:
             value = None
-        if allow_strings and value is None and text.strip() and not text.strip().startswith("["):
+        if field in text_fields and value is None and text.strip():
             out[field] = text.strip()
             continue
         if isinstance(value, bool) or not isinstance(value, int | float):
@@ -151,7 +153,10 @@ def plan(args: argparse.Namespace) -> tuple[str, list[dict[str, Any]], list[str]
     if not args.out:
         raise UsageError("--out is required")
     category = getattr(args, "category", "kick")  # callers build their own Namespace
-    overrides = parse_overrides(args.overrides, allow_strings=category == "laser")
+    text_fields = frozenset(
+        k for k, spec in v02_properties().items() if "enum" in spec and k != "filter_slope"
+    ) if category == "laser" else frozenset()
+    overrides = parse_overrides(args.overrides, text_fields)
     base = dict(load_preset(args.preset, category))
     if args.seed is not None:
         base["seed"] = args.seed
