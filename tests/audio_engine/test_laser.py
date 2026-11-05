@@ -96,8 +96,8 @@ GOLDEN = {
     "ion": "e1f4ed18158b403a90ab696f4209af5a0010f754d08d6250279685240c050c68",
     "pew": "27d5c3250d6c3ad1e0c68ac7b6a04c34a0eee10d93cb6bce90d00ace0d265eb3",
     "pew-wide-echo": "97569e3cdb94260f7efb59d99a4e112bdef450abe106befd10a19932b2ab48ff",
-    "plasma": "d4b3ab6bb8c73491fefb83f508794eb4cb0c7061f190f1ae073c8ed825dfef05",
-    "plasma-driven": "0a834a61bb72c82fa724735f17996ce1bf53bd4a10aebee1a546ae8fdc3a38bb",
+    "plasma": "140ca48ac75351300b8df6991ec9a144e17901a23d94f24b529ee6a15b25e349",
+    "plasma-driven": "992a44f0e33466600d4fd04d5944b61c82967c2a035be97890447c19c13db500",
     "rift": "e219d1773176b87ad0dece4c3218ab4606b4fea688ab38b875d9ad2384d3b0b6",
     "subboom": "c062824ba139ec5a47006c1c5f2f559a8b17c3c8a745ec505ffbf515937d5be3",
 }
@@ -288,6 +288,22 @@ def test_offset_polarity_and_peak_ceiling() -> None:
         ints, _, _ = decode(encode_wav(audio, sr, 24))
         assert np.abs(ints).max() <= 10 ** (ceiling / 20) * (2**23 - 1)
         assert np.abs(ints).max() > 0.99 * 10 ** (ceiling / 20) * (2**23 - 1) - 2
+
+
+def test_plasma_saw_has_no_off_harmonic_energy_and_is_fast() -> None:
+    """Fixed 7 kHz saw: all energy sits on multiples of 7 kHz (interpolation / table spurs would
+    land elsewhere). Measured 8e-12; a 5 kHz saw gives 3e-4 because its 25 kHz harmonic lies in
+    the decimation filter's transition band and folds to 23 kHz (known, see the PR)."""
+    import time
+
+    t0 = time.perf_counter()
+    a = render_laser({"family": "plasma", "pitch_start_hz": 7000, "pitch_end_hz": 7000,
+                      "length_ms": 1000, "decay_ms": 3000, "peak_ceiling_dbfs": -1}, 1)[:, 0]
+    assert time.perf_counter() - t0 < 5.0  # generous; the measured time is in the PR
+    spec = np.abs(np.fft.rfft(a[2400:-2400] * np.hanning(len(a) - 4800))) ** 2
+    freqs = np.fft.rfftfreq(len(a) - 4800, 1 / 48000)
+    off = np.abs(((freqs + 3500) % 7000) - 3500) > 150  # farther than 150 Hz from a multiple
+    assert spec[off].sum() < 1e-8 * spec.sum()
 
 
 def test_no_energy_above_nyquist_fold_for_a_fast_high_sweep() -> None:

@@ -71,7 +71,8 @@ class UsageError(ValueError):
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="python -m audio_engine.kick",
-        description="Render kick presets and variants as 24-bit WAV + sidecar JSON.",
+        description="Render sample presets and variants (--category kick, clap, hat, snare, "
+        "rim, bass, laser) as WAV + sidecar JSON; laser files are 2-channel.",
     )
     parser.add_argument("--preset", help="preset name (see --list-presets)")
     parser.add_argument(
