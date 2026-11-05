@@ -63,6 +63,11 @@ NOISE_Q = 1.2
 NOISE_DECAY_SHARE = 0.5
 CRACKLE_DENSITY = 1500.0  # impulses per second at crackle 1
 CRACKLE_HP_HZ = 2000.0
+SAW_TABLE_SIZE = 8192
+SAW_PER_OCTAVE = 4
+SAW_F_MIN = 20.0
+SAW_F_MAX = 20000.0
+SAW_MAX_HARMONICS = 1024
 SUB_HP_HZ = 20.0
 ION_PARTIALS = ((2.003, 0.5), (3.01, 0.25))
 SUB_RATIO = 0.25
@@ -187,20 +192,39 @@ def _phase(freq: np.ndarray, rate: int) -> np.ndarray:
     return 2.0 * math.pi * (cum - cum[0] if len(cum) else cum)
 
 
+@cache
+def _saw_tables(rate: int) -> np.ndarray:
+    """Band-limited sawtooth wavetables, ``SAW_PER_OCTAVE`` per octave from ``SAW_F_MIN``.
+
+    Table ``i`` holds ``(2 / pi) * sum sin(k phase) / k`` for every harmonic ``k`` with
+    ``k * f_top < ALIAS_LIMIT * rate`` (``f_top`` = top of the table's frequency cell, so a
+    frequency inside the cell never exceeds the limit), at most ``SAW_MAX_HARMONICS``.
+    """
+    n_tables = int(math.ceil(SAW_PER_OCTAVE * math.log2(SAW_F_MAX / SAW_F_MIN)))
+    tables = np.empty((n_tables, SAW_TABLE_SIZE))
+    for i in range(n_tables):
+        f_top = SAW_F_MIN * 2.0 ** ((i + 1) / SAW_PER_OCTAVE)
+        h = max(1, min(SAW_MAX_HARMONICS, int(ALIAS_LIMIT * rate / f_top)))
+        k = np.arange(1, h + 1)
+        spec = np.zeros(SAW_TABLE_SIZE // 2 + 1, dtype=complex)
+        spec[k] = -0.5j * SAW_TABLE_SIZE * (2.0 / math.pi) / k  # irfft of sin(k phase) / k
+        tables[i] = np.fft.irfft(spec, SAW_TABLE_SIZE)
+    return tables
+
+
 def _saw_bandlimited(phase: np.ndarray, freq: np.ndarray, rate: int) -> np.ndarray:
-    """Additive sawtooth; only harmonics below ``ALIAS_LIMIT * rate`` at each instant."""
-    out = np.zeros_like(phase)
-    limit = ALIAS_LIMIT * rate
-    k = 1
-    while True:
-        mask = k * freq < limit
-        if not mask.any():
-            break
-        out += np.where(mask, np.sin(k * phase) / k, 0.0)
-        k += 1
-        if k > 400:
-            break
-    return out * (2.0 / math.pi)
+    """Sawtooth from band-limited wavetables (linear interpolation), one table per sample
+    chosen by ``freq``; no harmonic above ``ALIAS_LIMIT * rate`` (cost independent of pitch)."""
+    tables = _saw_tables(rate)
+    idx = np.clip(
+        np.floor(SAW_PER_OCTAVE * np.log2(np.maximum(freq, 1e-9) / SAW_F_MIN)), 0, len(tables) - 1
+    ).astype(np.intp)
+    pos = np.mod(phase / (2.0 * math.pi), 1.0) * SAW_TABLE_SIZE
+    i0 = np.floor(pos).astype(np.intp)
+    frac = pos - i0
+    i0 %= SAW_TABLE_SIZE
+    i1 = (i0 + 1) % SAW_TABLE_SIZE
+    return tables[idx, i0] * (1.0 - frac) + tables[idx, i1] * frac
 
 
 def _glitch_steps(t: np.ndarray, p: dict[str, Any], v: dict[str, float]):
