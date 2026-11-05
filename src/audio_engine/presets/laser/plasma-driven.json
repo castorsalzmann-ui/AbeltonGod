@@ -1,0 +1,15 @@
+{
+  "schema_version": "0.1",
+  "preset": "plasma-driven",
+  "seed": 8,
+  "family": "plasma",
+  "length_ms": 500,
+  "pitch_start_hz": 900,
+  "pitch_end_hz": 110,
+  "sweep_ms": 180,
+  "sweep_curve": 3.0,
+  "decay_ms": 300,
+  "drive": 0.6,
+  "ring_amount": 0.3,
+  "ring_hz": 300
+}

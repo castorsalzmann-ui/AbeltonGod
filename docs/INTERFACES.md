@@ -12,6 +12,7 @@ Machine-readable contracts live in `contracts/`. This file explains them. Changi
 | `contracts/snare-params.schema.json` | Orchestrator / CLI → audio engine | v0.1 proposal (#272); no engine yet; ranges are placeholders the engine PR measures and may adjust |
 | `contracts/rim-params.schema.json` | Orchestrator / CLI → audio engine | v0.1 proposal (#296); no engine yet; ranges are hypotheses from one weak source plus placeholders the engine PR measures and may adjust |
 | `contracts/bass-params.schema.json` | Orchestrator / CLI → audio engine | v0.1 proposal (#320); no engine yet; ranges are placeholders (one tutorial is the only source) the engine PR measures and may adjust |
+| `contracts/laser-params.schema.json` | Blaster GUI / CLI / orchestrator → audio engine | v0.1 proposal (#416, D-030); stereo category `(n, 2)`; engine `abeltongod-audio-engine-laser` (#421); `sample-metadata` has category `laser` |
 | `contracts/capabilities.json` (+ `capabilities.schema.json`) | Bridge → orchestrator | v1 — statuses updated in Phase 02 (#42: entry `track.mute.get` added, no format change) and Phase 03 (#50: `clip_slot.create_audio_clip` → `tested`, no format change; #143: `song.create_audio_track` → `tested`, own `tested` entries `track.has_audio_input.get`, `clip_slot.has_clip.get`, `clip.file_path.get`, `song.num_scenes.get` (no borrowed gate any more), no format change; one undo may revert track + clip together; #140: 12 Arrangement-check entries added as `unknown`, no format change) |
 | `contracts/guard-policy.schema.json` → `config/guard-policy.json` | User config → resource guard | v1 — default values are untuned starting points |
 | `contracts/tool-list-tracks.schema.json`, `contracts/tool-import-sample.schema.json` | Claude (tool arguments) → orchestrator | v1 (#81) — input schemas only; not wired yet |
@@ -121,6 +122,17 @@ No tool schema (`generate_rim`) exists.
 - Sidecars: category `bass`, `schema_version` `0.2`, `engine.name` `abeltongod-audio-engine-bass` with its own version (D-025), `parameters.schema_version` `0.1`.
 
 No tool schema (`generate_bass`) exists.
+
+## Laser parameters
+
+`laser-params.schema.json` v0.1 (#416, D-030) describes one sci-fi laser shot (RX ear candy). It is the first **stereo** category: the engine API `render_laser(params: dict, seed: int) -> np.ndarray` returns float64 of shape `(n, 2)` (left, right; identical channels at `stereo_width` 0), peak-normalised for the quantised file, and the WAV is 2-channel PCM. `sample-metadata.schema.json` gets the category `laser` (sidecar `schema_version` `0.2`, `engine.name` `abeltongod-audio-engine-laser` with its own version, `parameters.schema_version` `0.1`); its features are the existing non-pitched ones measured on the mid signal, `peak_dbfs` is the joint peak of both channels.
+
+- Six selectable families ("dimensions") in one shared parameter space: `pew`, `plasma`, `ion`, `rift`, `subboom`, `glitch` (what each does: schema `$comment` point 1). A family changes the oscillator and its modulation, never the set of fields.
+- Fields: `pitch_start_hz` / `pitch_end_hz` / `sweep_ms` / `sweep_curve`, `length_ms` (100 .. 3000), `attack_ms`, `decay_ms` (time to -60 dB), `fm_amount` / `fm_ratio`, `ring_amount` / `ring_hz`, `noise_level` / `noise_hz`, `crackle`, `glitch_steps`, `echo_mix` / `echo_ms` / `echo_feedback`, `stereo_width`, `variation`, plus the shared `seed`, `variants`, `bpm`, `sample_rate`, `bit_depth`, `drive`, `polarity`, `offset_ms`, `peak_ceiling_dbfs`, `preset`.
+- No cross-field rule; out-of-range values are rejected, never clamped. Fields marked "no effect at 0" are documented in their descriptions. With `noise_level`, `crackle` and `variation` all 0 the output is seed-independent.
+- All ranges and defaults are proposals for a wide space, not measured; no claim about how a family sounds.
+
+No tool schema (`generate_laser`) exists.
 
 ## Guard policy
 

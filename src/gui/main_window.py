@@ -24,17 +24,27 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from bridge.capabilities import CapabilityRegistry
 from gui_core.categories import CATEGORIES, LIBRARY_LABEL
+from gui_core.chat import ChatSession
 from gui_core.form import CategoryFormModel
+from gui_core.goa_render import GoaService
+from gui_core.live import LiveConfig
 from gui_core.paths import default_output_dir
 from gui_core.preview import ERROR, PLAYING, PlaybackBackend, PreviewController
 from gui_core.render import RenderHandle, RenderJob, RenderResult, RenderService
 
 from .audio import choose_backend
 from .category_panel import CategoryPanel
+from .chat_panel import ChatPanel
 from .drag import PATH_ROLE, DragList
+from .goa_panel import GoaPanel
 from .library_panel import LibraryPanel
+from .live_panel import LivePanel
 from .waveform_widget import WaveformWidget
+
+# Pages after the sample categories and the library (left list order).
+TOOL_PAGES = (("goa", "Goa-Arrangement"), ("live", "Live-Import"), ("chat", "Copilot"))
 
 
 class _Bridge(QObject):
@@ -55,6 +65,10 @@ class MainWindow(QMainWindow):
         service: RenderService | None = None,
         backend: PlaybackBackend | None = None,
         opener: Callable[[Path], bool] = open_in_file_manager,
+        goa_service: GoaService | None = None,
+        live_config: LiveConfig | None = None,
+        registry: CapabilityRegistry | None = None,
+        chat_session: ChatSession | None = None,
     ) -> None:
         super().__init__()
         self.setWindowTitle("AbeltonGod")
@@ -65,6 +79,7 @@ class MainWindow(QMainWindow):
         self.models = {c.key: CategoryFormModel(c.key) for c in CATEGORIES}
         self.form_key = CATEGORIES[0].key  # the category whose form Render uses
         self.on_library = False
+        self.on_tool = False  # Goa, Live or chat page: the render column is not used
         self.handle: RenderHandle | None = None
         self._bridge = _Bridge()
         self._bridge.progress.connect(self._on_progress)
@@ -78,12 +93,16 @@ class MainWindow(QMainWindow):
 
         self.categories = QListWidget()
         self.categories.setObjectName("categories")
-        for entry in (*CATEGORIES, None):
-            label = LIBRARY_LABEL if entry is None else entry.label
-            text = label if entry is None or entry.enabled else f"{label}  ({entry.note})"
+        for entry in (*CATEGORIES, None, *TOOL_PAGES):
+            if isinstance(entry, tuple):
+                label = entry[1]
+            else:
+                label = LIBRARY_LABEL if entry is None else entry.label
+            plain = entry is None or isinstance(entry, tuple)
+            text = label if plain or entry.enabled else f"{label}  ({entry.note})"
             item = QListWidgetItem(text)
             item.setSizeHint(QSize(0, self.fontMetrics().height() * 2))
-            if entry is not None and not entry.enabled:
+            if not plain and not entry.enabled:
                 item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEnabled)
             self.categories.addItem(item)
         m = self.fontMetrics().horizontalAdvance("M")  # layout in font units: follows the DPI
@@ -104,9 +123,19 @@ class MainWindow(QMainWindow):
         self.library = LibraryPanel()
         self.library.selected.connect(self._load_preview)
         self.stack.addWidget(self.library)
+        self.library_row = len(CATEGORIES)
+        self.goa = GoaPanel(
+            (self._initial_out or default_output_dir()) / "goa", goa_service, opener)
+        self.live = LivePanel(live_config, registry, self._library_folder)
+        self.chat = ChatPanel(chat_session)
+        self.tool_rows = {}
+        for key, widget in (("goa", self.goa), ("live", self.live), ("chat", self.chat)):
+            self.tool_rows[key] = self.stack.count()
+            self.stack.addWidget(widget)
         split.addWidget(self.stack)
         right = self._build_right()
         right.setMinimumWidth(m * 38)
+        self.right = right
         split.addWidget(right)
         split.setStretchFactor(0, 3)
         split.setStretchFactor(1, 2)
@@ -119,6 +148,11 @@ class MainWindow(QMainWindow):
         self.categories.setCurrentRow(0)
         self._update_state()
         self.resize(m * 112, self.fontMetrics().height() * 42)
+
+    def _library_folder(self) -> Path:
+        edit = getattr(self, "folder_edit", None)  # not built yet while the pages are made
+        text = edit.text().strip() if edit is not None else ""
+        return Path(text) if text else (self._initial_out or default_output_dir())
 
     def _build_right(self) -> QWidget:
         box = QWidget()
@@ -198,11 +232,16 @@ class MainWindow(QMainWindow):
         """Row ``len(CATEGORIES)`` is the library, the others are category forms."""
         if row < 0:
             return
-        self.on_library = row >= len(CATEGORIES)
+        self.on_library = row == self.library_row
+        self.on_tool = row > self.library_row
         if self.on_library:
             self.library.set_folder(Path(self.folder_edit.text().strip() or "."))
+        elif self.on_tool:
+            if row == self.tool_rows["live"]:
+                self.live.reload_library()
         else:
             self.form_key = CATEGORIES[row].key
+        self.right.setVisible(not self.on_tool)  # the tool pages bring their own controls
         self.stack.setCurrentIndex(row)
         self._update_state()
 
@@ -219,12 +258,13 @@ class MainWindow(QMainWindow):
         self.status.style().polish(self.status)
 
     def _update_state(self) -> None:
-        issues = [] if self.on_library else self.model.issues()
-        self.render_button.setEnabled(not issues and not self.running and not self.on_library)
+        passive = self.on_library or self.on_tool
+        issues = [] if passive else self.model.issues()
+        self.render_button.setEnabled(not issues and not self.running and not passive)
         self.cancel_button.setEnabled(self.running)
         if self.running:
             return
-        if self.on_library:
+        if passive:
             if self.status.text().startswith("Rendern nicht möglich"):
                 self.set_status("")
         elif issues:
@@ -245,7 +285,7 @@ class MainWindow(QMainWindow):
             self.folder_edit.setText(picked)
 
     def start_render(self) -> None:
-        if self.running or self.on_library or not self.model.is_valid:
+        if self.running or self.on_library or self.on_tool or not self.model.is_valid:
             return
         job = RenderJob(
             self.model.build_request(), Path(self.folder_edit.text().strip()),
@@ -345,5 +385,7 @@ class MainWindow(QMainWindow):
         if self.handle is not None:
             self.handle.cancel()
             self.handle.wait(10)  # the daemon thread must not write into a closed window
+        self.goa.shutdown()
+        self.chat.shutdown()
         self.preview.close()
         super().closeEvent(event)

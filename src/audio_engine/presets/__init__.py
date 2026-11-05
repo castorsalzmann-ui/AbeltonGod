@@ -101,6 +101,18 @@ BASS_DESCRIPTIONS = {
 }
 
 
+LASER_DESCRIPTIONS = {
+    "pew": "Family pew: sine sweep from high to low, short decay, no modulation.",
+    "plasma": "Family plasma: band-limited saw sweep with FM, noise and crackle.",
+    "ion": "Family ion: sine with two inharmonic upper partials, rising sweep, echo, wide.",
+    "rift": "Family rift: two mirrored sweeps, ring modulation, noise, long decay, wide.",
+    "subboom": "Family subboom: sweep voice plus a sub layer two octaves down, long decay.",
+    "glitch": "Family glitch: stepped pitch with per-step gate, crackle detune, echo.",
+    "pew-wide-echo": "Family pew with ping-pong echo and full stereo width.",
+    "plasma-driven": "Family plasma with drive and a late sweep curve.",
+}
+
+
 class UnknownPresetError(KeyError):
     """No preset with this name. The message lists the valid names."""
 
@@ -121,6 +133,8 @@ def _folder(category: str) -> Path:
         return PRESETS_DIR / "rim"
     if category == "bass":
         return PRESETS_DIR / "bass"
+    if category == "laser":
+        return PRESETS_DIR / "laser"
     raise ValueError(f"no presets for category {category!r}")
 
 
@@ -143,5 +157,6 @@ def describe(name: str, category: str = "kick") -> str:
     table = {
         "clap": CLAP_DESCRIPTIONS, "hat": HAT_DESCRIPTIONS, "snare": SNARE_DESCRIPTIONS,
         "rim": RIM_DESCRIPTIONS, "bass": BASS_DESCRIPTIONS,
+        "laser": LASER_DESCRIPTIONS,
     }.get(category, DESCRIPTIONS)
     return table.get(name, "")

@@ -1,0 +1,11 @@
+{
+  "schema_version": "0.1",
+  "preset": "pew",
+  "seed": 1,
+  "family": "pew",
+  "length_ms": 400,
+  "pitch_start_hz": 3200,
+  "pitch_end_hz": 300,
+  "sweep_ms": 120,
+  "decay_ms": 220
+}
