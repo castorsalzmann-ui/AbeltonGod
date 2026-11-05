@@ -205,10 +205,16 @@ class CompactGoaWindow(QWidget):
         settings_path: Path | None = None,
         body: QWidget | None = None,
         settings: SkinSettings | None = None,
+        use_default_path: bool = False,
     ) -> None:
         super().__init__()
+        # The window only reads/writes a settings file when a path is given or the default
+        # location is asked for explicitly: tests and screenshots never touch the home folder.
+        self._persist = settings_path is not None or use_default_path
         self._settings_path = settings_path
-        self._settings = (settings or load_settings(settings_path)).clamped()
+        if settings is None:
+            settings = load_settings(settings_path) if self._persist else SkinSettings()
+        self._settings = settings.clamped()
         self.setWindowTitle("Goa")
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
         self.setMinimumSize(*MIN_SIZE)
@@ -314,6 +320,9 @@ class CompactGoaWindow(QWidget):
         )
 
     def save_settings(self) -> bool:
+        """Write the settings file; False (and nothing written) if persistence is off."""
+        if not self._persist:
+            return False
         return save_settings(self.current_settings(), self._settings_path)
 
     # -- events -----------------------------------------------------------------------------

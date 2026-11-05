@@ -22,7 +22,7 @@ def save_screenshots(window, out_dir: Path) -> list[Path]:
         window.resize(w, h)
         window.show()
         QApplication.processEvents()  # let the layout follow the new size
-        path =out_dir / f"goa_skin_{w}x{h}.png"
+        path = out_dir / f"goa_skin_{w}x{h}.png"
         if not window.grab().save(str(path)):
             raise OSError(f"could not write {path}")
         paths.append(path)
@@ -55,7 +55,7 @@ def main(argv: list[str] | None = None) -> int:
         for p in paths:
             print(p)
         return 0
-    window = CompactGoaWindow()
+    window = CompactGoaWindow(use_default_path=True)
     window.show()
     return app.exec()
 

@@ -105,6 +105,26 @@ def test_settings_round_trip_through_the_window(qapp, tmp_path):
     w2.close()
 
 
+def test_no_file_is_written_without_a_path(qapp, tmp_path, monkeypatch):
+    """settings= without settings_path must not persist (never touch ~/AbeltonGod)."""
+    default = tmp_path / "home_default.json"
+    monkeypatch.setenv("ABELTONGOD_SKIN_SETTINGS", str(default))
+    w = CompactGoaWindow(settings=SkinSettings())
+    w.show()
+    w.close()
+    assert w.save_settings() is False
+    assert not default.exists()
+    w = CompactGoaWindow()  # neither path nor settings: defaults, no read, no write
+    w.show()
+    w.close()
+    assert not default.exists()
+    # Asking for the default location explicitly does persist.
+    w = CompactGoaWindow(use_default_path=True)
+    w.show()
+    w.close()
+    assert default.exists()
+
+
 def test_animation_timer_follows_the_switch(window):
     window.show()
     assert not window.frame._timer.isActive()

@@ -79,7 +79,7 @@ def paint_thorns(p: QPainter, thorns: list[geo.Thorn]) -> None:
         p.setPen(QPen(QColor(8, 10, 20, 170), 0.8))
         p.drawLine(m, t.tip)
         # Edge highlights along the curved outer sides.
-        for a_pt, ctrl, lit, warm in ((t.a, t.ctrl_a, lit_a, False), (t.b, t.ctrl_b, lit_b, True)):
+        for a_pt, ctrl, lit in ((t.a, t.ctrl_a, lit_a), (t.b, t.ctrl_b, lit_b)):
             edge = QPainterPath(a_pt)
             edge.quadTo(ctrl, t.tip)
             if lit > 0.5:
@@ -87,9 +87,9 @@ def paint_thorns(p: QPainter, thorns: list[geo.Thorn]) -> None:
                 col.setAlphaF(0.55 + 0.45 * lit)
                 p.setPen(QPen(col, 1.1, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
             else:
-                col = QColor(pal.RIM_WARM if warm else pal.RIM_COOL)
-                col.setAlphaF(0.55)
-                p.setPen(QPen(col, 0.9, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+                col = QColor(pal.RIM_COOL)
+                col.setAlphaF(0.8)
+                p.setPen(QPen(col, 1.0,Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
             p.setBrush(Qt.BrushStyle.NoBrush)
             p.drawPath(edge)
 
