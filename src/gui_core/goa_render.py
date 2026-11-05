@@ -65,6 +65,9 @@ def run_goa_job(job: GoaJob) -> GoaResult:
         samples = tuple(sorted((out / "samples").glob("*.wav"))) if job.mode == ARRANGEMENT \
             else ()
     except FileExistsError as exc:
+        if exc.errno is not None:  # the OS (mkdir below a file, Windows), not the module's refusal
+            return GoaResult(job, out, error=ErrorInfo(
+                "output", f"Der Ausgabeordner ist nicht beschreibbar: {exc}.", str(exc)))
         return GoaResult(job, out, error=ErrorInfo(
             "exists", "In diesem Ordner liegen schon Dateien dieses Laufs. Es wurde nichts "
             f"überschrieben. Bitte einen neuen Ordner wählen. ({exc})", str(exc)))
