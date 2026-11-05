@@ -338,3 +338,5 @@ The researchers for 04b clusters 1 (Agent SDK behaviour) and 2 (tool-schema gene
 **Reason.** The user wants a graphical interface instead of command lines.
 
 **Consequences.** `src/gui/` and `tests/gui/` are new (owner for the work: orchestrator-engineer; the exe issue #401 will launch the GUI on double-click once it exists). New dependency PySide6 only as optional extra, stated in each PR.
+
+**Amendment 2026-11-05 (D-029 item 2, GUI-0 / PR #404).** QtMultimedia is not part of `PySide6-Essentials` (it ships in `PySide6-Addons`, about 150 MB more). Accepted: the audio preview plays a 16-bit copy through stdlib `winsound` on Windows (the user's platform); other systems show the waveform and the message "Keine Audioausgabe verfügbar". Reason: no 150 MB extra in the wheel set and in the exe. Revisit only if a non-Windows target is wanted.
