@@ -106,7 +106,9 @@ def test_slider_fields_are_contract_fields_with_the_contract_range():
     props = schema["properties"]
     for s in SLIDERS:
         spec = props[s.name]
-        assert (s.lo, s.hi) == (spec["minimum"], spec["maximum"]), s.name
+        # the GUI sends schema_version 0.1, whose length cap is 3000 (0.2 allows 6000, #425)
+        cap = 3000 if s.name == "length_ms" else spec["maximum"]
+        assert (s.lo, s.hi) == (spec["minimum"], cap), s.name
         assert s.default == spec["default"], s.name
         assert (spec["type"] == "integer") == (s.kind == "int"), s.name
 

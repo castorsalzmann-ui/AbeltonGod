@@ -25,10 +25,54 @@ LASER = load("laser-params.schema.json")
 LASER_V = Draft202012Validator(LASER)
 META_V = Draft202012Validator(load("sample-metadata.schema.json"))
 BASE = {"schema_version": "0.1", "seed": 1}
+BASE2 = {"schema_version": "0.2", "seed": 1}
+NOTES = ["1/4", "1/8", "1/16", "1/32", "1/4T", "1/8T", "1/16T", "1/32T",
+         "1/4D", "1/8D", "1/16D", "1/32D"]
+
+# v0.2 fields: name: (minimum, maximum, default); written by hand, not read from the schema
+V02_RANGES = {
+    "salvo_spacing_ms": (20, 1000, 150),
+    "salvo_rate_hz": (1, 40, 8),
+    "salvo_rate_ramp": (-1, 1, 0),
+    "salvo_pan_width": (0, 1, 1),
+    "salvo_level_step_db": (-12, 12, 0),
+    "salvo_pitch_step_st": (-12, 12, 0),
+    "salvo_humanize": (0, 1, 0),
+    "hp_hz": (20, 1000, 20),
+    "lp_hz": (200, 20000, 20000),
+    "lp_resonance": (0, 1, 0),
+    "lp_sweep_ms": (0, 3000, 0),
+    "lp_sweep_hz": (100, 20000, 200),
+    "echo_damp_hz": (500, 20000, 20000),
+    "echo_pingpong": (0, 1, 0),
+    "reverb_mix": (0, 1, 0),
+    "reverb_size": (0, 1, 0.5),
+    "reverb_decay_ms": (100, 6000, 1500),
+    "reverb_damp_hz": (1000, 20000, 6000),
+    "reverb_predelay_ms": (0, 200, 0),
+    "reverb_width": (0, 1, 1),
+}
+V02_DISCRETE = {  # name: (valid values, default)
+    "salvo_count": ([1, 2, 3, 4, 5], 1),
+    "salvo_rate_mode": (["ms", "hz", "sync"], "ms"),
+    "salvo_sync_note": (NOTES, "1/16"),
+    "salvo_pan_mode": (["center", "alternate_lr", "alternate_rl", "sweep_lr", "sweep_rl",
+                        "random"], "center"),
+    "filter_slope": ([12, 24], 24),
+    "echo_sync": (["off", *NOTES], "off"),
+}
+V02_FIELDS = {*V02_RANGES, *V02_DISCRETE}
+
+
+def v02_props() -> dict:
+    (branch,) = [b for b in LASER["allOf"]
+                 if b["if"] == {"properties": {"schema_version": {"const": "0.2"}}}]
+    return branch["then"]["properties"]
+
 
 # name: (minimum, maximum, default)
 LASER_RANGES = {
-    "length_ms": (100, 3000, 500),
+    "length_ms": (100, 6000, 500),
     "pitch_start_hz": (40, 8000, 3000),
     "pitch_end_hz": (40, 8000, 200),
     "sweep_ms": (10, 2000, 150),
@@ -63,7 +107,8 @@ LASER_FIELDS = {
 def test_laser_field_set_and_required() -> None:
     assert set(LASER["properties"]) == LASER_FIELDS
     assert LASER["required"] == ["schema_version", "seed"]
-    assert LASER["additionalProperties"] is False
+    assert LASER["unevaluatedProperties"] is False
+    assert "additionalProperties" not in LASER
 
 
 @pytest.mark.parametrize("name", sorted(LASER_RANGES))
@@ -72,11 +117,71 @@ def test_laser_range_matches_table_and_edges(name: str) -> None:
     prop = LASER["properties"][name]
     assert (prop["minimum"], prop["maximum"], prop.get("default")) == (low, high, default)
     for ok in (low, high):
-        LASER_V.validate({**BASE, name: ok})
+        LASER_V.validate({**BASE2, name: ok})
     span = high - low
     for bad in (low - span / 100, high + span / 100):
         with pytest.raises(ValidationError):
-            LASER_V.validate({**BASE, name: bad})
+            LASER_V.validate({**BASE2, name: bad})
+
+
+def test_v01_keeps_length_cap_3000_and_v02_allows_6000() -> None:
+    LASER_V.validate({**BASE, "length_ms": 3000})
+    with pytest.raises(ValidationError):
+        LASER_V.validate({**BASE, "length_ms": 3000.5})
+    LASER_V.validate({**BASE2, "length_ms": 6000})
+    with pytest.raises(ValidationError):
+        LASER_V.validate({**BASE2, "length_ms": 6000.5})
+
+
+def test_v02_field_set_ranges_defaults_and_gating() -> None:
+    props = v02_props()
+    assert set(props) == V02_FIELDS
+    assert not V02_FIELDS & set(LASER["properties"])  # gated: not under properties
+    for name, (low, high, default) in V02_RANGES.items():
+        p = props[name]
+        assert (p["minimum"], p["maximum"], p["default"]) == (low, high, default), name
+        for ok in (low, high):
+            LASER_V.validate({**BASE2, name: ok})
+        span = high - low
+        for bad in (low - span / 100, high + span / 100):
+            with pytest.raises(ValidationError):
+                LASER_V.validate({**BASE2, name: bad})
+            assert not LASER_V.is_valid({**BASE2, name: bad}), name
+        assert not LASER_V.is_valid({**BASE, name: default}), f"{name} must need 0.2"
+    for name, (values, default) in V02_DISCRETE.items():
+        p = props[name]
+        assert (p["enum"] if "enum" in p else list(range(p["minimum"], p["maximum"] + 1))) \
+            == values, name
+        assert p["default"] == default
+        for v in values:
+            LASER_V.validate({**BASE2, name: v})
+        assert not LASER_V.is_valid({**BASE2, name: "bogus"}), name
+        assert not LASER_V.is_valid({**BASE, name: default}), f"{name} must need 0.2"
+    for bad in (0, 6, 2.5):
+        assert not LASER_V.is_valid({**BASE2, "salvo_count": bad})
+    assert not LASER_V.is_valid({**BASE2, "filter_slope": 18})
+    assert not LASER_V.is_valid({**BASE2, "wobble": 1})
+
+
+def test_v02_random_requests_over_the_whole_range_are_valid() -> None:
+    rng = random.Random(425)
+    for _ in range(300):
+        doc = dict(BASE2)
+        for name, (low, high, _d) in {**LASER_RANGES, **V02_RANGES}.items():
+            if name != "glitch_steps" and (name != "bpm" or rng.random() < 0.5):
+                doc[name] = rng.choice((low, high, rng.uniform(low, high)))
+        for name, (values, _d) in V02_DISCRETE.items():
+            doc[name] = rng.choice(values)
+        doc["family"] = rng.choice(FAMILIES)
+        LASER_V.validate(doc)
+
+
+def test_v02_text_fixes_the_agreed_definitions() -> None:
+    text = LASER["$comment"]
+    for needle in ("equal-power", "sqrt(2) * cos(theta)", "restarts at every shot start",
+                   "feedback delay network", "last sample exactly 0", "dropped, not shortened",
+                   "bpm 120", "seed-independent", "unevaluatedProperties"):
+        assert needle in text, needle
 
 
 def test_laser_random_values_inside_and_outside_range() -> None:
@@ -85,10 +190,10 @@ def test_laser_random_values_inside_and_outside_range() -> None:
         name = rng.choice(sorted(set(LASER_RANGES) - {"glitch_steps"}))
         low, high, _default = LASER_RANGES[name]
         span = high - low
-        LASER_V.validate({**BASE, name: rng.uniform(low, high)})
+        LASER_V.validate({**BASE2, name: rng.uniform(low, high)})
         excess = rng.uniform(0.001, 1) * span
         with pytest.raises(ValidationError):
-            LASER_V.validate({**BASE, name: rng.choice((low - excess, high + excess))})
+            LASER_V.validate({**BASE2, name: rng.choice((low - excess, high + excess))})
 
 
 def test_laser_discrete_fields() -> None:
@@ -100,18 +205,19 @@ def test_laser_discrete_fields() -> None:
            "glitch_steps": [1, 25, 8.5]}
     for name, values in good.items():
         for v in values:
-            LASER_V.validate({**BASE, name: v})
+            LASER_V.validate({**BASE2, name: v})
     for name, values in bad.items():
         for v in values:
             with pytest.raises(ValidationError):
-                LASER_V.validate({**BASE, name: v})
+                LASER_V.validate({**BASE2, name: v})
     assert LASER["properties"]["family"]["enum"] == FAMILIES
     assert LASER["properties"]["family"]["default"] == "pew"
 
 
 def test_laser_required_version_and_unknown_fields() -> None:
     LASER_V.validate(BASE)
-    for doc in ({"seed": 1}, {"schema_version": "0.1"}, {"schema_version": "0.2", "seed": 1},
+    LASER_V.validate(BASE2)
+    for doc in ({"seed": 1}, {"schema_version": "0.1"}, {"schema_version": "0.3", "seed": 1},
                 {**BASE, "wobble": 1}, {**BASE, "model": "pew"}, {**BASE, "width": 1}):
         with pytest.raises(ValidationError):
             LASER_V.validate(doc)
@@ -121,7 +227,7 @@ def test_every_combination_of_extremes_is_schema_valid() -> None:
     """The contract states there is no cross-field rule."""
     rng = random.Random(7)
     for _ in range(200):
-        doc = dict(BASE)
+        doc = dict(BASE2)
         for name, (low, high, _d) in LASER_RANGES.items():
             if name != "glitch_steps":
                 doc[name] = rng.choice((low, high))
@@ -184,6 +290,7 @@ def _changed(path: str, value) -> dict:
 
 def test_metadata_laser_and_other_categories_still_validate() -> None:
     META_V.validate(LASER_DOC)
+    META_V.validate(_changed("parameters.schema_version", "0.2"))
     META_V.validate(json.loads((ROOT / "tests/fixtures/sidecars/kick-v01.json").read_text("utf-8")))
     for category, engine in (("rim", "abeltongod-audio-engine-rim"),
                              ("bass", "abeltongod-audio-engine-bass"),

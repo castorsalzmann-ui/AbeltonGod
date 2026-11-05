@@ -52,7 +52,10 @@ LASER_VERSION = "0.1.0"
 LASER_SCHEMA_FILE = CONTRACTS_DIR / "laser-params.schema.json"
 
 FAMILIES = ("pew", "plasma", "ion", "rift", "subboom", "glitch")
-INTEGER_FIELDS = ("seed", "variants", "sample_rate", "bit_depth", "polarity", "glitch_steps")
+INTEGER_FIELDS = ("seed", "variants", "sample_rate", "bit_depth", "polarity", "glitch_steps",
+                  "salvo_count", "filter_slope")
+V02 = "0.2"
+SYNC_DEFAULT_BPM = 120
 BATCH_ONLY_PARAMS = ("variants",)
 
 OVERSAMPLE = 2
@@ -123,7 +126,24 @@ def resolve_laser_params(params: dict[str, Any]) -> dict[str, Any]:
     for name, prop in schema["properties"].items():
         if name not in resolved and "default" in prop:
             resolved[name] = prop["default"]
+    if resolved["schema_version"] == V02:
+        for name, prop in v02_properties(schema).items():
+            if name not in resolved and "default" in prop:
+                resolved[name] = prop["default"]
+        if "bpm" not in resolved and (
+            resolved["salvo_rate_mode"] == "sync" or resolved["echo_sync"] != "off"
+        ):
+            resolved["bpm"] = SYNC_DEFAULT_BPM
     return resolved
+
+
+def v02_properties(schema: dict[str, Any] | None = None) -> dict[str, Any]:
+    """The v0.2 field definitions: the ``then`` properties of the schema_version 0.2 branch."""
+    schema = schema or _schema()
+    for branch in schema.get("allOf", ()):
+        if branch.get("if") == {"properties": {"schema_version": {"const": V02}}}:
+            return branch["then"]["properties"]
+    raise KeyError("laser-params schema has no schema_version 0.2 branch")
 
 
 def render_laser(params: dict[str, Any], seed: int) -> np.ndarray:
@@ -361,6 +381,13 @@ def _echo(x: np.ndarray, p: dict[str, Any]) -> np.ndarray:
 
 def render_resolved(p: dict[str, Any]) -> np.ndarray:
     """Render already resolved parameters (no validation). Shape ``(n, 2)``."""
+    if p["schema_version"] == V02:
+        active = [k for k, prop in v02_properties().items() if p.get(k) != prop["default"]]
+        if active:  # the contract exists (#425); the engine follows in the next PR
+            raise LaserParamsError(
+                "Contract v0.2 fields are not rendered by this engine version yet: "
+                + ", ".join(active)
+            )
     sr = int(p["sample_rate"])
     rate = OVERSAMPLE * sr
     n = file_samples(p)
