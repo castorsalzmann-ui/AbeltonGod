@@ -22,10 +22,10 @@ Eine lokale Python-Audio-Engine erzeugt Samples, eine Remote-Script-Bridge (Able
 | 03 | Sample-Import: Kick landet im Ableton-Projekt | fertig |
 | 04a | Resource Guard: Grenzen für Tokens, Aufrufe, Kosten, Zeit, Schleifen, Datei- und Ableton-Schreibzugriffe | fertig |
 | 04b | Claude-Orchestrator: Sprache → validierte Parameter → Engine → Import | in Arbeit (Abnahmelauf am PC offen) |
-| 05 | Kick-Charakter: Preset `dense`, Hörtests, Keyword-Prompts | Kick fertig (Hörtests abgeschlossen); Keyword-Prompts in Arbeit (Hörpaket beim Nutzer) |
-| 06 | Weitere Klangkategorien (Clap, Hat, Snare, Rim, Bass) | in Arbeit (Clap, Hat, Snare, Rim, Bass als Stimmen gemergt; Hörtests und Live-Import offen) |
+| 05 | Kick-Charakter: Preset `dense`, Hörtests, Keyword-Prompts | Kick fertig (Hörtests abgeschlossen); Keyword-Prompts gebaut, Hörtest optional |
+| 06 | Weitere Klangkategorien (Clap, Hat, Snare, Rim, Bass) und Goa-Plugin | gebaut und automatisch getestet (Stimmen, Goa-Arrangement, Goa-Melodie); Hörtests und Live-Import optional, nicht durchgeführt |
 
-Phasenspezifikationen: [`docs/phases/`](docs/phases/).
+Phasenspezifikationen: [`docs/phases/`](docs/phases/). Kurzanleitung und ehrlicher Status: [`docs/USER_GUIDE.md`](docs/USER_GUIDE.md).
 
 ## Einrichtung unter Windows
 
