@@ -15,9 +15,10 @@ Signal path (all float64, mono, ``t`` from the first sound sample):
 3. Amplitude: linear attack ``amp_attack_ms``, hold until ``gate_ms``, linear release to 0 over
    ``release_ms`` (first and last sample exactly 0). File length = offset + gate + release.
 4. ``drive`` > 0: signal scaled to peak 1, then the kick's anti-aliased saturation.
-5. Peak ceiling measured on the quantised file (the kick's normalise), ``offset_ms`` of leading
-   silence, ``polarity``. No fade-out and no mean removal: the release ends at 0, and a bass
-   must keep its sustained level (the mean of the file is reported as ``dc_offset``).
+5. DC blocker (:func:`dc_block`, D-028): ``c * envelope`` is subtracted so the file mean is ~0.
+6. Peak ceiling measured on the quantised file (the kick's normalise), ``offset_ms`` of leading
+   silence, ``polarity``. No fade-out: the release ends at 0 and a bass keeps its sustained
+   level (the mean of the file is reported as ``dc_offset``).
 
 No randomness: ``seed`` only labels the render (the core voice is seed-independent, contract
 rule 7). Same resolved parameters give the same samples.
@@ -40,7 +41,7 @@ from .params import CONTRACTS_DIR, _error_line, _to_python, load_schema
 BASS_NAME = "abeltongod-audio-engine-bass"
 # Bump on every change that alters rendered bytes (D-013 per category, D-025); update the golden
 # hashes in tests/audio_engine/test_bass.py in the same PR.
-BASS_VERSION = "0.1.0"
+BASS_VERSION = "0.2.0"
 BASS_SCHEMA_FILE = CONTRACTS_DIR / "bass-params.schema.json"
 
 PARTIAL_LIMIT = 0.45  # partials and the cutoff stay below PARTIAL_LIMIT * sample_rate
@@ -217,6 +218,23 @@ def amp_envelope(p: dict[str, Any], m: int) -> np.ndarray:
     return env
 
 
+def dc_block(x: np.ndarray, env: np.ndarray) -> np.ndarray:
+    """Last stage of the voice (D-028, #335): remove the DC the drive creates, ``x - c env``.
+
+    The drive turns the asymmetric saw into a signal with a mean, and that mean follows the
+    amplitude envelope. A fixed linear high-pass was tried first and measured: it needs
+    ~30 ms (5 Hz) to settle, which is longer than the shortest notes, so the file mean stayed
+    up to 0.05 of the peak and the release end got a pulse of up to 0.16 of the peak. Here the
+    subtracted part has the shape of the envelope, ``c = mean(x) / mean(env)``, so the mean of the
+    float signal is 0 up to rounding, the first and last sample stay 0 (``env`` is 0 there) and
+    no filter touches the note frequency. Deterministic, no state, no parameter.
+    """
+    total = float(np.sum(env))
+    if total <= 0.0:
+        return x
+    return x - (float(np.sum(x)) / total) * env
+
+
 def render_resolved(p: dict[str, Any]) -> np.ndarray:
     """Render already resolved parameters (no validation)."""
     sr = int(p["sample_rate"])
@@ -229,12 +247,14 @@ def render_resolved(p: dict[str, Any]) -> np.ndarray:
         x = _lowpass_varying(x, sr, fc, p["lp_q"])
     else:
         x = rbj_lowpass(x, sr, p["lp_hz"], p["lp_q"])
-    x = x * amp_envelope(p, m)
+    env = amp_envelope(p, m)
+    x = x * env
     if p["drive"] > 0:
         peak = float(np.max(np.abs(x)))
         if peak > 0.0:
             x = _drive(x / peak, p["drive"])
             x[-1] = 0.0  # the drive residual is not exactly 0 at the end; the contract says 0
+    x = dc_block(x, env)
     x = _normalise(x, p["peak_ceiling_dbfs"], p["bit_depth"])
     if n_off:
         x = np.concatenate([np.zeros(n_off), x])
