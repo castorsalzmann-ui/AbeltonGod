@@ -1,0 +1,18 @@
+{
+  "schema_version": "0.1",
+  "preset": "plasma",
+  "seed": 2,
+  "family": "plasma",
+  "length_ms": 600,
+  "pitch_start_hz": 1800,
+  "pitch_end_hz": 140,
+  "sweep_ms": 260,
+  "sweep_curve": 0.6,
+  "decay_ms": 400,
+  "fm_amount": 0.5,
+  "fm_ratio": 2.0,
+  "noise_level": 0.25,
+  "noise_hz": 3500,
+  "crackle": 0.4,
+  "stereo_width": 0.3
+}

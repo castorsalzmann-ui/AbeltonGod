@@ -1,0 +1,13 @@
+{
+  "schema_version": "0.1",
+  "preset": "subboom",
+  "seed": 5,
+  "family": "subboom",
+  "length_ms": 1400,
+  "pitch_start_hz": 2200,
+  "pitch_end_hz": 120,
+  "sweep_ms": 200,
+  "decay_ms": 800,
+  "drive": 0.2,
+  "peak_ceiling_dbfs": -1.0
+}

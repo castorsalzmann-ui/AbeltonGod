@@ -1,0 +1,19 @@
+{
+  "schema_version": "0.1",
+  "preset": "rift",
+  "seed": 4,
+  "family": "rift",
+  "length_ms": 1500,
+  "pitch_start_hz": 1200,
+  "pitch_end_hz": 90,
+  "sweep_ms": 900,
+  "sweep_curve": 1.5,
+  "attack_ms": 20,
+  "decay_ms": 1000,
+  "ring_amount": 0.6,
+  "ring_hz": 150,
+  "noise_level": 0.3,
+  "noise_hz": 1200,
+  "stereo_width": 1.0,
+  "variation": 0.3
+}

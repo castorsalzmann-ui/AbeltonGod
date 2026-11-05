@@ -43,12 +43,15 @@ def encode_wav(audio: np.ndarray, sr: int, bit_depth: int) -> bytes:
     if not np.all(np.isfinite(audio)):
         raise ValueError("Audio contains NaN or Inf.")
     full_scale = 2 ** (bit_depth - 1) - 1
-    ints = np.round(np.clip(audio, -1.0, 1.0) * full_scale).astype("<i4")
+    if audio.ndim not in (1, 2) or (audio.ndim == 2 and audio.shape[1] != 2):
+        raise ValueError(f"audio must have shape (n,) or (n, 2), got {audio.shape}")
+    channels = 1 if audio.ndim == 1 else 2  # (n, 2) is written interleaved (laser, #416)
+    ints = np.round(np.clip(audio, -1.0, 1.0) * full_scale).astype("<i4").reshape(-1)
     if bit_depth == 16:
         frames = ints.astype("<i2").tobytes()
     else:
         frames = ints.view(np.uint8).reshape(-1, 4)[:, :3].tobytes()  # little-endian low 3 bytes
-    return _riff_wav(frames, int(sr), bit_depth)
+    return _riff_wav(frames, int(sr), bit_depth, channels)
 
 
 def wav_samples(wav: bytes) -> np.ndarray:
@@ -74,8 +77,8 @@ def wav_samples(wav: bytes) -> np.ndarray:
     return np.where(value >= 1 << 23, value - (1 << 24), value)
 
 
-def _riff_wav(frames: bytes, sr: int, bit_depth: int) -> bytes:
-    """Mono PCM WAV (format tag 1) with a 44-byte header.
+def _riff_wav(frames: bytes, sr: int, bit_depth: int, channels: int = 1) -> bytes:
+    """PCM WAV (format tag 1, mono or interleaved stereo) with a 44-byte header.
 
     RIFF chunks must be word aligned: a data chunk with an odd byte count (24-bit, odd sample
     count) gets one zero pad byte after it. The data chunk size stays the real audio size; the
@@ -84,7 +87,8 @@ def _riff_wav(frames: bytes, sr: int, bit_depth: int) -> bytes:
     """
     width = bit_depth // 8
     pad = b"\x00" * (len(frames) % 2)
-    fmt = struct.pack("<HHIIHH", 1, 1, sr, sr * width, width, bit_depth)
+    fmt = struct.pack("<HHIIHH", 1, channels, sr, sr * width * channels, width * channels,
+                      bit_depth)
     body = (
         b"WAVE"
         + b"fmt " + struct.pack("<I", len(fmt)) + fmt
