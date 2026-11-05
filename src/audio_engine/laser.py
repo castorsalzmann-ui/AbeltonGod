@@ -34,7 +34,7 @@ from typing import Any
 import numpy as np
 from jsonschema import Draft202012Validator
 
-from . import analysis
+from . import analysis, laser_fx
 from .dsp import (
     biquad_bandpass,
     fft_size,
@@ -48,7 +48,7 @@ from .params import CONTRACTS_DIR, _error_line, _to_python, load_schema
 LASER_NAME = "abeltongod-audio-engine-laser"
 # Bump on every change that alters rendered bytes (D-013 per category, D-025); update the golden
 # hashes in tests/audio_engine/test_laser.py in the same PR.
-LASER_VERSION = "0.1.0"
+LASER_VERSION = "0.2.0"
 LASER_SCHEMA_FILE = CONTRACTS_DIR / "laser-params.schema.json"
 
 FAMILIES = ("pew", "plasma", "ion", "rift", "subboom", "glitch")
@@ -56,6 +56,9 @@ INTEGER_FIELDS = ("seed", "variants", "sample_rate", "bit_depth", "polarity", "g
                   "salvo_count", "filter_slope")
 V02 = "0.2"
 SYNC_DEFAULT_BPM = 120
+VOICE_DECAYS = 3.0  # salvo voices are cut after 3 * decay_ms (-180 dB), scaled below
+REVERB_FADE_MS = 50.0
+V01_MAX_LENGTH_MS = 3000
 BATCH_ONLY_PARAMS = ("variants",)
 
 OVERSAMPLE = 2
@@ -149,7 +152,9 @@ def v02_properties(schema: dict[str, Any] | None = None) -> dict[str, Any]:
 def render_laser(params: dict[str, Any], seed: int) -> np.ndarray:
     """Render one shot; float64 array of shape ``(n, 2)`` (left, right). See module docstring."""
     request = {k: v for k, v in dict(params).items() if k != "seed"}
-    request.setdefault("schema_version", "0.1")
+    # a request that carries a v0.2 field without a schema_version is a 0.2 request
+    v02 = any(k in v02_properties() for k in request)
+    request.setdefault("schema_version", V02 if v02 else "0.1")
     request["seed"] = seed
     return render_resolved(_strip(resolve_laser_params(request)))
 
@@ -316,7 +321,30 @@ def _unit_rms(y: np.ndarray) -> np.ndarray:
     return y / rms if rms > 0.0 else y
 
 
-def _noise_layers(p: dict[str, Any], v: dict[str, float], t: np.ndarray, rate: int):
+def _fft_iir(x: np.ndarray, section: laser_fx.Section) -> np.ndarray:
+    """One biquad of a 1-D signal by FFT convolution (shots of a multi-shot salvo only)."""
+    return laser_fx.apply_sections(x[:, None], [section])[:, 0]
+
+
+def _bandpass(x: np.ndarray, rate: int, f0: float, q: float, fast: bool) -> np.ndarray:
+    if not fast:
+        return biquad_bandpass(x, rate, f0, q)
+    w0 = 2.0 * math.pi * f0 / rate
+    alpha = math.sin(w0) / (2.0 * q)
+    a0 = 1.0 + alpha
+    cw = math.cos(w0)
+    return _fft_iir(x, (alpha / a0, 0.0, -alpha / a0, -2.0 * cw / a0, (1.0 - alpha) / a0))
+
+
+def _highpass(x: np.ndarray, rate: int, f0: float, fast: bool) -> np.ndarray:
+    if not fast:
+        return rbj_highpass(x, rate, f0)
+    return _fft_iir(x, laser_fx.filter_sections("hp", rate, f0, 12)[0])
+
+
+def _noise_layers(
+    p: dict[str, Any], v: dict[str, float], t: np.ndarray, rate: int, fast: bool = False
+):
     """``(left, right)`` noise + crackle at the internal rate (zeros when both are off)."""
     m = len(t)
     zeros = np.zeros(m)
@@ -329,7 +357,7 @@ def _noise_layers(p: dict[str, Any], v: dict[str, float], t: np.ndarray, rate: i
     chans = []
     if p["noise_level"] > 0.0:
         raw = [streams[i].standard_normal(m) for i in (S_NOISE_COMMON, S_NOISE_L, S_NOISE_R)]
-        band = [_unit_rms(biquad_bandpass(r, rate, min(p["noise_hz"], 0.45 * rate), NOISE_Q))
+        band = [_unit_rms(_bandpass(r, rate, min(p["noise_hz"], 0.45 * rate), NOISE_Q, fast))
                 for r in raw]
         chans.append([p["noise_level"] * env * (common_w * band[0] + indep_w * band[i])
                       for i in (1, 2)])
@@ -337,7 +365,7 @@ def _noise_layers(p: dict[str, Any], v: dict[str, float], t: np.ndarray, rate: i
         rng = streams[S_CRACKLE]
         hits = rng.random(m) < (CRACKLE_DENSITY * p["crackle"] / rate)
         signs = rng.choice([-1.0, 1.0], size=m)
-        imp = rbj_highpass(np.where(hits, signs, 0.0), rate, CRACKLE_HP_HZ)
+        imp = _highpass(np.where(hits, signs, 0.0), rate, CRACKLE_HP_HZ, fast)
         peak = float(np.max(np.abs(imp)))
         imp = imp / peak if peak > 0.0 else imp
         chans.append([p["crackle"] * env * imp] * 2)
@@ -355,13 +383,15 @@ def _decimate(x: np.ndarray, m: int) -> np.ndarray:
     return y[delay : delay + len(x)][::OVERSAMPLE][:m]
 
 
-def _echo(x: np.ndarray, p: dict[str, Any]) -> np.ndarray:
-    """Add ping-pong echo taps to the stereo array ``x`` (contract point 7)."""
+def _echo(x: np.ndarray, p: dict[str, Any], d: int | None = None) -> np.ndarray:
+    """Add ping-pong echo taps to the stereo array ``x`` (contract point 7); ``d`` = delay in
+    samples (default: from ``echo_ms``)."""
     mix = p["echo_mix"]
     if mix <= 0.0:
         return x
     sr = int(p["sample_rate"])
-    d = max(1, int(round(p["echo_ms"] * sr / 1000.0)))
+    if d is None:
+        d = max(1, int(round(p["echo_ms"] * sr / 1000.0)))
     w = p["stereo_width"]
     out = x.copy()
     n = len(x)
@@ -379,25 +409,20 @@ def _echo(x: np.ndarray, p: dict[str, Any]) -> np.ndarray:
     return out
 
 
-def render_resolved(p: dict[str, Any]) -> np.ndarray:
-    """Render already resolved parameters (no validation). Shape ``(n, 2)``."""
-    if p["schema_version"] == V02:
-        active = [k for k, prop in v02_properties().items() if p.get(k) != prop["default"]]
-        if active:  # the contract exists (#425); the engine follows in the next PR
-            raise LaserParamsError(
-                "Contract v0.2 fields are not rendered by this engine version yet: "
-                + ", ".join(active)
-            )
+def _voice(p: dict[str, Any], m: int, fast: bool) -> np.ndarray:
+    """One shot's voice, shape ``(m, 2)``, before echo (contract points 1-6, 8, 9).
+
+    ``fast`` evaluates the voice's internal biquads by FFT convolution instead of the
+    per-sample loop (shots of a multi-shot salvo; the one-shot path keeps the loop, so v0.1
+    bytes do not change).
+    """
     sr = int(p["sample_rate"])
     rate = OVERSAMPLE * sr
-    n = file_samples(p)
-    n_off = offset_samples(p)
-    m = n - n_off
     t = np.arange(m * OVERSAMPLE, dtype=np.float64) / rate
     v = _varied(p)
     w = p["stereo_width"]
     cents = 2.0 ** (WIDTH_CENTS * w / 1200.0)
-    noise_l, noise_r = _noise_layers(p, v, t, rate)
+    noise_l, noise_r = _noise_layers(p, v, t, rate, fast)
     if w > 0.0:
         sides = [(_oscillator(p, v, t, rate, cents), noise_l),
                  (_oscillator(p, v, t, rate, 1.0 / cents), noise_r)]
@@ -406,17 +431,82 @@ def render_resolved(p: dict[str, Any]) -> np.ndarray:
         sides = [(osc, noise_l), (osc, noise_l)]
     cols = []
     for osc, noise in sides:
-        y = rbj_highpass(osc + noise, rate, SUB_HP_HZ)
+        y = osc + noise
+        if not fast:
+            y = _highpass(y, rate, SUB_HP_HZ, False)
         cols.append(_decimate(y, m))
-    x = np.stack(cols, axis=1) if m else np.zeros((0, 2))
-    x = _echo(x, p)
+    if not m:
+        return np.zeros((0, 2))
+    x = np.stack(cols, axis=1)
+    if fast:  # the 20 Hz high-pass at the base rate, both channels in one pass
+        x = laser_fx.apply_sections(x, laser_fx.filter_sections("hp", sr, SUB_HP_HZ, 12))
+    return x
+
+
+def _v02_values(p: dict[str, Any]) -> dict[str, Any]:
+    """Every v0.2 field of ``p``, defaults filled (a 0.1 resolved form has none)."""
+    return {k: p.get(k, prop["default"]) for k, prop in v02_properties().items()}
+
+
+def _shot_params(p: dict[str, Any], shot: laser_fx.Shot) -> dict[str, Any]:
+    q = dict(p)
+    q["seed"] = shot.seed
+    if shot.pitch_scale != 1.0:
+        for key in ("pitch_start_hz", "pitch_end_hz"):
+            q[key] = laser_fx.clamp_pitch(p[key] * shot.pitch_scale)
+    return q
+
+
+def render_resolved(p: dict[str, Any]) -> np.ndarray:
+    """Render already resolved parameters (no validation). Shape ``(n, 2)``."""
+    sr = int(p["sample_rate"])
+    n = file_samples(p)
+    n_off = offset_samples(p)
+    m = n - n_off
+    fx = _v02_values(p)
+    pf = {**p, **fx}
+    shots = laser_fx.salvo_plan(fx, p["seed"], sr, m, float(p.get("bpm", SYNC_DEFAULT_BPM)))
+    # FFT-evaluated voice filters for salvos and for files only 0.2 can ask for (> 3000 ms, no
+    # 0.1 bytes to keep); the per-sample loops stay for every request 0.1 can express
+    multi = fx["salvo_count"] > 1 or p["length_ms"] > V01_MAX_LENGTH_MS
+    x = np.zeros((m, 2))
+    for shot in shots:
+        m_k = m - shot.start
+        voice_n = m_k
+        if multi:  # past ~3 decays the voice is far below the 24-bit LSB
+            decays = VOICE_DECAYS * (1.5 if p["family"] == "subboom" else 1.0)
+            decays *= 2.0**VARIATION_OCTAVES if p["variation"] > 0.0 else 1.0
+            voice_n = min(m_k, int(math.ceil(decays * p["decay_ms"] * sr / 1000.0)) + 1)
+        voice = _voice(_shot_params(p, shot), voice_n, fast=multi)
+        if shot.index > 0 and voice_n:
+            voice[0] = 0.0
+        if shot.pan is not None:
+            voice = voice * np.array(laser_fx.pan_gains(shot.pan))
+        if shot.gain != 1.0:
+            voice = voice * shot.gain
+        x[shot.start : shot.start + voice_n] += voice
+    if p["echo_mix"] > 0.0:
+        ms = (p["echo_ms"] if fx["echo_sync"] == "off"
+              else laser_fx.note_ms(fx["echo_sync"], float(pf["bpm"])))
+        d = max(1, int(round(ms * sr / 1000.0)))
+        if fx["echo_damp_hz"] < 20000.0 or fx["echo_pingpong"] > 0.0:
+            x = laser_fx.echo_v2(x, pf, d)
+        else:
+            x = _echo(x, p, d)
     if m:
         x[0] = 0.0
     if p["drive"] > 0 and m:
         peak = float(np.max(np.abs(x)))
         if peak > 0.0:
             x = np.stack([_drive(x[:, c] / peak, p["drive"]) for c in (0, 1)], axis=1)
-    x = np.stack([_remove_mean(_fade_out(x[:, c], sr, FADE_OUT_MS)) for c in (0, 1)], axis=1)
+    if m:
+        x = laser_fx.high_pass(x, sr, pf)
+        x = laser_fx.low_pass(x, sr, pf, [s.start for s in shots])
+        if fx["reverb_mix"] > 0.0:
+            x = x + fx["reverb_mix"] * laser_fx.reverb_wet(x, pf)
+        x[0] = 0.0
+    fade_ms = REVERB_FADE_MS if fx["reverb_mix"] > 0.0 else FADE_OUT_MS
+    x = np.stack([_remove_mean(_fade_out(x[:, c], sr, fade_ms)) for c in (0, 1)], axis=1)
     x = _normalise(x, p["peak_ceiling_dbfs"], p["bit_depth"])
     if n_off:
         x = np.concatenate([np.zeros((n_off, 2)), x])

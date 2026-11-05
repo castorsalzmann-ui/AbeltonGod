@@ -110,6 +110,14 @@ LASER_DESCRIPTIONS = {
     "glitch": "Family glitch: stepped pitch with per-step gate, crackle detune, echo.",
     "pew-wide-echo": "Family pew with ping-pong echo and full stereo width.",
     "plasma-driven": "Family plasma with drive and a late sweep curve.",
+    "blaster": "Base shot (v0.2): plasma 1900 to 110 Hz over 700 ms, drive 0.15, "
+    "24 dB/oct low-pass at 3 kHz, no noise / crackle / FM, centred.",
+    "blaster-double": "Blaster, 2-shot salvo 160 ms apart, -3 dB per shot.",
+    "blaster-triple-lrl": "Blaster, 3-shot salvo 150 ms apart, panned left-right-left.",
+    "blaster-burst5": "Blaster, 5-shot burst at 12 shots/s with accelerating rate, "
+    "left-to-right sweep, humanize 0.3.",
+    "blaster-echo": "Blaster with a tempo-synced (1/8 at 128 BPM) damped ping-pong echo.",
+    "blaster-reverb": "Blaster with a 1.8 s algorithmic reverb (mix 0.35).",
 }
 
 

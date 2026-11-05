@@ -44,7 +44,7 @@ from .categories import CategoryUnavailable, get_category
 from .clap import ClapParamsError, resolve_clap_params
 from .hat import HatParamsError, resolve_hat_params
 from .io import write_kick
-from .laser import LaserParamsError, resolve_laser_params
+from .laser import LaserParamsError, resolve_laser_params, v02_properties
 from .params import KickParamsError, resolve_kick_params
 from .presets import UnknownPresetError, describe, load_preset, preset_names
 from .prompt import PromptError, parse_prompt
@@ -86,7 +86,9 @@ def build_parser() -> argparse.ArgumentParser:
         action="append",
         default=[],
         metavar="FIELD=VALUE",
-        help="set one kick parameter (a number), repeatable; e.g. --set pitch_decay_ms=15",
+        help="set one parameter (a number), repeatable; e.g. --set pitch_decay_ms=15. Laser: "
+        "also the v0.2 fields incl. text values, e.g. --set salvo_count=3 --set "
+        "salvo_pan_mode=alternate_lr --set echo_sync=1/8 --set reverb_mix=0.3 --set lp_hz=3000",
     )
     parser.add_argument(
         "--category", choices=("kick", "clap", "hat", "snare", "rim", "bass", "laser"),
@@ -103,9 +105,14 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def parse_overrides(items: list[str]) -> dict[str, float | int]:
-    """``["a=1", "b=2.5"]`` -> ``{"a": 1, "b": 2.5}``. Values must be finite JSON numbers."""
-    out: dict[str, float | int] = {}
+def parse_overrides(items: list[str], allow_strings: bool = False) -> dict[str, Any]:
+    """``["a=1", "b=2.5"]`` -> ``{"a": 1, "b": 2.5}``. Values must be finite JSON numbers.
+
+    ``allow_strings`` (laser v0.2 enum fields such as ``salvo_pan_mode=alternate_lr`` or
+    ``echo_sync=1/8``): a value that is not a number is kept as text; the contract then
+    accepts or rejects it.
+    """
+    out: dict[str, Any] = {}
     for item in items:
         field, sep, text = item.partition("=")
         field = field.strip()
@@ -120,6 +127,9 @@ def parse_overrides(items: list[str]) -> dict[str, float | int]:
             value = json.loads(text.strip(), parse_constant=_reject_constant)
         except ValueError:
             value = None
+        if allow_strings and value is None and text.strip() and not text.strip().startswith("["):
+            out[field] = text.strip()
+            continue
         if isinstance(value, bool) or not isinstance(value, int | float):
             raise UsageError(f"--set {field}={text!r}: value must be a number")
         if not math.isfinite(value):
@@ -140,12 +150,16 @@ def plan(args: argparse.Namespace) -> tuple[str, list[dict[str, Any]], list[str]
         raise UsageError("--preset is required (see --list-presets)")
     if not args.out:
         raise UsageError("--out is required")
-    overrides = parse_overrides(args.overrides)
     category = getattr(args, "category", "kick")  # callers build their own Namespace
+    overrides = parse_overrides(args.overrides, allow_strings=category == "laser")
     base = dict(load_preset(args.preset, category))
     if args.seed is not None:
         base["seed"] = args.seed
     base.update(overrides)
+    if category == "laser" and base.get("schema_version") == "0.1" and any(
+        k in v02_properties() for k in overrides
+    ):  # --set of a v0.2 field (salvo_*, lp_*, hp_hz, echo_sync, reverb_* ...) selects v0.2
+        base["schema_version"] = "0.2"
     base["variants"] = args.variants  # validated by the contract (1 … 8)
     request = base
     resolve, make = {
