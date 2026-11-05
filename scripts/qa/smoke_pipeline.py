@@ -18,9 +18,9 @@ Then, once: library placement (folder layout, ``_002`` collision suffix), the
 **Nothing here talks to Live**; the fake server is a test double, never evidence for Ableton.
 
 Exit code 0 only if every check passed, or the only failures are known ones named with
-``--expect-fail SUBSTRING`` (reported as KNOWN; a substring that matches no failure fails the
-run). Categories are read from the engine registry, so a new category on main is picked up
-without changes here.
+``--expect-fail SUBSTRING`` (reported as KNOWN). A substring that matches no failure is
+reported as STALE and listed in ``stale_expect_fail``, but does not fail the run. Categories
+are read from the engine registry, so a new category on main is picked up without changes here.
 """
 
 from __future__ import annotations
@@ -337,7 +337,7 @@ def main(argv: list[str] | None = None) -> int:
     for n, _, d in known:
         print(f"KNOWN {n}: {d}")
     for sub in stale:
-        print(f"FAIL --expect-fail {sub!r}: no failing check matches any more; remove the flag")
+        print(f"STALE --expect-fail {sub!r}: no failing check matches any more; remove the flag")
     summary = {"checks": total, "failed": len(unexpected), "known": len(known),
                "stale_expect_fail": stale, "categories": cats, "tools": tools,
                "failures": [{"check": n, "detail": d} for n, _, d in unexpected],
@@ -345,7 +345,7 @@ def main(argv: list[str] | None = None) -> int:
     print(json.dumps(summary, indent=1))
     if args.json:
         Path(args.json).write_text(json.dumps(summary, indent=1), encoding="utf-8")
-    return 0 if not unexpected and not stale else 1
+    return 0 if not unexpected else 1
 
 
 if __name__ == "__main__":

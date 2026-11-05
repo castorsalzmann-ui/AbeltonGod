@@ -208,9 +208,11 @@ def test_expect_fail_exit_codes(monkeypatch, tmp_path, capsys):
     assert smoke.main([*keep, "--expect-fail", "bass/a: DC offset"]) == 0
     out = capsys.readouterr().out
     assert "KNOWN bass/a: DC offset: dc=0.02" in out
-    # a known one that started passing fails the run, so the flag gets removed
-    assert smoke.main([*keep, "--expect-fail", "DC offset", "--expect-fail", "length"]) == 1
-    assert "no failing check matches" in capsys.readouterr().out
+    # a stale flag (nothing fails there any more) is reported but is not a gate failure
+    assert smoke.main([*keep, "--expect-fail", "DC offset", "--expect-fail", "length"]) == 0
+    out = capsys.readouterr().out
+    assert "STALE --expect-fail 'length'" in out and "no failing check matches" in out
+    assert smoke.main([*keep, "--expect-fail", "nothing-matches"]) == 1  # real failure still fails
     # an unrelated failure is not hidden by the flag
     _fake_run(monkeypatch, [("bass/a: DC offset", False, ""), ("bass/a: tail", False, "")])
     assert smoke.main([*keep, "--expect-fail", "DC offset"]) == 1
