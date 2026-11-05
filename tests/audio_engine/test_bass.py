@@ -591,6 +591,79 @@ def test_dc_of_neutral_renders_is_small() -> None:
         assert abs(float(np.mean(audio))) < 0.01, p["note"]
 
 
+# --- DC blocker (D-028, #335) ---------------------------------------------------------------------
+
+# Limit on |mean| of the quantised file, in fractions of full scale. One 16-bit step is 3.05e-5, so
+# 1e-4 is about 3 steps: the float signal has a mean of ~0 and the rest is rounding. It is 50x
+# below the smoke runner's 0.005 limit and ~600x below the DC the voice had before (-0.082 on
+# preset low with drive 0.2, #335).
+DC_LIMIT = 1e-4
+
+
+def _dc_cases() -> list[tuple[str, dict]]:
+    cases = [(f"preset-{n}", load_preset(n, "bass")) for n in preset_names("bass")]
+    rng = np.random.default_rng(335)  # full contract range, short and long gates, both rates/depths
+    cases += [(f"random-{i}", _draw(rng)) for i in range(60)]
+    cases += [(f"random-short-{i}", _draw(rng, gate=(50, 120))) for i in range(20)]
+    return cases
+
+
+def _quantised_mean(p: dict) -> float:
+    a, r = render_bass(p)
+    ints = wav_samples(encode_wav(a, r["sample_rate"], r["bit_depth"]))
+    return float(np.mean(ints)) / 2.0 ** (r["bit_depth"] - 1)
+
+
+def _check_dc() -> float:
+    worst = 0.0
+    for name, p in _dc_cases():
+        mean = abs(_quantised_mean(p))
+        assert mean <= DC_LIMIT, (name, mean)
+        worst = max(worst, mean)
+    return worst
+
+
+def test_file_mean_is_below_the_limit_for_presets_and_the_whole_contract_range() -> None:
+    _check_dc()
+
+
+def test_dc_is_removed_where_it_was_large_and_the_ends_stay_zero() -> None:
+    p = {**BASE, "note": 36, "gate_ms": 100, "release_ms": 8, "drive": 0.2}
+    audio, _ = render_bass(p)
+    assert abs(float(np.mean(audio))) <= DC_LIMIT
+    assert audio[0] == 0.0 and audio[-1] == 0.0
+
+
+def _no_block(monkeypatch) -> None:
+    monkeypatch.setattr(B, "dc_block", lambda x, env: x)
+
+
+def test_blocker_leaves_the_fundamental_level_unchanged_and_costs_less_than_1_dB_headroom(
+        monkeypatch) -> None:
+    """Level of the note's first partial (coherent DFT over whole periods of 40-80 % of the gate,
+    on the un-normalised signal so the peak scaling cannot hide a loss) with and without the
+    blocker, at the lowest allowed f0 (note 24, -50 cents = 31.77 Hz) and a few other notes.
+    The cost that does exist is headroom: removing the DC raises the peak by ~9 %, so a
+    peak-normalised file is ~0.7-1.0 dB quieter overall (measured, see the PR)."""
+    monkeypatch.setattr(B, "_normalise", lambda x, ceiling, bits: x)
+    orig = B.dc_block
+    for note, cents, gate in ((24, -50, 300), (24, -50, 1500), (24, 0, 400), (30, 0, 250),
+                              (43, 0, 250), (55, 50, 100)):
+        p = {**BASE, "note": note, "cents": cents, "gate_ms": gate, "release_ms": 5,
+             "drive": 0.2}
+        a, _ = render_bass(p)
+        monkeypatch.setattr(B, "dc_block", lambda x, env: x)
+        b, _ = render_bass(p)
+        monkeypatch.setattr(B, "dc_block", orig)
+        s, length, periods = _window(render_bass(p)[1])
+        assert periods >= 2
+        f0 = _f0(note, cents)
+        la = _partial(a, SR, f0, s, length)
+        lb = _partial(b, SR, f0, s, length)
+        assert abs(_db(la / lb)) < 0.01, (note, cents, gate, _db(la / lb))
+        assert 1.0 < np.max(np.abs(a)) / np.max(np.abs(b)) < 1.15  # the headroom cost, bounded
+
+
 # --- presets, variants --------------------------------------------------------------------------
 
 
@@ -632,18 +705,18 @@ def test_variants_at_the_cutoff_limit_keep_the_rule() -> None:
 
 # --- golden hashes (Linux x86_64, NumPy; see PR) -------------------------------------------------
 
-GOLDEN_VERSION = "0.1.0"
+GOLDEN_VERSION = "0.2.0"  # 0.2.0: DC blocker (#335); every hash below changed with it
 GOLDEN: dict = {
-    "preset-bright": "526b4872e63cee2b3a2b2c5fe418f0e7c00011a4139f66a0e533d8bd51f10464",
-    "preset-default": "8fd29c62935ee6736ca06251a43b2ad5c94474183698359931062cd5c9f871d3",
-    "preset-goa-roll-long": "1b3cd53fffbefdcffd47ed3a2505f4813bd44397e813e82390e2fe6e48ea5454",
-    "preset-goa-roll-medium": "685dbddd4dee22a03e7d5115e50a0641fafa1a42b47816ec4ea7c12c4d04c0e6",
-    "preset-goa-roll-short": "495f5f1075eb6e4f3092da6687cd3f507b1bb6908487da34ac34abff08c07f71",
-    "preset-low": "83b70b00c68e1adaa5080700a5117b4da20ba9fe4a3f32eedf9519ab4e2649cf",
-    "preset-rolling": "db969617c32b038c99dc22bf3ef02697f90fdee0e6c13adabe60fe902d044078",
-    "preset-sub": "2c71272b1dc92bc75e9b068043edab0e888efacb38bd6b950652613fa23d8e40",
-    "lowest-note-long": "8bce57df21dc0fc6bae3914093da7e6b3862a00c01c4e694bf2125ec535d50bb",
-    "all-fields-44k1-16bit": "60931753a52b7c398fd6183c16b394bbec0868cf42a94ba609b4b4ef496a070f",
+    "preset-bright": "4bc90fffd58db195993b5cdf126f40e053de13a5af7c14c807a51be8fa586635",
+    "preset-default": "8f738491634dda2ce31d883f3baebfca63a19c5321f4b52b8daac81e01e50e24",
+    "preset-goa-roll-long": "88fe45e6d64919db2e433d887a7ab5d47933689c182efaad296a63c5746b682d",
+    "preset-goa-roll-medium": "cba00395078bf792e7a0d18dc6dc74ca5026faef51030c3be871db12f0b983e2",
+    "preset-goa-roll-short": "211b3f3d3b2bbb35917fdcde65c60ce714c0db79d90d2b21db02274dda9a079d",
+    "preset-low": "32f1fd01b44a69aef2702e3a6f72c4033605b46a3605e8b3b2e140c6f9079c0e",
+    "preset-rolling": "e70185a1b7f196c7cb11dcba520882a967d4fb27bc66466cdf1b1a7c77369688",
+    "preset-sub": "aa893f0bf48a02384a0e1e7d83d4655628475d8b33afdce9ef9e5cdecc42fa08",
+    "lowest-note-long": "b734e8cab05cab7ca28d02c24f98298624e531120790b6f9177bb31b220ae4b0",
+    "all-fields-44k1-16bit": "b1c4d0efa800fd35175ce2f558c9501df6c338911468ca5f23e6967d4506ea4d",
 }
 
 
@@ -736,6 +809,25 @@ def _release_renderer(delta_periods: float = 0.0, slope: float = 1.0):
 def test_release_assertion_catches_a_changed_ramp(name: str, kw: dict) -> None:
     with pytest.raises(AssertionError):
         _check_release(_release_renderer(**kw))
+
+
+@pytest.mark.parametrize("name,fix", [
+    ("blocker-off", lambda x, env: x),
+    ("blocker-half-strength",
+     lambda orig: (lambda x, env: orig(x, env) + 0.5 * (x - orig(x, env)))),
+    ("blocker-wrong-shape", lambda x, env: x - np.mean(x)),  # constant offset: ends not 0
+], ids=lambda v: v if isinstance(v, str) else "")
+def test_dc_checks_catch_a_broken_blocker(monkeypatch, name: str, fix) -> None:
+    if name == "blocker-half-strength":
+        fix = fix(B.dc_block)
+    monkeypatch.setattr(B, "dc_block", fix)
+    if name == "blocker-wrong-shape":
+        # the mean is 0 but the first and last sample are not: the end-zero check must fail
+        with pytest.raises(AssertionError):
+            test_dc_is_removed_where_it_was_large_and_the_ends_stay_zero()
+    else:
+        with pytest.raises(AssertionError):
+            _check_dc()
 
 
 def test_mutant_wrong_cutoff_law_is_caught(monkeypatch) -> None:

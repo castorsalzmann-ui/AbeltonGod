@@ -27,7 +27,7 @@ def test_bass_folder_is_samples_bass_outside_the_drums() -> None:
 
 def test_bass_is_registered_with_its_own_engine_identity() -> None:
     cat = get_category("bass")
-    assert cat.engine == {"name": "abeltongod-audio-engine-bass", "version": "0.1.0"}
+    assert cat.engine == {"name": "abeltongod-audio-engine-bass", "version": "0.2.0"}
     assert cat.metadata_schema_version == "0.2" and cat.default_stem == "bass"
 
 
