@@ -348,3 +348,11 @@ The researchers for 04b clusters 1 (Agent SDK behaviour) and 2 (tool-schema gene
 **Reason.** The user wants a fun blaster-style sound toy for RX ear candy overnight; the existing engine, GUI and skin stack delivers it without a new toolchain.
 
 **Consequences.** New contract `contracts/laser-params.schema.json` (own `contract-change` PR, audio-engineer), `src/audio_engine/laser.py`, a `laser` entry in the CLI and GUI category forms, and `src/gui/blaster/` (window). The category freeze of D-028 item 3 is lifted for `laser` only.
+
+## D-031 · 2026-11-05 · accepted — Blaster v2: salvos, filter, delay, reverb and precision controls (user, 2026-11-05 23:25; amends D-030)
+
+**Decision.** (1) The `laser` category gets a **contract v0.2** (own `contract-change` PR, v0.1 requests stay byte-identical): **salvo** (2-5 shots with spacing, pan pattern, per-shot level/pitch step, seeded humanize), **filter** (low-pass and high-pass, optional closing low-pass sweep), **delay** (existing echo plus ping-pong, tempo sync, damping) and **reverb** (deterministic algorithmic reverb: mix, size, decay, damping, pre-delay, width). All effects default to off; the user's earlier wish for "only laser shots, no other FX" stays the default, the effects are options. (2) The blaster window gets a **v2 layout on the shared widget kit** (#420): knobs, sliders, segmented buttons and chips grouped by sense (Waffe, Salve, Filter, Delay, Reverb), main controls highlighted, plus **precision controls**: numeric entry on double-click, fine adjust (Shift), reset to default (Ctrl+click), XY pad for pitch start/end, sweep-curve editor, A/B slots, per-group lock and seeded randomise, undo/redo of parameter changes, preset save/load, keyboard shortcuts. (3) Unchanged: standalone window not a VST (D-030), deterministic bytes, no Max for Live, no listening or Live-test claims, preview via `winsound`.
+
+**Reason.** The user wants a complete, musically sensible blaster instrument with controls for exact settings.
+
+**Consequences.** Engine work (audio-engineer, extends #425) before the GUI work; GUI v2 starts after the widget kit PR (#423) and the contract v0.2 are merged. The base preset `blaster` starts from base variant 1 (lower start 1900 -> 110 Hz, low-pass 3 kHz) until the user names another.
