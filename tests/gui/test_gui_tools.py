@@ -287,6 +287,7 @@ def test_live_page_flow_inspect_plan_confirm_import(qapp, live_setup):
     log = page.log_view.toPlainText()
     assert "create_audio_clip" in log and "Aktions-Log" in log
     assert not page.import_button.isEnabled()  # a new plan is needed for the next import
+    assert not page.testset_check.isChecked()  # and the test-set confirmation is asked again
 
 
 def test_live_page_changing_an_input_discards_the_plan(qapp, live_setup):

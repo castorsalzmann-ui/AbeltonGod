@@ -334,6 +334,7 @@ class LivePanel(QWidget):
     def _on_imported(self, res: object) -> None:
         self.busy = False
         self.plan = None  # the set changed: a new plan is needed for the next import
+        self.testset_check.setChecked(False)  # and the test-set question is asked again
         if not isinstance(res, ImportResult):
             self.set_status(f"Unerwarteter Fehler: {res!r}", error=True)
             self._update_state()
