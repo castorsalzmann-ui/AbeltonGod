@@ -21,6 +21,12 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+# Desktop GUI (D-029, #403). Optional: the engines, bridge and copilot run without it. Essentials
+# holds QtCore/QtGui/QtWidgets (all the shell needs, wheel ~84 MB); QtMultimedia is in
+# PySide6-Addons and is not used (the preview plays through winsound on Windows).
+gui = [
+  "PySide6-Essentials>=6.7",
+]
 dev = [
   "pytest>=8",
   "pytest-xdist>=3.5",  # runs the CPU-bound audio tests on all cores (-n auto)
