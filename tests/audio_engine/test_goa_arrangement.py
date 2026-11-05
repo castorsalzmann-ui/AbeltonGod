@@ -20,7 +20,7 @@ SCALE_PCS = {
     "harmonic_minor": {0, 2, 3, 5, 7, 8, 11},
     "aeolian": {0, 2, 3, 5, 7, 8, 10},
 }
-TRACKS = ["kick", "bass", "lead", "arp", "pad", "perc"]
+TRACKS = ["kick", "bass", "lead", "arp", "pad", "perc", "snare", "clap", "rim"]
 ROLLS = ["off_kick_16th", "offbeat_8th", "gallop", "triplet_gallop"]
 
 # (kind, seed, bars, bpm, scale, extra) -> (sha256 of to_json, sha256 of MIDI bytes),
@@ -233,7 +233,7 @@ def test_track_smf_matches_plan(i):
     fmt, ppq, tracks = read_smf(ga.build_midi(**p))
     exp = expected_sections(p["dj_bars"])
     total = sum(b for _, b in exp)
-    assert fmt == 1 and ppq == PPQ and len(tracks) == 7
+    assert fmt == 1 and ppq == PPQ and len(tracks) == 10
     assert [t["name"] for t in tracks[1:]] == TRACKS
     assert {t["end"] for t in tracks} == {total * BAR}
     cond = tracks[0]
@@ -275,7 +275,7 @@ def test_track_smf_matches_plan(i):
                 else:
                     assert on % PPQ in mods
         if name == "perc":
-            assert {n[2] for n in notes} <= {42, 44, 70}
+            assert {n[2] for n in notes} == {42}  # closed-std: closed hat, one pitch
 
 
 def test_energy_curve_and_structure():
@@ -294,7 +294,7 @@ def test_energy_curve_and_structure():
         assert s["energy"] < 0.4
     # layers accumulate through the first build
     first = [x for x in secs[:5]]
-    assert [len(x["elements"]) for x in first] == [2, 3, 4, 5, 6]
+    assert [len(x["elements"]) for x in first] == [2, 4, 6, 7, 9]
     assert [x["energy"] for x in first] == sorted(x["energy"] for x in first)
     # 224 bars at 135-150 BPM = 5.97 to 6.63 minutes
     assert 5.9 < 224 * 4 * 60 / 150 / 60 and 224 * 4 * 60 / 135 / 60 < 6.7

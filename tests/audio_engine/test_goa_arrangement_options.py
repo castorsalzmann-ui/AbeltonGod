@@ -193,11 +193,14 @@ def test_cli_options_readme_and_samples(tmp_path):
                    "| breakdowns | 1 |", "`kick_less`, 16 bars", "`goa-roll-long` (gate 100 ms",
                    "| DJ intro/outro | 0 bars each |", "Intro no kick"):
         assert needle in text, needle
-    assert "NOT derived from presets" in text and "rendered WAV only" in text
+    assert "Derived from a preset" in text and "Chosen by option, not derived" in text
+    assert "70 ms decay: closed hat, MIDI 42" in text  # closed-std.json: decay_ms 70
+    assert "`default` / `backbeat`" in text and "`rim` / `sixteenth_offbeat`" in text
     assert "key-dependent" in text and "MIDI 33 for this key" in text  # root A: 24 + 9
     assert "the rendered one-shot is at MIDI 36" in text
     # samples are exactly what the engines render from the presets
-    for cat, preset in (("kick", "dense"), ("bass", "goa-roll-long"), ("hat", "closed-std")):
+    for cat, preset in (("kick", "dense"), ("bass", "goa-roll-long"), ("hat", "closed-std"),
+                        ("snare", "default"), ("clap", "default"), ("rim", "rim")):
         wav = (out / "samples" / f"{cat}_{preset}.wav").read_bytes()
         assert wav == render_sample_wav(cat, load_preset(preset, cat))[0]
     # repeat run: identical bytes in every file
@@ -206,7 +209,7 @@ def test_cli_options_readme_and_samples(tmp_path):
                     "--intro-bars", "16", "--breakdowns", "1", "--outro", "kick_less",
                     "--outro-bars", "16", "--bass-preset", "goa-roll-long"]) == 0
     files = sorted(p.relative_to(out) for p in out.rglob("*") if p.is_file())
-    assert len(files) == 5
+    assert len(files) == 8  # mid, README, six one-shots
     for f in files:
         assert (out / f).read_bytes() == (out2 / f).read_bytes()
     # existing sample target blocks everything

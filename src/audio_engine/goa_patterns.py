@@ -65,7 +65,7 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
-from audio_engine import acid_midi
+from audio_engine import acid_midi, goa_rhythm
 
 FORMAT_VERSION = acid_midi.FORMAT_VERSION
 STEPS_PER_BAR = 16
@@ -189,29 +189,18 @@ def _phrase(bars: int, motif_bars: int, make_bar) -> list[dict[int, int]]:
 
 
 ROLLS = ("off_kick_16th", "offbeat_8th", "gallop", "offbeat_ghost")
-TRIPLET_GALLOP = "triplet_gallop"
+TRIPLET_GALLOP = goa_rhythm.TRIPLET_GALLOP
 ROLL_CHOICES = (*ROLLS, TRIPLET_GALLOP)
-# roll -> (steps used inside a bar, weight per step % 4, default density). The default
-# roll is the original one; its entries must not change (byte-identity test).
-_ROLL_GRID: dict[str, tuple[tuple[int, ...], dict[int, float], float]] = {
-    "off_kick_16th": (tuple(s for s in range(STEPS_PER_BAR) if s % 4 != 0),
-                      {2: 3.0, 3: 2.0, 1: 1.0}, 0.75),
-    # one note on the off-beat 8th of every beat (step % 4 == 2); density 1.0 keeps all four
-    "offbeat_8th": (tuple(s for s in range(STEPS_PER_BAR) if s % 4 == 2),
-                    {2: 1.0}, 1.0),
-    # 16th-grid gallop: the 16th right after the kick and the 16th right before the next
-    # one (step % 4 in (1, 3)); the G1 note calls this a guess, not an established rhythm
-    "gallop": (tuple(s for s in range(STEPS_PER_BAR) if s % 4 in (1, 3)),
-               {1: 1.5, 3: 1.5}, 1.0),
-}
-_BASS_POOL = (0, 7, 1, 4)  # root, octave (index 7), 2nd degree, fifth
-_BASS_POOL_W = (6.0, 2.0, 1.5, 1.0)
-TRIPLET_GATE_BEATS = 0.2
-# offbeat_ghost: share of beats that carry the off-beat 8th (step 2) and each neighbouring 16th
-# (steps 1 and 3). PROPOSAL values from docs/research/2026-11-03_goa-reference-measurements.md
-# (50-65 % and 28-38 %, mid-points; two tracks, low confidence), defaults only.
-GHOST_MAIN_SHARE, GHOST_SIDE_SHARE = 0.575, 0.33
-TRIPLET_VELOCITY, TRIPLET_ACCENT_VELOCITY = 100, 127
+# D-027 (#392): the roll positions, the bass pitch pool and the ghost/triplet constants are
+# owned by ``goa_rhythm`` (the rhythm section's single source); the names below are kept so
+# this module and its callers read the same values.
+_ROLL_GRID = goa_rhythm.ROLL_GRID
+_BASS_POOL = goa_rhythm.BASS_POOL
+_BASS_POOL_W = goa_rhythm.BASS_POOL_W
+TRIPLET_GATE_BEATS = goa_rhythm.TRIPLET_GATE_BEATS
+GHOST_MAIN_SHARE, GHOST_SIDE_SHARE = goa_rhythm.GHOST_MAIN_SHARE, goa_rhythm.GHOST_SIDE_SHARE
+TRIPLET_VELOCITY = goa_rhythm.TRIPLET_VELOCITY
+TRIPLET_ACCENT_VELOCITY = goa_rhythm.TRIPLET_ACCENT_VELOCITY
 
 
 def bass_line(
