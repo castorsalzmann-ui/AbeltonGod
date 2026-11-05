@@ -388,7 +388,8 @@ def test_cli_end_to_end_and_readme_lists_options(tmp_path: Path, capsys):
     assert len(r["by_name"]["lead"]["notes"]) == 4 * int(1.0 * d_eff * 8 + 0.5)
     text = (out / "README.md").read_text()
     for needle in ("seed: 7", "bpm: 140", "root: D", "scale: aeolian",
-                   "length (bars per phrase): 2", "arp pattern: updown", "0, 3", "| pad | 0 | -1 | 36-47 |", "Go",
+                   "length (bars per phrase): 2", "arp pattern: updown", "0, 3",
+                   "| pad | 0 | -1 | 36-47 |", "Go",
                    "--density", "--register", "--sections", "Not tested in Live"):
         assert needle in text, needle
     # same options into another folder: identical bytes; same folder again: refused
