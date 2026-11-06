@@ -6,7 +6,7 @@ import argparse
 import sys
 from pathlib import Path
 
-DEFAULT_SIZES = ((1000, 760), (900, 700))
+DEFAULT_SIZES = ((1280, 1000), (1000, 800))
 
 
 def create_blaster_app(argv: list[str] | None = None):
@@ -15,7 +15,7 @@ def create_blaster_app(argv: list[str] | None = None):
     from . import skin
 
     app = create_app(argv)
-    app.setStyleSheet(skin.STYLESHEET)
+    app.setStyleSheet(skin.stylesheet("#ff4a2a"))
     return app
 
 
@@ -36,6 +36,8 @@ def take_screenshots(out_dir: Path, sizes=DEFAULT_SIZES) -> list[Path]:
     out_dir.mkdir(parents=True, exist_ok=True)
     engine, _ = load_engine()
     engine = engine or StubLaserEngine()
+    picture = {"salvo_count": 3, "salvo_pan_mode": "alternate_lr", "salvo_spacing_ms": 180,
+               "reverb_mix": 0.3, "echo_mix": 0.25, "length_ms": 1400}
     written: list[Path] = []
     for w, h in sizes:
         with tempfile.TemporaryDirectory(prefix="abeltongod-blaster-shot-") as tmp:
@@ -44,6 +46,13 @@ def take_screenshots(out_dir: Path, sizes=DEFAULT_SIZES) -> list[Path]:
             win.show()
             for dim in ("pew", "plasma"):
                 win.select_dimension(dim)
+                if not getattr(engine, "is_stub", False):
+                    try:  # the real engine may not render the v0.2 fields yet
+                        win.session.render_shot(win.settings.with_values(**picture), 1)
+                    except Exception:  # noqa: BLE001
+                        win.session.engine = StubLaserEngine()
+                        win.setWindowTitle(win.windowTitle() + " (Stub-Engine, nur Bild)")
+                win._apply_settings(win.settings.with_values(**picture))
                 win.pull_trigger()
                 deadline = time.monotonic() + 30
                 while win.busy and time.monotonic() < deadline:
@@ -65,7 +74,12 @@ def take_screenshots(out_dir: Path, sizes=DEFAULT_SIZES) -> list[Path]:
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="python -m gui.blaster")
     ap.add_argument("--screenshot", metavar="DIR", help="render PNGs into DIR and exit")
+    ap.add_argument("--scale", type=float, help="screenshots: Qt scale factor (1.5 = 150 %%)")
     args = ap.parse_args(argv)
+    if args.scale:
+        import os
+
+        os.environ["QT_SCALE_FACTOR"] = str(args.scale)
     try:
         app = create_blaster_app([])
     except ImportError:

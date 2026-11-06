@@ -30,6 +30,13 @@ import numpy as np
 from audio_engine.io import encode_wav
 from library.layout import LibraryLayout
 
+from .blaster_params import (  # noqa: F401 - re-exported for the window and the tests
+    SEED_MAX,
+    BlasterError,
+    BlasterSettings,
+    preview_params,
+    to_engine_params,
+)
 from .preview import NoBackend, PlaybackBackend
 
 SAMPLE_RATE = 48000  # contract default; sent in every request
@@ -37,7 +44,6 @@ BIT_DEPTH = 24
 MAX_SHOT_SECONDS = 10.0
 HISTORY_LIMIT = 40
 BANK_MAX = 64
-SEED_MAX = 4_294_967_295  # contract: seed 0 .. 2^32 - 1
 PLAY_BITS = 16
 
 
@@ -67,117 +73,6 @@ def dimension(key: str) -> Dimension:
     raise ValueError(f"Unbekannte Dimension: {key}")
 
 
-class BlasterError(Exception):
-    """A user-facing problem; the message is German."""
-
-
-# ---- sliders: position 0-100 -> contract field ---------------------------------------------
-@dataclass(frozen=True)
-class SliderSpec:
-    name: str  # also the contract field
-    label: str  # German
-    lo: float
-    hi: float  # contract range
-    kind: str  # "exp" | "lin" | "int"
-    default: float  # contract default
-    unit: str = ""
-    only_family: str | None = None  # the field has an effect in this family only
-
-    def value(self, pos: int) -> float | int:
-        t = pos / 100.0
-        if self.kind == "int":
-            return int(round(self.lo + (self.hi - self.lo) * t))
-        v = self.lo * (self.hi / self.lo) ** t if self.kind == "exp" else (
-            self.lo + (self.hi - self.lo) * t)
-        return min(self.hi, max(self.lo, round(v, 4)))
-
-    def position(self, value: float) -> int:
-        if self.kind == "exp":
-            t = math.log(value / self.lo) / math.log(self.hi / self.lo)
-        else:
-            t = (value - self.lo) / (self.hi - self.lo)
-        return int(round(100 * min(1.0, max(0.0, t))))
-
-    def readout(self, pos: int) -> str:
-        v = self.value(pos)
-        if self.unit == "Hz":
-            return f"{v / 1000:.1f} kHz".replace(".", ",") if v >= 1000 else f"{v:.0f} Hz"
-        if self.unit == "ms":
-            return f"{v / 1000:.2f} s".replace(".", ",") if v >= 1000 else f"{v:.0f} ms"
-        if self.unit == "%":
-            return f"{round(v * 100)} %"
-        if self.unit == "x":
-            return f"{v:.2f}".replace(".", ",")
-        return f"{v}"
-
-
-SLIDERS: tuple[SliderSpec, ...] = (
-    SliderSpec("pitch_start_hz", "Start-Ton", 40, 8000, "exp", 3000, "Hz"),
-    SliderSpec("pitch_end_hz", "End-Ton", 40, 8000, "exp", 200, "Hz"),
-    SliderSpec("sweep_ms", "Sweep-Zeit", 10, 2000, "exp", 150, "ms"),
-    SliderSpec("sweep_curve", "Sweep-Kurve", 0.2, 6, "exp", 1, "x"),
-    SliderSpec("length_ms", "Länge", 100, 3000, "exp", 500, "ms"),
-    SliderSpec("attack_ms", "Anstieg", 0, 50, "lin", 0.5, "ms"),
-    SliderSpec("decay_ms", "Zerfall", 20, 3000, "exp", 250, "ms"),
-    SliderSpec("fm_amount", "FM", 0, 1, "lin", 0, "%"),
-    SliderSpec("ring_amount", "Ring", 0, 1, "lin", 0, "%"),
-    SliderSpec("noise_level", "Rauschen", 0, 1, "lin", 0, "%"),
-    SliderSpec("crackle", "Knistern", 0, 1, "lin", 0, "%"),
-    SliderSpec("echo_mix", "Echo", 0, 1, "lin", 0, "%"),
-    SliderSpec("stereo_width", "Breite", 0, 1, "lin", 0, "%"),
-    SliderSpec("variation", "Variation", 0, 1, "lin", 0, "%"),
-    SliderSpec("drive", "Drive", 0, 1, "lin", 0, "%"),
-    SliderSpec("glitch_steps", "Glitch-Stufen", 2, 24, "int", 8, "", "glitch"),
-)
-SLIDER_NAMES = tuple(s.name for s in SLIDERS)
-SLIDER_BY_NAME = {s.name: s for s in SLIDERS}
-DEFAULT_POSITIONS = tuple(s.position(s.default) for s in SLIDERS)
-
-
-@dataclass(frozen=True)
-class BlasterSettings:
-    """A dimension (contract ``family``) and one 0-100 position per slider of :data:`SLIDERS`."""
-
-    dimension: str = "pew"
-    positions: tuple[int, ...] = DEFAULT_POSITIONS
-
-    def __post_init__(self) -> None:
-        if self.dimension not in DIMENSION_KEYS:
-            raise ValueError(f"Unbekannte Dimension: {self.dimension}")
-        if len(self.positions) != len(SLIDERS):
-            raise ValueError(
-                f"{len(SLIDERS)} Reglerwerte erwartet, {len(self.positions)} erhalten.")
-        for spec, v in zip(SLIDERS, self.positions, strict=True):
-            if isinstance(v, bool) or not isinstance(v, int) or not 0 <= v <= 100:
-                raise ValueError(f"{spec.label} muss eine ganze Zahl von 0 bis 100 sein, "
-                                 f"nicht {v!r}.")
-
-    def position(self, name: str) -> int:
-        return self.positions[SLIDER_NAMES.index(name)]
-
-    def with_positions(self, **kw: int) -> BlasterSettings:
-        pos = list(self.positions)
-        for name, v in kw.items():
-            pos[SLIDER_NAMES.index(name)] = v
-        return replace(self, positions=tuple(pos))
-
-
-def to_engine_params(s: BlasterSettings) -> dict[str, Any]:
-    """Request for ``render_laser`` / ``write_sample("laser", ...)`` without the seed. Every
-    field is a contract field with its contract range; the fields the sliders do not cover
-    (fm_ratio, ring_hz, noise_hz, echo_ms, echo_feedback, offset_ms, peak_ceiling_dbfs,
-    polarity, bpm) keep their contract defaults."""
-    p: dict[str, Any] = {
-        "schema_version": "0.1", "family": s.dimension,
-        "sample_rate": SAMPLE_RATE, "bit_depth": BIT_DEPTH,
-    }
-    for spec, pos in zip(SLIDERS, s.positions, strict=True):
-        p[spec.name] = spec.value(pos)
-    return p
-
-
-def readout(name: str, pos: int) -> str:
-    return SLIDER_BY_NAME[name].readout(pos)
 
 
 # ---- engine adapter -----------------------------------------------------------------------
@@ -272,17 +167,23 @@ class FireResult:
 
 
 def render_with(engine: LaserEngine | None, reason: str, settings: BlasterSettings,
-                seed: int) -> tuple[np.ndarray, dict[str, Any]]:
+                seed: int, preview: bool = False) -> tuple[np.ndarray, dict[str, Any]]:
     """Samples and engine params for ``(settings, seed)``; raises :class:`BlasterError`.
+    ``preview`` renders the capped profile (``blaster_params.PREVIEW_CAPS``).
     Pure: no state is touched, so it may run in a worker thread."""
     if engine is None:
         raise BlasterError(reason)
-    params = to_engine_params(settings)
+    params = preview_params(settings) if preview else to_engine_params(settings)
     try:
         raw = engine.render(dict(params), int(seed))
     except BlasterError:
         raise
     except ValueError as exc:
+        text = str(exc)
+        if "not rendered by this engine version" in text:
+            raise BlasterError(
+                "Diese Engine-Version rendert Salve, Filter, Delay-Erweiterungen und Reverb noch "
+                f"nicht (Kontrakt v0.2). Engine-Meldung: {' '.join(text.split())}") from exc
         raise BlasterError(f"Ungültige Parameter: {exc}") from exc
     except Exception as exc:  # noqa: BLE001 - a message, never a crash
         raise BlasterError(f"Schuss fehlgeschlagen: {type(exc).__name__}: {exc}") from exc
@@ -309,6 +210,7 @@ class BlasterSession:
         self.unavailable_reason = unavailable_reason or "Laser-Engine nicht verfügbar."
         self.history: list[Shot] = []
         self._count = 0
+        self._preview_n = 0
         self._own_dir = work_dir is None
         self.work_dir = Path(work_dir) if work_dir else Path(
             tempfile.mkdtemp(prefix="abeltongod-blaster-")
@@ -384,6 +286,25 @@ class BlasterSession:
             for p in (old.wav_path, old.play_path):
                 if p is not None:
                     p.unlink(missing_ok=True)
+
+    def render_preview(self, settings: BlasterSettings, seed: int
+                       ) -> tuple[np.ndarray, dict[str, Any]]:
+        """Capped render for the live preview (pure, worker thread)."""
+        return render_with(self.engine, self.unavailable_reason, settings, seed, preview=True)
+
+    def play_preview(self, samples: np.ndarray) -> FireResult:
+        """Play a preview (16-bit copy, alternating file names, not kept in the history).
+        GUI thread."""
+        self._preview_n += 1
+        path = self.work_dir / f"preview_{self._preview_n % 2}.play16.wav"
+        try:
+            self.work_dir.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(encode_wav(samples, self.sample_rate, PLAY_BITS))
+        except OSError as exc:
+            return FireResult(None, f"Vorschau konnte nicht zwischengespeichert werden: {exc}",
+                              error=True)
+        shot = Shot(0, 0, self.settings, {}, samples, self.sample_rate, None, path)
+        return self._play(shot)
 
     def stop(self) -> None:
         try:
@@ -480,7 +401,9 @@ def export_bank(
         for i in range(count):
             seed = first_seed + i
             stem = f"laser_{settings.dimension}_s{seed}"
-            text = f"Laser-Schuss, Dimension {dim.label}, Seed {seed}, Blaster-Bank Nr. {i + 1}."
+            n_shots = settings.values["salvo_count"]
+            kind = f"Laser-Salve mit {n_shots} Schüssen" if n_shots > 1 else "Laser-Schuss"
+            text = f"{kind}, Dimension {dim.label}, Seed {seed}, Blaster-Bank Nr. {i + 1}."
             written.append(writer.write(params, seed, folder, stem, text))
             if progress:
                 progress(i + 1, count)
