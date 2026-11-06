@@ -105,6 +105,13 @@ GOLDEN = {
     "plasma-driven": "992a44f0e33466600d4fd04d5944b61c82967c2a035be97890447c19c13db500",
     "rift": "e219d1773176b87ad0dece4c3218ab4606b4fea688ab38b875d9ad2384d3b0b6",
     "subboom": "c062824ba139ec5a47006c1c5f2f559a8b17c3c8a745ec505ffbf515937d5be3",
+    # contract v0.2 presets (#425), pinned at LASER_VERSION 0.2.0
+    "blaster": "f5b26ee5824274c8ee83558955642cc389987b44368a1b05fc41d6455d2f5a11",
+    "blaster-burst5": "fd0ac80ff07cec258d099127257f4c23686a2ef1f326b7a13347969d0214f8af",
+    "blaster-double": "9afff649a1ddb5a6d0046fd8801367ed0700f9248566ca3f3df8744afe038377",
+    "blaster-echo": "655829cc224ceb9f7fce49518b1b93a2a82e2b865d952062fd719c8cfb211b3d",
+    "blaster-reverb": "2fc1ae53aa5086a528861d6fd16d187b7205ba20f07975a0599cdce44bbb8b68",
+    "blaster-triple-lrl": "cf4829fd345e7fa0f14028b6305a1e7b6fb066407494fff9c58ea3d42d8d0e68",
 }
 
 
@@ -346,17 +353,17 @@ def test_bad_inputs_are_rejected() -> None:
         render_laser({"decay_ms": 5}, 1)
 
 
-def test_v02_defaults_render_the_v01_bytes_and_v02_fields_are_refused_until_implemented() -> None:
+def test_v02_defaults_render_the_v01_bytes_and_resolve_stably() -> None:
     for name in preset_names("laser"):
         p = load_preset(name, "laser")
+        if p["schema_version"] != "0.1":
+            continue
         a = render_laser(p, p["seed"])
         b = render_laser({**p, "schema_version": "0.2"}, p["seed"])
         assert np.array_equal(a, b), name
     r = resolve_laser_params({"schema_version": "0.2", "seed": 1, "salvo_rate_mode": "sync"})
     assert r["salvo_count"] == 1 and r["bpm"] == 120 and r["reverb_mix"] == 0
     assert resolve_laser_params(r) == r
-    with pytest.raises(LaserParamsError, match="reverb_mix"):
-        render_laser({"schema_version": "0.2", "reverb_mix": 0.3}, 1)
 
 
 def test_resolving_twice_is_stable() -> None:
@@ -410,7 +417,8 @@ def test_write_sample_sidecar_and_rerender_roundtrip(tmp_path: Path) -> None:
         wav_path, json_path = write_sample("laser", params, tmp_path, name=name)
         meta = json.loads(json_path.read_text("utf-8"))
         assert meta["category"] == "laser" and meta["schema_version"] == "0.2"
-        assert meta["engine"] == {"name": laser.LASER_NAME, "version": laser.LASER_VERSION}
+        # schema 0.1 requests keep engine 0.1.0: same bytes, so old sidecars still re-render
+        assert meta["engine"] == {"name": laser.LASER_NAME, "version": "0.1.0"}
         wav = wav_path.read_bytes()
         assert hashlib.sha256(wav).hexdigest() == meta["sha256"]
         ints, channels, _ = decode(wav)

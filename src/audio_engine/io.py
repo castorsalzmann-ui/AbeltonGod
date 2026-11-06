@@ -196,7 +196,7 @@ def write_kick(
     base_meta: dict[str, Any] = {
         "schema_version": cat.metadata_schema_version,
         "category": cat.name,
-        "engine": cat.engine,
+        "engine": cat.engine_for(resolved),
         "parameters": resolved,
         "features": features,
         "bpm": resolved.get("bpm"),
@@ -310,8 +310,9 @@ def rerender_from_sidecar(json_path: str | Path, *, allow_engine_mismatch: bool 
     cat = get_category(meta["category"])
     _check_sidecar_facts(meta, path)
     engine = meta["engine"]
-    if not allow_engine_mismatch and engine != cat.engine:
-        raise EngineVersionMismatch(path, engine, cat.engine)
+    expected = cat.engine_for(meta["parameters"])
+    if not allow_engine_mismatch and engine != expected:
+        raise EngineVersionMismatch(path, engine, expected)
     params = meta["parameters"]
     if cat.name == "kick":
         params = _upgrade_sidecar_params(params)
