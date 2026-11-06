@@ -47,8 +47,16 @@ KNOWN_GAPS: dict[str, int] = {
     "render:goa-window": 440,  # Goa window body is a placeholder, Render writes nothing
     "render:acid": 439,  # Acid writes MIDI only; the library lists WAVs only
     "render:blaster-shot": 439,  # shots stay in a temp folder outside the library
-    "fit:acid@150": 442,  # Acid minimum height 812 > 720 logical px at 150 %
 }
+# Window sizes follow the fonts, so the fit gaps differ per platform (measured: Linux
+# offscreen Acid minimum 1026 x 812, main 1216 x 703; Windows CI runner Acid 1183 x 649, main
+# 1324 x 688, on the 1280 x 720 logical screen of 1920 x 1080 at 150 %).
+_PLATFORM_GAPS = {
+    "fit:acid@150": ("linux", 442),  # too tall on Linux
+    "fit:main@150": ("win32", 442),  # too wide on the Windows runner
+}
+KNOWN_GAPS.update({name: issue for name, (platform, issue) in _PLATFORM_GAPS.items()
+                   if sys.platform.startswith(platform)})
 
 
 @dataclass
