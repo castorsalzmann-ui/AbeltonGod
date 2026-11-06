@@ -51,17 +51,8 @@ KNOWN_GAPS: dict[str, tuple[int, str]] = {
     # shots stay in a temp folder outside the library
     "render:blaster-shot": (439, "is outside the library folder"),
 }
-# Window sizes follow the fonts, so the fit gaps differ per platform (measured: Linux
-# offscreen Acid minimum 1026 x 812, main 1216 x 703; Windows CI runner Acid 1183 x 649, main
-# 1324 x 688, on the 1280 x 720 logical screen of 1920 x 1080 at 150 %). Since #451 added the
-# "Live-Projekt" row, the main window is 1216 x 769 on Linux, too tall as well.
-_PLATFORM_GAPS = {
-    "fit:acid@150": ("linux", 442),  # too tall on Linux
-    "fit:main@150": ("", 442),  # too wide on the Windows runner, too tall on Linux (all)
-}
-KNOWN_GAPS.update({name: (issue, "on a 1280 x 720 screen")
-                   for name, (platform, issue) in _PLATFORM_GAPS.items()
-                   if sys.platform.startswith(platform)})
+# Whether a window fits the screen at 150 % is checked in one place only:
+# tests/gui/test_fit_150.py (lead decision, PR #458). The tour keeps the 150 % screenshots.
 
 
 @dataclass
@@ -389,19 +380,6 @@ def export_blaster_bank(window, win) -> Step:
     return _all_in_library(window, name, new, t, f"bank of {len(new)} WAV")
 
 
-def fits_screen(name: str, win, tag: str) -> Step:
-    """The window (at its minimum size, if it opened larger) fits the available screen area.
-    Offscreen windows have no title bar; on Windows the title bar and task bar take more."""
-    from PySide6.QtGui import QGuiApplication
-
-    area = QGuiApplication.primaryScreen().availableGeometry()
-    w = min(win.width(), max(win.minimumWidth(), win.minimumSizeHint().width()))
-    h = min(win.height(), max(win.minimumHeight(), win.minimumSizeHint().height()))
-    ok = w <= area.width() and h <= area.height()
-    return Step(f"fit:{name}@{tag}", ok,
-                f"smallest {w} x {h} on a {area.width()} x {area.height()} screen (logical px)")
-
-
 def tools_close_with_main(window) -> Step:
     """Closing the main window closes the tool windows (WindowManager.close_all)."""
     keys = [k for k in TOOL_KEYS if window.windows.is_open(k)]
@@ -423,11 +401,9 @@ def _slug(text: str) -> str:
 # --- whole tour ------------------------------------------------------------------------------
 
 def run_tour(home: Path, shots: Path | None = None, tag: str = "100",
-             renders: bool = True, fit: bool = False) -> TourReport:
+             renders: bool = True) -> TourReport:
     """Run the tour with every default path inside ``home``. ``renders=False`` only visits and
-    photographs the pages and windows (the 150 % pass). ``fit=True`` adds the screen-fit
-    steps; only meaningful after :func:`emulate_screen` (the plain offscreen screen is
-    800 x 800), so the CLI sets it and in-process callers leave it off."""
+    photographs the pages and windows (the 150 % pass)."""
     from gui.app import create_app
 
     create_app([])
@@ -445,10 +421,6 @@ def run_tour(home: Path, shots: Path | None = None, tag: str = "100",
             for key in TOOL_KEYS:
                 step, wins[key] = open_tool(window, key, shots, tag)
                 report.steps.append(step)
-            if fit:
-                report.steps.append(fits_screen("main", window, tag))
-                report.steps += [fits_screen(k, w, tag) for k, w in wins.items()
-                                 if w is not None]
             if renders:
                 if wins["goa"] is not None:
                     report.steps.append(render_goa_window(window, wins["goa"]))
@@ -526,7 +498,7 @@ def main(argv: list[str] | None = None) -> int:
     with tempfile.TemporaryDirectory(prefix="abeltongod-tour-") as home:
         try:
             emulate_screen(Path(home), args.scale)
-            report = run_tour(Path(home), shots, tag, renders=not args.no_renders, fit=True)
+            report = run_tour(Path(home), shots, tag, renders=not args.no_renders)
         finally:
             os.chdir(cwd)  # Windows cannot delete the working directory
     print(f"GUI tour at {tag} %: {len(report.steps)} steps, "

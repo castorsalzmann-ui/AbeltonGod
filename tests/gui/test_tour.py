@@ -54,7 +54,6 @@ RENDER_STEPS = ([f"render:{k}" for k in tour_mod.CATEGORY_KEYS]
                 + ["render:goa-page", "render:goa-window", "render:acid",
                    "render:blaster-shot", "render:blaster-bank"])
 WINDOW_STEPS = [f"open:{k}" for k in tour_mod.TOOL_KEYS]
-FIT_KEYS = ("main", *tour_mod.TOOL_KEYS)
 
 
 def known_gap(issue: int, failed: bool, for_the_reason: bool, detail: str) -> None:
@@ -151,17 +150,17 @@ def test_150_percent_pass_has_every_page_and_window_at_one_and_a_half_pixels(tou
     for name, p in shots100.items():
         a, b = QImage(str(p)), QImage(str(shots150[name]))
         if name.startswith("window_blaster"):
-            continue  # clamps itself to the (smaller logical) screen: checked by fit:blaster
+            continue  # clamps itself to the (smaller logical) screen
         assert abs(b.width() - 1.5 * a.width()) <= 2 and abs(b.height() - 1.5 * a.height()) <= 2, (
             name, a.size(), b.size())
 
 
-@pytest.mark.parametrize("name", [f"fit:{k}@150" for k in FIT_KEYS])
-def test_windows_fit_a_1080p_screen_at_150_percent(tour150, name):
-    """Emulated 1920 x 1080 monitor at 150 % = 1280 x 720 logical px (no title or task bar)."""
-    raw = next(s for s in tour150["steps"] if s["name"] == name)
-    assert "on a 1280 x 720 screen" in raw["detail"]  # the emulated screen was really used
-    expect_step(tour_mod.Step(raw["name"], raw["ok"], raw["detail"], raw["seconds"]))
+def test_150_percent_pass_visits_every_page_and_window(tour150):
+    """Pages and windows only (no renders); whether windows fit the screen at 150 % is checked
+    once, in tests/gui/test_fit_150.py."""
+    assert [s["name"] for s in tour150["steps"]] == (
+        PAGE_STEPS + WINDOW_STEPS + ["close:tools-with-main"])
+    assert all(s["ok"] for s in tour150["steps"]), tour150["stdout"]
 
 
 def test_screenshots_never_go_into_the_repo(tmp_path, monkeypatch):
