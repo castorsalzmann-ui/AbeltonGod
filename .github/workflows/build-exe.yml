@@ -139,6 +139,15 @@ jobs:
                                  timeout=300, env=env)
               print(scale, r.returncode, r.stdout, r.stderr[-2000:])
               assert r.returncode == 0, r.returncode
+      - name: TMP print four screenshots as base64
+        shell: python
+        run: |
+          import base64, pathlib
+          for n in ("100_01_main-kick.png", "150_01_main-kick.png", "100_14_blaster.png",
+                    "100_13_acid.png", "100_01_main-kick-inner.png"):
+              print("B64BEGIN", n)
+              print(base64.b64encode((pathlib.Path("gui-screens") / n).read_bytes()).decode())
+              print("B64END", n)
       - uses: actions/upload-artifact@v4
         with:
           name: gui-screens-windows
