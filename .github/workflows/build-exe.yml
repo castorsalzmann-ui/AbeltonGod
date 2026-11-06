@@ -127,6 +127,23 @@ jobs:
               assert "Details stehen in" in text, text
       - name: Smoke CLI exe - same output as python -m (SHA-256)
         run: python scripts/exe_smoke.py dist/AbeltonGod/AbeltonGod-cli.exe determinism
+      - name: Screenshots on the real windows platform at 100 % and 150 % (#463)
+        # Built exe, real qwindows plugin, every main page + Goa/Acid/Blaster. Temp output only.
+        shell: python
+        run: |
+          import os, subprocess
+          for scale in ("1", "1.5"):
+              env = {**os.environ, "QT_QPA_PLATFORM": "windows", "QT_SCALE_FACTOR": scale}
+              r = subprocess.run([r"dist\AbeltonGod\AbeltonGod-cli.exe", "--gui-screens",
+                                  r"gui-screens"], capture_output=True, text=True,
+                                 timeout=300, env=env)
+              print(scale, r.returncode, r.stdout, r.stderr[-2000:])
+              assert r.returncode == 0, r.returncode
+      - uses: actions/upload-artifact@v4
+        with:
+          name: gui-screens-windows
+          path: gui-screens
+          if-no-files-found: error
       - name: Check that no secret was bundled
         shell: python
         run: |
