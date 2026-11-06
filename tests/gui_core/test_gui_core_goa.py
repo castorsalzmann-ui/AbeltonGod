@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import errno
 import hashlib
+import json
 import random
 from pathlib import Path
 
@@ -65,9 +66,18 @@ def sha(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def tree(root: Path) -> dict[str, bytes]:
-    return {str(p.relative_to(root)): p.read_bytes() for p in sorted(root.rglob("*"))
-            if p.is_file()}
+def tree(root: Path) -> dict[str, object]:
+    """Every file's bytes; a sample sidecar (#414) without its wall-clock ``created_at``."""
+    out: dict[str, object] = {}
+    for p in sorted(root.rglob("*")):
+        if not p.is_file():
+            continue
+        if p.suffix == ".json":
+            out[str(p.relative_to(root))] = {**json.loads(p.read_text(encoding="utf-8")),
+                                             "created_at": None}
+        else:
+            out[str(p.relative_to(root))] = p.read_bytes()
+    return out
 
 
 # --- every CLI option is in the form --------------------------------------------------------

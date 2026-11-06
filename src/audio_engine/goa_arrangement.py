@@ -49,10 +49,11 @@ import hashlib
 import random
 import sys
 from collections.abc import Sequence
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from audio_engine import acid_midi, arrangement_midi, goa_melody, goa_patterns, goa_rhythm
+from audio_engine import acid_midi, arrangement_midi, goa_melody, goa_patterns, goa_rhythm, io
 
 PPQ = acid_midi.PPQ
 BAR_BEATS = 4
@@ -442,10 +443,17 @@ def render_readme(arr: dict[str, Any], mid_name: str, params: dict[str, Any]) ->
 
 
 def write_track(
-    out_dir: str | Path, render_samples: bool = True, **params: Any
+    out_dir: str | Path, render_samples: bool = True, *, created_at: datetime | None = None,
+    **params: Any
 ) -> tuple[Path, Path]:
     """Write ``.mid``, README and (default) ``samples/*.wav`` into ``out_dir``. Refuses if any
-    target exists (nothing written)."""
+    target exists (nothing written).
+
+    Every one-shot gets its sidecar ``samples/<name>.json`` from the engine's own writer
+    (:func:`audio_engine.io.write_sample`, sample-metadata contract), so the GUI library and
+    the Live import know its category (#414). ``created_at`` (time-zone aware, default now)
+    is the same for all of them; it is the only part of a sidecar that differs between two
+    runs with the same options."""
     arr = build_arrangement(**params)
     arrangement_midi.validate_arrangement(arr)  # fail before anything is created
     opts = full_options(params)
@@ -453,19 +461,23 @@ def write_track(
     d = Path(out_dir)
     stem = f"goa_seed{opts['seed']}_{float(arr['tempo']):g}bpm"
     mid, readme = d / f"{stem}.mid", d / "README.md"
-    wavs = goa_rhythm.render_kit(kit) if render_samples else []
-    targets = [mid, readme] + [d / goa_rhythm.SAMPLE_DIR / n for n, _, _ in wavs]
+    files = goa_rhythm.kit_files(kit) if render_samples else []
+    sdir = d / goa_rhythm.SAMPLE_DIR
+    targets = [mid, readme] + [sdir / f"{n}{ext}" for n, *_ in files for ext in (".wav", ".json")]
     for p in targets:
         if p.exists() or p.is_symlink():
             raise FileExistsError(f"{p} already exists; choose another folder (nothing written)")
     d.mkdir(parents=True, exist_ok=True)
     text = render_readme(arr, mid.name, params)
+    stamp = created_at or datetime.now(UTC).replace(microsecond=0)
     arrangement_midi.write_arrangement_midi(arr, mid)  # MIDI first, then the samples
-    if wavs:
-        (d / goa_rhythm.SAMPLE_DIR).mkdir(exist_ok=True)
-        for name, data, _desc in wavs:
-            with open(d / goa_rhythm.SAMPLE_DIR / name, "xb") as fh:
-                fh.write(data)
+    for name, cat, sample_params, desc in files:
+        wav, side = io.write_sample(cat, sample_params, sdir, name=name, description=desc,
+                                    created_at=stamp)
+        if wav.name != f"{name}.wav":  # write_sample picked _002: the name appeared meanwhile
+            side.unlink(missing_ok=True)
+            wav.unlink(missing_ok=True)
+            raise FileExistsError(f"{sdir / name}.wav appeared meanwhile; {mid} was written")
     try:
         with open(readme, "x", encoding="utf-8", newline="\n") as fh:
             fh.write(text)

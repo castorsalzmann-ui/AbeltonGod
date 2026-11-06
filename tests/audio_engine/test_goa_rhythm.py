@@ -2,6 +2,8 @@
 (tick positions, pitches, decays copied from the preset JSON files), not taken from the code
 under test; MIDI is read back with the independent parser of test_goa_arrangement."""
 
+import hashlib
+import json
 import random
 
 import pytest
@@ -202,8 +204,13 @@ def test_readme_lists_preset_derived_parts_and_samples(tmp_path):
         assert needle in text, needle
     assert "| clap |" not in text
     files = sorted(p.name for p in (out / "samples").iterdir())
-    assert files == ["bass_goa-roll-medium.wav", "hat_open-short.wav", "kick_dense.wav",
-                     "rim_rim.wav", "snare_tight.wav"]
+    stems = ["bass_goa-roll-medium", "hat_open-short", "kick_dense", "rim_rim", "snare_tight"]
+    assert files == sorted(f"{s}{ext}" for s in stems for ext in (".json", ".wav"))
+    for s in stems:  # #414: every one-shot has its sidecar with category and file name
+        meta = json.loads((out / "samples" / f"{s}.json").read_text(encoding="utf-8"))
+        assert meta["category"] == s.split("_")[0] and meta["file"] == f"{s}.wav"
+        wav_bytes = (out / "samples" / f"{s}.wav").read_bytes()
+        assert meta["sha256"] == hashlib.sha256(wav_bytes).hexdigest()
     for cat, preset in (("snare", "tight"), ("rim", "rim"), ("hat", "open-short")):
         wav = (out / "samples" / f"{cat}_{preset}.wav").read_bytes()
         assert wav == render_sample_wav(cat, load_preset(preset, cat))[0]
@@ -214,4 +221,34 @@ def test_readme_lists_preset_derived_parts_and_samples(tmp_path):
                     "--clap-preset", "none"]) == 0
     for f in out.rglob("*"):
         if f.is_file():
-            assert f.read_bytes() == (out2 / f.relative_to(out)).read_bytes()
+            assert same_output(f, out2 / f.relative_to(out)), f
+
+
+def same_output(a, b) -> bool:
+    """Identical bytes; for a sidecar identical except ``created_at`` (the wall clock)."""
+    if a.suffix != ".json":
+        return a.read_bytes() == b.read_bytes()
+    ma, mb = (json.loads(p.read_text(encoding="utf-8")) for p in (a, b))
+    return {**ma, "created_at": None} == {**mb, "created_at": None}
+
+
+def test_sample_sidecars_share_one_given_time_stamp(tmp_path):
+    from datetime import UTC, datetime
+    stamp = datetime(2026, 11, 6, 13, 0, tzinfo=UTC)
+    ga.write_track(tmp_path / "a", seed=3, created_at=stamp)
+    ga.write_track(tmp_path / "b", seed=3, created_at=stamp)
+    a = sorted((tmp_path / "a" / "samples").glob("*.json"))
+    assert len(a) == 6
+    for p in a:
+        meta = json.loads(p.read_text(encoding="utf-8"))
+        assert meta["created_at"] == "2026-11-06T13:00:00+00:00"
+        assert p.read_bytes() == (tmp_path / "b" / "samples" / p.name).read_bytes()
+
+
+def test_an_existing_sidecar_target_blocks_everything(tmp_path):
+    out = tmp_path / "o"
+    (out / "samples").mkdir(parents=True)
+    (out / "samples" / "kick_dense.json").write_text("{}", encoding="utf-8")
+    with pytest.raises(FileExistsError, match="kick_dense.json"):
+        ga.write_track(out, seed=1)
+    assert sorted(p.name for p in out.rglob("*")) == ["kick_dense.json", "samples"]
