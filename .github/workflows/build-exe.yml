@@ -40,6 +40,8 @@ jobs:
         run: |
           $mb = (Get-ChildItem dist/AbeltonGod -Recurse -File | Measure-Object Length -Sum).Sum / 1MB
           "unzipped folder: {0:N0} MB" -f $mb
+      - name: Size per folder and largest files
+        run: python scripts/build_exe.py --report dist/AbeltonGod
       - name: Smoke - version
         run: python scripts/exe_smoke.py dist/AbeltonGod/AbeltonGod.exe version
       - name: Smoke - help and tool modules load

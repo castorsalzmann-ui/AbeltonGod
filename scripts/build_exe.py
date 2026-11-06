@@ -112,11 +112,40 @@ def pyinstaller_args(dist: Path, work: Path, info: Path) -> list[str]:
     return args
 
 
+def _tree_size(path: Path) -> int:
+    if path.is_file():
+        return path.stat().st_size
+    return sum(p.stat().st_size for p in path.rglob("*") if p.is_file())
+
+
+def size_report(folder: Path, top: int = 20) -> str:
+    """Sizes of the built folder (#435): total, per entry of the folder and of ``_internal``
+    and ``_internal/PySide6``, and the largest files. Plain text for the CI log."""
+    mb = 1024 * 1024
+    lines = [f"total: {_tree_size(folder) / mb:.1f} MB in {folder}"]
+    for sub in (folder, folder / "_internal", folder / "_internal" / "PySide6"):
+        if not sub.is_dir():
+            continue
+        rows = sorted(((_tree_size(p), p.name) for p in sub.iterdir()), reverse=True)
+        lines.append(f"-- {sub.relative_to(folder.parent)} (top {top})")
+        lines += [f"{size / mb:8.1f} MB  {name}" for size, name in rows[:top]]
+    files = sorted(((p.stat().st_size, p) for p in folder.rglob("*") if p.is_file()),
+                   reverse=True)
+    lines.append(f"-- largest files (top {top})")
+    lines += [f"{size / mb:8.1f} MB  {p.relative_to(folder)}" for size, p in files[:top]]
+    return "\n".join(lines)
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--dist", type=Path, default=ROOT / "dist")
     ap.add_argument("--work", type=Path, default=ROOT / "build" / "exe")
+    ap.add_argument("--report", type=Path, metavar="FOLDER",
+                    help="only print the size report of an already built folder")
     a = ap.parse_args(argv)
+    if a.report:
+        print(size_report(a.report))
+        return 0
     try:
         import PyInstaller.__main__ as pyi
     except ImportError:
