@@ -2,7 +2,7 @@
 
     python scripts/exe_smoke.py <path-to-exe> [check ...]
 
-Checks: version, help, unknown, kick, goa, menu, determinism (default: all). Each check prints
+Checks: version, help, unknown, kick, goa, menu, gui, determinism (default: all). Each check prints
 one PASS/FAIL line with the evidence; the exit code is 1 if any failed. The determinism check
 renders the same kick and the same goa_arrangement through the exe and through
 ``python -m audio_engine.<module>`` and compares SHA-256 of the WAV / MID bytes.
@@ -13,9 +13,11 @@ This only proves the exe runs on the machine that runs this script. It touches n
 from __future__ import annotations
 
 import hashlib
+import os
 import subprocess
 import sys
 import tempfile
+import time
 from collections.abc import Callable
 from pathlib import Path
 
@@ -90,11 +92,24 @@ def check_goa(exe: str) -> str:
 def check_menu(exe: str) -> str:
     with tempfile.TemporaryDirectory() as tmp:
         out = Path(tmp) / "menu-out"
-        r = run([exe], stdin=f"kick\n{out}\n--seed 7\n\n")
+        r = run([exe, "--menu"], stdin=f"kick\n{out}\n--seed 7\n\n")
         assert r.returncode == 0, (r.returncode, r.stdout, r.stderr)
         assert "Fertig (Exit-Code 0)" in r.stdout, r.stdout
         wav = one(out, "*.wav")
         return f"menu with piped stdin wrote {wav.name}"
+
+
+def check_gui(exe: str) -> str:
+    """The GUI starts without a screen (Qt offscreen), visits every page, opens the Goa, Acid
+    and Blaster windows and exits 0. Proves the Qt plugins and modules are in the bundle; it
+    says nothing about how the windows look on a real screen."""
+    env = {**os.environ, "QT_QPA_PLATFORM": "offscreen"}
+    start = time.monotonic()
+    r = subprocess.run([exe, "--gui-selftest"], capture_output=True, text=True,
+                       encoding="utf-8", errors="replace", timeout=TIMEOUT, check=False, env=env)
+    seconds = time.monotonic() - start
+    assert r.returncode == 0 and "GUI selftest ok" in r.stdout, (r.returncode, r.stdout, r.stderr)
+    return f"{r.stdout.strip()} in {seconds:.1f} s"
 
 
 def check_determinism(exe: str) -> str:
@@ -119,7 +134,7 @@ def check_determinism(exe: str) -> str:
 
 CHECKS: dict[str, Callable[[str], str]] = {
     "version": check_version, "help": check_help, "unknown": check_unknown,
-    "kick": check_kick, "goa": check_goa, "menu": check_menu,
+    "kick": check_kick, "goa": check_goa, "menu": check_menu, "gui": check_gui,
     "determinism": check_determinism,
 }
 

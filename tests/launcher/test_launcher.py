@@ -89,7 +89,7 @@ def test_version_and_help(capsys):
 def test_menu_with_piped_stdin_runs_kick(tmp_path: Path):
     lines = iter(["kick", str(tmp_path / "o"), "--seed 7", ""])
     out = io.StringIO()
-    code = cli.main([], read=lambda prompt: next(lines), out=out)
+    code = cli.main(["--menu"], read=lambda prompt: next(lines), out=out)
     assert code == 0
     assert "Fertig (Exit-Code 0)" in out.getvalue()
     assert len(list((tmp_path / "o").glob("*.wav"))) == 1
@@ -99,19 +99,60 @@ def test_menu_by_number_and_new_subfolder(tmp_path: Path):
     n = [t.name for t in TOOLS].index("goa-melody") + 1
     lines = iter([str(n), str(tmp_path), "", ""])
     out = io.StringIO()
-    assert cli.main([], read=lambda prompt: next(lines), out=out) == 0
+    assert cli.main(["--menu"], read=lambda prompt: next(lines), out=out) == 0
     assert list((tmp_path / "goa-melody").glob("*.mid"))
 
 
 def test_menu_unknown_choice_and_eof():
     out = io.StringIO()
     lines = iter(["zzz", ""])
-    assert cli.main([], read=lambda p: next(lines), out=out) == 2
+    assert cli.main(["--menu"], read=lambda p: next(lines), out=out) == 2
 
     def eof(prompt):
         raise EOFError
 
-    assert cli.main([], read=eof, out=io.StringIO()) == 0
+    assert cli.main(["--menu"], read=eof, out=io.StringIO()) == 0
+
+
+def test_no_arguments_start_the_gui_and_pass_its_exit_code():
+    calls = []
+
+    def fake_gui():
+        calls.append(1)
+        return 7
+
+    def no_read(prompt):
+        raise AssertionError("the text menu must not run when the GUI starts")
+
+    assert cli.main([], read=no_read, out=io.StringIO(), gui=fake_gui) == 7
+    assert calls == [1]
+
+
+def test_no_arguments_without_pyside_fall_back_to_the_text_menu():
+    out = io.StringIO()
+    code = cli.main([], read=lambda p: "", out=out, gui=lambda: None)
+    assert code == 0
+    text = out.getvalue()
+    assert "PySide6 fehlt" in text and "Werkzeuge:" in text
+
+
+def test_arguments_never_start_the_gui(tmp_path: Path):
+    def boom():
+        raise AssertionError("GUI started although arguments were given")
+
+    for argv in (["--version"], ["--list"], ["kick", "--help"], ["nope"]):
+        cli.main(argv, read=lambda p: "", out=io.StringIO(), gui=boom)
+    out = tmp_path / "k"
+    assert cli.main(["kick", "--preset", "centre", "--seed", "7", "--out", str(out)],
+                    gui=boom) == 0
+    assert len(list(out.glob("*.wav"))) == 1
+
+
+def test_incomplete_install_blocks_the_gui(monkeypatch):
+    monkeypatch.setattr(cli, "install_problems", lambda: ["contracts/ fehlt"])
+    out = io.StringIO()
+    assert cli.main([], read=lambda p: "", out=out, gui=lambda: 0) == cli.EXIT_SETUP
+    assert "contracts/ fehlt" in out.getvalue()
 
 
 def test_free_subdir_never_reuses(tmp_path: Path):

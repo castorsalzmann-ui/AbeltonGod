@@ -23,6 +23,7 @@ from audio_engine import (
     bass_variants,
     clap_variants,
     hat_variants,
+    laser_variants,
     rim_variants,
     snare_variants,
 )
@@ -40,6 +41,7 @@ _VARIANTS: dict[str, Callable[[dict[str, Any], int], list[dict[str, Any]]]] = {
     "snare": snare_variants.make_variants,
     "rim": rim_variants.make_variants,
     "bass": bass_variants.make_variants,
+    "laser": laser_variants.make_variants,
 }
 
 MAX_DESCRIPTION = 500  # sample-metadata: description maxLength (same cut as the CLI)

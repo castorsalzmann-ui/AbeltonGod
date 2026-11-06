@@ -19,6 +19,7 @@ KEY_PARAMS: dict[str, tuple[str, ...]] = {
     "clap": ("bursts", "tail_decay_ms", "drive"),
     "rim": ("f1_hz", "decay1_ms", "drive"),
     "bass": ("note", "lp_hz", "gate_ms"),
+    "laser": ("family", "pitch_start_hz", "salvo_count"),
 }
 
 

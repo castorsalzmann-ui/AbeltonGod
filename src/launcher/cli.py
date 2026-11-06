@@ -8,6 +8,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import TextIO
 
+from .gui_start import run_gui, run_selftest
 from .paths import install_problems
 from .tools import BY_NAME, TOOLS, Tool, run_tool
 from .version import version_line
@@ -25,8 +26,8 @@ def tool_list() -> str:
 def usage() -> str:
     return (
         "AbeltonGod.exe <werkzeug> [optionen]\n"
-        "AbeltonGod.exe --version | --help | --list\n"
-        "Ohne Argumente (Doppelklick) startet ein Textmenue.\n\n"
+        "AbeltonGod.exe --version | --help | --list | --menu | --gui-selftest\n"
+        "Ohne Argumente (Doppelklick) startet das Programmfenster (GUI); --menu das Textmenue.\n\n"
         "Werkzeuge (Optionen: AbeltonGod.exe <werkzeug> --help):\n" + tool_list()
     )
 
@@ -99,20 +100,24 @@ def _pause(read: Callable[[str], str]) -> None:
         pass
 
 
-def run_default(read: Callable[[str], str], out: TextIO) -> int:
-    """The no-argument (double-click) path. Today: the text menu. Later (D-029, #403) this is
-    the one place that starts the GUI (``python -m gui``) and falls back to the menu when
-    PySide6 is missing."""
+def run_default(read: Callable[[str], str], out: TextIO,
+                gui: Callable[[], int | None] | None = None) -> int:
+    """The no-argument (double-click) path: the graphical main window (D-029, #432). Without
+    PySide6 (``gui`` returns None) it falls back to the text menu."""
     problems = install_problems()
     if problems:
         out.write("Installation unvollstaendig:\n  " + "\n  ".join(problems) + "\n")
         _pause(read)
         return EXIT_SETUP
+    code = (gui or run_gui)()
+    if code is not None:
+        return code
+    out.write("Die grafische Oberflaeche ist nicht verfuegbar (PySide6 fehlt): Textmenue.\n\n")
     return menu(read, out)
 
 
 def main(argv: list[str] | None = None, *, read: Callable[[str], str] = input,
-         out: TextIO | None = None) -> int:
+         out: TextIO | None = None, gui: Callable[[], int | None] | None = None) -> int:
     out = out or sys.stdout
     for stream in (sys.stdout, sys.stderr):  # a cp1252 console must not crash on a character
         if hasattr(stream, "reconfigure"):
@@ -122,8 +127,12 @@ def main(argv: list[str] | None = None, *, read: Callable[[str], str] = input,
                 pass
     args = sys.argv[1:] if argv is None else list(argv)
     if not args:
-        return run_default(read, out)
+        return run_default(read, out, gui)
     first, rest = args[0], args[1:]
+    if first == "--menu":
+        return menu(read, out)
+    if first == "--gui-selftest":
+        return run_selftest()
     if first == "--version":
         out.write(version_line() + "\n")
         return EXIT_OK

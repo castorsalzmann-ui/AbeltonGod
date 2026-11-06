@@ -20,6 +20,7 @@ CATEGORIES: tuple[CategoryEntry, ...] = (
     CategoryEntry("clap", "Clap", True, ""),
     CategoryEntry("rim", "Rim", True, ""),
     CategoryEntry("bass", "Bass", True, ""),
+    CategoryEntry("laser", "Laser", True, ""),
 )
 
 LIBRARY_KEY = "library"

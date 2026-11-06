@@ -1,6 +1,6 @@
 """Build ``dist/AbeltonGod/AbeltonGod.exe`` (PyInstaller, onedir) from a checkout (#401).
 
-    pip install -e ".[build]"
+    pip install -e ".[build,gui]"
     python scripts/build_exe.py [--dist DIR]
 
 Why onedir, not onefile: the engine modules find ``contracts/`` and ``config/`` as
@@ -29,15 +29,28 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 NAME = "AbeltonGod"
-PACKAGES = ("audio_engine", "bridge", "library", "orchestrator", "guard", "launcher")
+PACKAGES = ("audio_engine", "bridge", "library", "orchestrator", "guard", "launcher",
+            "gui", "gui_core")
+# GUI (D-029, #432). PyInstaller's PySide6 hook collects the Qt plugins (platforms incl.
+# qwindows, styles, imageformats ...) of every Qt module that is imported, so the three modules
+# the GUI uses are named explicitly; the Qt modules it never uses are left out to keep the
+# folder small (the build log and the exe_smoke ``gui`` check show if one was needed).
+QT_MODULES = ("PySide6.QtCore", "PySide6.QtGui", "PySide6.QtWidgets")
+QT_EXCLUDES = ("PySide6.QtQuick", "PySide6.QtQml", "PySide6.QtQuickWidgets",
+               "PySide6.QtQuickControls2", "PySide6.QtPdf", "PySide6.QtPdfWidgets",
+               "PySide6.QtDesigner", "PySide6.QtHelp", "PySide6.QtSql", "PySide6.QtTest",
+               "PySide6.QtOpenGL", "PySide6.QtOpenGLWidgets", "PySide6.QtSvg",
+               "PySide6.QtSvgWidgets", "PySide6.QtNetwork", "PySide6.QtDBus",
+               "PySide6.QtWebChannel", "PySide6.QtWebSockets", "PySide6.QtXml",
+               "PySide6.QtConcurrent", "PySide6.QtStateMachine", "PySide6.QtUiTools",
+               "PySide6.QtRemoteObjects", "PySide6.QtScxml", "PySide6.QtSensors",
+               "PySide6.QtSerialPort", "PySide6.QtTextToSpeech", "PySide6.QtPrintSupport")
 # Third-party packages whose data/binaries (and lazily imported submodules) must come along.
 COLLECT_ALL = ("claude_agent_sdk", "jsonschema", "jsonschema_specifications",
                "referencing", "pythonosc")
 # mcp: collect_all imports every submodule and mcp.cli exits without its optional typer extra
 # (CI run 42080769820), so only its data is collected; the code is found by static analysis.
 COLLECT_DATA = ("mcp",)
-# GUI follow-up (D-029, #403) is one line each: add "gui", "gui_core" to PACKAGES and
-# "PySide6" to COLLECT_ALL (then the GUI can be started from launcher.cli.run_default).
 SIDE_DIRS = ("contracts", "config")
 DATA_SEP = ";" if sys.platform == "win32" else ":"
 
@@ -91,6 +104,10 @@ def pyinstaller_args(dist: Path, work: Path, info: Path) -> list[str]:
         args += ["--collect-data", pkg]
     for mod in script_imports():
         args += ["--hidden-import", mod]
+    for mod in QT_MODULES:
+        args += ["--hidden-import", mod]
+    for mod in QT_EXCLUDES:
+        args += ["--exclude-module", mod]
     args.append(str(ROOT / "src" / "launcher" / "exe_entry.py"))
     return args
 
