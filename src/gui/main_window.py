@@ -149,6 +149,7 @@ class MainWindow(QMainWindow):
         self.goa = GoaPanel(self.hub.settings.goa_dir(), goa_service, opener)
         self.goa.attach_hub(self.hub)
         self.live = LivePanel(live_config, registry, self._library_folder)
+        self.live.attach_hub(self.hub)  # its "Live-Projekt" field is the shared project folder
         self.chat = ChatPanel(chat_session)
         self.tool_rows = {}
         for key, widget in (("goa", self.goa), ("live", self.live), ("chat", self.chat)):

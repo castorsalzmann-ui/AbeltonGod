@@ -11,7 +11,8 @@ What the settings mean (decided in #439):
   lists every WAV below it. The tool windows write below it (see the ``*_dir`` helpers):
   Acid ``<out>/acid``, Goa ``<out>/goa/<run>``, Blaster ``<out>/Samples/FX/Lasers`` (the library
   layout's laser folder, so the Live import accepts the file). Empty = ``default_output_dir()``.
-* ``project_dir`` -- optional Ableton project folder: the start folder of the Blaster's bank
+* ``project_dir`` -- optional Ableton project folder: the "Live-Projekt" of the Live-import page
+  (one setting, edited there or in the dialog) and the start folder of the Blaster's bank
   export dialog. The library does not read it.
 * ``sample_rate`` / ``bit_depth`` -- ``None`` = the contract default (48000 Hz, 24 bit). A set
   value is the start value of the category forms and is used for Blaster library saves, Blaster

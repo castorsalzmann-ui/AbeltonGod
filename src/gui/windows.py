@@ -353,7 +353,8 @@ class SettingsDialog(QDialog):
         note = QLabel(
             "Alle Fenster schreiben unter den Ausgabeordner: Acid nach acid/, Goa nach goa/, "
             "Blaster nach Samples/FX/Lasers/. Die Bibliothek liest nur den Ausgabeordner. "
-            "Der Projektordner ist nur der Startordner für den Bank-Export des Blasters. "
+            "Der Projektordner ist das Live-Projekt der Live-Import-Seite (dieselbe Einstellung) "
+            "und der Startordner für den Bank-Export des Blasters. "
             "Samplerate und Bittiefe sind die Startwerte der Kategorie-Formulare (ein Preset-"
             "Wechsel setzt sie zurück) und gelten für Blaster-Speichern, Blaster-Bänke und "
             "Acid-WAVs.")

@@ -356,3 +356,42 @@ def test_closing_a_tool_window_saves_its_place(qapp, tmp_path):
     again = w.windows.open("acid")  # reopened in the same session: same place
     assert (again.geometry().width(), again.geometry().height()) == (geo.width(), geo.height())
     w.close()
+
+
+# ---- one project folder: Live page "Live-Projekt" == settings project_dir --------------------
+def test_live_project_field_edits_the_shared_project_folder(main, tmp_path):
+    proj = tmp_path / "Test Project"
+    main.live.project_edit.setText(str(proj))
+    main.live.project_edit.editingFinished.emit()
+    assert main.hub.settings.project_dir == str(proj)
+    assert main.hub.settings.bank_start_dir() == proj  # the Blaster's bank start folder
+    dlg = main.open_settings()
+    assert dlg.project_edit.text() == str(proj)
+    dlg.reject()
+
+
+def test_settings_project_folder_shows_on_the_live_page(main, tmp_path):
+    dlg = main.open_settings()
+    dlg.project_edit.setText(str(tmp_path / "P2"))
+    dlg.accept()
+    assert main.live.project_edit.text() == str(tmp_path / "P2")
+    assert main.live.project_dir == str(tmp_path / "P2")
+    bl = main.windows.open("blaster")
+    assert bl.bank_start_dir == tmp_path / "P2"
+    main.hub.store.update(project_dir="")
+    assert main.live.project_edit.text() == "" and main.live.project_dir is None
+
+
+def test_live_project_survives_a_restart(qapp, tmp_path):
+    cfg = tmp_path / "cfg" / "settings.json"
+    w = MainWindow(out_dir=tmp_path / "out", backend=FakeBackend(),
+                   settings_store=SettingsStore(path=cfg))
+    w.live.project_edit.setText(str(tmp_path / "LiveSet Project"))
+    w.live.project_edit.editingFinished.emit()
+    w.close()
+    QApplication.processEvents()
+    w2 = MainWindow(out_dir=tmp_path / "out", backend=FakeBackend(),
+                    settings_store=SettingsStore(path=cfg))
+    assert w2.live.project_edit.text() == str(tmp_path / "LiveSet Project")
+    assert load_settings(cfg).project_dir == str(tmp_path / "LiveSet Project")
+    w2.close()
