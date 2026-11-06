@@ -23,6 +23,7 @@ from gui_core.valuemap import ValueMap
 
 class MappedSlider(QAbstractSlider):
     userChanged = Signal(object)  # the new value, after drag / keys / wheel
+    aboutToMove = Signal()  # a user move is about to read the limits (a page may refresh them)
     released = Signal()  # drag finished (heavy updates may follow)
     resetRequested = Signal()  # double click
     ctrlClicked = Signal()  # Ctrl + click (the blaster resets to the default)
@@ -71,8 +72,13 @@ class MappedSlider(QAbstractSlider):
     def _fraction(self, pos: int) -> float:
         return pos / self.vmap.pos_max if self.vmap.pos_max else 0.0
 
+    def is_dragging(self) -> bool:
+        """A mouse drag is in progress (``released`` follows)."""
+        return False
+
     def move_to_position(self, pos: int) -> None:
         """User move: clamp into the allowed range, keep the value inside the limits."""
+        self.aboutToMove.emit()
         lo_pos, hi_pos = self._limit_positions()
         pos = min(max(int(pos), lo_pos), hi_pos)
         if pos == self.vmap.to_pos(self._value):
@@ -93,6 +99,7 @@ class MappedSlider(QAbstractSlider):
         fine = bool(event.modifiers() & Qt.KeyboardModifier.ShiftModifier)
         single = 1 if fine else self.singleStep()
         pos = self.vmap.to_pos(self._value)
+        self.aboutToMove.emit()  # Home / End read the limits before the move
         lo_pos, hi_pos = self._limit_positions()
         moves = {
             Qt.Key.Key_Right: pos + single, Qt.Key.Key_Up: pos + single,
@@ -151,6 +158,9 @@ class TrackSlider(MappedSlider):
         super().__init__(vmap, accent)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self._dragging = False
+
+    def is_dragging(self) -> bool:
+        return self._dragging
 
     def sizeHint(self):  # noqa: N802 - Qt name
         from PySide6.QtCore import QSize
@@ -242,6 +252,9 @@ class KnobDial(MappedSlider):
         super().__init__(vmap, accent)
         self.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
         self._press: tuple[float, float, int] | None = None
+
+    def is_dragging(self) -> bool:
+        return self._press is not None
 
     def sizeHint(self):  # noqa: N802 - Qt name
         from PySide6.QtCore import QSize

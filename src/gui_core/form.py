@@ -375,14 +375,28 @@ class CategoryFormModel:
         Fields whose text is invalid are left out; ``length_beats`` is left out too (its rule
         renders the kick, too slow to ask on every slider step).
         """
+        return self.probe_request_from(self.probe_base(), name, value)
+
+    def probe_base(self) -> dict[str, Any]:
+        """The valid active fields (without ``length_beats``) in field order: what every probe
+        request of the current state shares. Parse once, probe many times."""
         req: dict[str, Any] = {}
         for n in self.specs_names():
             if n in self.active and n != "length_beats":
                 value_n, problem = self.parse(n)
                 if problem is None:
                     req[n] = value_n
+        return req
+
+    def probe_request_from(self, base: dict[str, Any], name: str, value: Any) -> dict[str, Any]:
+        """``probe_request`` on a ``probe_base`` taken from the current state."""
+        req = dict(base)
         req[name] = value
         return self._assemble(req)
+
+    def base_request(self, base: dict[str, Any]) -> dict[str, Any]:
+        """The request of ``probe_base`` itself (no field changed)."""
+        return self._assemble(dict(base))
 
     def _assemble(self, req: dict[str, Any]) -> dict[str, Any]:
         gates = [self._by_name[n].gate_version for n in req if self._by_name[n].gate_version]
