@@ -7,10 +7,13 @@ GitHub and runs the whole gate. The shim is run under node (skipped if node is m
 from __future__ import annotations
 
 import json
+import queue
 import shutil
 import subprocess
 import sys
 import textwrap
+import threading
+import time
 from pathlib import Path
 
 import pytest
@@ -116,13 +119,89 @@ def test_unreachable_site_warns_but_builds_with_gate(env, tmp_path):
 
 NODE = shutil.which("node")
 
+# The first node start on a fresh Windows CI runner is slow, later starts are not (#459):
+# the first `node -e 0` took 15.7 s and the second 0.07 s on one runner; the first script
+# reached its first line after 1.4-4.0 s on four others, and three runs (13:49-13:55,
+# 2026-11-06) passed 30 s. The shim's own work after that first line took 2-35 ms. So
+# start-up and the shim get separate deadlines: a generous one until the script's first
+# line runs, and the old 30 s for the shim work after it.
+NODE_START_S = 120.0
+SHIM_RUN_S = 30.0
+READY = "__node_ready__"
+
+
+def run_node(script: Path, start_s: float = NODE_START_S, run_s: float = SHIM_RUN_S):
+    """Run ``node script``; return (stdout, stderr). The script must write
+    ``READY`` + newline to stderr as its first statement. Fails the test, naming the phase,
+    if node does not reach that line within ``start_s`` or does not exit ``run_s`` after it."""
+    t0 = time.perf_counter()
+    p = subprocess.Popen([NODE, str(script)], stdin=subprocess.DEVNULL,
+                         stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    lines: queue.Queue = queue.Queue()
+    out: list[str] = []
+
+    def pump_stderr():
+        for line in p.stderr:
+            lines.put(line)
+
+    readers = [threading.Thread(target=pump_stderr, daemon=True),
+               threading.Thread(target=lambda: out.append(p.stdout.read()), daemon=True)]
+    for t in readers:
+        t.start()
+    err: list[str] = []
+    try:
+        while READY not in "".join(err):
+            left = start_s - (time.perf_counter() - t0)
+            try:
+                err.append(lines.get(timeout=max(left, 0)))
+            except queue.Empty:
+                pytest.fail(f"node did not reach the script's first line within {start_s} s "
+                            f"(start-up, not the shim; #459); stderr so far: {''.join(err)!r}")
+        started = time.perf_counter() - t0
+        try:
+            p.wait(timeout=run_s)
+        except subprocess.TimeoutExpired:
+            pytest.fail(f"node started after {started:.1f} s, then did not finish within "
+                        f"{run_s} s (the shim script hangs)")
+    finally:
+        if p.poll() is None:
+            p.kill()
+            p.wait()
+    for t in readers:
+        t.join(run_s)
+    while not lines.empty():
+        err.append(lines.get())
+    stderr = "".join(err).replace(READY + "\n", "", 1)
+    assert p.returncode == 0, stderr
+    return "".join(out), stderr
+
 
 @pytest.mark.skipif(NODE is None, reason="node not installed")
-@pytest.mark.parametrize("rep", range(6))
-def test_shim_api(tmp_path, rep):
+@pytest.mark.parametrize(
+    ("body", "start_s", "run_s", "phase"),
+    [
+        # never reaches its first line in time: start-up phase
+        (f"setTimeout(() => process.stderr.write('{READY}\\n'), 60000);", 1.0, 30.0, "start-up"),
+        # starts, then never exits: shim phase (generous start deadline, short run deadline,
+        # the run deadline is the subject here)
+        (f"process.stderr.write('{READY}\\n'); setInterval(() => {{}}, 1000);",
+         NODE_START_S, 1.0, "the shim script hangs"),
+    ],
+    ids=["slow-start", "hang-after-start"],
+)
+def test_run_node_names_the_phase_that_timed_out(tmp_path, body, start_s, run_s, phase):
+    f = tmp_path / "h.js"
+    f.write_text(body)
+    with pytest.raises(pytest.fail.Exception, match=phase):
+        run_node(f, start_s=start_s, run_s=run_s)
+
+
+@pytest.mark.skipif(NODE is None, reason="node not installed")
+def test_shim_api(tmp_path):
     """data, calc (incl. calc of calc), onData, data-source binding, fetch + file:// fallback."""
     js = textwrap.dedent(
         f"""
+        process.stderr.write('{READY}\\n');
         const fs = require('fs');
         const served = {{ nums: [{{n: 1, s: 'a'}}, {{n: 2, s: 'b'}}] }};
         const el = (attrs) => ({{dataset: attrs, textContent: ''}});
@@ -154,66 +233,7 @@ def test_shim_api(tmp_path, rep):
         """
     )
     f = tmp_path / "t.js"
-    stamp = "process.stderr.write('{0}_ms=' + performance.now().toFixed(1) + '\\n');"
-    js = (stamp.format("boot") + "process.on('exit', () => {" + stamp.format("exit") + "});"
-          + js.replace("dash.calc('doubled'", stamp.format("shim") + "dash.calc('doubled'")
-          .replace("console.log(JSON", stamp.format("print") + "console.log(JSON"))
     f.write_text(js)
-    import os
-    import threading
-    import time
-    import warnings
-
-    cold = ""
-    if rep == 0:
-        for argv in (["--version"], ["--version"], ["-e", "0"], ["-e", "0"]):
-            tc = time.perf_counter()
-            subprocess.run([NODE, *argv], capture_output=True, timeout=120)
-            cold += f"{argv}={time.perf_counter() - tc:.3f}s "
-    t0 = time.perf_counter()
-    p = subprocess.Popen([NODE, str(f)], stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                         text=True)
-    out: dict = {}
-    eof: dict = {}
-
-    def rd(name, stream):
-        out[name] = stream.read()
-        eof[name] = round(time.perf_counter() - t0, 3)
-
-    for name, stream in (("o", p.stdout), ("e", p.stderr)):
-        threading.Thread(target=rd, args=(name, stream), daemon=True).start()
-    t_exit = None
-    extra = ""
-    while time.perf_counter() - t0 < 60:
-        if t_exit is None and p.poll() is not None:
-            t_exit = round(time.perf_counter() - t0, 3)
-        if t_exit is not None and len(eof) == 2:
-            break
-        if not extra and time.perf_counter() - t0 > 20 and os.name == "nt":
-            ps = ("Get-CimInstance Win32_Process | Where-Object { $_.ParentProcessId -eq "
-                  f"{os.getpid()} -or $_.ProcessId -eq {p.pid} }} | ForEach-Object {{ "
-                  "\"$($_.ProcessId) $($_.Name) cpu=$((Get-Process -Id $_.ProcessId "
-                  "-ErrorAction SilentlyContinue).CPU)\" }}; "
-                  "(Get-CimInstance Win32_Processor | Measure-Object LoadPercentage "
-                  "-Average).Average; Get-Process | Sort-Object CPU -Descending | "
-                  "Select-Object -First 8 | ForEach-Object { \"$($_.Name)=$($_.CPU)\" }; "
-                  "(Get-Counter '\\PhysicalDisk(_Total)\\Current Disk Queue Length')"
-                  ".CounterSamples.CookedValue")
-            extra = subprocess.run(["powershell", "-NoProfile", "-Command", ps],
-                                   stdin=subprocess.DEVNULL, capture_output=True, text=True,
-                                   timeout=60).stdout.replace("\n", " | ")[:800]
-        time.sleep(0.005)
-    hung = p.poll() is None
-    if hung:
-        p.kill()
-        p.wait()
-    threads = sorted(t.name for t in threading.enumerate())
-    warnings.warn(f"SHIM459 rep={rep} worker={os.environ.get('PYTEST_XDIST_WORKER')} "
-                  f"wall={time.strftime('%H:%M:%S')} exit_s={t_exit} rc={p.returncode} "
-                  f"hung={hung} eof={eof} stderr={(out.get('e') or '')!r:.300} "
-                  f"threads={threads} ps=[{extra}] cold=[{cold}]", stacklevel=1)
-    assert not hung and t_exit is not None and t_exit < 30, (t_exit, eof)
-    r = subprocess.CompletedProcess(p.args, p.returncode, out.get("o", ""), out.get("e", ""))
-    assert r.returncode == 0, r.stderr
-    got = json.loads(r.stdout.strip().splitlines()[0])
+    stdout, _stderr = run_node(f)
+    got = json.loads(stdout.strip().splitlines()[0])
     assert got == {"d": [{"n": 4, "s": "b"}], "e": [{"v": 7}], "bound": "4"}
