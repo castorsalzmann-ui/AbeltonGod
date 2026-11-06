@@ -189,7 +189,10 @@ def test_shim_api(tmp_path, rep):
                   "\"$($_.ProcessId) $($_.Name) cpu=$((Get-Process -Id $_.ProcessId "
                   "-ErrorAction SilentlyContinue).CPU)\" }}; "
                   "(Get-CimInstance Win32_Processor | Measure-Object LoadPercentage "
-                  "-Average).Average")
+                  "-Average).Average; Get-Process | Sort-Object CPU -Descending | "
+                  "Select-Object -First 8 | ForEach-Object { \"$($_.Name)=$($_.CPU)\" }; "
+                  "(Get-Counter '\\PhysicalDisk(_Total)\\Current Disk Queue Length')"
+                  ".CounterSamples.CookedValue")
             extra = subprocess.run(["powershell", "-NoProfile", "-Command", ps],
                                    stdin=subprocess.DEVNULL, capture_output=True, text=True,
                                    timeout=60).stdout.replace("\n", " | ")[:800]
