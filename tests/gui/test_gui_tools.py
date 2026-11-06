@@ -373,7 +373,9 @@ def test_live_page_copies_a_render_from_the_output_folder_into_the_project(qapp,
     page.refused_roots = ()  # pytest's temp folder lies inside the checkout
     page.inspect_button.click()
     assert wait_for(qapp, lambda: page.inspection is not None)
-    assert not page.inspection.ok and "Live-Projektordner wählen" in page.status.text()
+    # #443: the render sits in the project-shaped output tree: importable in place
+    assert page.inspection.ok and not page.inspection.placement.moved, page.status.text()
+    assert "kopiert" not in page.status.text()
     proj = tmp_path / "Set Project"
     proj.mkdir()
     (proj / "Set.als").write_bytes(b"")

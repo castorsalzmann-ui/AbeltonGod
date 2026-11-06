@@ -21,7 +21,9 @@ project the user names (checked with ``library.check_project_dir``); :func:`exec
 copies right before the first Live write and imports the copy, so the bridge rule and the
 capabilities stay unchanged. The copy never overwrites: an identical pair already there is
 reused, a different one gets the next free ``_002`` … name (the sidecar's ``file`` field is
-updated to match). If nothing reached Live, the copy is removed again.
+updated to match). If nothing reached Live, the copy is removed again. Since #443 GUI renders
+already sit in a project-shaped folder and are importable in place; when a project folder is
+given and the file lies outside it, it is still copied into the project (#443 decision).
 """
 
 from __future__ import annotations
@@ -336,29 +338,52 @@ def _target_in(folder: Path, source: Path, limit: int | None) -> tuple[Path, boo
     raise ImportPathError(f"Kein freier Dateiname für {source.stem} in {folder}.")
 
 
+def _check_project(project_dir: str | os.PathLike[str],
+                   refused_roots: Iterable[str | os.PathLike[str]] | None) -> None:
+    roots = default_refused_roots() if refused_roots is None else tuple(refused_roots)
+    problem = check_project_dir(project_dir, refused_roots=roots)
+    if problem is not None:
+        raise ImportPathError(project_problem_text(problem))
+
+
+def _inside(path: Path, folder: Path) -> bool:
+    try:
+        return path.resolve().is_relative_to(folder.resolve())
+    except (OSError, RuntimeError):
+        return False
+
+
 def plan_placement(wav: str | os.PathLike[str], project_dir: str | os.PathLike[str] | None,
                    *, layout: LibraryLayout = DEFAULT_LAYOUT,
                    refused_roots: Iterable[str | os.PathLike[str]] | None = None) -> Placement:
     """Where Live will read ``wav`` from. Writes nothing; raises :class:`ImportPathError`
     with a German reason. ``refused_roots`` None means :func:`default_refused_roots`."""
     path = validate_wav_path(wav)
+    no_project = project_dir is None or not os.fspath(project_dir).strip()
     try:
-        return Placement(path, path, read_sample_info(path, layout=layout))
+        info = read_sample_info(path, layout=layout)
     except SampleCategoryError as exc:
         category = _misplaced_category(Path(path), layout)
         if category is None:
             raise
         refusal = str(exc)
+    else:
+        # Importable where it is. With a project folder given, a file from outside that
+        # project (e.g. the GUI output folder, laid out like a project since #443) is still
+        # copied into it, so the set keeps its samples next to it.
+        if no_project or info.category is None:
+            return Placement(path, path, info)
+        _check_project(project_dir, refused_roots)  # a project the user named must be valid
+        if _inside(Path(path), Path(project_dir)):
+            return Placement(path, path, info)
+        category, refusal = info.category, ""
     folder_name = os.sep.join(layout.parts_for(category))
-    if project_dir is None or not os.fspath(project_dir).strip():
+    if no_project:
         raise ImportPathError(
             f"{refusal} Live-Projektordner wählen (der Ordner mit der .als-Datei des Test-Sets): "
             f"dann kopiert das Programm WAV und Sidecar vor dem Import nach "
             f"<Projekt>{os.sep}{folder_name} und importiert die Kopie.")
-    roots = default_refused_roots() if refused_roots is None else tuple(refused_roots)
-    problem = check_project_dir(project_dir, refused_roots=roots)
-    if problem is not None:
-        raise ImportPathError(project_problem_text(problem))
+    _check_project(project_dir, refused_roots)
     folder = library_folder(project_dir, layout, category)
     target, copy = _target_in(folder, Path(path), layout.max_path_chars)
     return Placement(path, str(target), SampleInfo(category, target.stem), copy)

@@ -62,8 +62,11 @@ def test_every_category_is_copied_into_its_folder_and_imported(fake, tmp_path):
     cfg = config_for(fake, tmp_path)
     for n, cat in enumerate(sorted(CATEGORY_KEYS)):
         src = render(cat, tmp_path / "out")
-        refused = live.inspect_live(cfg, src)  # no project: the bridge rule refuses, with help
-        assert not refused.ok and "Live-Projektordner wählen" in refused.error
+        # #443: the output folder is project-shaped, so without a project the render is
+        # importable where it is
+        assert src.parent == tmp_path.joinpath("out", *FOLDERS[cat])
+        in_place = live.inspect_live(cfg, src)
+        assert in_place.ok and not in_place.placement.moved, in_place.error
         plan = live.prepare_import(cfg, src, None, None, project_dir=proj,
                                    refused_roots=NO_ROOTS)
         assert plan.ok, plan.error
@@ -82,10 +85,25 @@ def test_every_category_is_copied_into_its_folder_and_imported(fake, tmp_path):
 
 def test_a_file_already_in_its_project_folder_is_imported_in_place(fake, tmp_path):
     proj = project(tmp_path)
-    src = render("kick", proj / "Samples" / "Drums" / "Kicks")
-    plan = live.prepare_import(config_for(fake, tmp_path), src, 2, 0)  # no project needed
-    assert plan.ok and plan.path == str(src) and not plan.placement.moved
-    assert "kopieren" not in plan.text
+    src = render("kick", proj)  # lands in proj/Samples/Drums/Kicks (#443)
+    assert src.parent == proj / "Samples" / "Drums" / "Kicks"
+    cfg = config_for(fake, tmp_path)
+    for project_dir in (None, proj):  # inside the given project: no copy either
+        plan = live.prepare_import(cfg, src, 2, 0, project_dir=project_dir,
+                                   refused_roots=NO_ROOTS)
+        assert plan.ok and plan.path == str(src) and not plan.placement.moved, plan.error
+        assert "kopieren" not in plan.text
+
+
+def test_a_misplaced_file_without_a_project_is_refused_with_help(fake, tmp_path):
+    src = render("clap", tmp_path / "out")
+    flat = tmp_path / "flat"
+    flat.mkdir()
+    for p in (src, src.with_suffix(".json")):
+        (flat / p.name).write_bytes(p.read_bytes())
+    res = live.inspect_live(config_for(fake, tmp_path), flat / src.name)
+    assert not res.ok and "Live-Projektordner wählen" in res.error
+    assert writes(fake) == []
 
 
 def test_second_import_reuses_the_identical_copy_and_a_different_file_gets_a_new_name(
