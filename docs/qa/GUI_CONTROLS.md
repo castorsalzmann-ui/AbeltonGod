@@ -161,7 +161,7 @@ differ only in the area. Handler and effect per kind:
 | `goa-page · QLineEdit · Abschnitte` | `OptionForm._edited` (`textEdited`) | Free text option, checked by the module's parser |
 | `goa-page · QLineEdit · Akkordfolge (Stufen)` | `OptionForm._edited` (`textEdited`) | Free text option |
 | `goa-page · QLineEdit · Dichte` | `OptionForm._edited` (`textEdited`) | Free text option |
-| `goa-page · QLineEdit · GoaPanel.folder_edit` | `GoaPanel._folder_typed` | New run folder (auto-named, never overwritten) below `<Ausgabeordner>/goa`; follows the shared settings (#450) |
+| `goa-page · QLineEdit · GoaPanel.folder_edit` | `GoaPanel._folder_typed` | New run folder (auto-named, never overwritten) below `<Ausgabeordner>/Goa` (#468); follows the shared settings (#450) |
 | `goa-page · QPushButton · An Live senden` | `ResultActions.send_to_live` | Opens the Live page with the first sample WAV chosen; nothing is sent |
 | `goa-page · QPushButton · In Bibliothek zeigen` | `ResultActions.show_in_library` | Shows the library with the first sample WAV selected |
 | `goa-page · QLineEdit · Grundton` | `OptionForm._edited` (`textEdited`) | Free text option |
@@ -215,7 +215,7 @@ differ only in the area. Handler and effect per kind:
 | `goa · QLineEdit · Abschnitte` | `OptionForm._edited` (`textEdited`) | Free text option |
 | `goa · QLineEdit · Akkordfolge (Stufen)` | `OptionForm._edited` (`textEdited`) | Free text option |
 | `goa · QLineEdit · Dichte` | `OptionForm._edited` (`textEdited`) | Free text option |
-| `goa · QLineEdit · GoaPanel.folder_edit` | `GoaPanel._folder_typed` | New run folder below `<Ausgabeordner>/goa` (follows the shared settings) |
+| `goa · QLineEdit · GoaPanel.folder_edit` | `GoaPanel._folder_typed` | New run folder below `<Ausgabeordner>/Goa` (follows the shared settings) |
 | `goa · QLineEdit · Grundton` | `OptionForm._edited` (`textEdited`) | Free text option |
 | `goa · QLineEdit · Register (Oktaven)` | `OptionForm._edited` (`textEdited`) | Free text option |
 | `goa · QPushButton · An Live senden` | `ResultActions.send_to_live` | Opens the main window's Live page with the first sample WAV chosen (only with a readable sidecar); nothing is sent |
@@ -249,7 +249,7 @@ differ only in the area. Handler and effect per kind:
 | `acid · QPushButton · Ordner öffnen` | `AcidWindow.open_folder` | Opens the output folder |
 | `acid · QPushButton · Stopp` | `AcidWindow.stop_preview` | Stops the preview |
 | `acid · QPushButton · Vorschau` | `AcidWindow.preview` | Rough preview WAV (no 303 sound) through the backend |
-| `acid · QPushButton · WAV exportieren` | `AcidWindow.export_wav` | Writes the rough preview as WAV into `<Ausgabeordner>/acid` (shared rate/bit depth, no sidecar: no contract) |
+| `acid · QPushButton · WAV exportieren` | `AcidWindow.export_wav` | Writes the rough preview as WAV into the run folder `<Ausgabeordner>/Acid/acid_<seed>/` (shared rate/bit depth, no sidecar: no contract) |
 | `acid · QPushButton · In Bibliothek zeigen` | `ResultActions.show_in_library` | Shows the main library with the exported WAV selected |
 | `acid · QPushButton · An Live senden` | `ResultActions.send_to_live` | Disabled for acid WAVs (no sidecar); the row says why |
 | `acid · QSpinBox · AcidWindow.length_spin` | `AcidWindow._length_changed` | Pattern length in steps |

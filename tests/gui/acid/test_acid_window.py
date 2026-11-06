@@ -180,7 +180,7 @@ def test_export_midi_bytes_equal_acid_midi_output(win, tmp_path):
     line = generate_line(GenOptions(seed=77, density=0.8))
     win.bpm_edit.setText("128")
     path = win.export_midi()
-    assert path == tmp_path / "out" / "acid_77.mid"
+    assert path == tmp_path / "out" / "acid_77" / "acid_77.mid"  # run folder (#468)
     assert path.read_bytes() == acid_line_to_midi(line, bpm=128.0)
     assert "nicht in Live getestet" in win.status.text()
 
@@ -189,7 +189,7 @@ def test_save_json_then_load_round_trips(win, tmp_path):
     win.seed_edit.setText("9")
     win.generate_button.click()
     saved = win.save_json()
-    assert saved == tmp_path / "out" / "acid_9.json"
+    assert saved == tmp_path / "out" / "acid_9" / "acid_9.json"
     line = json.loads(saved.read_text(encoding="utf-8"))
     assert line == generate_line(GenOptions(seed=9))
     win.model.clear()

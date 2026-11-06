@@ -462,3 +462,11 @@ def test_every_shipped_preset_renders_byte_identical_through_the_window_path(tmp
             assert encode_wav(samples, 48000, 24) == encode_wav(render_laser(raw, 5), 48000, 24), n
     finally:
         session.close()
+
+
+def test_blaster_preset_texts_are_the_german_ones():
+    from gui_core.preset_texts import PRESET_TEXTS_DE
+
+    for name in bp.laser_preset_names():
+        assert bp.preset_description(name) == PRESET_TEXTS_DE[("laser", name)], name
+    assert bp.preset_description("blaster").startswith("Basisschuss")

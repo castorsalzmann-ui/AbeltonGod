@@ -198,7 +198,7 @@ def test_goa_page_follows_the_output_folder(qapp_tour, home):
     w.folder_edit.editingFinished.emit()
     w.categories.setCurrentRow(w.tool_rows["goa"])
     folder = Path(w.goa.folder_edit.text())
-    assert folder.is_relative_to(home / "second" / "goa"), f"Goa page folder {folder}"
+    assert folder.is_relative_to(home / "second" / "Goa"), f"Goa page folder {folder}"
 
 
 def test_a_gui_render_goes_through_the_live_plan_against_the_fake_server(qapp_tour, home):

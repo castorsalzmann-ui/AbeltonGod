@@ -9,8 +9,11 @@ What the settings mean (decided in #439):
 
 * ``output_dir`` -- root of the output tree. The main window renders into it, the library page
   lists every WAV below it. The tool windows write below it (see the ``*_dir`` helpers):
-  Acid ``<out>/acid``, Goa ``<out>/goa/<run>``, Blaster ``<out>/Samples/FX/Lasers`` (the library
-  layout's laser folder, so the Live import accepts the file). Empty = ``default_output_dir()``.
+  tool projects in ``<out>/Acid/<run>`` and ``<out>/Goa/<run>``, Blaster shots as
+  ``laser_<dimension>_s<seed>.wav`` in ``<out>/Samples/FX/Lasers`` (the library layout's laser
+  folder next to the category renders, so the Live import accepts the file; #468). Files in the
+  older ``acid/`` and ``goa/`` folders are left as they are and still listed by the library.
+  Empty = ``default_output_dir()``.
 * ``project_dir`` -- optional Ableton project folder: the "Live-Projekt" of the Live-import page
   (one setting, edited there or in the dialog) and the start folder of the Blaster's bank
   export dialog. The library does not read it.
@@ -98,10 +101,10 @@ class AppSettings:
         return Path(self.project_dir) if self.project_dir.strip() else None
 
     def acid_dir(self) -> Path:
-        return self.output_root() / "acid"
+        return self.output_root() / "Acid"  # one run folder per line below it (#468)
 
     def goa_dir(self) -> Path:
-        return self.output_root() / "goa"
+        return self.output_root() / "Goa"  # one run folder per render below it
 
     def laser_dir(self) -> Path:
         return self.output_root().joinpath(*LibraryLayout().parts_for("laser"))

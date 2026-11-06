@@ -352,7 +352,8 @@ class SettingsDialog(QDialog):
         form.addRow("Bittiefe", self.bits_box)
         lay.addLayout(form)
         note = QLabel(
-            "Alle Fenster schreiben unter den Ausgabeordner: Acid nach acid/, Goa nach goa/, "
+            "Alle Fenster schreiben unter den Ausgabeordner: Acid nach Acid/<Lauf>/, Goa nach "
+            "Goa/<Lauf>/, "
             "Blaster nach Samples/FX/Lasers/. Die Bibliothek liest nur den Ausgabeordner. "
             "Der Projektordner ist das Live-Projekt der Live-Import-Seite (dieselbe Einstellung) "
             "und der Startordner für den Bank-Export des Blasters. "

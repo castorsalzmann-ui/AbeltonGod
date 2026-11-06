@@ -369,6 +369,11 @@ class AcidWindow(QWidget):
     def _folder(self) -> Path:
         return Path(self.folder_edit.text().strip() or str(default_output_dir()))
 
+    def _run_dir(self) -> Path:
+        """One folder per line (seed) below the Acid folder: ``Acid/acid_<seed>/`` holds its
+        JSON, MIDI and WAV (#468)."""
+        return self._folder() / self._stem()
+
     def load(self) -> None:
         path = self.ask_open(self, self._folder())
         if path is None:
@@ -383,7 +388,7 @@ class AcidWindow(QWidget):
 
     def save_json(self) -> Path | None:
         try:
-            p = self.model.save_file(self._folder() / f"{self._stem()}.json")
+            p = self.model.save_file(self._run_dir() / f"{self._stem()}.json")
         except AcidFileError as exc:
             self._fail(exc)
             return None
@@ -394,7 +399,7 @@ class AcidWindow(QWidget):
     def export_midi(self) -> Path | None:
         try:
             self.model.bpm = parse_bpm(self.bpm_edit.text())
-            p = self.model.export_midi(self._folder() / f"{self._stem()}.mid")
+            p = self.model.export_midi(self._run_dir() / f"{self._stem()}.mid")
         except (AcidFileError, AcidOptionError) as exc:
             self._fail(exc, self.bpm_edit if isinstance(exc, AcidOptionError) else None)
             return None
@@ -409,7 +414,7 @@ class AcidWindow(QWidget):
             self.model.bpm = parse_bpm(self.bpm_edit.text())
             samples = render_preview(self.model.to_line(), self.model.bpm, self.sample_rate)
             data = encode_wav(samples, self.sample_rate, self.bit_depth)
-            folder = self._folder()
+            folder = self._run_dir()
             folder.mkdir(parents=True, exist_ok=True)
             p = folder / f"{free_stem(folder, self._stem(), ('.wav',))}.wav"
             with open(p, "xb") as f:  # "x": never replace a file
