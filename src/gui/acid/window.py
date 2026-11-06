@@ -8,6 +8,7 @@ import tempfile
 from collections.abc import Callable
 from pathlib import Path
 
+from PySide6.QtCore import Qt
 from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -195,15 +196,20 @@ class AcidWindow(QWidget):
         self.preview_button = QPushButton("Vorschau")
         self.stop_button = QPushButton("Stopp")
         self.anim_box = QCheckBox("Animation")
-        for w in (self.load_button, self.save_button, self.export_button, self.wav_button,
+        for w in (self.load_button, self.save_button, self.export_button,
                   self.open_button, self.preview_button, self.stop_button, self.anim_box):
             row.addWidget(w)
         al.addLayout(row)
         self.preview_note = QLabel(f"Vorschau: {PREVIEW_LABEL}")
         self.preview_note.setObjectName("muted")
         al.addWidget(self.preview_note)
+        # Second row: WAV export and the hand-off (keeps the window as narrow as before, #442).
+        row2 = QHBoxLayout()
+        row2.setSpacing(int(u * 0.5))
+        row2.addWidget(self.wav_button, 0, Qt.AlignmentFlag.AlignTop)
         self.actions = ResultActions()
-        al.addWidget(self.actions)
+        row2.addWidget(self.actions, 1)
+        al.addLayout(row2)
         col.addWidget(act_panel)
         # --- footer / status
         self.footer = FooterBand()
