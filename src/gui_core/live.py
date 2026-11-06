@@ -368,17 +368,19 @@ def copy_into_project(placement: Placement) -> None:
     if not placement.copy:
         return
     src, dst = Path(placement.source), Path(placement.target)
-    side_text = sidecar_path(src).read_text(encoding="utf-8")
+    side_bytes = sidecar_path(src).read_bytes()  # bytes: keeps CRLF of a Windows sidecar
     if dst.name != src.name:
-        meta = json.loads(side_text)
+        meta = json.loads(side_bytes.decode("utf-8"))
         meta["file"] = dst.name
-        side_text = json.dumps(meta, indent=2, ensure_ascii=False, allow_nan=False) + "\n"
+        eol = "\r\n" if b"\r\n" in side_bytes else "\n"
+        text = json.dumps(meta, indent=2, ensure_ascii=False, allow_nan=False) + "\n"
+        side_bytes = text.replace("\n", eol).encode("utf-8")
     written: list[Path] = []
     try:
         dst.parent.mkdir(parents=True, exist_ok=True)
-        with open(sidecar_path(dst), "x", encoding="utf-8", newline="\n") as fh:
+        with open(sidecar_path(dst), "xb") as fh:
             written.append(sidecar_path(dst))
-            fh.write(side_text)
+            fh.write(side_bytes)
         with open(src, "rb") as fin, open(dst, "xb") as fout:
             written.append(dst)
             shutil.copyfileobj(fin, fout)
