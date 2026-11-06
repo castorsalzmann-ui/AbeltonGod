@@ -28,7 +28,8 @@ def raw_fields(cat: str) -> dict[str, tuple[dict, str | None]]:
         const = branch.get("if", {}).get("properties", {}).get("schema_version", {}).get("const")
         if const:
             for k, v in branch["then"]["properties"].items():
-                out[k] = (v, const)
+                if k not in out:  # laser 0.1 only narrows length_ms (3000): a rule, not a field
+                    out[k] = (v, const)
     return out
 
 

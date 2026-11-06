@@ -17,14 +17,14 @@ from audio_engine.categories import get_category
 from audio_engine.params import CONTRACTS_DIR, load_schema
 from audio_engine.presets import describe, load_preset, preset_names
 
-CATEGORY_KEYS = ("kick", "hat", "snare", "clap", "rim", "bass")
+CATEGORY_KEYS = ("kick", "hat", "snare", "clap", "rim", "bass", "laser")
 # Contract fields the form does not edit as a value: the format version is derived, the preset
 # name has its own drop-down.
 HIDDEN_FIELDS = ("schema_version", "preset")
 ALWAYS_ACTIVE = ("seed", "variants")
 DEFAULT_PRESETS = {
     "kick": "punchy", "hat": "closed-std", "snare": "default", "clap": "default",
-    "rim": "rim", "bass": "default",
+    "rim": "rim", "bass": "default", "laser": "blaster",
 }
 DEFAULT_PRESET = DEFAULT_PRESETS["kick"]
 YES, NO = "ja", "nein"
@@ -72,9 +72,28 @@ LABELS_DE: dict[str, str] = {
     "sub_octave_level": "Sub-Oktave-Pegel", "release_ms": "Release",
     "lp_q": "Tiefpass-Güte (Q)", "lp_env_amount": "Filter-Hüllkurve Stärke",
     "lp_env_decay_ms": "Filter-Hüllkurve Abfall",
+    # laser (labels as in the blaster window, with the group in the name where it is unclear)
+    "family": "Dimension", "sweep_ms": "Sweep-Zeit", "sweep_curve": "Sweep-Kurve",
+    "fm_amount": "FM", "fm_ratio": "FM-Verhältnis", "ring_amount": "Ring-Anteil",
+    "noise_level": "Rauschen", "noise_hz": "Rausch-Frequenz", "crackle": "Knistern",
+    "glitch_steps": "Glitch-Stufen", "stereo_width": "Breite", "variation": "Variation",
+    "echo_mix": "Echo-Anteil", "echo_ms": "Echo-Zeit", "echo_feedback": "Echo-Rückkopplung",
+    "echo_sync": "Echo-Notenwert", "echo_damp_hz": "Echo-Dämpfung",
+    "echo_pingpong": "Echo Ping-Pong",
+    "salvo_count": "Schüsse", "salvo_rate_mode": "Takt-Art", "salvo_spacing_ms": "Abstand",
+    "salvo_rate_hz": "Feuerrate", "salvo_sync_note": "Notenwert", "salvo_rate_ramp": "Rampe",
+    "salvo_pan_mode": "Pan-Muster", "salvo_pan_width": "Pan-Breite",
+    "salvo_level_step_db": "Pegel-Schritt", "salvo_pitch_step_st": "Ton-Schritt",
+    "salvo_humanize": "Humanize",
+    "filter_slope": "Filter-Flanke", "lp_resonance": "Tiefpass-Resonanz",
+    "lp_sweep_ms": "Tiefpass-Sweep-Zeit", "lp_sweep_hz": "Tiefpass-Sweep-Ziel",
+    "reverb_mix": "Hall-Anteil", "reverb_size": "Hall-Größe", "reverb_decay_ms": "Nachhall",
+    "reverb_damp_hz": "Hall-Dämpfung", "reverb_predelay_ms": "Hall-Vorverzögerung",
+    "reverb_width": "Hall-Breite",
 }
 _UNIT_BY_NAME = {"bpm": "BPM", "length_beats": "Beats", "tail_note": "MIDI", "note": "MIDI",
-                 "cents": "Cent", "bursts": "", "rate_div": ""}
+                 "cents": "Cent", "bursts": "", "rate_div": "", "salvo_pitch_step_st": "st",
+                 "salvo_count": "", "glitch_steps": ""}
 _UNIT_BY_SUFFIX = (("_dbfs", "dBFS"), ("_db", "dB"), ("_ms", "ms"), ("_hz", "Hz"))
 
 
@@ -157,8 +176,11 @@ def field_specs(category: str) -> list[FieldSpec]:
     specs = [
         _spec(n, d, None) for n, d in schema["properties"].items() if n not in HIDDEN_FIELDS
     ]
+    own = {s.name for s in specs}
     for gate, props in gated_branches(schema).items():
-        specs += [_spec(n, d, gate) for n, d in props.items()]
+        # A branch that only narrows a field the base already has (laser 0.1: length_ms up to
+        # 3000) is a rule for the engine's resolve, not a second field.
+        specs += [_spec(n, d, gate) for n, d in props.items() if n not in own]
     return specs
 
 

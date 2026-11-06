@@ -42,6 +42,7 @@ from .goa_panel import GoaPanel
 from .library_panel import LibraryPanel
 from .live_panel import LivePanel
 from .waveform_widget import WaveformWidget
+from .windows import WINDOW_KEYS, WindowManager
 
 # Pages after the sample categories and the library (left list order).
 TOOL_PAGES = (("goa", "Goa-Arrangement"), ("live", "Live-Import"), ("chat", "Copilot"))
@@ -69,9 +70,11 @@ class MainWindow(QMainWindow):
         live_config: LiveConfig | None = None,
         registry: CapabilityRegistry | None = None,
         chat_session: ChatSession | None = None,
+        window_factories: dict[str, Callable[[Path], QWidget]] | None = None,
     ) -> None:
         super().__init__()
         self.setWindowTitle("AbeltonGod")
+        self.windows = WindowManager(self._library_folder, window_factories)
         self._initial_out = out_dir
         self.service = service or RenderService()
         self.preview = PreviewController(backend or choose_backend())
@@ -107,7 +110,10 @@ class MainWindow(QMainWindow):
             self.categories.addItem(item)
         m = self.fontMetrics().horizontalAdvance("M")  # layout in font units: follows the DPI
         self.categories.setFixedWidth(m * 20)
-        outer.addWidget(self.categories)
+        left = QVBoxLayout()
+        left.addWidget(self.categories, 1)
+        left.addWidget(self._build_window_buttons())
+        outer.addLayout(left)
 
         split = QSplitter()
         split.setChildrenCollapsible(False)
@@ -148,6 +154,43 @@ class MainWindow(QMainWindow):
         self.categories.setCurrentRow(0)
         self._update_state()
         self.resize(m * 112, self.fontMetrics().height() * 42)
+
+    def _build_window_buttons(self) -> QWidget:
+        """Buttons that open the other windows (one instance each, see ``windows``)."""
+        box = QWidget()
+        lay = QVBoxLayout(box)
+        lay.setContentsMargins(0, 0, 0, 0)
+        heading = QLabel("Weitere Fenster")
+        heading.setObjectName("heading")
+        lay.addWidget(heading)
+        self.window_buttons: dict[str, QPushButton] = {}
+        slots = {"goa": self.open_goa_window, "acid": self.open_acid_window,
+                 "blaster": self.open_blaster_window}
+        for key, label in WINDOW_KEYS:
+            button = QPushButton(label)
+            button.setObjectName(f"open_{key}")
+            button.clicked.connect(slots[key])
+            self.window_buttons[key] = button
+            lay.addWidget(button)
+        self.window_note = QLabel()
+        self.window_note.setObjectName("muted")
+        self.window_note.setWordWrap(True)
+        self.window_note.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Minimum)
+        lay.addWidget(self.window_note)
+        return box
+
+    def _open_window(self, key: str) -> None:
+        win = self.windows.open(key)
+        self.window_note.setText(self.windows.last_error if win is None else "")
+
+    def open_goa_window(self) -> None:
+        self._open_window("goa")
+
+    def open_acid_window(self) -> None:
+        self._open_window("acid")
+
+    def open_blaster_window(self) -> None:
+        self._open_window("blaster")
 
     def _library_folder(self) -> Path:
         edit = getattr(self, "folder_edit", None)  # not built yet while the pages are made
@@ -385,6 +428,7 @@ class MainWindow(QMainWindow):
         if self.handle is not None:
             self.handle.cancel()
             self.handle.wait(10)  # the daemon thread must not write into a closed window
+        self.windows.close_all()
         self.goa.shutdown()
         self.chat.shutdown()
         self.preview.close()

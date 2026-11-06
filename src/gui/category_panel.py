@@ -29,6 +29,24 @@ from .widgets import (
     rule,
 )
 
+LASER_GROUPS = (("salvo_", "Salve"), ("filter_", "Filter"), ("hp_", "Filter"), ("lp_", "Filter"),
+                ("echo_", "Delay"), ("reverb_", "Reverb"))
+
+
+def _field_groups(category: str, specs: list[FieldSpec]) -> dict[str, list[FieldSpec]]:
+    """Laser: the salvo, filter, delay and reverb fields of the contract, each group its own
+    collapsible section (grouped by the contract's field-name prefix, so a new field with such a
+    prefix lands in its group). Other categories have no groups."""
+    if category != "laser":
+        return {}
+    out: dict[str, list[FieldSpec]] = {}
+    for label in dict.fromkeys(g for _, g in LASER_GROUPS):  # group order of the table
+        prefixes = tuple(p for p, g in LASER_GROUPS if g == label)
+        members = [s for s in specs if s.name.startswith(prefixes)]
+        if members:
+            out[label] = members
+    return out
+
 
 class CategoryPanel(QScrollArea):
     changed = Signal()
@@ -80,6 +98,13 @@ class CategoryPanel(QScrollArea):
             "Ein Griff oder Regler an: der Wert wird mitgeschickt. Doppelklick setzt auf das "
             "Preset zurück.")
         lay.addWidget(self.hint_label)
+        if model.category == "laser":
+            note = muted(
+                "Abzug, Salven-Muster, A/B-Speicher und Undo gibt es im Fenster "
+                "\"Laser-Blaster\" (Knopf links unten).")
+            note.setWordWrap(True)
+            note.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Minimum)
+            lay.addWidget(note)
 
         lay.addWidget(rule())
         lay.addWidget(heading("Ausgabe"))
@@ -92,6 +117,9 @@ class CategoryPanel(QScrollArea):
         body.setSpacing(4)
         extra = [s for s in model.specs if s.name not in self.main_names
                  and s.name not in ALWAYS_ACTIVE and s.name not in main_choices(model.category)]
+        groups = _field_groups(model.category, extra)
+        grouped = {s.name for members in groups.values() for s in members}
+        extra = [s for s in extra if s.name not in grouped]
         base = [s for s in extra if not s.gate_version]
         gated = [s for s in extra if s.gate_version]
         for spec in base:
@@ -103,6 +131,16 @@ class CategoryPanel(QScrollArea):
                 body.addWidget(self._make(spec, main=False))
         self.advanced.set_title(f"Erweitert ({len(extra)} Felder)")
         lay.addWidget(self.advanced)
+        self.group_sections: dict[str, Collapsible] = {}
+        for label, members in groups.items():  # laser: Salve, Filter, Delay, Reverb
+            section = Collapsible(f"{label} ({len(members)} Felder)")
+            inner = QVBoxLayout(section.body)
+            inner.setContentsMargins(0, 0, 0, 0)
+            inner.setSpacing(4)
+            for spec in members:
+                inner.addWidget(self._make(spec, main=False))
+            self.group_sections[label] = section
+            lay.addWidget(section)
         lay.addStretch(1)
         self.sync_from_model()
 

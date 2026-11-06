@@ -4,12 +4,19 @@ name: Build exe
 # zipped folder (#401). Runs on manual dispatch and on PRs that touch the exe build.
 on:
   workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Optional: publish the zip as GitHub Release with this tag (e.g. exe-v0.1)"
+        required: false
+        default: ""
   pull_request:
     paths:
       - ".github/workflows/build-exe.yml"
       - "scripts/build_exe.py"
       - "scripts/exe_smoke.py"
       - "src/launcher/**"
+      - "src/gui/**"
+      - "src/gui_core/**"
       - "pyproject.toml"
 
 permissions:
@@ -25,9 +32,14 @@ jobs:
         with:
           python-version: "3.12"
       - name: Install
-        run: python -m pip install -e ".[build]"
+        run: python -m pip install -e ".[build,gui]"
       - name: Build
         run: python scripts/build_exe.py
+      - name: Size of the bundle
+        shell: pwsh
+        run: |
+          $mb = (Get-ChildItem dist/AbeltonGod -Recurse -File | Measure-Object Length -Sum).Sum / 1MB
+          "unzipped folder: {0:N0} MB" -f $mb
       - name: Smoke - version
         run: python scripts/exe_smoke.py dist/AbeltonGod/AbeltonGod.exe version
       - name: Smoke - help and tool modules load
@@ -36,8 +48,10 @@ jobs:
         run: python scripts/exe_smoke.py dist/AbeltonGod/AbeltonGod.exe kick
       - name: Smoke - goa_arrangement
         run: python scripts/exe_smoke.py dist/AbeltonGod/AbeltonGod.exe goa
-      - name: Smoke - double-click menu with piped stdin
+      - name: Smoke - text menu with piped stdin
         run: python scripts/exe_smoke.py dist/AbeltonGod/AbeltonGod.exe menu
+      - name: Smoke - GUI starts offscreen, opens all windows, exits 0
+        run: python scripts/exe_smoke.py dist/AbeltonGod/AbeltonGod.exe gui
       - name: Smoke - same output as python -m (SHA-256)
         run: python scripts/exe_smoke.py dist/AbeltonGod/AbeltonGod.exe determinism
       - name: Check that no secret was bundled
@@ -56,3 +70,26 @@ jobs:
           name: AbeltonGod-windows
           path: AbeltonGod-windows.zip
           if-no-files-found: error
+      - name: Size of the zip
+        shell: pwsh
+        run: '"zip: {0:N0} MB" -f ((Get-Item AbeltonGod-windows.zip).Length / 1MB)'
+
+  release:
+    # Only on a manual run with a tag; the zip is always also available as the artifact above.
+    if: github.event_name == 'workflow_dispatch' && inputs.release_tag != ''
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: AbeltonGod-windows
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.release_tag }}
+        run: |
+          gh release create "$TAG" AbeltonGod-windows.zip --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" --title "AbeltonGod.exe $TAG" \
+            --notes "Windows build of commit $GITHUB_SHA (CI-tested only: not yet run on a user PC). Unzip the whole folder, start AbeltonGod.exe."

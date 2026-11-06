@@ -505,8 +505,16 @@ def test_a_refused_combination_that_cannot_be_repaired_still_blocks_render(qapp,
         w.close()
 
 
-@pytest.mark.parametrize("seed", [1, 2, 3, 4, 5, 6, 4242])
-@pytest.mark.parametrize("category", CATEGORY_KEYS)
+# The laser form has 4x the numeric fields of the others, so every edit re-checks far more
+# limits (about 0.2 s per edit on Linux, 0.5 s on the Windows runner): three seeds, not seven,
+# keep the Windows job inside its 20 minutes (CI run 42150106875 was cancelled at the limit;
+# the cost itself is issue #434).
+_SEEDS = (1, 2, 3, 4, 5, 6, 4242)
+_RANDOM_CASES = [(c, s) for c in CATEGORY_KEYS for s in ((1, 2, 4242) if c == "laser" else _SEEDS)]
+
+
+@pytest.mark.parametrize(("category", "seed"), _RANDOM_CASES,
+                         ids=[f"{c}-{s}" for c, s in _RANDOM_CASES])
 def test_random_actions_with_dots_choices_and_presets_keep_the_form_accepted(make_panel, category,
                                                                               seed):
     """Property: drags, typed values (also far outside), dot toggles, enum and switch clicks and

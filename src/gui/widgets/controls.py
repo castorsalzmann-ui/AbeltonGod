@@ -32,7 +32,7 @@ from PySide6.QtWidgets import (
 from gui_core.form import FieldSpec, parse_number
 from gui_core.valuemap import ValueMap, map_of
 
-from .choice import Segmented
+from .choice import Segmented, WrapSegmented
 from .mapped import KnobDial, MappedSlider, TrackSlider
 from .section import StepEdit
 from .toggle import ActiveDot, Toggle
@@ -334,7 +334,8 @@ class ChoiceControl(ParamControl):
         super().__init__(spec, accent=accent)
         em = self.fontMetrics().horizontalAdvance("M")
         self.texts = list(spec.choice_texts)
-        self.seg = Segmented(self.texts, accent=accent)
+        wide = len(self.texts) > 5 or sum(len(t) for t in self.texts) > 28
+        self.seg = (WrapSegmented(self.texts) if wide else Segmented(self.texts, accent=accent))
         self.seg.setAccessibleName(spec.label)
         self.seg.setToolTip(spec.description)
         self.seg.chosen.connect(self._chosen)

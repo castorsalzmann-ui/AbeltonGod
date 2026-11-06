@@ -20,7 +20,14 @@ from __future__ import annotations
 import statistics
 from functools import cache
 
-from audio_engine import bass_variants, clap_variants, hat_variants, rim_variants, snare_variants
+from audio_engine import (
+    bass_variants,
+    clap_variants,
+    hat_variants,
+    laser_variants,
+    rim_variants,
+    snare_variants,
+)
 from audio_engine import variants as kick_variants
 from audio_engine.presets import load_preset, preset_names
 
@@ -35,7 +42,7 @@ HOUSEKEEPING = frozenset({
 })
 _VARIANT_MODULES = {
     "kick": kick_variants, "hat": hat_variants, "snare": snare_variants, "clap": clap_variants,
-    "rim": rim_variants, "bass": bass_variants,
+    "rim": rim_variants, "bass": bass_variants, "laser": laser_variants,
 }
 
 
