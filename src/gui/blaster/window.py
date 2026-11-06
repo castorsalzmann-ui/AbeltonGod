@@ -41,12 +41,14 @@ from PySide6.QtWidgets import (
 
 from gui.drag import PATH_ROLE, DragList
 from gui.widgets import Collapsible, FlowLayout, NumberControl, PresetChips, Segmented
+from gui.windows import ResultActions
 from gui_core import blaster_params as bp
 from gui_core.blaster import (
     BANK_MAX,
     DIMENSIONS,
     BankWriter,
     BlasterSession,
+    CategoryBankWriter,
     LaserEngine,
     dimension,
     export_bank,
@@ -54,6 +56,8 @@ from gui_core.blaster import (
 )
 from gui_core.paths import default_output_dir
 from gui_core.preview import PlaybackBackend
+from gui_core.settings import AppSettings, free_stem
+from gui_core.tasks import start_task
 from gui_core.valuemap import map_of
 from gui_core.waveform import peaks
 
@@ -102,6 +106,17 @@ class _Relay(QObject):
     """Carries a worker's result to the GUI thread (queued: the emitter is another thread)."""
 
     done = Signal(str, object)
+    saved = Signal(object)  # library save: (wav, sidecar) or the exception
+
+
+class FormatWriter:
+    """A bank writer that adds the shared sample rate / bit depth to the request."""
+
+    def __init__(self, inner: BankWriter, overrides: dict[str, int]) -> None:
+        self.inner, self.overrides = inner, overrides
+
+    def write(self, params, seed, folder, stem, description):
+        return self.inner.write({**params, **self.overrides}, seed, folder, stem, description)
 
 
 class BlasterWindow(QWidget):
@@ -128,6 +143,12 @@ class BlasterWindow(QWidget):
         self.session = BlasterSession(engine, backend, work_dir, unavailable_reason=reason)  # type: ignore[arg-type]
         self.backend = backend
         self.out_dir = out_dir or default_output_dir()
+        self.library_dir = AppSettings(output_dir=str(self.out_dir)).laser_dir()
+        self.bank_start_dir = self.out_dir
+        self.format_overrides: dict[str, int] = {}
+        self.hub = None
+        self._saving = False
+        self._kept: dict[tuple, Path] = {}  # shot -> its library copy (save / drag, #444)
         self.opener, self.ask_dir, self.bank_writer = opener, ask_dir, bank_writer
         self.ask_save, self.ask_open = ask_save, ask_open
         self.settings = bp.BlasterSettings()
@@ -149,6 +170,7 @@ class BlasterWindow(QWidget):
         self.enums: dict[str, list[EnumRow]] = {}
         self._relay = _Relay(self)
         self._relay.done.connect(self._on_job_done)
+        self._relay.saved.connect(self._on_saved)
         self.preview_timer = QTimer(self)
         self.preview_timer.setSingleShot(True)
         self.preview_timer.setInterval(PREVIEW_DELAY_MS)
@@ -302,7 +324,7 @@ class BlasterWindow(QWidget):
         self.scope = SalvoScope()
         sl.addWidget(self.scope)
         sl.addWidget(self._cap("Schüsse (in Live oder Explorer ziehen)"))
-        self.history = DragList()
+        self.history = DragList(offer=self.offer_for_drag)
         self.history.setMinimumHeight(int(u * 4.5))
         self.history.setMaximumHeight(int(u * 14))
         self.history.currentItemChanged.connect(self._on_select)
@@ -335,6 +357,18 @@ class BlasterWindow(QWidget):
         self.bank_btn.clicked.connect(self.export_bank_dialog)
         bank_row.addWidget(self.bank_btn)
         sl.addLayout(bank_row)
+        lib_row = QHBoxLayout()
+        self.keep_btn = QPushButton("In Bibliothek speichern")
+        self.keep_btn.setObjectName("save_to_library")
+        self.keep_btn.setToolTip("Schreibt den ausgewählten Schuss (gleiche Einstellungen, "
+                                 "gleicher Seed) als WAV + Sidecar nach Samples/FX/Lasers im "
+                                 "Ausgabeordner. Vorhandene Dateien werden nie überschrieben.")
+        self.keep_btn.clicked.connect(self.save_to_library)
+        lib_row.addWidget(self.keep_btn)
+        lib_row.addStretch(1)
+        sl.addLayout(lib_row)
+        self.actions = ResultActions()
+        sl.addWidget(self.actions)
         return side
 
     def _build_actions(self) -> QHBoxLayout:
@@ -610,6 +644,7 @@ class BlasterWindow(QWidget):
         waiting = " · einer wartet" if self.queue.pending is not None else ""
         self.busy_label.setText(f"{names.get(kind or '', '')}{waiting}" if busy else "")
         self.bank_btn.setEnabled(not busy)
+        self.keep_btn.setEnabled(not self._saving)
 
     # ---- settings <-> widgets ----------------------------------------------------------------
     def current_dimension(self) -> str:
@@ -960,7 +995,7 @@ class BlasterWindow(QWidget):
         return (settings, seed, *self.session.render_shot(settings, seed))
 
     def _write_bank(self, settings, first, count, chosen):
-        return first, export_bank(settings, first, count, chosen, self.bank_writer)
+        return first, export_bank(settings, first, count, chosen, self._writer())
 
     def _work(self, job: bp.Job) -> None:
         try:
@@ -1134,7 +1169,7 @@ class BlasterWindow(QWidget):
     def export_bank_dialog(self) -> None:
         if self.busy:
             return
-        chosen = self.ask_dir(self, self.out_dir)
+        chosen = self.ask_dir(self, self.bank_start_dir)
         if chosen is None:
             self.set_status("Bank-Export abgebrochen.")
             return
@@ -1162,7 +1197,127 @@ class BlasterWindow(QWidget):
         self._sync_seed_field()
         self.set_status(res.message, error=res.error)
         if res.folder is not None and res.files:
+            wavs = [w for w, _side in res.files]
+            self.actions.set_paths(wavs)
+            if self.hub is not None:
+                self.hub.files_written.emit(wavs)
             self.opener(res.folder)
+
+    # ---- library / shared settings (#439) ---------------------------------------------------
+    def _writer(self) -> BankWriter:
+        inner = self.bank_writer or CategoryBankWriter()
+        return FormatWriter(inner, dict(self.format_overrides)) if self.format_overrides \
+            else inner
+
+    def attach_hub(self, hub) -> None:
+        """Shared output folder and audio format, library and Live hand-off (main window)."""
+        self.hub = hub
+        self.actions.set_hub(hub)
+        self._settings_changed(hub.settings)
+        hub.settings_changed.connect(self._settings_changed)
+
+    def _settings_changed(self, settings) -> None:
+        self.out_dir = settings.output_root()
+        self.library_dir = settings.laser_dir()
+        self.bank_start_dir = settings.bank_start_dir()
+        self.format_overrides = settings.format_overrides()
+
+    def save_to_library(self, *_: Any) -> bool:
+        """Write the selected shot (or the newest) through the laser category: WAV + sidecar in
+        ``<out>/Samples/FX/Lasers``, a free name, never overwriting. Worker thread."""
+        if self._saving:
+            return False
+        shot = self._shot_of(self.history.currentItem()) or (
+            self.session.history[0] if self.session.history else None)
+        if shot is None:
+            self.set_status("Noch kein Schuss zum Speichern.", error=True)
+            return False
+        key = self._kept_key(shot)
+        known = self._kept.get(key)
+        if known is not None and known.is_file():
+            self._kept_done(known, "Schon in der Bibliothek")
+            return True
+        work = partial(self._write_shot, shot, self.library_dir, self._writer())
+        self._saving = True
+        self._update_busy()
+        self.set_status("Schuss wird in die Bibliothek geschrieben …")
+        start_task(work, partial(self._save_finished, key), name="blaster-save")
+        return True
+
+    def _kept_key(self, shot) -> tuple:
+        return (shot.index, str(self.library_dir), tuple(sorted(self.format_overrides.items())))
+
+    @staticmethod
+    def _write_shot(shot, folder: Path, writer: BankWriter) -> tuple[Path, Path]:
+        """Re-render ``shot`` (same params, same seed: same bytes as the shot when no format is
+        set) through the laser category writer: WAV + sidecar, never overwriting."""
+        dim = dimension(shot.settings.dimension)
+        text = f"Laser-Schuss, Dimension {dim.label}, Seed {shot.seed}, aus dem Blaster."
+        folder.mkdir(parents=True, exist_ok=True)
+        stem = free_stem(folder, f"laser_{shot.settings.dimension}_s{shot.seed}")
+        return writer.write(dict(shot.params), shot.seed, folder, stem, text)
+
+    def _save_finished(self, key: tuple, handle) -> None:  # worker thread: only the relay
+        try:
+            self._relay.saved.emit((key, handle.error if handle.error is not None
+                                    else handle.result))
+        except RuntimeError:  # window already destroyed
+            pass
+
+    def _on_saved(self, payload: Any) -> None:
+        self._saving = False
+        if self._closed:
+            return
+        self._update_busy()
+        key, result = payload
+        if isinstance(result, BaseException):
+            self.set_status(f"Speichern fehlgeschlagen: {self._error_text(result)}", error=True)
+            return
+        wav, _side = result
+        self._kept[key] = wav
+        self._kept_done(wav, "In der Bibliothek")
+
+    @staticmethod
+    def _error_text(exc: BaseException) -> str:
+        return str(exc) if isinstance(exc, (bp.BlasterError, OSError)) else (
+            f"{type(exc).__name__}: {exc}")
+
+    def _kept_done(self, wav: Path, what: str) -> None:
+        self.actions.set_paths([wav])
+        if self.hub is not None:
+            self.hub.files_written.emit([wav])
+        self.set_status(f"{what}: {wav}")
+
+    def offer_for_drag(self, path: Path) -> Path | None:
+        """What a drag from the shot list offers for ``path`` (#444): never a file in the
+        session's temporary folder, which is trimmed after the history limit and deleted on
+        close (Live would then play silence). A shot is written to the library first (GUI
+        thread, one render) and that copy is offered; None (the row is left out) if that
+        fails."""
+        path = Path(path)
+        shot = next((s for s in self.session.history if s.wav_path == path), None)
+        if shot is None:
+            return None if self._in_work_dir(path) else path
+        key = self._kept_key(shot)
+        known = self._kept.get(key)
+        if known is not None and known.is_file():
+            return known
+        try:
+            wav, _side = self._write_shot(shot, self.library_dir, self._writer())
+        except Exception as exc:  # noqa: BLE001 - a failed drag must not end the program
+            self.set_status("Ziehen nicht möglich, der Schuss konnte nicht in die Bibliothek "
+                            f"geschrieben werden: {self._error_text(exc)}", error=True)
+            return None
+        self._kept[key] = wav
+        self._kept_done(wav, "Für das Ziehen in die Bibliothek geschrieben")
+        return wav
+
+    def _in_work_dir(self, path: Path) -> bool:
+        try:
+            Path(path).resolve().relative_to(Path(self.session.work_dir).resolve())
+        except ValueError:
+            return False
+        return True
 
     def closeEvent(self, e) -> None:  # noqa: N802
         self._closed = True

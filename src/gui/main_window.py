@@ -30,9 +30,9 @@ from gui_core.chat import ChatSession
 from gui_core.form import CategoryFormModel
 from gui_core.goa_render import GoaService
 from gui_core.live import LiveConfig
-from gui_core.paths import default_output_dir
 from gui_core.preview import ERROR, PLAYING, PlaybackBackend, PreviewController
 from gui_core.render import RenderHandle, RenderJob, RenderResult, RenderService
+from gui_core.settings import SettingsStore, apply_format_to_form
 
 from .audio import choose_backend
 from .category_panel import CategoryPanel
@@ -42,7 +42,14 @@ from .goa_panel import GoaPanel
 from .library_panel import LibraryPanel
 from .live_panel import LivePanel
 from .waveform_widget import WaveformWidget
-from .windows import WINDOW_KEYS, WindowManager
+from .windows import (
+    WINDOW_KEYS,
+    AppHub,
+    SettingsDialog,
+    WindowManager,
+    restore_state,
+    window_state,
+)
 
 # Pages after the sample categories and the library (left list order).
 TOOL_PAGES = (("goa", "Goa-Arrangement"), ("live", "Live-Import"), ("chat", "Copilot"))
@@ -71,15 +78,22 @@ class MainWindow(QMainWindow):
         registry: CapabilityRegistry | None = None,
         chat_session: ChatSession | None = None,
         window_factories: dict[str, Callable[[Path], QWidget]] | None = None,
+        settings_store: SettingsStore | None = None,
     ) -> None:
         super().__init__()
         self.setWindowTitle("AbeltonGod")
-        self.windows = WindowManager(self._library_folder, window_factories)
-        self._initial_out = out_dir
+        # One settings object for this window and every tool window. Without a store it lives
+        # in memory only (tests, selftest); gui.app passes the one in the user config dir.
+        self.hub = AppHub(settings_store or SettingsStore())
+        if out_dir is not None:
+            self.hub.store.update(output_dir=str(out_dir))
+        self.windows = WindowManager(self._library_folder, window_factories, self.hub)
         self.service = service or RenderService()
         self.preview = PreviewController(backend or choose_backend())
         self.opener = opener
         self.models = {c.key: CategoryFormModel(c.key) for c in CATEGORIES}
+        for m in self.models.values():
+            apply_format_to_form(m, self.hub.settings)
         self.form_key = CATEGORIES[0].key  # the category whose form Render uses
         self.on_library = False
         self.on_tool = False  # Goa, Live or chat page: the render column is not used
@@ -130,8 +144,8 @@ class MainWindow(QMainWindow):
         self.library.selected.connect(self._load_preview)
         self.stack.addWidget(self.library)
         self.library_row = len(CATEGORIES)
-        self.goa = GoaPanel(
-            (self._initial_out or default_output_dir()) / "goa", goa_service, opener)
+        self.goa = GoaPanel(self.hub.settings.goa_dir(), goa_service, opener)
+        self.goa.attach_hub(self.hub)
         self.live = LivePanel(live_config, registry, self._library_folder)
         self.chat = ChatPanel(chat_session)
         self.tool_rows = {}
@@ -154,6 +168,12 @@ class MainWindow(QMainWindow):
         self.categories.setCurrentRow(0)
         self._update_state()
         self.resize(m * 112, self.fontMetrics().height() * 42)
+        restore_state(self, self.hub.settings.windows.get("main"))
+        self.hub.show_requested.connect(self.show_in_library)
+        self.hub.live_requested.connect(self.send_to_live)
+        self.hub.files_written.connect(self._on_files_written)
+        self.hub.settings_changed.connect(self._on_settings_changed)
+        self.settings_dialog: SettingsDialog | None = None
 
     def _build_window_buttons(self) -> QWidget:
         """Buttons that open the other windows (one instance each, see ``windows``)."""
@@ -172,12 +192,97 @@ class MainWindow(QMainWindow):
             button.clicked.connect(slots[key])
             self.window_buttons[key] = button
             lay.addWidget(button)
+        self.settings_button = QPushButton("Einstellungen …")
+        self.settings_button.setObjectName("open_settings")
+        self.settings_button.setToolTip("Ausgabe- und Projektordner, Samplerate, Bittiefe: "
+                                        "gelten für dieses und alle anderen Fenster.")
+        self.settings_button.clicked.connect(self.open_settings)
+        lay.addWidget(self.settings_button)
         self.window_note = QLabel()
         self.window_note.setObjectName("muted")
         self.window_note.setWordWrap(True)
         self.window_note.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Minimum)
         lay.addWidget(self.window_note)
         return box
+
+    # --- shared settings and hand-off from the tool windows (#439) -------------------------
+    def open_settings(self) -> SettingsDialog:
+        """Open the settings dialog (window-modal, returns at once); OK applies it."""
+        dlg = SettingsDialog(self.hub.settings, self)
+        dlg.accepted.connect(self._settings_accepted)
+        self.settings_dialog = dlg
+        dlg.open()
+        return dlg
+
+    def _settings_accepted(self) -> None:
+        dlg = self.settings_dialog
+        if dlg is None:
+            return
+        self.hub.store.update(**dlg.values())
+        if self.hub.store.persistent and not self.hub.store.last_save_ok:
+            self.window_note.setText("Die Einstellungen gelten, konnten aber nicht gespeichert "
+                                     f"werden ({self.hub.store.path}).")
+
+    def _folder_edited(self) -> None:
+        text = self.folder_edit.text().strip()
+        if text:
+            self.hub.store.update(output_dir=text)
+
+    def _on_settings_changed(self, settings) -> None:
+        root = str(settings.output_root())
+        if self.folder_edit.text().strip() != root:
+            self.folder_edit.setText(root)
+        for key, model in self.models.items():
+            if apply_format_to_form(model, settings):
+                self.panels[key].sync_from_model()
+        if self.on_library:
+            self.library.set_folder(Path(root))
+        self._update_state()
+
+    def _on_files_written(self, paths) -> None:
+        """A tool window wrote files: the library page shows them without a restart."""
+        if self.on_library:
+            self.library.refresh()
+
+    def _bring_to_front(self) -> None:
+        if self.isMinimized():
+            self.showNormal()
+        self.raise_()
+        self.activateWindow()
+
+    def show_in_library(self, path) -> bool:
+        """Show the library page with ``path`` selected. False (and a note) if the file is not
+        below the output folder, so the library cannot list it."""
+        path = Path(path)
+        self.categories.setCurrentRow(self.library_row)  # rescans the output folder
+        self._bring_to_front()
+        for attempt in range(2):
+            for i in range(self.library.list.count()):
+                item = self.library.list.item(i)
+                if Path(item.data(PATH_ROLE)) == path:
+                    self.library.list.setCurrentRow(i)
+                    return True
+            if attempt == 0:  # hidden by the filter: show everything
+                self.library.category_box.setCurrentIndex(0)
+                self.library.search.clear()
+        self.library.info.setText(
+            f"{path.name} liegt nicht im Ausgabeordner {self.library.folder}; die Bibliothek "
+            "listet nur diesen Ordner.")
+        return False
+
+    def send_to_live(self, path) -> None:
+        """Open the Live-import page with ``path`` chosen. Nothing is sent: the page's checks
+        (read set, plan, test-set confirmation) run as for any other file."""
+        path = Path(path)
+        self.categories.setCurrentRow(self.tool_rows["live"])  # reloads its library list
+        self._bring_to_front()
+        idx = self.live.wav_box.findData(str(path))
+        if idx >= 0:
+            self.live.wav_box.setCurrentIndex(idx)
+        else:
+            self.live.add_wav(path)
+        self.live.set_status(f"{path.name} gewählt. Live-Set lesen, Plan prüfen, Test-Set "
+                             "bestätigen, dann importieren.")
 
     def _open_window(self, key: str) -> None:
         win = self.windows.open(key)
@@ -195,7 +300,7 @@ class MainWindow(QMainWindow):
     def _library_folder(self) -> Path:
         edit = getattr(self, "folder_edit", None)  # not built yet while the pages are made
         text = edit.text().strip() if edit is not None else ""
-        return Path(text) if text else (self._initial_out or default_output_dir())
+        return Path(text) if text else self.hub.settings.output_root()
 
     def _build_right(self) -> QWidget:
         box = QWidget()
@@ -204,7 +309,8 @@ class MainWindow(QMainWindow):
 
         folder_row = QHBoxLayout()
         folder_row.addWidget(QLabel("Ausgabeordner"))
-        self.folder_edit = QLineEdit(str(self._initial_out or default_output_dir()))
+        self.folder_edit = QLineEdit(str(self.hub.settings.output_root()))
+        self.folder_edit.editingFinished.connect(self._folder_edited)
         folder_row.addWidget(self.folder_edit, 1)
         choose = QPushButton("Wählen …")
         choose.clicked.connect(self._choose_folder)
@@ -326,6 +432,7 @@ class MainWindow(QMainWindow):
                                                   self.folder_edit.text())
         if picked:
             self.folder_edit.setText(picked)
+            self._folder_edited()
 
     def start_render(self) -> None:
         if self.running or self.on_library or self.on_tool or not self.model.is_valid:
@@ -428,7 +535,9 @@ class MainWindow(QMainWindow):
         if self.handle is not None:
             self.handle.cancel()
             self.handle.wait(10)  # the daemon thread must not write into a closed window
+        self.hub.store.set_window("main", window_state(self))
         self.windows.close_all()
+        self.hub.detach()
         self.goa.shutdown()
         self.chat.shutdown()
         self.preview.close()

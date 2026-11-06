@@ -271,6 +271,11 @@ class CompactGoaWindow(QWidget):
         self.body = widget
         self.body_slot.addWidget(widget)
 
+    def attach_hub(self, hub) -> None:
+        """Hand the shared settings and library/Live hand-off to the body (if it takes them)."""
+        if self.body is not None and hasattr(self.body, "attach_hub"):
+            self.body.attach_hub(hub)
+
     # -- always on top / animation ----------------------------------------------------------
     def _apply_flags(self, on_top: bool) -> None:
         flags = Qt.WindowType.Window | Qt.WindowType.FramelessWindowHint
@@ -337,4 +342,6 @@ class CompactGoaWindow(QWidget):
 
     def closeEvent(self, event) -> None:  # noqa: N802
         self.save_settings()
+        if self.body is not None and hasattr(self.body, "shutdown"):
+            self.body.shutdown()  # a running Goa render must not call into a closed window
         super().closeEvent(event)
