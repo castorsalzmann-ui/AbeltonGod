@@ -82,6 +82,16 @@ QCheckBox::indicator {{ width: 0.9em; height: 0.9em; border: 1px solid {POISON};
   background: {FIELD}; border-radius: 2px; }}
 QCheckBox::indicator:checked {{ background: {NEON}; border-color: {LIME}; }}
 QToolTip {{ background: {FIELD}; color: {TEXT}; border: 1px solid {POISON}; }}
+QScrollArea {{ background: {BLACK}; border: none; }}
+QScrollBar:vertical {{ background: {BLACK}; width: 0.8em; margin: 0; }}
+QScrollBar:horizontal {{ background: {BLACK}; height: 0.8em; margin: 0; }}
+QScrollBar::handle:vertical {{ background: {DEEP}; min-height: 2em; border-radius: 0.3em;
+  border: 1px solid {POISON}; }}
+QScrollBar::handle:horizontal {{ background: {DEEP}; min-width: 2em; border-radius: 0.3em;
+  border: 1px solid {POISON}; }}
+QScrollBar::handle:hover {{ background: {BILE}; }}
+QScrollBar::add-line, QScrollBar::sub-line {{ width: 0; height: 0; }}
+QScrollBar::add-page, QScrollBar::sub-page {{ background: transparent; }}
 """
 
 
