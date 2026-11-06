@@ -215,7 +215,9 @@ def test_a_gui_render_goes_through_the_live_plan_against_the_fake_server(qapp_to
         assert tour_mod.wait_for(lambda: page.inspection is not None and not page.busy, 30)
         if not page.inspection.ok:
             err = page.inspection.error
-            known_gap(413, True, "nicht im Ordner 'Samples/Drums/Kicks'" in err, err)
+            # the message names the folder with the OS separator ('Samples\Drums\Kicks')
+            known_gap(413, True,
+                      "nicht im Ordner 'Samples/Drums/Kicks'" in err.replace("\\", "/"), err)
         page.plan_button.click()
         assert tour_mod.wait_for(lambda: page.plan is not None and not page.busy, 30)
         assert page.plan.ok, page.status.text()
