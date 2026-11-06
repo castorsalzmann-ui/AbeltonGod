@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
     QFormLayout,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QPlainTextEdit,
     QPushButton,
     QSizePolicy,
@@ -68,6 +69,8 @@ class LivePanel(QWidget):
         self.plan: ImportPlan | None = None
         self.busy = False
         self._extra_wavs: list[Path] = []
+        # Folders a project may not lie in; None = gui_core.live.default_refused_roots().
+        self.refused_roots: tuple[Path, ...] | None = None
         self._signals = _Signals()
         self._signals.inspected.connect(self._on_inspected)
         self._signals.planned.connect(self._on_planned)
@@ -96,6 +99,22 @@ class LivePanel(QWidget):
         row.addWidget(self.reload_button)
         row.addWidget(self.pick_button)
         form.addRow("WAV", row)
+        prow = QHBoxLayout()
+        self.project_edit = QLineEdit()
+        self.project_edit.setPlaceholderText(
+            "Ordner mit der .als-Datei des Test-Sets (nötig für Dateien aus dem Ausgabeordner)")
+        self.project_button = QPushButton("Wählen …")
+        prow.addWidget(self.project_edit, 1)
+        prow.addWidget(self.project_button)
+        form.addRow("Live-Projekt", prow)
+        project_hint = QLabel(
+            "Live importiert Samples nur aus dem Kategorie-Ordner eines Projekts (z. B. "
+            "Samples/Drums/Kicks). Liegt die WAV woanders, kopiert das Programm WAV und "
+            "Sidecar vor dem Import dorthin; der Plan zeigt das Ziel.")
+        project_hint.setWordWrap(True)
+        project_hint.setObjectName("muted")
+        project_hint.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Minimum)
+        form.addRow("", project_hint)
         self.track_box = QComboBox()
         self.track_box.addItem(NEW_TRACK_TEXT, None)
         form.addRow("Ziel-Spur", self.track_box)
@@ -143,6 +162,8 @@ class LivePanel(QWidget):
 
         self.reload_button.clicked.connect(self.reload_library)
         self.pick_button.clicked.connect(self._pick_file)
+        self.project_button.clicked.connect(self._pick_project)
+        self.project_edit.textChanged.connect(self._project_changed)
         self.inspect_button.clicked.connect(self.start_inspect)
         self.plan_button.clicked.connect(self.start_plan)
         self.import_button.clicked.connect(self.start_import)
@@ -202,6 +223,19 @@ class LivePanel(QWidget):
         self.wav_box.addItem(f"{path.name}   (gewählt)", str(path))
         self.wav_box.setCurrentIndex(self.wav_box.count() - 1)
 
+    def _pick_project(self) -> None:
+        picked = QFileDialog.getExistingDirectory(self, "Live-Projektordner wählen",
+                                                  self.project_edit.text())
+        if picked:
+            self.project_edit.setText(picked)
+
+    def _project_changed(self, *_a) -> None:
+        self._inputs_changed()  # the plan re-checks the copy target against the new folder
+
+    @property
+    def project_dir(self) -> str | None:
+        return self.project_edit.text().strip() or None
+
     @property
     def wav_path(self) -> str | None:
         return self.wav_box.currentData()
@@ -247,7 +281,8 @@ class LivePanel(QWidget):
         self.set_status("Liest das Live-Set …")
         self._update_state()
         cfg, wav, reg, acc = self.config, self.wav_path, self.registry(), self._accept()
-        start_task(lambda: inspect_live(cfg, wav, reg, acc),
+        proj, roots = self.project_dir, self.refused_roots
+        start_task(lambda: inspect_live(cfg, wav, reg, acc, proj, roots),
                    lambda h: self._signals.inspected.emit(h.result if h.error is None
                                                           else h.error), name="live-inspect")
 
@@ -275,8 +310,11 @@ class LivePanel(QWidget):
             self.track_box.blockSignals(False)
             self.slot_spin.setMaximum(res.num_scenes)
             sample = f" Sample: {res.sample.label}." if res.sample else ""
+            pl = res.placement
+            copy = (f" Wird vor dem Import kopiert nach {pl.target}." if pl and pl.copy
+                    else "")
             self.set_status(f"Live {res.live_version}: {len(res.tracks)} Spuren, "
-                            f"{res.num_scenes} Szenen.{sample} Nichts wurde geändert.")
+                            f"{res.num_scenes} Szenen.{sample}{copy} Nichts wurde geändert.")
         else:
             self.set_status(res.error, error=True)
         self._update_state()
@@ -289,7 +327,8 @@ class LivePanel(QWidget):
         self._update_state()
         cfg, wav, reg, acc = self.config, self.wav_path, self.registry(), self._accept()
         track, slot = self.selected_track(), self.selected_slot()
-        start_task(lambda: prepare_import(cfg, wav, track, slot, reg, acc),
+        proj, roots = self.project_dir, self.refused_roots
+        start_task(lambda: prepare_import(cfg, wav, track, slot, reg, acc, proj, roots),
                    lambda h: self._signals.planned.emit(h.result if h.error is None
                                                         else h.error), name="live-plan")
 
