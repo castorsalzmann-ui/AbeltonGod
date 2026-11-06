@@ -147,11 +147,15 @@ def run_job(
     return RenderResult(job, tuple(files))
 
 
+class PlanError(ValueError):
+    """A refusal by this module itself (German text, shown unchanged)."""
+
+
 def _plan(job: RenderJob) -> tuple[list[dict[str, Any]], list[str], list[str]]:
     if str(job.out_dir).strip() in ("", "."):  # Path("") is "." = the current folder
-        raise ValueError("Kein Ausgabeordner angegeben.")
+        raise PlanError("Kein Ausgabeordner angegeben.")
     if job.category not in _VARIANTS:
-        raise ValueError(f"Unbekannte Kategorie: {job.category}")
+        raise PlanError(f"Unbekannte Kategorie: {job.category}")
     request = dict(job.request)
     # The category's own resolve and variant maker, as the CLI uses them (no rules re-written).
     base = get_category(job.category).resolve(request)
@@ -179,9 +183,24 @@ def _peak(sidecar: Path) -> float | None:
         return None
 
 
+# Engine messages (English, shared with the CLI) the main window shows in German (polish, W1).
+_GERMAN_PREFIXES = (
+    ("Render is silent", "Das Ergebnis wäre stumm (Spitze 0); es wurde nichts geschrieben."),
+)
+
+
 def _first_line(exc: BaseException) -> str:
-    text = str(exc).strip()
-    return "Ungültige Parameter: " + " ".join(text.split("\n")[:4])
+    """The German status text for a refused render. Known engine messages are translated; any
+    other engine text is shown as it is, marked as the engine's own (English) message."""
+    text = " ".join(str(exc).strip().split("\n")[:4])
+    if isinstance(exc, PlanError):  # the GUI's own German message
+        return text
+    if isinstance(exc, UnknownPresetError):
+        return f"Unbekanntes Preset. {text}"
+    for prefix, german in _GERMAN_PREFIXES:
+        if text.startswith(prefix):
+            return german
+    return f"Ungültige Parameter (Meldung der Engine, englisch): {text}"
 
 
 def _output_error(exc: OSError, written: int, total: int) -> ErrorInfo:

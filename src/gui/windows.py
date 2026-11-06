@@ -353,7 +353,8 @@ class SettingsDialog(QDialog):
         lay.addLayout(form)
         note = QLabel(
             "Alle Fenster schreiben unter den Ausgabeordner: Acid nach Acid/<Lauf>/, Goa nach "
-            "Goa/<Lauf>/, "
+            "Goa/<Lauf>/ (gibt es schon einen Ordner acid oder goa in anderer Schreibweise, "
+            "nutzt Windows diesen weiter; nichts geht verloren), "
             "Blaster nach Samples/FX/Lasers/. Die Bibliothek liest nur den Ausgabeordner. "
             "Der Projektordner ist das Live-Projekt der Live-Import-Seite (dieselbe Einstellung) "
             "und der Startordner für den Bank-Export des Blasters. "

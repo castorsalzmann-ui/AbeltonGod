@@ -312,3 +312,14 @@ def test_header_drips_end_above_the_widget_bottom(win):
             assert c.green() < 120, (x, y, c.green())
     assert win.header.drip_max() < win.header.height()
     assert STEPS_PER_ROW == 16
+
+
+def test_scroll_bars_follow_the_dark_skin(win):
+    """W1 polish: the scroll bars of the scroll area (#442) are dark, not the default grey."""
+    win.resize(600, 400)  # smaller than the skin: both bars show
+    QApplication.processEvents()
+    bar = win.scroll.verticalScrollBar()
+    assert bar.isVisible()
+    img = bar.grab().toImage()
+    c = img.pixelColor(img.width() // 2, img.height() - 3)  # the groove, below the handle
+    assert max(c.red(), c.green(), c.blue()) < 60, c.name()

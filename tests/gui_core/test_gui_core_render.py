@@ -228,3 +228,25 @@ def test_service_cancel_through_the_handle(tmp_path):
     assert handle.wait(30)
     assert handle.result.cancelled and not handle.result.ok
     assert len(handle.result.files) == 1  # the variant in flight finishes, the rest is skipped
+
+
+def test_empty_output_folder_message_is_shown_unchanged():
+    """Review of #474: the GUI's own German refusal is not labelled as an engine message."""
+    result = run_job(job_from_form(form(seed=7), Path("")))
+    assert result.error is not None and result.files == ()
+    assert result.error.message == "Kein Ausgabeordner angegeben."
+
+
+def test_refused_render_messages_are_german():
+    """W1 polish: the main window's status for a refused render is German; an engine message
+    without a translation is marked as the engine's own (English) text."""
+    from audio_engine.presets import UnknownPresetError
+    from gui_core.render import _first_line
+
+    silent = ValueError("Render is silent (peak 0); refusing to write a WAV and sidecar.")
+    assert _first_line(silent) == ("Das Ergebnis wäre stumm (Spitze 0); es wurde nichts "
+                                   "geschrieben.")
+    assert _first_line(UnknownPresetError("nope")).startswith("Unbekanntes Preset. ")
+    other = _first_line(ValueError("drive must be 0-1\nsecond line"))
+    assert other == "Ungültige Parameter (Meldung der Engine, englisch): drive must be 0-1 " \
+                    "second line"

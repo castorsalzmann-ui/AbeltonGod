@@ -402,6 +402,17 @@ def test_settings_project_folder_shows_on_the_live_page(main, tmp_path):
     assert main.live.project_edit.text() == "" and main.live.project_dir is None
 
 
+def test_settings_dialog_says_an_old_lowercase_folder_is_reused(main):
+    """#473: Windows file names ignore case, so an existing acid/ or goa/ folder is reused for
+    Acid/ and Goa/. Decided: say so in the dialog (nothing is lost, no renaming)."""
+    from PySide6.QtWidgets import QLabel
+
+    dlg = main.open_settings()
+    texts = " ".join(lab.text() for lab in dlg.findChildren(QLabel))
+    assert "in anderer Schreibweise" in texts and "nichts geht verloren" in texts
+    dlg.reject()
+
+
 def test_live_project_survives_a_restart(qapp, tmp_path):
     cfg = tmp_path / "cfg" / "settings.json"
     w = MainWindow(out_dir=tmp_path / "out", backend=FakeBackend(),
