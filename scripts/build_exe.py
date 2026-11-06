@@ -51,6 +51,31 @@ COLLECT_ALL = ("claude_agent_sdk", "jsonschema", "jsonschema_specifications",
 # mcp: collect_all imports every submodule and mcp.cli exits without its optional typer extra
 # (CI run 42080769820), so only its data is collected; the code is found by static analysis.
 COLLECT_DATA = ("mcp",)
+# Files PyInstaller's PySide6 hook collects that the widget GUI never loads (#435, measured
+# on the runner: 72 MB PySide6 folder). Paths relative to _internal/PySide6; removed after the
+# build. Why each is unused:
+#   opengl32sw.dll      software OpenGL (Mesa) fallback; only Qt Quick / QOpenGL use OpenGL,
+#                       the GUI paints with QPainter on the raster backend
+#   translations/       Qt's own .qm files; nothing installs a QTranslator (texts are German
+#                       in the code)
+#   imageformats/       PNG (the only format the GUI writes, screenshots) is built into QtGui;
+#                       no image file is loaded
+#   iconengines/        SVG icon engine; no icon file is loaded
+#   tls/, networkinformation/, Qt6Network.dll   QtNetwork is not imported
+#   generic/            TUIO touch input over the network
+#   Qt6Svg.dll          only needed by the svg imageformat/icon plugins removed above
+#   qdirect2d, qminimal alternative platform plugins; qwindows (screen) and qoffscreen
+#                       (--gui-selftest) stay
+# The "Build exe" smoke proves the rest is enough: --gui-selftest on the real ``windows``
+# platform and offscreen, and a copy without qwindows.dll must fail (build-exe.yml).
+QT_PRUNE = ("opengl32sw.dll", "translations", "plugins/imageformats", "plugins/iconengines",
+            "plugins/tls", "plugins/networkinformation", "plugins/generic",
+            "plugins/platforms/qdirect2d.dll", "plugins/platforms/qminimal.dll",
+            "Qt6Network.dll", "Qt6Svg.dll")
+# Must exist after pruning, or the build fails (a wrong prune entry is caught at build time).
+QT_REQUIRED = ("Qt6Core.dll", "Qt6Gui.dll", "Qt6Widgets.dll", "QtCore.pyd", "QtGui.pyd",
+               "QtWidgets.pyd", "plugins/platforms/qwindows.dll",
+               "plugins/platforms/qoffscreen.dll")
 SIDE_DIRS = ("contracts", "config")
 DATA_SEP = ";" if sys.platform == "win32" else ":"
 
@@ -136,6 +161,31 @@ def size_report(folder: Path, top: int = 20) -> str:
     return "\n".join(lines)
 
 
+def prune_qt(folder: Path, prune: tuple[str, ...] = QT_PRUNE,
+             required: tuple[str, ...] = QT_REQUIRED) -> tuple[int, list[str]]:
+    """Remove ``prune`` below ``folder/_internal/PySide6``. Returns (bytes freed, lines for
+    the log). Raises FileNotFoundError when a ``required`` file is missing afterwards. An entry
+    that does not exist is only logged (PySide6 versions differ in what they ship)."""
+    qt = folder / "_internal" / "PySide6"
+    freed, lines = 0, []
+    for rel in prune:
+        path = qt / rel
+        if not path.exists():
+            lines.append(f"prune: {rel} not present")
+            continue
+        size = _tree_size(path)
+        if path.is_dir():
+            shutil.rmtree(path)
+        else:
+            path.unlink()
+        freed += size
+        lines.append(f"prune: {rel} {size / 1024 / 1024:.1f} MB")
+    missing = [rel for rel in required if not (qt / rel).is_file()]
+    if missing:
+        raise FileNotFoundError(f"required Qt files missing after pruning: {missing}")
+    return freed, lines
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--dist", type=Path, default=ROOT / "dist")
@@ -155,6 +205,16 @@ def main(argv: list[str] | None = None) -> int:
     a.work.mkdir(parents=True, exist_ok=True)
     pyi.run(pyinstaller_args(a.dist, a.work, write_build_info(a.work)))
     folder = a.dist / NAME
+    if (folder / "_internal" / "PySide6").is_dir():
+        try:
+            # the required names are the Windows ones (.dll/.pyd); the exe is built there
+            freed, lines = prune_qt(folder, required=QT_REQUIRED if sys.platform == "win32"
+                                    else ())
+        except FileNotFoundError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 1
+        print("\n".join(lines))
+        print(f"pruned unused Qt files: {freed / 1024 / 1024:.1f} MB")
     for name in SIDE_DIRS:
         target = folder / name
         if target.exists():

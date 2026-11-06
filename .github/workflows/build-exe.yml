@@ -54,6 +54,47 @@ jobs:
         run: python scripts/exe_smoke.py dist/AbeltonGod/AbeltonGod.exe menu
       - name: Smoke - GUI starts offscreen, opens all windows, exits 0
         run: python scripts/exe_smoke.py dist/AbeltonGod/AbeltonGod.exe gui
+      - name: Smoke - GUI on the real windows platform plugin (qwindows.dll), all windows
+        # offscreen above uses qoffscreen.dll; this run loads the plugin a double-click uses
+        shell: python
+        env:
+          QT_QPA_PLATFORM: windows
+        run: |
+          import subprocess
+          r = subprocess.run([r"dist\AbeltonGod\AbeltonGod.exe", "--gui-selftest"],
+                             capture_output=True, text=True, timeout=300)
+          print(r.returncode, r.stdout, r.stderr[-2000:])
+          assert r.returncode == 0 and "GUI selftest ok" in r.stdout, r.returncode
+          assert "3 windows opened" in r.stdout and "platform windows" in r.stdout, r.stdout
+      - name: Smoke - a bundle without qwindows.dll fails the GUI smoke (fault injection)
+        shell: python
+        env:
+          QT_QPA_PLATFORM: windows
+        run: |
+          import shutil, subprocess
+          shutil.copytree("dist/AbeltonGod", "broken/AbeltonGod")
+          (__import__("pathlib").Path("broken/AbeltonGod/_internal/PySide6/plugins/platforms")
+           / "qwindows.dll").unlink()
+          r = subprocess.run([r"broken\AbeltonGod\AbeltonGod.exe", "--gui-selftest"],
+                             capture_output=True, text=True, timeout=300)
+          print(r.returncode, r.stdout, r.stderr[-1500:])
+          assert r.returncode != 0 and "GUI selftest ok" not in r.stdout, "smoke cannot fail"
+          shutil.rmtree("broken")
+      - name: Smoke - a failed GUI start is logged and keeps the console (#436)
+        shell: python
+        run: |
+          import os, pathlib, subprocess, tempfile
+          for stage in ("import", "qt", "window"):
+              logs = pathlib.Path(tempfile.mkdtemp()) / "logs"
+              env = {**os.environ, "QT_QPA_PLATFORM": "offscreen",
+                     "ABELTONGOD_LOG_DIR": str(logs), "ABELTONGOD_TEST_START_FAILURE": stage}
+              r = subprocess.run([r"dist\AbeltonGod\AbeltonGod.exe"], input="\n",
+                                 capture_output=True, text=True, timeout=120, env=env)
+              log = (logs / "startup-errors.log").read_text(encoding="utf-8")
+              print(stage, r.returncode, log.splitlines()[0])
+              assert r.returncode == 4, (r.returncode, r.stdout, r.stderr)
+              assert f"stage: {stage}" in log and "Traceback" in log, log
+              assert "Details stehen in" in r.stderr and "Enter zum Beenden" in r.stdout, r
       - name: Smoke - same output as python -m (SHA-256)
         run: python scripts/exe_smoke.py dist/AbeltonGod/AbeltonGod.exe determinism
       - name: Check that no secret was bundled
