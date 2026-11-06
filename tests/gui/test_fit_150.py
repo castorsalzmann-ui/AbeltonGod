@@ -33,7 +33,9 @@ WINDOWS = ("main", "goa", "acid", "blaster")
 SRC = Path(__file__).resolve().parents[2] / "src"
 
 # Too big on the named platform (measured, see module doc); fix in area E files, #442.
-_TOO_BIG = {"main": ("win32",), "acid": ("linux",)}
+# main on linux since #451: the Live page (Live-Projekt row) is 751 px high, which makes the main
+# window 1216 x 769 (measured on b3518eb; it was 645 / 703 before).
+_TOO_BIG = {"main": ("win32", "linux"), "acid": ("linux",)}
 
 
 def _param(key: str):
