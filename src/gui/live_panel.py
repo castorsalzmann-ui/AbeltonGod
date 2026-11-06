@@ -71,6 +71,7 @@ class LivePanel(QWidget):
         self._extra_wavs: list[Path] = []
         # Folders a project may not lie in; None = gui_core.live.default_refused_roots().
         self.refused_roots: tuple[Path, ...] | None = None
+        self.hub = None  # shared settings (attach_hub), None for a page on its own
         self._signals = _Signals()
         self._signals.inspected.connect(self._on_inspected)
         self._signals.planned.connect(self._on_planned)
@@ -228,9 +229,27 @@ class LivePanel(QWidget):
                                                   self.project_edit.text())
         if picked:
             self.project_edit.setText(picked)
+            self._commit_project()
 
     def _project_changed(self, *_a) -> None:
         self._inputs_changed()  # the plan re-checks the copy target against the new folder
+
+    # --- shared settings (#439): one project folder for all windows ----------------------
+    def attach_hub(self, hub) -> None:
+        """The field shows and edits the shared ``project_dir`` (also in the settings dialog,
+        and the Blaster's bank-export start folder)."""
+        self.hub = hub
+        self.project_edit.setText(hub.settings.project_dir)
+        self.project_edit.editingFinished.connect(self._commit_project)
+        hub.settings_changed.connect(self._settings_changed)
+
+    def _commit_project(self) -> None:
+        if self.hub is not None:
+            self.hub.store.update(project_dir=self.project_edit.text().strip())
+
+    def _settings_changed(self, settings) -> None:
+        if self.project_edit.text().strip() != settings.project_dir:
+            self.project_edit.setText(settings.project_dir)
 
     @property
     def project_dir(self) -> str | None:
