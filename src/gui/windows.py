@@ -215,14 +215,10 @@ def _goa(out_dir: Path) -> QWidget:
     from .skin.window import CompactGoaWindow
 
     body = GoaPanel(AppSettings(output_dir=str(out_dir)).goa_dir(), opener=open_in_file_manager)
-    win = CompactGoaWindow(settings=SkinSettings(), body=body)  # settings: the shared store
-    u = win.fontMetrics().height()
-    want_w, want_h = int(u * 84), int(u * 46)
-    screen = QGuiApplication.primaryScreen()
-    if screen is not None:
-        area = screen.availableGeometry()
-        want_w, want_h = min(want_w, area.width()), min(want_h, int(area.height() * 0.95))
-    win.resize(want_w, want_h)
+    # Start size in logical pixels (fits 1280 x 720 logical = 1920 x 1080 at 150 %); the form
+    # scrolls inside, so the window's minimum stays the skin's own. Place: the shared store.
+    win = CompactGoaWindow(settings=SkinSettings(width=760, height=560))
+    win.set_body(body, scroll=True)
     return win
 
 

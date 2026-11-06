@@ -12,10 +12,12 @@ from PySide6.QtCore import QPoint, QPointF, QRectF, Qt, Signal
 from PySide6.QtGui import QColor, QGuiApplication, QPainter, QPainterPath, QPen
 from PySide6.QtWidgets import (
     QAbstractButton,
+    QFrame,
     QHBoxLayout,
     QLabel,
     QLineEdit,
     QPushButton,
+    QScrollArea,
     QSizeGrip,
     QVBoxLayout,
     QWidget,
@@ -245,6 +247,7 @@ class CompactGoaWindow(QWidget):
         self._layout.addLayout(footer)
 
         self.body: QWidget | None = None
+        self._holder: QWidget | None = None  # the body or its scroll area
         self.set_body(body if body is not None else GoaPlaceholderPanel())
 
         self.strip.close_button.clicked.connect(self.close)
@@ -262,14 +265,25 @@ class CompactGoaWindow(QWidget):
         self._update_margins()
 
     # -- body slot --------------------------------------------------------------------------
-    def set_body(self, widget: QWidget) -> None:
-        """Put any QWidget into the body slot (the previous one is released)."""
-        if self.body is not None:
-            self.body_slot.removeWidget(self.body)
-            self.body.setParent(None)
-            self.body.deleteLater()
+    def set_body(self, widget: QWidget, scroll: bool = False) -> None:
+        """Put any QWidget into the body slot (the previous one is released). ``scroll=True``
+        wraps it in a scroll area, so a large body (the Goa form) does not set the window's
+        minimum size (150 % on 1920 x 1080); ``self.body`` stays the widget itself."""
+        old = self._holder
+        if old is not None:
+            self.body_slot.removeWidget(old)
+            old.setParent(None)
+            old.deleteLater()
         self.body = widget
-        self.body_slot.addWidget(widget)
+        holder: QWidget = widget
+        if scroll:
+            area = QScrollArea()
+            area.setWidgetResizable(True)
+            area.setFrameShape(QFrame.Shape.NoFrame)
+            area.setWidget(widget)
+            holder = area
+        self._holder = holder
+        self.body_slot.addWidget(holder)
 
     def attach_hub(self, hub) -> None:
         """Hand the shared settings and library/Live hand-off to the body (if it takes them)."""

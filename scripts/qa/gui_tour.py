@@ -43,14 +43,7 @@ WAIT_S = 60.0  # a render that answers within this is fine; the tour fails, neve
 # Step name -> (issue, text the step's detail must contain). A known gap counts only when the
 # step fails for exactly that reason; any other failure, and a pass, are unexpected (the tests
 # turn them red, so a fix is noticed and an unrelated break is not hidden as "known").
-KNOWN_GAPS: dict[str, tuple[int, str]] = {
-    # Goa window body is a placeholder, Render writes nothing
-    "render:goa-window": (440, "Noch nicht angeschlossen"),
-    # Acid writes MIDI only; the library lists WAVs only
-    "render:acid": (439, "the library lists only WAVs"),
-    # shots stay in a temp folder outside the library
-    "render:blaster-shot": (439, "is outside the library folder"),
-}
+KNOWN_GAPS: dict[str, tuple[int, str]] = {}  # #439, #440 fixed in PR #450
 # Whether a window fits the screen at 150 % is checked in one place only:
 # tests/gui/test_fit_150.py (lead decision, PR #458). The tour keeps the 150 % screenshots.
 
@@ -328,20 +321,23 @@ def render_goa_window(window, win) -> Step:
 
 
 def render_acid(window, win) -> Step:
-    """Acid window: generate, export MIDI; the result must be in the main library."""
+    """Acid window: generate, export MIDI and WAV; the WAV must be listed in the main library
+    (without sidecar: acid lines have no contract, #439)."""
     t = time.perf_counter()
     win.generate_button.click()
     win.export_button.click()
     status = win.status.text()
     if "MIDI geschrieben" not in status:
         return Step("render:acid", False, f"export failed: {status}", time.perf_counter() - t)
-    rows = library_rows(window)
-    stem = f"acid_{win.model.seed}"
-    if not any(stem in r for r in rows):
-        return Step("render:acid", False,
-                    f"{stem}.mid written but the library lists only WAVs ({len(rows)} rows)",
+    win.wav_button.click()
+    wav = win.actions.path
+    if wav is None or wav.suffix != ".wav":
+        return Step("render:acid", False, f"WAV export failed: {win.status.text()}",
                     time.perf_counter() - t)
-    return Step("render:acid", True, stem, time.perf_counter() - t)
+    if library_entry(window, wav) is None:
+        return Step("render:acid", False, f"{wav.name} not in the library",
+                    time.perf_counter() - t)
+    return Step("render:acid", True, wav.name, time.perf_counter() - t)
 
 
 def render_blaster_shot(window, win) -> Step:
@@ -355,12 +351,12 @@ def render_blaster_shot(window, win) -> Step:
         return Step(name, False, f"no shot after {WAIT_S:.0f} s", time.perf_counter() - t)
     if not win.session.history:
         return Step(name, False, "no shot in the history", time.perf_counter() - t)
-    shot = win.session.history[-1]
-    e = library_entry(window, shot.wav_path)
-    if e is None:
-        return Step(name, False, f"shot {shot.wav_path} is outside the library folder "
-                    f"{window._library_folder()}", time.perf_counter() - t)
-    return _all_in_library(window, name, [shot.wav_path], t, shot.wav_path.name)
+    win.keep_btn.click()  # "In Bibliothek speichern" (#439)
+    if not wait_for(lambda: not win._saving, WAIT_S) or win.actions.path is None:
+        return Step(name, False, f"shot not saved: {win.status.text()}",
+                    time.perf_counter() - t)
+    wav = win.actions.path
+    return _all_in_library(window, name, [wav], t, wav.name)
 
 
 def export_blaster_bank(window, win) -> Step:

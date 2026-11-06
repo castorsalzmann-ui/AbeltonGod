@@ -40,7 +40,7 @@ gc_mod = _load("gui_controls", ROOT / "scripts" / "qa" / "gui_controls.py")
 
 # Unhandled controls that are known gaps: (area, kind) -> issue. The test below turns red
 # once the control gets a receiver or disappears.
-KNOWN_DEAD = {("goa", "GoaPlaceholderPanel"): 440}
+KNOWN_DEAD: dict[tuple[str, str], int] = {}  # #440 fixed in PR #450
 
 
 @pytest.fixture(scope="module")
