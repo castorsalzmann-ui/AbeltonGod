@@ -4,6 +4,7 @@ files). A WAV whose sidecar is missing or unreadable is listed as unreadable, no
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -77,23 +78,63 @@ def _plain(v: Any) -> bool:
     return isinstance(v, str | int | float | bool)
 
 
-def scan_library(folder: str | Path) -> list[LibraryEntry]:
-    """All WAVs under ``folder`` (newest first by creation time, then name). A missing folder
-    gives an empty list."""
+@dataclass(frozen=True)
+class ScanResult:
+    entries: list[LibraryEntry]
+    truncated: bool  # the scan stopped at the limit; more WAVs may exist
+
+
+_scandir = os.scandir  # one name, so a test can count the folders a scan opens
+
+
+def _walk_wavs(root: Path, limit: int) -> tuple[list[Path], bool]:
+    """Up to ``limit`` WAVs below ``root``, depth first, each folder's files before its
+    subfolders, both by name. Stops opening folders as soon as the limit is passed, so a huge
+    tree is not read to the end (#415). Which files a truncated scan keeps is therefore
+    "first by folder and name", not "newest": finding the newest needs the whole tree."""
+    found: list[Path] = []
+    stack = [root]
+    while stack:
+        folder = stack.pop()
+        try:
+            with _scandir(folder) as it:
+                items = sorted(it, key=lambda d: d.name)
+        except OSError:
+            continue  # vanished or unreadable folder: skip it, show the rest
+        subdirs = []
+        for d in items:
+            try:
+                if d.is_dir(follow_symlinks=False):
+                    subdirs.append(Path(d.path))
+                elif d.name.lower().endswith(".wav") and d.is_file():
+                    if len(found) == limit:
+                        return found, True
+                    found.append(Path(d.path))
+            except OSError:
+                continue
+        stack.extend(reversed(subdirs))  # first subfolder by name is walked next
+    return found, False
+
+
+def scan(folder: str | Path, limit: int = MAX_FILES) -> ScanResult:
+    """WAVs under ``folder`` (at most ``limit``), newest first by creation time, then name.
+    A missing folder gives an empty result. Symlinked folders are not followed."""
     root = Path(folder)
-    entries: list[LibraryEntry] = []
     try:
         if not root.is_dir():
-            return []
-        for i, wav in enumerate(sorted(root.rglob("*.wav"))):
-            if i >= MAX_FILES:
-                break
-            entries.append(read_entry(wav))
+            return ScanResult([], False)
     except OSError:
-        pass  # folder vanished or unreadable mid-scan: show what we have
+        return ScanResult([], False)
+    wavs, truncated = _walk_wavs(root, limit)
+    entries = [read_entry(w) for w in wavs]
     entries.sort(key=lambda e: e.name)
     entries.sort(key=lambda e: e.created_at, reverse=True)
-    return entries
+    return ScanResult(entries, truncated)
+
+
+def scan_library(folder: str | Path) -> list[LibraryEntry]:
+    """The entries of :func:`scan` with the default limit."""
+    return scan(folder).entries
 
 
 def filter_entries(

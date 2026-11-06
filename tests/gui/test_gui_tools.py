@@ -357,6 +357,44 @@ def test_live_page_unverified_capability_needs_its_own_confirmation(qapp, window
         fake.close()
 
 
+def test_live_page_copies_a_render_from_the_output_folder_into_the_project(qapp, live_setup,
+                                                                          tmp_path):
+    """#413: a GUI render outside a project is copied into <project>/Samples/... and the copy
+    is imported (fake OSC only)."""
+    from gui_core.form import CategoryFormModel
+    from gui_core.render import RenderJob, run_job
+    page, fake, _wav = live_setup
+    m = CategoryFormModel("kick")
+    r = run_job(RenderJob(m.build_request(), tmp_path / "renders", m.preset, m.overrides(),
+                          "kick"))
+    assert r.ok, r.error
+    src = r.files[0].wav_path
+    page.add_wav(src)
+    page.refused_roots = ()  # pytest's temp folder lies inside the checkout
+    page.inspect_button.click()
+    assert wait_for(qapp, lambda: page.inspection is not None)
+    assert not page.inspection.ok and "Live-Projektordner wählen" in page.status.text()
+    proj = tmp_path / "Set Project"
+    proj.mkdir()
+    (proj / "Set.als").write_bytes(b"")
+    page.project_edit.setText(str(proj))
+    page.inspection = None
+    page.inspect_button.click()
+    assert wait_for(qapp, lambda: page.inspection is not None)
+    assert page.inspection.ok, page.inspection.error
+    target = proj / "Samples" / "Drums" / "Kicks" / src.name
+    assert str(target) in page.status.text() and not target.exists()
+    page.plan_button.click()
+    assert wait_for(qapp, lambda: page.plan is not None)
+    assert "kopieren" in page.plan_text.toPlainText()
+    page.testset_check.setChecked(True)
+    page.import_button.click()
+    assert wait_for(qapp, lambda: page.plan is None and not page.busy)
+    assert "Fertig" in page.status.text(), page.status.text()
+    assert target.read_bytes() == src.read_bytes()
+    assert writes(fake)[-1] == ("/live/clip_slot/create_audio_clip", (3, 0, str(target)))
+
+
 # --- chat page ------------------------------------------------------------------------------
 
 def test_chat_page_sends_in_a_thread_and_shows_the_reply(qapp, window):

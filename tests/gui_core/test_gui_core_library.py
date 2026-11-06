@@ -6,6 +6,7 @@ import json
 import shutil
 from pathlib import Path
 
+from gui_core import library
 from gui_core.form import CATEGORY_KEYS, CategoryFormModel
 from gui_core.library import UNREADABLE, drag_paths, filter_entries, read_entry, scan_library
 from gui_core.render import RenderJob, run_job
@@ -120,3 +121,62 @@ def test_drag_paths_only_existing_files(tmp_path):
     assert drag_paths(entries) == [wav]
     wav.unlink()
     assert drag_paths(entries) == []
+
+
+# --- scan limit (#415) ------------------------------------------------------------------------
+
+def test_default_limit_is_5000_files_and_the_cut_is_reported(tmp_path):
+    for i in range(5001):
+        (tmp_path / f"w{i:05d}.wav").touch()
+    full = library.scan(tmp_path)
+    assert len(full.entries) == 5000 and full.truncated
+    assert full.entries[-1].name == "w04999.wav"  # first 5000 by name; w05000 is cut
+    assert library.scan_library(tmp_path) == full.entries
+    (tmp_path / "w05000.wav").unlink()
+    exact = library.scan(tmp_path)
+    assert len(exact.entries) == 5000 and not exact.truncated
+
+
+def test_scan_stops_opening_folders_once_the_limit_is_passed(tmp_path, monkeypatch):
+    for name in ("a", "b", "c"):
+        (tmp_path / name).mkdir()
+        for i in range(2):
+            (tmp_path / name / f"{name}{i}.wav").touch()
+    opened = []
+    real = library._scandir
+
+    def counting(path):
+        opened.append(Path(path).name)
+        return real(path)
+
+    monkeypatch.setattr(library, "_scandir", counting)
+    res = library.scan(tmp_path, limit=3)
+    assert res.truncated and sorted(e.name for e in res.entries) == ["a0.wav", "a1.wav", "b0.wav"]
+    assert opened == [tmp_path.name, "a", "b"]  # "c" is never read
+    opened.clear()
+    res = library.scan(tmp_path, limit=6)
+    assert not res.truncated and len(res.entries) == 6 and opened[1:] == ["a", "b", "c"]
+
+
+def test_unreadable_subfolder_is_skipped_and_upper_case_suffix_is_found(tmp_path, monkeypatch):
+    (tmp_path / "bad").mkdir()
+    (tmp_path / "ok").mkdir()
+    (tmp_path / "ok" / "X.WAV").touch()
+    real = library._scandir
+
+    def failing(path):
+        if Path(path).name == "bad":
+            raise PermissionError("denied")
+        return real(path)
+
+    monkeypatch.setattr(library, "_scandir", failing)
+    assert [e.name for e in library.scan(tmp_path).entries] == ["X.WAV"]
+
+
+def test_goa_samples_are_readable_with_their_category(tmp_path):
+    """#414: the one-shots of a Goa arrangement carry sidecars and show up as categories."""
+    from audio_engine import goa_arrangement
+    goa_arrangement.write_track(tmp_path / "goa", seed=2)
+    entries = scan_library(tmp_path)
+    assert sorted(e.category for e in entries) == ["bass", "clap", "hat", "kick", "rim", "snare"]
+    assert all(e.readable and e.preset for e in entries)

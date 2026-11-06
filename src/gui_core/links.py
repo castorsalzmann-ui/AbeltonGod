@@ -20,6 +20,8 @@ from __future__ import annotations
 
 import math
 import re
+from collections import OrderedDict
+from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import Any
 
@@ -107,14 +109,92 @@ def _label(model: CategoryFormModel, name: str) -> str:
     return model.spec(name).label
 
 
-# --- value limits ----------------------------------------------------------------------------
+# --- asking the engine -----------------------------------------------------------------------
+#
+# Every probe is a full ``resolve`` of a request (about 0.5 ms for the laser, mostly the
+# contract's JSON-Schema check). ``resolve`` is a pure function of the request, so its answer is
+# kept per request (LRU): the same state asked twice (the edit and the commit of one change, the
+# "current value" check that every active field shares, a repair that re-asks what the limits
+# just asked) costs one resolve. The key carries each value's type, so 1, 1.0 and True stay
+# three requests.
 
-def _accepts(model: CategoryFormModel, name: str, value: Any) -> tuple[bool, str]:
+CACHE_SIZE = 4096
+_cache: OrderedDict[tuple, tuple[bool, str]] = OrderedDict()
+stats = {"resolve": 0, "hit": 0}  # counters for tests and profiling (#434)
+
+
+def clear_cache() -> None:
+    _cache.clear()
+
+
+def _key(category: str, request: dict[str, Any]) -> tuple | None:
+    key = (category, tuple((k, type(v).__name__, v) for k, v in request.items()))
     try:
-        get_category(model.category).resolve(model.probe_request(name, value))
+        hash(key)
+    except TypeError:  # a list or dict value: not cached
+        return None
+    return key
+
+
+def accepts_request(category: str, request: dict[str, Any]) -> tuple[bool, str]:
+    """``(True, "")`` when the category's ``resolve`` accepts ``request``, else ``(False, the
+    engine's message on one line)``."""
+    key = _key(category, request)
+    if key is not None and key in _cache:
+        _cache.move_to_end(key)
+        stats["hit"] += 1
+        return _cache[key]
+    stats["resolve"] += 1
+    try:
+        get_category(category).resolve(dict(request))
+        answer = (True, "")
     except ValueError as exc:
-        return False, " ".join(str(exc).split())
-    return True, ""
+        answer = (False, " ".join(str(exc).split()))
+    if key is not None:
+        _cache[key] = answer
+        if len(_cache) > CACHE_SIZE:
+            _cache.popitem(last=False)
+    return answer
+
+
+class _Probe:
+    """Probes of one form state: the shared part of the request is parsed once."""
+
+    def __init__(self, model: CategoryFormModel) -> None:
+        self.model = model
+        self.base = model.probe_base()
+        self._resolved: dict[str, Any] | None = None
+        self._bases: dict[str, dict[str, Any]] = {}
+
+    def _base_for(self, name: str) -> dict[str, Any]:
+        """The shared request as it is once ``name`` is switched on: for an inactive field the
+        fields it excludes are left out, as ``activate`` switches them off (kick ``tail_note``
+        drops ``pitch_end_hz``). An active field probes the state as it is."""
+        model = self.model
+        if name in model.active:
+            return self.base
+        if name not in self._bases:
+            gone = {b if a == name else a for a, b in exclusions(model.category) if name in (a, b)}
+            self._bases[name] = {k: v for k, v in self.base.items() if k not in gone}
+        return self._bases[name]
+
+    def accepts(self, name: str, value: Any) -> tuple[bool, str]:
+        return accepts_request(self.model.category,
+                               self.model.probe_request_from(self._base_for(name), name, value))
+
+    def engine_value(self, name: str) -> Any:
+        """The value the engine uses for ``name`` when it is not sent (its default or a value
+        derived from other fields), or ``None`` (state refused, field not resolved)."""
+        if self._resolved is None:
+            try:
+                self._resolved = get_category(self.model.category).resolve(
+                    self.model.base_request(self.base))
+            except ValueError:
+                self._resolved = {}
+        return self._resolved.get(name)
+
+
+# --- value limits ----------------------------------------------------------------------------
 
 
 def _decimals(spec: FieldSpec) -> int:
@@ -131,7 +211,7 @@ def _grid(spec: FieldSpec, value: float, up: bool) -> float | int:
     return (math.ceil(value * scale) if up else math.floor(value * scale)) / scale
 
 
-def _bisect(model: CategoryFormModel, spec: FieldSpec, good: float, bad: float) -> float:
+def _bisect(probe: _Probe, spec: FieldSpec, good: float, bad: float) -> float:
     """Last accepted value between a good and a refused one."""
     integer = spec.kind == "int"
     tolerance = 0.02 * 10.0 ** -_decimals(spec)
@@ -144,33 +224,70 @@ def _bisect(model: CategoryFormModel, spec: FieldSpec, good: float, bad: float) 
             if mid in (good, bad):
                 break
         value = int(mid) if integer else mid
-        if _accepts(model, spec.name, value)[0]:
+        if probe.accepts(spec.name, value)[0]:
             good = mid
         else:
             bad = mid
     return good
 
 
-def limit_of(model: CategoryFormModel, name: str) -> Limit:
+def _in_range(spec: FieldSpec, value: Any) -> bool:
+    return (isinstance(value, int | float) and not isinstance(value, bool)
+            and spec.minimum <= value <= spec.maximum)  # type: ignore[operator]
+
+
+def _anchor(probe: _Probe, spec: FieldSpec) -> float | int | None:
+    """An accepted value of the field to measure its limits from, or ``None``.
+
+    Active field: its own value (``None`` when the state is already refused: nothing to limit
+    against). Inactive field (#428): its text may be stale (left from before it was switched
+    off), so the value the engine uses for it comes first, then the text, then the accepted
+    slider position nearest to the engine's value.
+    """
+    model = probe.model
+    current, problem = model.parse(spec.name)
+    if spec.name in model.active:
+        return current if problem is None and probe.accepts(spec.name, current)[0] else None
+    engine = probe.engine_value(spec.name)
+    candidates = [v for v in (engine, None if problem else current) if _in_range(spec, v)]
+    for value in dict.fromkeys(candidates):
+        if probe.accepts(spec.name, value)[0]:
+            return value
+    if not candidates:
+        return None
+    vmap = map_of(spec)
+    here = vmap.to_pos(candidates[0])
+    stride = max(1, vmap.pos_max // 60)
+    positions = sorted({*range(0, vmap.pos_max + 1, stride), vmap.pos_max},
+                       key=lambda p: abs(p - here))
+    for pos in positions:
+        value = vmap.from_pos(pos)
+        if probe.accepts(spec.name, value)[0]:
+            return value
+    return None
+
+
+def limit_of(model: CategoryFormModel, name: str, probe: _Probe | None = None) -> Limit:
     """The values of ``name`` the engine accepts, with everything else as it is now."""
     spec = model.spec(name)
     lo, hi = float(spec.minimum), float(spec.maximum)  # type: ignore[arg-type]
     free = Limit(name, lo, hi, (), "", "")
     if spec.kind not in ("int", "float") or spec.zero_ok or name == "length_beats":
         return free
-    current, problem = model.parse(name)
-    if problem or not _accepts(model, name, current)[0]:
+    probe = probe or _Probe(model)
+    current = _anchor(probe, spec)
+    if current is None:
         return free  # the state is already invalid: nothing to limit against
     new_lo, new_hi, text = lo, hi, ""
     for end, is_low in ((lo, True), (hi, False)):
         value = int(end) if spec.kind == "int" else end
-        ok, message = _accepts(model, name, value)
+        ok, message = probe.accepts(name, value)
         if ok:
             continue
         text = text or message
         # round inwards: a lower end rounds up, an upper end down
-        edge = _grid(spec, _bisect(model, spec, float(current), float(end)), up=is_low)
-        if not _accepts(model, name, edge)[0]:
+        edge = _grid(spec, _bisect(probe, spec, float(current), float(end)), up=is_low)
+        if not probe.accepts(name, edge)[0]:
             edge = current
         if is_low:
             new_lo = edge
@@ -179,8 +296,8 @@ def limit_of(model: CategoryFormModel, name: str) -> Limit:
     if (new_lo, new_hi) == (lo, hi):
         return free
     partners = _partners(model, name, text)
-    return Limit(name, new_lo, new_hi, partners, _reason(model, spec, new_lo, new_hi, partners),
-                 text)
+    return Limit(name, new_lo, new_hi, partners,
+                 _reason(model, spec, new_lo, new_hi, partners, probe), text)
 
 
 def _partners(model: CategoryFormModel, name: str, text: str) -> tuple[str, ...]:
@@ -192,9 +309,15 @@ def _partners(model: CategoryFormModel, name: str, text: str) -> tuple[str, ...]
     return tuple(found)
 
 
-def _value_text(model: CategoryFormModel, name: str) -> str:
+def _value_text(model: CategoryFormModel, name: str, probe: _Probe | None = None) -> str:
+    """The partner's value as the engine uses it: its text when it is sent, else the engine's
+    own value (default or derived; #428: not the stale text of a field that is off)."""
     spec = model.spec(name)
     value, problem = model.parse(name)
+    if name not in model.active and probe is not None:
+        engine = probe.engine_value(name)
+        if engine is not None:
+            value, problem = engine, None
     if problem:
         return "?"
     if spec.kind in ("int", "float"):
@@ -203,7 +326,7 @@ def _value_text(model: CategoryFormModel, name: str) -> str:
 
 
 def _reason(model: CategoryFormModel, spec: FieldSpec, lo: float, hi: float,
-            partners: tuple[str, ...]) -> str:
+            partners: tuple[str, ...], probe: _Probe | None = None) -> str:
     vmap = map_of(spec)
     if lo > spec.minimum and hi < spec.maximum:  # type: ignore[operator]
         span = f"nur {vmap.format(lo, False)} bis {vmap.format(hi)}"
@@ -211,7 +334,8 @@ def _reason(model: CategoryFormModel, spec: FieldSpec, lo: float, hi: float,
         span = f"mindestens {vmap.format(lo)}"
     else:
         span = f"höchstens {vmap.format(hi)}"
-    because = ", ".join(f"{_label(model, p)} = {_value_text(model, p)}" for p in partners)
+    because = ", ".join(f"{_label(model, p)} = {_value_text(model, p, probe)}"
+                        for p in partners)
     tail = f", solange {because}" if because else " (Regel des Kontrakts)"
     return f"{spec.label}: {span}{tail}."
 
@@ -225,10 +349,11 @@ def _nearest_accepted(model: CategoryFormModel, name: str) -> float | int | None
     current, problem = model.parse(name)
     if problem:
         return None
+    probe = _Probe(model)
     stride = max(1, vmap.pos_max // 60)
     positions = sorted({*range(0, vmap.pos_max + 1, stride), vmap.pos_max})
     here = vmap.to_pos(current)
-    good = [p for p in positions if _accepts(model, name, vmap.from_pos(p))[0]]
+    good = [p for p in positions if probe.accepts(name, vmap.from_pos(p))[0]]
     if not good:
         return None
     best = min(good, key=lambda p: abs(p - here))
@@ -237,10 +362,10 @@ def _nearest_accepted(model: CategoryFormModel, name: str) -> float | int | None
     if toward:  # the grid point next to ``best`` on the side of the current value is refused
         bad_pos = min(toward, key=lambda p: abs(p - best))
         bad = vmap.from_pos(bad_pos)
-        if not _accepts(model, name, bad)[0]:
-            edge = _bisect(model, spec, float(value), float(bad))
+        if not probe.accepts(name, bad)[0]:
+            edge = _bisect(probe, spec, float(value), float(bad))
             edge = _grid(spec, edge, up=bad < value)
-            if _accepts(model, name, edge)[0]:
+            if probe.accepts(name, edge)[0]:
                 value = edge
     return int(value) if spec.kind == "int" else float(value)
 
@@ -298,12 +423,19 @@ def repair(model: CategoryFormModel, changed: str | None = None) -> Repair:
     return Repair(notices, moved)
 
 
-def limits(model: CategoryFormModel, skip: str | None = None) -> dict[str, Limit]:
-    """Limits of every numeric field (``skip``: the field being edited right now)."""
+def limits(model: CategoryFormModel, skip: str | None = None,
+           names: Iterable[str] | None = None) -> dict[str, Limit]:
+    """Limits of every numeric field (``skip``: the field being edited right now; ``names``:
+    only these fields, e.g. the ones a page shows)."""
+    wanted = None if names is None else set(names)
+    if wanted is not None and not wanted:
+        return {}
+    probe = _Probe(model)
     return {
-        s.name: limit_of(model, s.name)
+        s.name: limit_of(model, s.name, probe)
         for s in model.specs
         if s.kind in ("int", "float") and s.name != skip
+        and (wanted is None or s.name in wanted)
     }
 
 

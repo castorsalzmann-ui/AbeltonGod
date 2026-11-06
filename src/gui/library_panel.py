@@ -18,7 +18,7 @@ from PySide6.QtWidgets import (
 )
 
 from gui_core.categories import CATEGORIES
-from gui_core.library import UNREADABLE, LibraryEntry, filter_entries, scan_library
+from gui_core.library import MAX_FILES, UNREADABLE, LibraryEntry, filter_entries, scan
 
 from .drag import PATH_ROLE, DragList
 
@@ -29,6 +29,7 @@ class LibraryPanel(QWidget):
     def __init__(self) -> None:
         super().__init__()
         self.entries: list[LibraryEntry] = []
+        self.truncated = False
         self.folder = Path()
         lay = QVBoxLayout(self)
         head = QLabel("Bibliothek")
@@ -72,7 +73,8 @@ class LibraryPanel(QWidget):
         self.refresh()
 
     def refresh(self) -> None:
-        self.entries = scan_library(self.folder)
+        res = scan(self.folder)
+        self.entries, self.truncated = res.entries, res.truncated
         self._show()
 
     def _show(self) -> None:
@@ -90,10 +92,12 @@ class LibraryPanel(QWidget):
             item = QListWidgetItem(text)
             item.setData(PATH_ROLE, str(e.wav_path))
             self.list.addItem(item)
-        self.info.setText(
-            f"{len(shown)} von {len(self.entries)} Dateien in {self.folder}"
-            if self.entries else f"Keine WAV-Dateien in {self.folder}"
-        )
+        text = (f"{len(shown)} von {len(self.entries)} Dateien in {self.folder}"
+                if self.entries else f"Keine WAV-Dateien in {self.folder}")
+        if self.truncated:
+            text += (f". Suche nach {MAX_FILES} Dateien angehalten (nach Ordner und Name, "
+                     "nicht nach Datum); für den Rest einen kleineren Ordner wählen.")
+        self.info.setText(text)
 
     def _picked(self, item: QListWidgetItem | None, _prev=None) -> None:
         if item is not None:
