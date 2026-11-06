@@ -164,7 +164,7 @@ differ only in the area. Handler and effect per kind:
 | `goa-page · QLineEdit · Grundton` | `OptionForm._edited` (`textEdited`) | Free text option |
 | `goa-page · QLineEdit · Register (Oktaven)` | `OptionForm._edited` (`textEdited`) | Free text option |
 | `goa-page · QPushButton · Ordner öffnen` | `GoaPanel.open_folder` | Opens the run folder (or the last finished one) |
-| `goa-page · QPushButton · Rendern` | `GoaPanel.start_render` | Runs goa_arrangement / goa_melody in a worker; MIDI + README + sample WAVs (WAVs have no sidecar, #414) |
+| `goa-page · QPushButton · Rendern` | `GoaPanel.start_render` | Runs goa_arrangement / goa_melody in a worker; MIDI + README + sample WAVs with sidecars (#414, fixed by #451) |
 | `goa-page · Segmented · *` | `GoaPanel.set_mode` / `OptionForm` edits | Mode (Arrangement / Melodie) and enum options of the Goa generator |
 | `goa-page · Segmented/QPushButton · *` | `Segmented` -> `chosen` | One button per mode / enum choice |
 | `goa-page · StepEdit · Phrasenlänge (Takte)` | `OptionForm._edited` | Phrase length in bars |
@@ -176,11 +176,13 @@ differ only in the area. Handler and effect per kind:
 | ID | Handler | Effect |
 | --- | --- | --- |
 | `live · QComboBox · LivePanel.track_box` | `LivePanel._inputs_changed` | Target track (new audio track at the end or an existing one) |
+| `live · QLineEdit · LivePanel.project_edit` | `LivePanel._project_changed` (`textChanged`) | "Live-Projekt": folder with the test set's .als; a render from outside a project is copied into its `Samples/Drums/<category>` before the import (#413, via #451); a change discards the plan |
+| `live · QPushButton · Wählen …` | `LivePanel._pick_project` | Folder dialog for the Live project |
 | `live · QComboBox · LivePanel.wav_box` | `LivePanel._inputs_changed` | WAV to import (from the library folder or picked); a change discards the plan |
 | `live · QPushButton · Andere Datei …` | `LivePanel._pick_file` | File dialog for a WAV outside the library |
 | `live · QPushButton · Bibliothek lesen` | `LivePanel.reload_library` | Re-reads the WAV list |
 | `live · QPushButton · In Live importieren` | `LivePanel.start_import` | Writes the clip (tested capabilities only); enabled only after plan + test-set confirmation |
-| `live · QPushButton · Live-Set lesen` | `LivePanel.start_inspect` | Reads the WAV's sidecar and the set's tracks/scenes over AbletonOSC (read only); refuses GUI renders outside a project folder `Samples/Drums/<category>` (#413) |
+| `live · QPushButton · Live-Set lesen` | `LivePanel.start_inspect` | Reads the WAV's sidecar and the set's tracks/scenes over AbletonOSC (read only); a render outside a project needs the "Live-Projekt" folder and names its copy target (#413) |
 | `live · QPushButton · Plan prüfen` | `LivePanel.start_plan` | Shows exactly what would be written, nothing is sent yet |
 | `live · Stepper · *` | `LivePanel._inputs_changed` (`valueChanged`) | Scene / cell (0 = first free) |
 | `live · Stepper/QPushButton · *` | `Stepper.step` | - / + of the scene stepper |

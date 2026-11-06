@@ -199,25 +199,27 @@ def test_goa_page_follows_the_output_folder(qapp_tour, home):
 
 
 def test_a_gui_render_goes_through_the_live_plan_against_the_fake_server(qapp_tour, home):
-    """Render a kick with the main window, pick it on the Live page, read the (fake) set, plan
-    and import. Fake AbletonOSC only: not a Live test. Gap #413 while the inspection refuses
-    the render because it is not in a project folder."""
+    """Render a kick with the main window, pick it on the Live page, name a Live project, read
+    the (fake) set, plan and import: the render is copied into
+    <project>/Samples/Drums/Kicks and that copy is imported (#413, fixed by #451). Fake
+    AbletonOSC only: not a Live test."""
     w = tour_mod.make_window(home / "out")
     step = tour_mod.render_category(w, "kick")
     assert step.ok, step.detail
+    proj = home / "Set Project"
+    proj.mkdir()
+    (proj / "Set.als").write_bytes(b"")
     fake = make_fake()
     try:
         page = w.live
         page.config = config_for(fake, home)
+        page.refused_roots = ()  # pytest's temp folder lies inside the checkout
         w.categories.setCurrentRow(w.tool_rows["live"])
         assert page.wav_path is not None and page.wav_path.endswith(step.detail)
+        page.project_edit.setText(str(proj))
         page.inspect_button.click()
         assert tour_mod.wait_for(lambda: page.inspection is not None and not page.busy, 30)
-        if not page.inspection.ok:
-            err = page.inspection.error
-            # the message names the folder with the OS separator ('Samples\Drums\Kicks')
-            known_gap(413, True,
-                      "nicht im Ordner 'Samples/Drums/Kicks'" in err.replace("\\", "/"), err)
+        assert page.inspection.ok, page.inspection.error
         page.plan_button.click()
         assert tour_mod.wait_for(lambda: page.plan is not None and not page.busy, 30)
         assert page.plan.ok, page.status.text()
@@ -226,11 +228,12 @@ def test_a_gui_render_goes_through_the_live_plan_against_the_fake_server(qapp_to
         page.import_button.click()
         assert tour_mod.wait_for(lambda: page.plan is None and not page.busy, 30)
         assert "Fertig" in page.status.text(), page.status.text()
-        assert [a for a, _p in writes(fake)] == ["/live/song/create_audio_track",
-                                                  "/live/clip_slot/create_audio_clip"]
+        target = proj / "Samples" / "Drums" / "Kicks" / step.detail
+        assert target.read_bytes() == Path(page.wav_path).read_bytes()
+        assert writes(fake)[-1] == ("/live/clip_slot/create_audio_clip",
+                                    writes(fake)[-1][1][:2] + (str(target),))
     finally:
         fake.close()
-    known_gap(413, False, False, "a GUI render went through inspect, plan and import")
 
 
 @pytest.fixture

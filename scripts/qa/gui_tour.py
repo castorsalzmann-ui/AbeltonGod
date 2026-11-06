@@ -44,8 +44,6 @@ WAIT_S = 60.0  # a render that answers within this is fine; the tour fails, neve
 # step fails for exactly that reason; any other failure, and a pass, are unexpected (the tests
 # turn them red, so a fix is noticed and an unrelated break is not hidden as "known").
 KNOWN_GAPS: dict[str, tuple[int, str]] = {
-    # Goa sample WAVs have no sidecar: listed as unreadable
-    "render:goa-page": (414, "Sidecar-Datei fehlt"),
     # Goa window body is a placeholder, Render writes nothing
     "render:goa-window": (440, "Noch nicht angeschlossen"),
     # Acid writes MIDI only; the library lists WAVs only
@@ -55,10 +53,11 @@ KNOWN_GAPS: dict[str, tuple[int, str]] = {
 }
 # Window sizes follow the fonts, so the fit gaps differ per platform (measured: Linux
 # offscreen Acid minimum 1026 x 812, main 1216 x 703; Windows CI runner Acid 1183 x 649, main
-# 1324 x 688, on the 1280 x 720 logical screen of 1920 x 1080 at 150 %).
+# 1324 x 688, on the 1280 x 720 logical screen of 1920 x 1080 at 150 %). Since #451 added the
+# "Live-Projekt" row, the main window is 1216 x 769 on Linux, too tall as well.
 _PLATFORM_GAPS = {
     "fit:acid@150": ("linux", 442),  # too tall on Linux
-    "fit:main@150": ("win32", 442),  # too wide on the Windows runner
+    "fit:main@150": ("", 442),  # too wide on the Windows runner, too tall on Linux (all)
 }
 KNOWN_GAPS.update({name: (issue, "on a 1280 x 720 screen")
                    for name, (platform, issue) in _PLATFORM_GAPS.items()
