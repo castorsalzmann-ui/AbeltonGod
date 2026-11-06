@@ -55,6 +55,18 @@ jobs:
         run: python scripts/exe_smoke.py dist/AbeltonGod/AbeltonGod-cli.exe goa
       - name: Smoke CLI exe - text menu with piped stdin
         run: python scripts/exe_smoke.py dist/AbeltonGod/AbeltonGod-cli.exe menu
+      - name: Smoke CLI exe - without arguments opens the text menu, not the GUI
+        # file-name rule of exe_entry.py; offscreen + timeout: a wrong rule would start the GUI
+        shell: python
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          import subprocess
+          r = subprocess.run([r"dist\AbeltonGod\AbeltonGod-cli.exe"], input="",
+                             capture_output=True, text=True, timeout=60)
+          print(r.returncode, r.stdout[-800:], r.stderr[-800:])
+          assert r.returncode == 0 and "Werkzeuge:" in r.stdout, r
+          assert "Abgebrochen" in r.stdout, r.stdout
       - name: Smoke CLI exe - GUI starts offscreen, opens all windows, exits 0
         run: python scripts/exe_smoke.py dist/AbeltonGod/AbeltonGod-cli.exe gui
       - name: Smoke GUI exe - selftest offscreen and on the real windows platform (qwindows.dll)

@@ -1,4 +1,5 @@
-"""``AbeltonGod.exe`` command line and double-click menu."""
+"""Command line and text menu of ``AbeltonGod-cli.exe``; no-argument GUI start of
+``AbeltonGod.exe`` (two exes, #445)."""
 
 from __future__ import annotations
 
@@ -25,11 +26,11 @@ def tool_list() -> str:
 
 def usage() -> str:
     return (
-        "AbeltonGod.exe <werkzeug> [optionen]\n"
-        "AbeltonGod.exe --version | --help | --list | --menu | --gui-selftest\n"
-        "Ohne Argumente: AbeltonGod.exe oeffnet das Programmfenster (GUI), AbeltonGod-cli.exe\n"
-        "das Textmenue (auch: --menu).\n\n"
-        "Werkzeuge (Optionen: AbeltonGod.exe <werkzeug> --help):\n" + tool_list()
+        "AbeltonGod-cli.exe <werkzeug> [optionen]\n"
+        "AbeltonGod-cli.exe --version | --help | --list | --menu | --gui-selftest\n"
+        "Ohne Argumente: AbeltonGod-cli.exe oeffnet das Textmenue (auch: --menu),\n"
+        "AbeltonGod.exe das Programmfenster (GUI; ohne Textausgabe).\n\n"
+        "Werkzeuge (Optionen: AbeltonGod-cli.exe <werkzeug> --help):\n" + tool_list()
     )
 
 
@@ -74,7 +75,7 @@ def menu(read: Callable[[str], str], out: TextIO) -> int:
             args += ["--out", str(target)]
         extra = read("Weitere Optionen (Enter = keine; '--help' zeigt alle): ").strip()
         args += _split(extra)
-        out.write(f"\n> AbeltonGod.exe {tool.name} {' '.join(args)}\n\n")
+        out.write(f"\n> AbeltonGod-cli.exe {tool.name} {' '.join(args)}\n\n")
         out.flush()
         code = run_tool(tool, args)
         out.write(f"\nFertig (Exit-Code {code}).\n")
@@ -155,6 +156,15 @@ def main(argv: list[str] | None = None, *, read: Callable[[str], str] = input,
         sys.stderr.write("Installation unvollstaendig:\n  " + "\n  ".join(problems) + "\n")
         return EXIT_SETUP
     return run_tool(tool, rest)
+
+
+CLI_SUFFIX = "-cli"
+
+
+def is_cli_exe(executable: str) -> bool:
+    """The mode rule of the two exes (#445): ``AbeltonGod-cli.exe`` (any case) is the console
+    build; every other name, e.g. ``AbeltonGod.exe``, is the windowed GUI build."""
+    return Path(executable).stem.lower().endswith(CLI_SUFFIX)
 
 
 def entry(cli_exe: bool = False) -> None:  # pragma: no cover - thin wrapper

@@ -1,9 +1,10 @@
 """Where a failed GUI start leaves its traces (#436).
 
-The double-click path hides the black console window once the main window is up. A crash
-before that point must not vanish: the traceback goes to a log file in the user's app-data
-folder, and the user gets a message (a Qt message box when Qt is already up, otherwise the
-console stays visible with the text and waits for Enter).
+``AbeltonGod.exe`` is a windowed build (#445): it has no console and no ``sys.stdout``, so a
+crash at start would vanish. The traceback goes to a log file in the user's app-data folder
+and ``launcher.gui_start`` shows a message (Qt box, else native Windows box, else the console
+when there is one). The windowed exe's missing streams go to ``output.log`` in the same
+folder (:func:`redirect_missing_streams`).
 
 Log folder:
 

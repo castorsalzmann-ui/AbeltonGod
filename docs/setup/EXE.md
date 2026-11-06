@@ -134,6 +134,17 @@ python scripts/build_exe.py --subsystem dist\AbeltonGod   # GUI = 2, CLI = 3
 python scripts/exe_smoke.py dist\AbeltonGod\AbeltonGod-cli.exe
 ```
 
+## Bekannte Grenze
+
+- Copilot-Chat in `AbeltonGod.exe` kann ein Konsolen- bzw. Terminal-Fenster oeffnen (#453):
+  die mitgelieferte `claude.exe` ist ein Konsolenprogramm und wird ohne `CREATE_NO_WINDOW`
+  gestartet; ein Fensterprogramm bekommt dafuer ein neues Konsolenfenster. Dieses Fenster zu
+  schliessen beendet den Chat. Abgeleitet aus dem Windows-Verhalten, nicht beobachtet.
+  Ausweg bis #453 behoben ist: `AbeltonGod-cli.exe chat`.
+- Fehlt ein Qt-Plattform-Plugin (z. B. `qwindows.dll`), endet der Start ausserhalb von Python:
+  dann gibt es keinen Eintrag in `startup-errors.log` (auf dem Runner beendet sich die exe in
+  dem Fall gar nicht; Ursache nicht geklaert).
+
 ## Nicht abgedeckt
 
 - Kein Lauf auf deinem PC, keiner mit Live (die CI hat kein Live).

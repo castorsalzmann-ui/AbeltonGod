@@ -178,6 +178,43 @@ def test_install_problems_are_reported_without_a_console(monkeypatch):
     assert shown and "contracts/ fehlt" in shown[0]
 
 
+@pytest.mark.parametrize("executable, expected", [
+    (r"C:\AbeltonGod\AbeltonGod-cli.exe", True),
+    (r"C:\AbeltonGod\ABELTONGOD-CLI.EXE", True),
+    ("/opt/AbeltonGod/AbeltonGod-cli", True),
+    (r"C:\AbeltonGod\AbeltonGod.exe", False),
+    (r"C:\cli\AbeltonGod.exe", False),          # only the file name counts, not the folder
+    (r"C:\AbeltonGod\AbeltonGod-client.exe", False),
+])
+def test_file_name_rule_of_the_two_exes(executable, expected):
+    assert cli.is_cli_exe(executable) is expected
+
+
+@pytest.mark.parametrize("executable", [r"C:\A\AbeltonGod-cli.exe", r"C:\A\AbeltonGod.exe"])
+def test_no_argument_start_follows_the_file_name(executable):
+    """What exe_entry.py does: CLI exe -> text menu, GUI exe -> GUI."""
+    started = []
+    out = io.StringIO()
+    code = cli.main([], read=lambda p: "", out=out, gui=lambda: started.append(1) or 0,
+                    cli_exe=cli.is_cli_exe(executable))
+    assert code == 0
+    if executable.endswith("-cli.exe"):
+        assert started == [] and "Werkzeuge:" in out.getvalue()
+    else:
+        assert started == [1] and "Werkzeuge:" not in out.getvalue()
+
+
+def test_exe_entry_uses_the_file_name_rule():
+    src = (Path(__file__).resolve().parents[2] / "src" / "launcher" / "exe_entry.py").read_text()
+    assert "entry(cli_exe=is_cli_exe(sys.executable))" in src
+
+
+def test_help_points_tool_calls_to_the_cli_exe():
+    text = cli.usage()
+    assert "AbeltonGod-cli.exe <werkzeug> [optionen]" in text
+    assert "AbeltonGod.exe <werkzeug>" not in text
+
+
 def test_cli_exe_without_arguments_opens_the_text_menu():
     def no_gui():
         raise AssertionError("the CLI exe must not start the GUI")
