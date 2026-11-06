@@ -245,7 +245,10 @@ class CategoryFormModel:
         return preset_names(self.category)
 
     def preset_description(self) -> str:
-        return describe(self.preset, self.category)
+        """German text for the GUI (#467); the preset file's English text as fallback."""
+        from .preset_texts import preset_text_de
+
+        return preset_text_de(self.category, self.preset, describe(self.preset, self.category))
 
     def set_preset(self, name: str) -> None:
         values = load_preset(name, self.category)  # UnknownPresetError for a made-up name
