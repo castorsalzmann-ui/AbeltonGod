@@ -138,6 +138,13 @@ def main(argv: list[str] | None = None, *, read: Callable[[str], str] = input,
         return menu(read, out)
     if first == "--gui-selftest":
         return run_selftest()
+    if first == "--gui-screens":  # CI screenshots on a real screen (#463)
+        if len(rest) != 1:
+            sys.stderr.write("--gui-screens braucht genau einen Zielordner\n")
+            return EXIT_USAGE
+        from .screens import run as run_screens
+
+        return run_screens(Path(rest[0]), out)
     if first == "--version":
         out.write(version_line() + "\n")
         return EXIT_OK
