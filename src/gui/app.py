@@ -28,8 +28,10 @@ def main(argv: list[str] | None = None) -> int:
     except ImportError:
         print("PySide6 fehlt. Installieren mit: pip install -e \".[gui]\"", file=sys.stderr)
         return 2
+    from gui_core.settings import SettingsStore
+
     from .main_window import MainWindow
 
-    window = MainWindow()
+    window = MainWindow(settings_store=SettingsStore.from_default_location())
     window.show()
     return app.exec()

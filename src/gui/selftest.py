@@ -26,9 +26,9 @@ def run(out=None) -> int:
 
     app = create_app([])
     with tempfile.TemporaryDirectory(prefix="abeltongod-selftest-") as tmp:
-        factories = dict(DEFAULT_FACTORIES)
-        factories["goa"] = _goa_without_settings_file
-        win = MainWindow(out_dir=Path(tmp) / "out", window_factories=factories)
+        # The real factories: the Goa window (real Goa form) uses the shared in-memory settings
+        # and no settings file of its own (#439, #440).
+        win = MainWindow(out_dir=Path(tmp) / "out", window_factories=dict(DEFAULT_FACTORIES))
         win.show()
         pages = win.stack.count()
         for row in range(pages):
@@ -54,7 +54,8 @@ def run(out=None) -> int:
 
 
 def _goa_without_settings_file(out_dir: Path):
-    from .skin.settings import SkinSettings
-    from .skin.window import CompactGoaWindow
+    """Kept for callers of the old name: the default Goa factory touches no settings file
+    any more, so this is the real Goa window."""
+    from .windows import DEFAULT_FACTORIES
 
-    return CompactGoaWindow(settings=SkinSettings())
+    return DEFAULT_FACTORIES["goa"](out_dir)
