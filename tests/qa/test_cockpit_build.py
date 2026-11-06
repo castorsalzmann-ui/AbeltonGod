@@ -154,7 +154,20 @@ def test_shim_api(tmp_path):
     )
     f = tmp_path / "t.js"
     f.write_text(js)
-    r = subprocess.run([NODE, str(f)], capture_output=True, text=True, timeout=30)
+    import os
+    import time
+    import warnings
+
+    from tests.qa.test_zz_node_probe_debug import handle_info
+
+    t0 = time.perf_counter()
+    try:
+        r = subprocess.run([NODE, str(f)], capture_output=True, text=True, timeout=30)
+    finally:
+        warnings.warn(f"SHIM459 worker={os.environ.get('PYTEST_XDIST_WORKER')} "
+                      f"wall={time.strftime('%H:%M:%S')} "
+                      f"elapsed={time.perf_counter() - t0:.3f}s handles=[{handle_info()}]",
+                      stacklevel=1)
     assert r.returncode == 0, r.stderr
     got = json.loads(r.stdout.strip().splitlines()[0])
     assert got == {"d": [{"n": 4, "s": "b"}], "e": [{"v": 7}], "bound": "4"}
