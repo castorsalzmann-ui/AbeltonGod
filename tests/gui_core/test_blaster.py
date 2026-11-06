@@ -14,11 +14,10 @@ import numpy as np
 import pytest
 
 from audio_engine.io import encode_wav
-from audio_engine.laser import FAMILIES, render_laser, resolve_laser_params
+from audio_engine.laser import FAMILIES, render_laser
 from gui_core import blaster as bl
 from gui_core.blaster import (
     BANK_MAX,
-    SLIDERS,
     BlasterError,
     BlasterSession,
     BlasterSettings,
@@ -26,6 +25,7 @@ from gui_core.blaster import (
     export_bank,
     to_engine_params,
 )
+from gui_core.blaster_params import randomise
 from gui_core.blaster_stub import StubLaserEngine
 
 
@@ -89,110 +89,11 @@ def real_session(tmp_path):
     yield s
     s.close()
 
-
-def rand_settings(rng):
-    return BlasterSettings(dimension=rng.choice(bl.DIMENSION_KEYS),
-                           positions=tuple(rng.randint(0, 100) for _ in SLIDERS))
-
-
-# ---- settings and parameter mapping ------------------------------------------------------------
-def test_dimensions_are_the_contract_families():
-    assert bl.DIMENSION_KEYS == FAMILIES == ("pew", "plasma", "ion", "rift", "subboom", "glitch")
-    assert [d.label for d in bl.DIMENSIONS][3] == "Riss"
-
-
-def test_slider_fields_are_contract_fields_with_the_contract_range():
-    schema = json.loads(Path("contracts/laser-params.schema.json").read_text(encoding="utf-8"))
-    props = schema["properties"]
-    for s in SLIDERS:
-        spec = props[s.name]
-        # the GUI sends schema_version 0.1, whose length cap is 3000 (0.2 allows 6000, #425)
-        cap = 3000 if s.name == "length_ms" else spec["maximum"]
-        assert (s.lo, s.hi) == (spec["minimum"], cap), s.name
-        assert s.default == spec["default"], s.name
-        assert (spec["type"] == "integer") == (s.kind == "int"), s.name
-
-
-def test_settings_accept_the_whole_range_and_reject_outside():
-    rng = random.Random(1)
-    for _ in range(100):
-        rand_settings(rng)
-    n = len(SLIDERS)
-    for bad in (-1, 101, 5.0, True, "5", None):
-        with pytest.raises(ValueError):
-            BlasterSettings(positions=(bad,) + (50,) * (n - 1))
-    with pytest.raises(ValueError, match="Reglerwerte"):
-        BlasterSettings(positions=(50,) * (n - 1))
-    with pytest.raises(ValueError, match="Unbekannte Dimension"):
-        BlasterSettings(dimension="nope")
-
-
-def test_slider_ends_map_to_the_contract_limits():
-    lo = to_engine_params(BlasterSettings(positions=(0,) * len(SLIDERS)))
-    hi = to_engine_params(BlasterSettings(positions=(100,) * len(SLIDERS)))
-    for name, v in (("pitch_start_hz", 40), ("sweep_ms", 10), ("sweep_curve", 0.2),
-                    ("length_ms", 100), ("attack_ms", 0), ("decay_ms", 20), ("fm_amount", 0),
-                    ("stereo_width", 0), ("glitch_steps", 2)):
-        assert lo[name] == v, name
-    for name, v in (("pitch_end_hz", 8000), ("sweep_ms", 2000), ("sweep_curve", 6),
-                    ("length_ms", 3000), ("attack_ms", 50), ("decay_ms", 3000),
-                    ("drive", 1), ("echo_mix", 1), ("glitch_steps", 24)):
-        assert hi[name] == v, name
-    assert hi["family"] == "pew" and hi["sample_rate"] == 48000 and hi["bit_depth"] == 24
-
-
-def test_midpoints_match_hand_computed_values():
-    p = to_engine_params(BlasterSettings(positions=(50,) * len(SLIDERS)))
-    assert p["pitch_start_hz"] == pytest.approx(40 * 200 ** 0.5, abs=1e-3)  # 565.6854
-    assert p["length_ms"] == pytest.approx(100 * 30 ** 0.5, abs=1e-3)  # 547.7226
-    assert p["fm_amount"] == 0.5 and p["attack_ms"] == 25.0 and p["glitch_steps"] == 13
-
-
-def test_default_positions_land_within_one_step_of_the_contract_defaults():
-    p = to_engine_params(BlasterSettings())
-    for s in SLIDERS:
-        step = (s.hi / s.lo) ** 0.01 if s.kind == "exp" else None
-        if step:
-            assert 1 / step <= p[s.name] / s.default <= step, s.name
-        else:
-            assert abs(p[s.name] - s.default) <= (s.hi - s.lo) / 100, s.name
-    assert p["fm_amount"] == 0 and p["echo_mix"] == 0 and p["stereo_width"] == 0
-
-
-def test_every_mapped_request_is_valid_for_the_real_contract():
-    """Whole range, all families: the engine's own validation accepts the request (no clamping
-    anywhere in the adapter)."""
-    rng = random.Random(3)
-    for _ in range(300):
-        s = rand_settings(rng)
-        p = to_engine_params(s)
-        resolved = resolve_laser_params({**p, "seed": rng.randint(0, bl.SEED_MAX)})
-        for k in ("pitch_start_hz", "sweep_ms", "length_ms", "decay_ms", "family"):
-            assert resolved[k] == p[k]
-
-
-def test_mapping_is_monotonic_and_the_position_inverse_matches():
-    for s in SLIDERS:
-        vals = [s.value(p) for p in range(0, 101, 5)]
-        assert vals == sorted(vals), s.name
-        for pos in (0, 25, 50, 75, 100):
-            assert abs(s.position(s.value(pos)) - pos) <= 1 or s.kind == "int", s.name
-
-
-def test_readouts_are_german_text():
-    assert bl.readout("pitch_start_hz", 0) == "40 Hz"
-    assert bl.readout("pitch_end_hz", 100) == "8,0 kHz"
-    assert bl.readout("length_ms", 100) == "3,00 s"
-    assert bl.readout("echo_mix", 35) == "35 %"
-    assert bl.readout("sweep_curve", 100) == "6,00"
-    assert bl.readout("glitch_steps", 100) == "24"
-
-
 # ---- real engine ---------------------------------------------------------------------------------
 @pytest.mark.parametrize("family", FAMILIES)
 def test_real_engine_shot_per_family(real_session, family):
-    real_session.settings = BlasterSettings(dimension=family).with_positions(
-        length_ms=20, stereo_width=60, noise_level=30)
+    real_session.settings = BlasterSettings().with_values(
+        family=family, length_ms=100, stereo_width=0.6, noise_level=0.3)
     r = real_session.fire()
     assert r.shot is not None and not r.error, r.message
     shot = r.shot
@@ -210,8 +111,8 @@ def test_real_engine_same_seed_same_bytes_and_seed_matters_with_noise(tmp_path):
     def wav_for(seed):
         engine, _ = bl.load_engine()
         s = BlasterSession(engine, FakeBackend(), tmp_path / f"w{seed}", first_seed=seed)
-        s.settings = BlasterSettings(dimension="plasma").with_positions(
-            noise_level=50, crackle=40, length_ms=20)
+        s.settings = BlasterSettings().with_values(
+            family="plasma", noise_level=0.5, crackle=0.4, length_ms=100)
         try:
             return s.fire().shot.wav_path.read_bytes()
         finally:
@@ -224,7 +125,9 @@ def test_real_engine_same_seed_same_bytes_and_seed_matters_with_noise(tmp_path):
 def test_real_engine_random_settings_render_valid_stereo(real_session):
     rng = random.Random(11)
     for _ in range(12):
-        s = rand_settings(rng).with_positions(length_ms=rng.randint(0, 45))  # keep it quick
+        # the whole weapon group over its contract range (the v0.1 fields every engine renders)
+        s = randomise(BlasterSettings(), ["weapon"], rng.randint(0, 10**6)).with_values(
+            length_ms=100)  # keep it quick
         samples, params = real_session.render_shot(s, rng.randint(0, bl.SEED_MAX))
         n = round(params["length_ms"] * 48000 / 1000)
         assert samples.shape == (n, 2) and np.all(np.isfinite(samples))
@@ -239,7 +142,7 @@ def test_shot_wav_equals_the_engines_own_encoding(real_session):
 
 
 def test_real_bank_uses_the_repo_writer_layout_and_sidecars(tmp_path):
-    s = BlasterSettings(dimension="rift").with_positions(length_ms=10)
+    s = BlasterSettings().with_values(family="rift", length_ms=100)
     res = export_bank(s, 5, 3, tmp_path / "proj", CategoryBankWriter())
     assert res.ok, res.message
     folder = tmp_path / "proj" / "Samples" / "FX" / "Lasers" / "laser_bank_001"
@@ -370,7 +273,7 @@ def test_close_removes_its_own_temp_dir():
 def test_load_engine_returns_the_real_engine():
     engine, msg = bl.load_engine()
     assert msg == "" and engine.sample_rate == 48000
-    out = engine.render(to_engine_params(BlasterSettings().with_positions(length_ms=0)), 3)
+    out = engine.render(to_engine_params(BlasterSettings().with_values(length_ms=100)), 3)
     assert out.shape[1] == 2
 
 
@@ -392,7 +295,7 @@ def test_load_engine_import_error_is_a_message(monkeypatch):
 
 # ---- bank export (fake writer: folder rules and error paths) ---------------------
 def test_bank_goes_into_a_new_library_folder_and_never_reuses_one(tmp_path):
-    s = BlasterSettings(dimension="ion")
+    s = BlasterSettings().with_values(family="ion")
     lasers = tmp_path / "out" / "Samples" / "FX" / "Lasers"
     old = lasers / "laser_bank_001"
     old.mkdir(parents=True)

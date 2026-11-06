@@ -210,10 +210,11 @@ class BlasterWidget(QWidget):
     """The gun. ``triggered`` is emitted when the trigger is pressed (mouse, Space or Enter)."""
 
     triggered = Signal()
+    released = Signal()  # the trigger was let go (hold-to-autofire stops)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        self.setMinimumSize(420, 220)
+        self.setMinimumSize(380, 200)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.setMouseTracking(True)
@@ -552,6 +553,7 @@ class BlasterWidget(QWidget):
         if self.pressed:
             self.pressed = False
             self.update()
+            self.released.emit()
         super().mouseReleaseEvent(e)
 
     def keyPressEvent(self, e) -> None:  # noqa: N802
@@ -566,6 +568,7 @@ class BlasterWidget(QWidget):
             if not e.isAutoRepeat() and self.pressed:
                 self.pressed = False
                 self.update()
+                self.released.emit()
             return
         super().keyReleaseEvent(e)
 

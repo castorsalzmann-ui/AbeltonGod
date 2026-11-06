@@ -22,6 +22,8 @@ else:
     pytest.importorskip("PySide6.QtWidgets", exc_type=ImportError)
 
 from PySide6.QtCore import QPointF, Qt, QTimer  # noqa: E402
+
+End, Home = Qt.Key.Key_End, Qt.Key.Key_Home
 from PySide6.QtGui import QImage  # noqa: E402
 from PySide6.QtTest import QTest  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
@@ -186,16 +188,17 @@ def test_same_seed_and_settings_give_the_same_wav_bytes(win):
 
 def test_dimension_and_sliders_reach_the_engine_with_contract_names(win):
     win.select_dimension("rift")
-    win.sliders["pitch_start_hz"].setValue(100)
-    win.sliders["length_ms"].setValue(0)
-    win.sliders["stereo_width"].setValue(100)
+    for name, key_end in (("pitch_start_hz", End), ("length_ms", Home), ("stereo_width", End)):
+        c = win.num[name][0]
+        c.slider.setFocus()
+        QTest.keyClick(c.slider, key_end)  # real key events: the slider emits, the window follows
     click_trigger(win)
     params, seed = win.session.engine.calls[-1]
     assert params["family"] == "rift" and params["pitch_start_hz"] == 8000
     assert params["length_ms"] == 100 and params["stereo_width"] == 1 and seed == 1
-    assert params["schema_version"] == "0.1" and params["sample_rate"] == 48000
+    assert params["schema_version"] == "0.2" and params["sample_rate"] == 48000
     assert win.gun.accent.name() == next(d.accent for d in DIMENSIONS if d.key == "rift")
-    assert win.readouts["pitch_start_hz"].text() == "8,0 kHz"
+    assert win.num["pitch_start_hz"][0].readout.text() == "8000 Hz"
 
 
 def test_every_dimension_can_be_selected_and_fired(win):
@@ -208,7 +211,7 @@ def test_every_dimension_can_be_selected_and_fired(win):
 
 
 def test_glitch_steps_slider_is_only_enabled_for_the_glitch_family(win):
-    s = win.sliders["glitch_steps"]
+    s = win.num["glitch_steps"][0]
     assert not s.isEnabled()
     win.select_dimension("glitch")
     assert s.isEnabled()
@@ -246,13 +249,15 @@ def test_render_runs_off_the_gui_thread_and_the_window_stays_responsive(qapp, tm
     n0 = len(ticks)
     assert wait_for(lambda: len(ticks) >= n0 + 5), "the event loop was blocked by the render"
     assert engine.threads and engine.threads[0] != threading.get_ident()
-    click_trigger(w, wait=False)  # second press while busy: ignored, says why
-    assert "noch gerendert" in w.status.text() and len(engine.threads) == 1
+    click_trigger(w, wait=False)  # second press while busy: one shot waits, says so
+    assert "wartet" in w.status.text() and len(engine.threads) == 1
+    assert w.queue.pending is not None
     engine.release.set()
     assert wait_for(lambda: not w.busy)
     timer.stop()
-    assert w.history.count() == 1 and not w.gun.busy and w.bank_btn.isEnabled()
-    assert w.session.next_seed == 2
+    assert w.history.count() == 2 and not w.gun.busy and w.bank_btn.isEnabled()
+    assert [s.seed for s in reversed(w.session.history)] == [1, 2]  # the waiting shot got seed 2
+    assert w.session.next_seed == 3
 
 
 def test_closing_the_window_while_a_shot_renders_does_not_crash(qapp, tmp_path):
@@ -374,7 +379,7 @@ def test_selecting_a_history_row_shows_its_trace_and_replay_plays_it(win):
     win.select_dimension("glitch")
     click_trigger(win)
     win.select_dimension("ion")
-    win.sliders["length_ms"].setValue(90)
+    win._on_edited("length_ms", 300)
     click_trigger(win)
     newest_trace = list(win.gun.trace)
     win.history.setCurrentRow(1)
@@ -454,7 +459,7 @@ def test_real_engine_window_fires_and_exports_a_bank_with_sidecars(qapp, tmp_pat
                       opener=lambda p: True, ask_dir=lambda parent, start: tmp_path / "bank")
     assert "Stub" not in w.windowTitle() and not is_error(w) and w.gun.ready
     w.select_dimension("plasma")
-    w.sliders["length_ms"].setValue(5)
+    w._on_edited("length_ms", 150)
     click_trigger(w)
     shot = w.session.history[0]
     assert not is_error(w) and shot.samples.shape == (round(shot.params["length_ms"] * 48), 2)
@@ -491,7 +496,7 @@ def test_window_renders_at_several_sizes(win, size):
 def test_texts_are_honest_and_german(win):
     labels = win.findChildren(type(win.status))
     texts = " ".join(label.text() for label in labels)
-    assert "kein Plugin" in texts and "nicht in Live" in texts
+    assert "kein Plugin" in texts and "nichts davon läuft in Live" in texts
     assert "nicht bewertet" in texts
     for banned in ("robust", "production", "perfekt", "professionell"):
         assert banned not in texts.lower()

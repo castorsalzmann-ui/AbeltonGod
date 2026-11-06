@@ -25,11 +25,13 @@ class MappedSlider(QAbstractSlider):
     userChanged = Signal(object)  # the new value, after drag / keys / wheel
     released = Signal()  # drag finished (heavy updates may follow)
     resetRequested = Signal()  # double click
+    ctrlClicked = Signal()  # Ctrl + click (the blaster resets to the default)
 
     def __init__(self, vmap: ValueMap, accent: bool = True) -> None:
         super().__init__()
         self.vmap = vmap
         self.accent = accent
+        self.accent_color: QColor | None = None  # own accent instead of theme.ACCENT
         self.inactive = False  # parameter is not sent: drawn muted
         self._value: float = vmap.minimum
         self._limit_lo: float = vmap.minimum
@@ -121,11 +123,24 @@ class MappedSlider(QAbstractSlider):
     def _fill(self) -> QColor:
         if self.inactive:
             return QColor(theme.ACCENT_DIM if self.accent else theme.NEUTRAL_DIM)
+        if self.accent and self.accent_color is not None:
+            return QColor(self.accent_color)
         return QColor(theme.ACCENT if self.accent else theme.NEUTRAL)
 
     def _groove(self) -> QColor:
+        if self.accent and not self.inactive and self.accent_color is not None:
+            return QColor(self.accent_color).darker(320)
         return QColor(theme.ACCENT_DIM if self.accent and not self.inactive else theme.NEUTRAL_DIM
                       ).darker(180)
+
+    def _ctrl(self, event) -> bool:
+        """Ctrl + left click: signal and swallow (no move)."""
+        if (event.button() == Qt.MouseButton.LeftButton
+                and event.modifiers() & Qt.KeyboardModifier.ControlModifier):
+            self.setFocus(Qt.FocusReason.MouseFocusReason)
+            self.ctrlClicked.emit()
+            return True
+        return False
 
     def _em(self) -> int:
         return self.fontMetrics().height()
@@ -191,14 +206,27 @@ class TrackSlider(MappedSlider):
         p.drawEllipse(QPointF(xv, cy), r, r)
 
     def mousePressEvent(self, event) -> None:  # noqa: N802 - Qt name
+        if self.isEnabled() and self._ctrl(event):
+            return
         if event.button() == Qt.MouseButton.LeftButton and self.isEnabled():
             self._dragging = True
+            self._fine: tuple[float, int] | None = None
             self.setFocus(Qt.FocusReason.MouseFocusReason)
             self.move_to_position(self._pos_at(event.position().x()))
 
     def mouseMoveEvent(self, event) -> None:  # noqa: N802 - Qt name
-        if self._dragging:
-            self.move_to_position(self._pos_at(event.position().x()))
+        if not self._dragging:
+            return
+        x = event.position().x()
+        if event.modifiers() & Qt.KeyboardModifier.ShiftModifier:  # fine: 1/5 of the travel
+            if self._fine is None:
+                self._fine = (x, self.vmap.to_pos(self._value))
+            x0, pos0 = self._fine
+            span = max(1.0, self.width() - self._em())
+            self.move_to_position(pos0 + int(round((x - x0) / span * self.vmap.pos_max * 0.2)))
+        else:
+            self._fine = None
+            self.move_to_position(self._pos_at(x))
 
     def mouseReleaseEvent(self, event) -> None:  # noqa: N802 - Qt name
         if self._dragging:
@@ -263,6 +291,8 @@ class KnobDial(MappedSlider):
             p.drawEllipse(c, w / 2 - 1, w / 2 - 1)
 
     def mousePressEvent(self, event) -> None:  # noqa: N802 - Qt name
+        if self.isEnabled() and self._ctrl(event):
+            return
         if event.button() == Qt.MouseButton.LeftButton and self.isEnabled():
             self.setFocus(Qt.FocusReason.MouseFocusReason)
             self._press = (event.position().x(), event.position().y(),
