@@ -30,7 +30,11 @@ from orch_helpers import (  # noqa: F401 - *_fixture are pytest fixtures (see or
 
 from orchestrator.auth import AuthMode, AuthSettings
 from orchestrator.loop import Orchestrator
-from orchestrator.sdk_client import SdkModelClient, default_cli_creationflags
+from orchestrator.sdk_client import (
+    SdkModelClient,
+    default_cli_creationflags,
+    parent_has_console,
+)
 from orchestrator.tools import Toolbox
 
 NO_WINDOW = 0x08000000  # CREATE_NO_WINDOW, winbase.h (written here, not taken from the code)
@@ -85,6 +89,23 @@ def chat(make_guard, client) -> object:
 ])
 def test_flag_only_on_windows_without_a_console(platform, console, expected):
     assert default_cli_creationflags(platform, has_console=lambda: console) == expected
+
+
+def test_a_failed_console_check_counts_as_no_console(monkeypatch):
+    """The documented failure path: ``GetConsoleWindow`` raising means "no console", so on
+    Windows the flag is set (the harmless side, see ``default_cli_creationflags``)."""
+    import ctypes
+
+    class Kernel32:
+        def GetConsoleWindow(self):  # noqa: N802 - the Windows API name
+            raise OSError("console check failed")
+
+    class Broken:
+        kernel32 = Kernel32()
+
+    monkeypatch.setattr(ctypes, "windll", Broken(), raising=False)
+    assert parent_has_console() is False
+    assert default_cli_creationflags("win32", has_console=parent_has_console) == NO_WINDOW
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="the default off Windows")

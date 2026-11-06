@@ -285,7 +285,9 @@ def _kill_tree(pid: int) -> None:
 # ``anyio.open_process`` and offers no option for ``creationflags``; anyio's asyncio backend
 # starts every process through the running loop's ``subprocess_exec``. So the flag goes in
 # there, on the client's **private** event loop only: nothing global is patched, and no other
-# loop or library is affected.
+# loop or library is affected. Upgrade guard: an SDK or anyio version that stops starting
+# processes through ``loop.subprocess_exec`` turns
+# ``test_cli_spawn.py::test_windowed_case_passes_the_flag_to_every_cli_start`` red.
 # winbase.h value; ``subprocess.CREATE_NO_WINDOW`` exists only on Windows.
 CREATE_NO_WINDOW = 0x08000000
 
