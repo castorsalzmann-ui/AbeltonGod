@@ -117,22 +117,48 @@ def test_bug_434_one_laser_edit_probes_only_the_fields_the_page_shows(qapp):
     assert n <= 30, n
 
 
-def test_bug_434_no_limit_is_probed_during_a_mouse_drag_and_release_brings_them_up(qapp):
+def test_bug_434_during_a_mouse_drag_only_the_main_knobs_are_probed(qapp):
+    """While the mouse holds a slider, the Hauptregler (and so the link hint under them) follow
+    the drag; the other shown sliders wait for the release (review point 1 of PR #452: the
+    hint kept "Frequenz 1 = 900 Hz" while f1 was already 940)."""
     p = _panel("rim")
+    assert "hp_hz" in p.main_names and "f1_hz" in p.main_names
+    p.advanced.set_expanded(True)
+    rows = [n for n in p._shown_numbers() if n not in p.main_names and n != "variants"]
+    assert rows
     f1, hp = p.controls["f1_hz"], p.controls["hp_hz"]
+    _type(f1, "900")
+    p.settle()
+    row_before = {n: p.controls[n].slider.limits for n in rows}
     s = f1.slider
-    before = hp.slider.limits  # the slider's own value, without asking the page
     QTest.mousePress(s, Qt.MouseButton.LeftButton, pos=s.rect().center())
     assert f1.is_dragging()
-    links.clear_cache()
-    start = links.stats["resolve"]
-    s.move_to_position(s.vmap.pos_max)  # as a mouse move does
-    during = links.stats["resolve"] - start
-    assert hp.slider.limits == before  # not probed while the mouse is down
+    s.move_to_position(s.vmap.pos_max)  # as a mouse move does: f1 3500 Hz
+    assert 2799 <= hp.slider.limits[1] <= 2800  # main knob live: hp < 0.8 * 3500
+    assert "Frequenz 1 = 3500 Hz" in p.link_label.text(), p.link_label.text()
+    assert "900 Hz" not in p.link_label.text()
+    assert all(n in p._stale for n in rows) and not p._pending  # rows wait for the release
+    assert {n: p.controls[n].slider.limits for n in rows} == row_before
     QTest.mouseRelease(s, Qt.MouseButton.LeftButton, pos=s.rect().center())
     assert not f1.is_dragging()
-    assert 2799 <= hp.limits[1] <= 2800  # f1 3500 Hz now: hp < 0.8 * 3500
-    assert during <= 6, during
+    p.settle()
+    assert not any(n in p._stale for n in rows)
+
+
+def test_bug_434_dragging_a_stale_hidden_slider_uses_its_fresh_limit(qapp):
+    """Reviewer mutant M1 (PR #452): a slider move that does not ask for fresh limits let the
+    hidden bass hp_hz go to 120 Hz with note 40, and repair then moved the note to 51. The
+    move must clamp to hp < 0.8 * f0 (f0 of MIDI 40 = 82.41 Hz) and leave the note alone."""
+    p = _panel("bass")
+    hp = p.controls["hp_hz"]
+    assert hp.style_name == "row" and not hp.isVisibleTo(p)  # under "Erweitert", closed
+    _type(p.controls["note"], "40")
+    assert "hp_hz" in p._stale
+    hp.slider.move_to_position(hp.vmap.pos_max)
+    hp.slider.released.emit()
+    assert p.model.issues() == [], p.model.issues()
+    assert hp.value() < 0.8 * 82.41, hp.value()
+    assert p.model.parse("note")[0] == 40
 
 
 def test_bug_434_shown_rows_are_probed_while_idle_in_small_batches(qapp):

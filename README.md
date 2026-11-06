@@ -10,7 +10,7 @@ Der Copilot soll Samples erzeugen und verfeinern, Arrangements vorschlagen, beim
 
 ## Programm mit Oberfläche (`AbeltonGod.exe`)
 
-Ein Doppelklick auf `AbeltonGod.exe` öffnet das Hauptfenster: links die Klangkategorien (Kick bis Laser), Bibliothek, Goa, Live-Import und Copilot, darunter Knöpfe für die Fenster Goa, Acid-Linie und Laser-Blaster. Mit Argumenten bleibt es die Kommandozeile (`AbeltonGod.exe kick --help`). Die exe kommt aus dem GitHub-Lauf „Build exe“ (Reiter Actions, Artifact `AbeltonGod-windows`, oder unter Releases, sobald eins veröffentlicht ist). Anleitung und ehrlicher Status: [`docs/setup/EXE.md`](docs/setup/EXE.md). Das Aussehen unter Windows, Drag-and-drop in Live, der Klang auf einem echten Gerät und ein Lauf der exe auf deinem PC sind noch nicht geprüft.
+Ein Doppelklick auf `AbeltonGod.exe` öffnet das Hauptfenster: links die Klangkategorien (Kick bis Laser), Bibliothek, Goa, Live-Import und Copilot, darunter Knöpfe für die Fenster Goa, Acid-Linie und Laser-Blaster. Für die Kommandozeile liegt im selben Ordner `AbeltonGod-cli.exe` (z. B. `AbeltonGod-cli.exe kick --help`; ohne Argumente öffnet sie das Textmenü). Die exe kommt aus dem GitHub-Lauf „Build exe“ (Reiter Actions, Artifact `AbeltonGod-windows`, oder unter Releases, sobald eins veröffentlicht ist). Anleitung und ehrlicher Status: [`docs/setup/EXE.md`](docs/setup/EXE.md). Das Aussehen unter Windows, Drag-and-drop in Live, der Klang auf einem echten Gerät und ein Lauf der exe auf deinem PC sind noch nicht geprüft.
 
 ## Architektur in einem Satz
 

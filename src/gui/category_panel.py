@@ -68,7 +68,7 @@ class CategoryPanel(QScrollArea):
         # batches while the event loop is idle, hidden ones when a section opens. Right before
         # the user moves or types into a stale control, or code reads its limits
         # (``limitsWanted``), it is probed first, so a stale limit is never used. During a
-        # mouse drag nothing else is probed; the release refreshes.
+        # mouse drag only the Hauptregler are probed; the release refreshes the rest.
         self._lims: dict[str, links.Limit] = {}
         self._stale: set[str] = set()
         self._pending: list[str] = []
@@ -312,8 +312,12 @@ class CategoryPanel(QScrollArea):
             derived = links.derived_values(model, heavy=final)
             numbers = [n for n, c in self.controls.items()
                        if isinstance(c, NumberControl) and n != skip]
-            shown = self._shown_numbers() if probe_limits else []
-            now = [n for n in shown if n in self.main_names]  # the link hint lists their limits
+            shown = self._shown_numbers()
+            # The Hauptregler are probed on every refresh, also during a drag: the link hint
+            # lists their limits with the partner's current value (5 fields, mostly cached).
+            now = [n for n in shown if n in self.main_names]
+            if not probe_limits:  # mouse drag: the other sliders wait for the release
+                shown = now
             lims = links.limits(model, skip=skip, names=now)
             self._lims.update(lims)
             self._stale.update(n for n in numbers if n not in lims)
