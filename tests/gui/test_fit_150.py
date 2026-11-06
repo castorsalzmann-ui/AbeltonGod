@@ -32,10 +32,10 @@ PAGE_MAX_M = 34  # a category page fits a column of 34 "M" widths (was 47.5)
 WINDOWS = ("main", "goa", "acid", "blaster")
 SRC = Path(__file__).resolve().parents[2] / "src"
 
-# Too big on the named platform (measured, see module doc); fix in area E files, #442.
-# main on linux since #451: the Live page (Live-Projekt row) is 751 px high, which makes the main
-# window 1216 x 769 (measured on b3518eb; it was 645 / 703 before).
-_TOO_BIG = {"main": ("win32", "linux"), "acid": ("linux",)}
+# Too big on the named platform (measured, see module doc). Empty since #442 P1/P2: the main
+# window's tool pages and the Acid skin are scroll areas. Measured after (Linux, 150 %):
+# main 1040 x 408, Goa 360 x 260, Acid 66 x 66, Blaster 111 x 366.
+_TOO_BIG: dict[str, tuple[str, ...]] = {}  # main and acid fit since #442 P1/P2 (scroll areas)
 
 
 def _param(key: str):

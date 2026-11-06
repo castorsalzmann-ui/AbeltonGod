@@ -9,7 +9,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QDesktopServices
+from PySide6.QtGui import QDesktopServices, QGuiApplication
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QPushButton,
+    QScrollArea,
     QSpinBox,
     QVBoxLayout,
     QWidget,
@@ -87,7 +88,13 @@ class AcidWindow(QWidget):
         self._tmp = Path(tempfile.mkdtemp(prefix="abeltongod-acid-"))
         self._build(out_dir or default_output_dir())
         self.sync()
-        self.resize(int(self.fontMetrics().height() * 74), int(self.fontMetrics().height() * 54))
+        u = self.fontMetrics().height()
+        want_w, want_h = int(u * 74), int(u * 54)
+        screen = QGuiApplication.primaryScreen()
+        if screen is not None:  # never wider / taller than the screen (like the Blaster)
+            area = screen.availableGeometry()
+            want_w, want_h = min(want_w, area.width()), min(want_h, int(area.height() * 0.95))
+        self.resize(want_w, want_h)
 
     # ---- construction ------------------------------------------------------------------
     def _field(self, text: str, width_em: float = 3.8) -> QLineEdit:
@@ -108,10 +115,16 @@ class AcidWindow(QWidget):
 
     def _build(self, out_dir: Path) -> None:
         u = self.fontMetrics().height()
-        root = AcidRoot(self)
+        root = AcidRoot()
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
-        outer.addWidget(root)
+        # The whole skin scrolls, so its panels do not set the window's minimum (#442 P2);
+        # AcidRoot paints its own background, the scroll area only frames it.
+        self.scroll = QScrollArea()
+        self.scroll.setWidgetResizable(True)
+        self.scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+        self.scroll.setWidget(root)
+        outer.addWidget(self.scroll)
         col = QVBoxLayout(root)
         col.setContentsMargins(int(u * 0.8), 0, int(u * 0.8), 0)
         col.setSpacing(int(u * 0.2))

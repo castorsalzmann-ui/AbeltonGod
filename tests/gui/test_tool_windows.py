@@ -169,7 +169,7 @@ def test_blaster_save_lands_in_the_library_and_goes_to_the_live_page(main, tmp_p
     bl.actions.show_button.click()
     assert selected_library_path(main) == wav
     bl.actions.live_button.click()
-    assert main.stack.currentWidget() is main.live
+    assert main.stack.currentWidget().widget() is main.live
     assert main.live.wav_path == str(wav)
     assert main.live.plan is None and not main.live.import_button.isEnabled()  # nothing sent
 

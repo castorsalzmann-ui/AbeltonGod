@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (
     QMainWindow,
     QProgressBar,
     QPushButton,
+    QScrollArea,
     QSizePolicy,
     QSplitter,
     QStackedWidget,
@@ -135,7 +136,7 @@ class MainWindow(QMainWindow):
         split.setChildrenCollapsible(False)
         outer.addWidget(split, 1)
         self.stack = QStackedWidget()
-        self.stack.setMinimumWidth(m * 50)  # five knobs (9 m each) plus the page margins
+        self.stack.setMinimumWidth(m * 34)  # category pages fit 34 M (knobs wrap, #442)
         self.panels: dict[str, CategoryPanel] = {}
         for c in CATEGORIES:
             panel = CategoryPanel(self.models[c.key])
@@ -152,9 +153,17 @@ class MainWindow(QMainWindow):
         self.live.attach_hub(self.hub)  # its "Live-Projekt" field is the shared project folder
         self.chat = ChatPanel(chat_session)
         self.tool_rows = {}
+        self.tool_scrolls: dict[str, QScrollArea] = {}
         for key, widget in (("goa", self.goa), ("live", self.live), ("chat", self.chat)):
+            # A scroll area per tool page: their content does not set the window's minimum
+            # (fits 1920 x 1080 at 150 %, #442 P1).
+            box = QScrollArea()
+            box.setWidgetResizable(True)
+            box.setFrameShape(QScrollArea.Shape.NoFrame)
+            box.setWidget(widget)
+            self.tool_scrolls[key] = box
             self.tool_rows[key] = self.stack.count()
-            self.stack.addWidget(widget)
+            self.stack.addWidget(box)
         split.addWidget(self.stack)
         right = self._build_right()
         right.setMinimumWidth(m * 38)

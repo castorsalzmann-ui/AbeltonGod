@@ -151,8 +151,8 @@ def test_150_percent_pass_has_every_page_and_window_at_one_and_a_half_pixels(tou
     assert set(shots150) == set(shots100)
     for name, p in shots100.items():
         a, b = QImage(str(p)), QImage(str(shots150[name]))
-        if name.startswith("window_blaster"):
-            continue  # clamps itself to the (smaller logical) screen
+        if name.startswith(("window_blaster", "window_acid")):
+            continue  # clamp themselves to the (smaller logical) screen (Acid since #442)
         assert abs(b.width() - 1.5 * a.width()) <= 2 and abs(b.height() - 1.5 * a.height()) <= 2, (
             name, a.size(), b.size())
 
@@ -191,12 +191,14 @@ def home(tmp_path):
 
 
 def test_goa_page_follows_the_output_folder(qapp_tour, home):
+    """#441, closed by #450: a folder typed like a user (editing finished) is the shared output
+    folder, and the Goa page's run folder follows it."""
     w = tour_mod.make_window(home / "first")
     w.folder_edit.setText(str(home / "second"))
+    w.folder_edit.editingFinished.emit()
     w.categories.setCurrentRow(w.tool_rows["goa"])
     folder = Path(w.goa.folder_edit.text())
-    known_gap(441, not folder.is_relative_to(home / "second"),
-              folder.is_relative_to(home / "first" / "Goa"), f"Goa page folder {folder}")
+    assert folder.is_relative_to(home / "second" / "Goa"), f"Goa page folder {folder}"
 
 
 def test_a_gui_render_goes_through_the_live_plan_against_the_fake_server(qapp_tour, home):

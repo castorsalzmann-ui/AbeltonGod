@@ -338,7 +338,11 @@ def laser_preset_names() -> list[str]:
 
 
 def preset_description(name: str) -> str:
-    return describe(name, "laser")
+    """German text of a shipped preset (gui_core.preset_texts, #467); the file's own (English)
+    description for a preset without one."""
+    from .preset_texts import preset_text_de
+
+    return preset_text_de("laser", name, describe(name, "laser"))
 
 
 def load_named_preset(name: str) -> BlasterSettings:

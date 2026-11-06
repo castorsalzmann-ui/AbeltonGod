@@ -303,7 +303,8 @@ def test_screenshots_written_and_not_blank_and_drips_not_clipped(qapp, tmp_path)
 
 def test_header_drips_end_above_the_widget_bottom(win):
     # grab from the window so the background AcidRoot paints behind the transparent band is included
-    img = win.grab(QRect(win.header.mapTo(win, QPoint(0, 0)), win.header.size())).toImage()
+    root = win.scroll.widget()  # the AcidRoot inside the scroll area (#442)
+    img = root.grab(QRect(win.header.mapTo(root, QPoint(0, 0)), win.header.size())).toImage()
     h = img.height()
     for y in (h - 1, h - 2):  # last two pixel rows of the header band stay dark
         for x in range(0, img.width(), 3):
