@@ -33,6 +33,23 @@ Bass-Rhythmus (`--roll`: jede 16tel, Off-Beat-Achtel, Galopp, Off-Beat mit Ghost
 - Live 12 **Standard**: kein Operator, Wavetable, Sampler, Meld, Echo, Roar (an deinem Geräte-Browser bestätigt). Instrumente für die Melodie: Drift (Standard), Analog.
 - Der Claude-Orchestrator hat seinen Abnahmelauf am PC noch nicht gehabt (Phase 04b).
 
+## 10-Minuten-Test der Oberfläche (Stand Sprint W1, 2026-11-09)
+
+Download: GitHub → Actions → „Build exe“ → neuester Lauf auf `main` → Artifact `AbeltonGod-windows` (ZIP entpacken). Ergebnisse bitte als Kommentar auf das Sprint-Issue oder als neue Bugs.
+
+1. `AbeltonGod.exe` doppelklicken: Hauptfenster öffnet sich, **kein Konsolen- oder Terminal-Fenster**. (Startfehler stehen sonst in `%LOCALAPPDATA%\AbeltonGod\logs\startup-errors.log`.)
+2. Passt das Fenster auf deinen Bildschirm (deine Skalierung)? Alle Texte lesbar, nichts abgeschnitten?
+3. Kick-Seite: Preset wählen, einen Regler ziehen (ruckelt es?), „Rendern“. Die Datei erscheint unter Ergebnisse und in der Bibliothek (`Samples/Drums/Kicks/kick_…wav`). „Abspielen“: hörst du den Kick?
+4. Laser-Seite und „Laser-Blaster“-Fenster: Abzug drücken, Schuss hören, „In Bibliothek speichern“.
+5. Acid-Linie: „WAV exportieren“; Goa-Fenster: rendern. Beides taucht ohne Neustart in der Bibliothek auf.
+6. „Einstellungen …“: Projektordner deines Test-Sets (Ordner mit `.als`) setzen; App schließen und neu öffnen: Einstellung und Fensterpositionen bleiben.
+7. Live mit AbletonOSC offen: Live-Seite, eine Kick-Datei → Import. Der Clip liegt danach in `<Projekt>\Samples\Drums\Kicks\` und spielt.
+8. Einen Blaster-Schuss in eine Live-Spur ziehen, Blaster schließen: spielt der Clip noch?
+9. Copilot-Seite: eine kurze Frage stellen: Antwort kommt, **kein** Konsolenfenster geht auf.
+10. `AbeltonGod-cli.exe kick --help` in einer Eingabeaufforderung: Hilfe erscheint.
+
+Jeder Punkt ist bisher nur automatisch (ohne Bildschirm bzw. gegen einen nachgebauten Live-Server) oder gar nicht geprüft; deine Rückmeldung ist der erste echte Beleg.
+
 ## Wenn du irgendwann testen willst (alles optional)
 
 1. Hören: `docs/setup/LISTENING_TEST_*.md` (blinde Pakete, Anleitungen), Antworten auf [#356](https://github.com/castorsalzmann-ui/AbeltonGod/issues/356).

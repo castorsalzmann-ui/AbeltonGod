@@ -2,6 +2,14 @@
 
 _Last updated: 2026-11-05 (Endstand-Zeile unten) (Stand-Block unten, ältere Einträge teils historisch) · Written only by the lead session on `main` after a merge. Parallel tracks: `docs/ROADMAP.md` → Pipeline._
 
+## Stand 2026-11-06, abends (Lead): Sprint W1 „gesamte GUI integriert“
+
+- **Plan:** `docs/sprints/2026-11-06_weekend-gui-sprint.md`. Alle PRs unabhängig reviewt, CI Ubuntu + Windows grün, Gate = CI-Lauf auf `main` nach jedem Merge (2 Kerne; Lehre in CLAUDE.md nach #458/#461).
+- **Gemergt:** #446 (Windows-GUI-Risiken, Recherche), #452 + #455 (Formular: ausgeschaltete Felder, Grenzen gecacht/verzögert, Drag-Hinweis; #424/#428/#434), #454 (CI: GUI-Tests einmal), #448 (zwei exe: `AbeltonGod.exe` fensterlos, `AbeltonGod-cli.exe`; Startfehler-Log; Qt getrimmt, 408 MB, davon `claude.exe` 283 MB; #435/#436/#445), #457 (Copilot startet CLI mit CREATE_NO_WINDOW; #453), #451 (Live-Import aus der GUI kopiert ins Projekt, Kopie bleibt bei unbekanntem Ausgang; Goa-Sidecars; Bibliotheks-Scan begrenzt; #413/#414/#415), #449 (GUI-Rundgang + Bedienelement-Inventar; #437), #458 + #461 + #471 (alle Fenster passen 1280×720 logisch bei 150 % laut CI; #442/#441), #464 (Cockpit-Test: Node-Start auf Windows-Runnern bis 15,7 s, Start 120 s getrennt von 30 s Arbeit; #459), #465 (Kategorie-Renders `<out>/Samples/<Ordner>/<kategorie>_…wav`; #443), #466 (Windows-Screenshots als Artefakt `gui-screens-windows`; Runner-Bildschirm nur 1024×768; #463), #450 (gemeinsame Einstellungen, ein Projektordner, Werkzeugfenster schreiben in die Bibliothek, Blaster-Drag bietet Bibliothekskopie; #439/#440/#444), #469 (winsound SND_NODEFAULT, kein SND_PURGE, 16-Bit-Vorhören geprüft; #462), #470 (deutsche Presettexte, Regler bündig; #467), #472 (Blaster-Datei-Lock ohne Absturz, `Acid/<lauf>`, `Goa/<lauf>`, Offline-Hinweis; #447/#468).
+- **Ergebnis:** Rundgang ohne bekannte Lücken; Inventar ohne Knopf ohne Handler.
+- **Nicht geprüft:** nichts auf dem PC des Nutzers, nichts in Live, nichts angehört; Windows-Aussehen nur auf GitHub-Runner (1024×768). 10-Minuten-Checkliste: `docs/USER_GUIDE.md`.
+- **Offen:** #473 (Acid/acid Groß-/Kleinschreibung unter Windows, Nit), #422 (Laser-Alias, contract-change), Goa-Form schmaler (P3 auf #442), grauer Acid-Scrollbalken, `render.py`-Statustexte englisch, ältere Side-Findings (#329, #346, #387 u. a.). Branches `tmp/laser-dbg`, `tmp/screens-b64` kann nur der Nutzer löschen.
+
 ## Stand 2026-11-06, 08:00 (Lead): Laser-Blaster und exe mit Oberfläche
 
 - **Entscheidungen:** D-029 (PySide6-GUI), D-030 (Kategorie `laser`, eigenständiges Blaster-Fenster, kein VST/Plugin in Live), D-031 (Laser-Vertrag v0.2: Salve, Feuerrate, Filter, Delay, Reverb; alles standardmäßig aus; Basis-Preset `blaster` = Basis-Variante 1, bis der Nutzer eine andere nennt).
