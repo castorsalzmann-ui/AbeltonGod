@@ -119,12 +119,12 @@ def test_unreachable_site_warns_but_builds_with_gate(env, tmp_path):
 
 NODE = shutil.which("node")
 
-# The first node start on a fresh Windows CI runner is slow, later starts are not (#459):
-# the first `node -e 0` took 15.7 s and the second 0.07 s on one runner; the first script
-# reached its first line after 1.4-4.0 s on four others, and three runs (13:49-13:55,
-# 2026-11-06) passed 30 s. The shim's own work after that first line took 2-35 ms. So
-# start-up and the shim get separate deadlines: a generous one until the script's first
-# line runs, and the old 30 s for the shim work after it.
+# The first node start on a fresh Windows CI runner is slow, later starts are not (#459).
+# Five runners: the first start reached the script's first line after 2.2-4.0 s on four,
+# and the first `node -e 0` took 15.7 s on the fifth; later starts took 0.02-0.15 s. Three
+# runs (2026-11-06, 13:49-13:55) passed 30 s. The shim's own work after the first line took
+# 2-36 ms. So start-up and the shim get separate deadlines: a generous one until the
+# script's first line runs, and the old 30 s for the shim work after it.
 NODE_START_S = 120.0
 SHIM_RUN_S = 30.0
 READY = "__node_ready__"
