@@ -95,7 +95,8 @@ def test_tool_pages_replace_the_render_column_and_the_kick_page_brings_it_back(w
     assert window.right.isVisibleTo(window)
     for key, page in (("goa", window.goa), ("live", window.live), ("chat", window.chat)):
         go(window, key)
-        assert window.stack.currentWidget() is page and window.on_tool
+        box = window.stack.currentWidget()  # each tool page sits in its scroll area (#442)
+        assert box is window.tool_scrolls[key] and box.widget() is page and window.on_tool
         assert not window.right.isVisibleTo(window)
         assert not window.render_button.isEnabled()
     window.categories.setCurrentRow(0)
