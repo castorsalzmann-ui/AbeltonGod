@@ -166,6 +166,129 @@ def test_limits_hold_the_engine_to_the_edge_for_every_category_and_random_state(
     assert checked > 20, checked
 
 
+def _clone(m: CategoryFormModel) -> CategoryFormModel:
+    c = CategoryFormModel(m.category, m.preset)
+    c.text, c.active = dict(m.text), set(m.active)
+    return c
+
+
+@pytest.mark.parametrize("category", CATEGORY_PARAMS)
+def test_property_the_ends_of_every_limit_are_accepted_once_the_field_is_switched_on(category):
+    """Property (#428): for every numeric field, active or switched off with a stale text, the
+    form stays accepted when the user switches the field on and sets it to either end of its
+    limit (what clamping does). Checked through the user's path (``activate`` + ``issues``),
+    not through the probe code. Seeded random states: values over the full contract range,
+    dots switched off and on, presets."""
+    rng = random.Random(f"ends-{category}")
+    m = CategoryFormModel(category)
+    names = [s.name for s in m.specs if s.kind in ("int", "float") and not s.zero_ok
+             and s.name not in ("seed", "variants", "length_beats")]
+    checked = limited = 0
+    for _ in range(10):
+        for name in rng.sample(names, min(4, len(names))):
+            spec = m.spec(name)
+            links.activate(m, name)
+            value = spec.minimum + rng.random() * (spec.maximum - spec.minimum)
+            value = round(value) if spec.kind == "int" else value
+            lim = links.limit_of(m, name)
+            value = min(max(value, lim.lo), lim.hi)
+            m.set_text(name, repr(value) if spec.kind == "float" else str(value))
+            if rng.random() < 0.5:
+                m.set_active(name, False)  # off, its text stays (the #428 situation)
+        links.repair(m)
+        if m.issues():
+            continue
+        for name in rng.sample(names, min(6, len(names))):
+            lim = links.limit_of(m, name)
+            limited += lim.limited
+            for end in (lim.lo, lim.hi):
+                c = _clone(m)
+                links.activate(c, name)
+                spec = c.spec(name)
+                c.set_text(name, str(int(end)) if spec.kind == "int" else repr(float(end)))
+                assert c.issues() == [], (category, name, end, lim, c.issues())
+                checked += 1
+        if rng.random() < 0.3:
+            m.set_preset(rng.choice(m.preset_names()))
+    assert checked >= 40, checked
+
+
+def test_bug_428_ends_check_turns_red_when_the_stale_text_is_used(monkeypatch):
+    """Fault injection for the property above: the old anchor (the field's own text, or
+    nothing when it is refused) makes the rim case of #428 report the field as free."""
+    m = CategoryFormModel("rim")
+    for name, text in (("f1_hz", "900"), ("hp_hz", "500")):
+        activate_with(m, name, text)
+    m.set_active("hp_hz", False)
+    m.set_active("f1_hz", False)
+    lim = links.limit_of(m, "hp_hz")
+    assert lim.limited and "Frequenz 1 = 455 Hz" in lim.reason  # the value the engine uses
+
+    def old_anchor(probe, spec):
+        value, problem = probe.model.parse(spec.name)
+        return value if problem is None and probe.accepts(spec.name, value)[0] else None
+
+    monkeypatch.setattr(links, "_anchor", old_anchor)
+    assert not links.limit_of(m, "hp_hz").limited  # the mutant reproduces the bug
+
+
+def test_cached_answers_keep_value_types_apart():
+    """1, 1.0 and True are equal in Python but not to the contract: a cached answer for one
+    must not answer another (independent check: a fresh resolve without the cache)."""
+    links.clear_cache()
+    base = CategoryFormModel("kick")._request_unchecked()
+    answers = {}
+    for seed in (1, True):
+        req = {**base, "seed": seed}
+        answers[seed is True] = links.accepts_request("kick", req)[0]
+        try:
+            get_category("kick").resolve(dict(req))
+            direct = True
+        except ValueError:
+            direct = False
+        assert answers[seed is True] == direct, seed
+    assert answers == {False: True, True: False}
+
+
+def test_cache_answers_a_repeated_state_without_a_new_resolve_and_is_bounded(monkeypatch):
+    links.clear_cache()
+    m = CategoryFormModel("rim")
+    links.limits(m)
+    before = links.stats["resolve"]
+    again = links.limits(m)
+    assert links.stats["resolve"] == before  # same state: every probe from the cache
+    links.clear_cache()
+    assert links.limits(m) == again  # the cache never changes an answer
+    monkeypatch.setattr(links, "CACHE_SIZE", 5)
+    links.clear_cache()
+    links.limits(m)
+    assert len(links._cache) == 5
+
+
+def test_one_current_value_check_is_shared_by_every_active_field():
+    """#434: a refresh of the laser form needed ~140 resolves (3 per numeric field). The
+    "current value" check is the same request for every active field, so it is asked once."""
+    m = CategoryFormModel("laser")
+    links.clear_cache()
+    before = links.stats["resolve"]
+    links.limits(m)
+    numeric = sum(1 for s in m.specs if s.kind in ("int", "float"))
+    used = links.stats["resolve"] - before
+    active = sum(1 for s in m.specs if s.kind in ("int", "float") and s.name in m.active)
+    assert used <= 3 * numeric - (active - 1), (used, numeric, active)
+
+
+def test_an_inactive_field_probes_as_if_switched_on_without_its_excluded_partner():
+    """Kick ``tail_note`` excludes the active ``pitch_end_hz``: its limits are probed as
+    ``activate`` would leave the form (pitch_end_hz off), not by scanning refused values."""
+    m = CategoryFormModel("kick")
+    assert "pitch_end_hz" in m.active and "tail_note" not in m.active
+    links.clear_cache()
+    before = links.stats["resolve"]
+    lim = links.limit_of(m, "tail_note")
+    assert links.stats["resolve"] - before <= 4 and not lim.limited
+
+
 def test_a_state_the_engine_already_refuses_gets_no_limits_instead_of_a_wrong_one():
     m = CategoryFormModel("bass")
     activate_with(m, "hp_hz", "400")  # invalid against note 43
