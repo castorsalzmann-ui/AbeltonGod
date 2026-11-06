@@ -17,7 +17,8 @@ def test_gui_screens_writes_every_view(tmp_path, monkeypatch):
     if os.environ.get("ABELTONGOD_REQUIRE_GUI") != "1":
         pytest.importorskip("PySide6.QtWidgets")
     monkeypatch.delenv("QT_SCALE_FACTOR", raising=False)
-    monkeypatch.setenv("ABELTONGOD_OUTPUT_DIR", str(tmp_path / "unused"))
+    monkeypatch.setenv("ABELTONGOD_OUTPUT_DIR", str(tmp_path / "mine"))
+    monkeypatch.delenv("ABELTONGOD_SKIN_SETTINGS", raising=False)
     out = io.StringIO()
     assert cli.main(["--gui-screens", str(tmp_path / "s")], out=out) == 0
     names = sorted(p.name for p in (tmp_path / "s").glob("*.png"))
@@ -26,7 +27,9 @@ def test_gui_screens_writes_every_view(tmp_path, monkeypatch):
     mains = [n for n in names if "_main-" in n and not n.endswith("-inner.png")]
     assert len(mains) >= 10, mains
     assert (tmp_path / "s" / "100_index.txt").is_file()
-    assert not (tmp_path / "unused").exists(), "screenshots must not render into a folder"
+    # the temp paths screens.run sets must not leak into later code in this process
+    assert os.environ["ABELTONGOD_OUTPUT_DIR"] == str(tmp_path / "mine")
+    assert "ABELTONGOD_SKIN_SETTINGS" not in os.environ
 
 
 def test_gui_screens_needs_one_folder():

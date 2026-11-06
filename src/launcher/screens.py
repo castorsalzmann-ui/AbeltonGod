@@ -56,38 +56,52 @@ def run(folder: Path, out: TextIO) -> int:
     folder.mkdir(parents=True, exist_ok=True)
     scale = os.environ.get("QT_SCALE_FACTOR", "1")
     tag = f"{round(float(scale) * 100):d}"
+    names = ("ABELTONGOD_OUTPUT_DIR", "ABELTONGOD_SKIN_SETTINGS")
+    old = {n: os.environ.get(n) for n in names}
     with tempfile.TemporaryDirectory(prefix="abeltongod-screens-") as tmp:
         os.environ["ABELTONGOD_OUTPUT_DIR"] = str(Path(tmp) / "out")
         os.environ["ABELTONGOD_SKIN_SETTINGS"] = str(Path(tmp) / "goa_skin.json")
-        from gui.app import create_app
-        from gui.main_window import MainWindow
-        from gui.windows import WINDOW_KEYS
-
-        app = create_app([])
-        win = MainWindow(out_dir=Path(tmp) / "out")
-        win.show()
-        screen = win.screen()
-        geo = screen.geometry()
-        lines = [f"platform {app.platformName()}, scale {scale}, screen {geo.width()}x"
-                 f"{geo.height()} logical, dpr {screen.devicePixelRatio():g}"]
-        n = 0
-        for row in range(win.categories.count()):
-            win.categories.setCurrentRow(row)
-            name = _slug(win.categories.item(row).text())
-            n += 1
-            _shoot(app, win, folder, f"{tag}_{n:02d}_main-{name}", lines)
-        for key, _ in WINDOW_KEYS:
-            tool = win.windows.open(key)
-            n += 1
-            if tool is None:
-                lines.append(f"{key}: did not open ({win.windows.last_error})")
-                continue
-            _shoot(app, tool, folder, f"{tag}_{n:02d}_{key}", lines)
-            tool.close()
-            app.processEvents()
-        win.close()
-        app.processEvents()
+        try:
+            lines = _shoot_all(Path(tmp), folder, scale, tag)
+        finally:  # the temp paths must not outlive this call
+            for n, value in old.items():
+                if value is None:
+                    os.environ.pop(n, None)
+                else:
+                    os.environ[n] = value
     (folder / f"{tag}_index.txt").write_text("\n".join(lines) + "\n", encoding="utf-8")
     out.write("\n".join(lines) + "\n")
     failed = [ln for ln in lines if "saved=False" in ln or "did not open" in ln]
     return 1 if failed else 0
+
+
+def _shoot_all(tmp: Path, folder: Path, scale: str, tag: str) -> list[str]:
+    from gui.app import create_app
+    from gui.main_window import MainWindow
+    from gui.windows import WINDOW_KEYS
+
+    app = create_app([])
+    win = MainWindow(out_dir=tmp / "out")
+    win.show()
+    screen = win.screen()
+    geo = screen.geometry()
+    lines = [f"platform {app.platformName()}, scale {scale}, screen {geo.width()}x"
+             f"{geo.height()} logical, dpr {screen.devicePixelRatio():g}"]
+    n = 0
+    for row in range(win.categories.count()):
+        win.categories.setCurrentRow(row)
+        name = _slug(win.categories.item(row).text())
+        n += 1
+        _shoot(app, win, folder, f"{tag}_{n:02d}_main-{name}", lines)
+    for key, _ in WINDOW_KEYS:
+        tool = win.windows.open(key)
+        n += 1
+        if tool is None:
+            lines.append(f"{key}: did not open ({win.windows.last_error})")
+            continue
+        _shoot(app, tool, folder, f"{tag}_{n:02d}_{key}", lines)
+        tool.close()
+        app.processEvents()
+    win.close()
+    app.processEvents()
+    return lines
