@@ -200,15 +200,16 @@ class AcidWindow(QWidget):
                   self.open_button, self.preview_button, self.stop_button, self.anim_box):
             row.addWidget(w)
         al.addLayout(row)
-        self.preview_note = QLabel(f"Vorschau: {PREVIEW_LABEL}")
-        self.preview_note.setObjectName("muted")
-        al.addWidget(self.preview_note)
-        # Second row: WAV export and the hand-off (keeps the window as narrow as before, #442).
+        # Second row: WAV export, the hand-off and the preview note (the note had a line of its
+        # own before, so the window keeps its height and width at 150 %, #442).
         row2 = QHBoxLayout()
         row2.setSpacing(int(u * 0.5))
         row2.addWidget(self.wav_button, 0, Qt.AlignmentFlag.AlignTop)
         self.actions = ResultActions()
         row2.addWidget(self.actions, 1)
+        self.preview_note = QLabel(f"Vorschau: {PREVIEW_LABEL}")
+        self.preview_note.setObjectName("muted")
+        row2.addWidget(self.preview_note)
         al.addLayout(row2)
         col.addWidget(act_panel)
         # --- footer / status

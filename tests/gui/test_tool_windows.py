@@ -227,7 +227,8 @@ def test_result_actions_without_the_main_window_are_off_and_say_why(qapp, tmp_pa
     wav.write_bytes(b"RIFF")
     a.set_paths([wav])
     assert not a.show_button.isEnabled() and not a.live_button.isEnabled()
-    assert "Hauptfenster" in a.note.text()
+    assert "Hauptfenster" in a.show_button.toolTip()
+    assert "Hauptfenster" in a.live_button.toolTip()
 
 
 def test_show_in_library_clears_a_filter_that_hides_the_file(main):

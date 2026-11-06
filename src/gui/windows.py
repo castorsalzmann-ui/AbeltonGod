@@ -114,23 +114,20 @@ class ResultActions(QWidget):
         super().__init__(parent)
         self.hub: AppHub | None = None
         self.path: Path | None = None
-        lay = QVBoxLayout(self)
-        lay.setContentsMargins(0, 0, 0, 0)
-        row = QHBoxLayout()
+        # One row (buttons, then the note), so the row adds no height to the tool windows.
+        row = QHBoxLayout(self)
+        row.setContentsMargins(0, 0, 0, 0)
         self.show_button = QPushButton(SHOW_TEXT)
         self.show_button.setObjectName("show_in_library")
         self.live_button = QPushButton(LIVE_TEXT)
         self.live_button.setObjectName("send_to_live")
-        self.live_button.setToolTip(LIVE_TIP)
         row.addWidget(self.show_button)
         row.addWidget(self.live_button)
-        row.addStretch(1)
-        lay.addLayout(row)
         self.note = QLabel()
         self.note.setObjectName("muted")
         self.note.setWordWrap(True)
         self.note.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Minimum)
-        lay.addWidget(self.note)
+        row.addWidget(self.note, 1)
         self.show_button.clicked.connect(self.show_in_library)
         self.live_button.clicked.connect(self.send_to_live)
         self._update()
@@ -146,24 +143,32 @@ class ResultActions(QWidget):
         self.path = wavs[0] if wavs else (paths[0] if paths else None)
         self._update()
 
+    def _set_note(self, text: str) -> None:
+        self.note.setText(text)
+        self.note.setVisible(bool(text))
+
     def _update(self) -> None:
-        if self.hub is None:
+        if self.hub is None:  # standalone window: say why in the tooltips, keep the row short
             self.show_button.setEnabled(False)
             self.live_button.setEnabled(False)
-            self.note.setText(NO_HUB_NOTE)
+            self.show_button.setToolTip(NO_HUB_NOTE)
+            self.live_button.setToolTip(NO_HUB_NOTE)
+            self._set_note("")
             return
+        self.show_button.setToolTip("")
+        self.live_button.setToolTip(LIVE_TIP)
         p = self.path
         is_wav = p is not None and p.suffix.lower() == ".wav" and p.is_file()
         self.show_button.setEnabled(is_wav)
         problem = live_problem(p)
         self.live_button.setEnabled(not problem)
         if p is None:
-            self.note.setText("")
+            self._set_note("")
         elif not is_wav:
-            self.note.setText(f"Die Bibliothek listet nur WAV-Dateien. {p.name} liegt in "
-                              f"{p.parent}.")
+            self._set_note(f"Die Bibliothek listet nur WAV-Dateien. {p.name} liegt in "
+                           f"{p.parent}.")
         else:
-            self.note.setText(problem)
+            self._set_note(problem)
 
     def refresh(self) -> None:
         self._update()
