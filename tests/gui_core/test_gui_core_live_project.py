@@ -7,6 +7,7 @@ system behaviour and are checked here for real; what Live does with the file is 
 
 from __future__ import annotations
 
+import dataclasses
 import errno
 import json
 import sys
@@ -21,6 +22,8 @@ from bridge.sample_info import read_sample_info  # noqa: E402
 from gui_core import live  # noqa: E402
 from gui_core.form import CATEGORY_KEYS, CategoryFormModel  # noqa: E402
 from gui_core.render import RenderJob, run_job  # noqa: E402
+from library import project as project_module  # noqa: E402
+from library.project import CHECKOUT_ROOT  # noqa: E402
 
 CREATE_CLIP = "/live/clip_slot/create_audio_clip"
 CREATE_TRACK = "/live/song/create_audio_track"
@@ -130,6 +133,26 @@ def test_copy_is_removed_when_nothing_reached_live(fake, tmp_path):
     assert src.is_file()  # the original is never touched
 
 
+def test_copy_is_kept_when_the_outcome_is_unknown(fake, tmp_path):
+    """A timed-out create_audio_clip may still be applied by Live later; deleting the copy then
+    would leave Live pointing at a missing file. The clip's end marker is lost and the clip
+    appears only after the read-back window: unknown outcome, no confirmed write."""
+    proj = project(tmp_path)
+    cfg = config_for(fake, tmp_path)
+    src = render("snare", tmp_path / "out")
+    plan = live.prepare_import(cfg, src, 2, 0, project_dir=proj, refused_roots=NO_ROOTS)
+    assert plan.ok, plan.error
+    fake.drop_next_marker_after = {CREATE_CLIP}
+    fake.clip_delay_s = 8.0  # > 1 s timeout + 2 s read-back window, with margin
+    short = dataclasses.replace(cfg, timeout_s=1.0)  # the timeout is the subject here
+    res = live.execute_import(short, plan, True)
+    assert not res.ok and res.outcome_unknown and not res.writes_sent, res.message
+    assert writes(fake) == [(CREATE_CLIP, (2, 0, plan.path))]
+    target = Path(plan.path)
+    assert target.is_file() and target.with_suffix(".json").is_file()
+    assert f"Die Kopie liegt in {target}" in res.message
+
+
 def test_a_file_that_appeared_at_the_target_is_never_overwritten(fake, tmp_path):
     proj = project(tmp_path)
     cfg = config_for(fake, tmp_path)
@@ -179,17 +202,30 @@ def test_bad_project_folders_are_refused_with_a_reason_and_nothing_is_written(
 def test_project_inside_the_checkout_is_refused_by_default(fake, tmp_path):
     proj = project(tmp_path)  # tmp_path lies in the checkout (--basetemp)
     src = render("kick", tmp_path / "out")
-    roots = live.default_refused_roots()
-    if not roots or not proj.resolve().is_relative_to(roots[0]):
+    if not proj.resolve().is_relative_to(CHECKOUT_ROOT):
         pytest.skip("temp folder is not inside the checkout here")
+    assert live.default_refused_roots() is None  # not frozen: library's own default
     res = live.prepare_import(config_for(fake, tmp_path), src, 2, 0, project_dir=proj)
-    assert not res.ok and "AbeltonGod-Ordner" in res.error
+    assert not res.ok and "liegt im AbeltonGod-Ordner" in res.error
 
 
-def test_without_a_verified_checkout_no_root_is_refused(monkeypatch):
-    assert live.default_refused_roots() in ((live.CHECKOUT_ROOT,), ())
-    monkeypatch.setattr(live, "checkout_problem", lambda _root: "no checkout (exe)")
+def test_unverified_checkout_outside_the_exe_stays_fail_closed(fake, tmp_path, monkeypatch):
+    monkeypatch.setattr(project_module, "checkout_problem", lambda _root: "no pyproject.toml")
+    proj = project(tmp_path)
+    src = render("kick", tmp_path / "out")
+    res = live.prepare_import(config_for(fake, tmp_path), src, 2, 0, project_dir=proj)
+    assert not res.ok and "nicht als Checkout erkennbar" in res.error, res.error
+    assert not (proj / "Samples").exists()
+
+
+def test_in_the_frozen_exe_no_root_is_refused(fake, tmp_path, monkeypatch):
+    monkeypatch.setattr(live, "is_frozen", lambda: True)
+    monkeypatch.setattr(project_module, "checkout_problem", lambda _root: "no checkout (exe)")
     assert live.default_refused_roots() == ()
+    proj = project(tmp_path)  # inside the (unverified) checkout folder: accepted in the exe
+    src = render("kick", tmp_path / "out")
+    res = live.prepare_import(config_for(fake, tmp_path), src, 2, 0, project_dir=proj)
+    assert res.ok and res.placement.copy, res.error
 
 
 def test_other_sidecar_problems_keep_the_bridge_refusal(fake, tmp_path):

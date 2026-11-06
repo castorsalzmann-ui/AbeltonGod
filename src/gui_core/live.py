@@ -61,6 +61,7 @@ from bridge.osc_client import (
     ReceivePortInUseError,
 )
 from bridge.sample_info import SampleCategoryError, SampleInfo, read_sample_info
+from launcher.paths import is_frozen
 from library import (
     DEFAULT_LAYOUT,
     LibraryLayout,
@@ -71,7 +72,7 @@ from library import (
     path_chars,
     sidecar_path,
 )
-from library.project import CHECKOUT_ROOT, ProjectDirProblem, ProjectReason, checkout_problem
+from library.project import ProjectDirProblem, ProjectReason
 
 REQUIRED_CAPS = (
     "app.version", "song.track_names.get", "song.num_scenes.get", "track.has_audio_input.get",
@@ -242,11 +243,12 @@ class Placement:
         return self.target != self.source
 
 
-def default_refused_roots() -> tuple[Path, ...]:
-    """The AbeltonGod checkout if this runs from one, else none. In the exe there is no
-    checkout to protect, and ``check_project_dir``'s default would refuse every folder there
-    (``checkout_unknown``)."""
-    return (CHECKOUT_ROOT,) if checkout_problem(CHECKOUT_ROOT) is None else ()
+def default_refused_roots() -> tuple[Path, ...] | None:
+    """``()`` in the frozen exe, else ``None`` (``check_project_dir``'s own default: the
+    verified checkout is refused, and an unverified one refuses every folder with
+    ``checkout_unknown``, fail-closed). Only the exe skips the rule: it has no checkout to
+    protect, and the default would refuse every folder there."""
+    return () if is_frozen() else None
 
 
 def project_problem_text(problem: ProjectDirProblem) -> str:
@@ -257,6 +259,9 @@ def project_problem_text(problem: ProjectDirProblem) -> str:
         return f"Der Projektordner muss ein voller Pfad sein, nicht {raw!r}."
     if reason is ProjectReason.MISSING:
         return f"Den Projektordner gibt es nicht: {raw}"
+    if reason is ProjectReason.CHECKOUT_UNKNOWN:
+        return ("Der AbeltonGod-Ordner, aus dem das Programm läuft, ist nicht als Checkout "
+                f"erkennbar ({detail}); aus Vorsicht wird kein Projektordner angenommen.")
     if reason is ProjectReason.IN_CHECKOUT:
         return f"{raw} liegt im AbeltonGod-Ordner ({detail}); das ist kein Live-Projekt."
     if reason is ProjectReason.BACKUP_FOLDER:
@@ -580,6 +585,8 @@ def execute_import(config: LiveConfig, plan: ImportPlan, test_set_confirmed: boo
                             "Es wurde nichts in Live geändert.")
     # An unexpected exception keeps the copy: whether Live already points at it is unknown.
     res = _execute(config, plan, registry, allow)
+    # writes_sent = a write was confirmed; outcome_unknown = a write may still be applied
+    # by Live later (timeout). In both cases Live may point at the copy: keep it.
     if res.ok or res.writes_sent or res.outcome_unknown:
         res.message += f" Die Kopie liegt in {placement.target}."
     else:
