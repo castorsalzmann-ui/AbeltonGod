@@ -164,6 +164,12 @@ def test_shim_api(tmp_path, rep):
     import time
     import warnings
 
+    cold = ""
+    if rep == 0:
+        for argv in (["--version"], ["--version"], ["-e", "0"], ["-e", "0"]):
+            tc = time.perf_counter()
+            subprocess.run([NODE, *argv], capture_output=True, timeout=120)
+            cold += f"{argv}={time.perf_counter() - tc:.3f}s "
     t0 = time.perf_counter()
     p = subprocess.Popen([NODE, str(f)], stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                          text=True)
@@ -205,7 +211,7 @@ def test_shim_api(tmp_path, rep):
     warnings.warn(f"SHIM459 rep={rep} worker={os.environ.get('PYTEST_XDIST_WORKER')} "
                   f"wall={time.strftime('%H:%M:%S')} exit_s={t_exit} rc={p.returncode} "
                   f"hung={hung} eof={eof} stderr={(out.get('e') or '')!r:.300} "
-                  f"threads={threads} ps=[{extra}]", stacklevel=1)
+                  f"threads={threads} ps=[{extra}] cold=[{cold}]", stacklevel=1)
     assert not hung and t_exit is not None and t_exit < 30, (t_exit, eof)
     r = subprocess.CompletedProcess(p.args, p.returncode, out.get("o", ""), out.get("e", ""))
     assert r.returncode == 0, r.stderr
