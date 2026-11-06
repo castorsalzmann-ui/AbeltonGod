@@ -118,7 +118,8 @@ NODE = shutil.which("node")
 
 
 @pytest.mark.skipif(NODE is None, reason="node not installed")
-def test_shim_api(tmp_path):
+@pytest.mark.parametrize("rep", range(6))
+def test_shim_api(tmp_path, rep):
     """data, calc (incl. calc of calc), onData, data-source binding, fetch + file:// fallback."""
     js = textwrap.dedent(
         f"""
@@ -153,21 +154,57 @@ def test_shim_api(tmp_path):
         """
     )
     f = tmp_path / "t.js"
+    stamp = "process.stderr.write('{0}_ms=' + performance.now().toFixed(1) + '\\n');"
+    js = (stamp.format("boot") + "process.on('exit', () => {" + stamp.format("exit") + "});"
+          + js.replace("dash.calc('doubled'", stamp.format("shim") + "dash.calc('doubled'")
+          .replace("console.log(JSON", stamp.format("print") + "console.log(JSON"))
     f.write_text(js)
     import os
+    import threading
     import time
     import warnings
 
-    from tests.qa.test_zz_node_probe_debug import handle_info
-
     t0 = time.perf_counter()
-    try:
-        r = subprocess.run([NODE, str(f)], capture_output=True, text=True, timeout=30)
-    finally:
-        warnings.warn(f"SHIM459 worker={os.environ.get('PYTEST_XDIST_WORKER')} "
-                      f"wall={time.strftime('%H:%M:%S')} "
-                      f"elapsed={time.perf_counter() - t0:.3f}s handles=[{handle_info()}]",
-                      stacklevel=1)
+    p = subprocess.Popen([NODE, str(f)], stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                         text=True)
+    out: dict = {}
+    eof: dict = {}
+
+    def rd(name, stream):
+        out[name] = stream.read()
+        eof[name] = round(time.perf_counter() - t0, 3)
+
+    for name, stream in (("o", p.stdout), ("e", p.stderr)):
+        threading.Thread(target=rd, args=(name, stream), daemon=True).start()
+    t_exit = None
+    extra = ""
+    while time.perf_counter() - t0 < 60:
+        if t_exit is None and p.poll() is not None:
+            t_exit = round(time.perf_counter() - t0, 3)
+        if t_exit is not None and len(eof) == 2:
+            break
+        if not extra and time.perf_counter() - t0 > 20 and os.name == "nt":
+            ps = ("Get-CimInstance Win32_Process | Where-Object { $_.ParentProcessId -eq "
+                  f"{os.getpid()} -or $_.ProcessId -eq {p.pid} }} | ForEach-Object {{ "
+                  "\"$($_.ProcessId) $($_.Name) cpu=$((Get-Process -Id $_.ProcessId "
+                  "-ErrorAction SilentlyContinue).CPU)\" }}; "
+                  "(Get-CimInstance Win32_Processor | Measure-Object LoadPercentage "
+                  "-Average).Average")
+            extra = subprocess.run(["powershell", "-NoProfile", "-Command", ps],
+                                   stdin=subprocess.DEVNULL, capture_output=True, text=True,
+                                   timeout=60).stdout.replace("\n", " | ")[:800]
+        time.sleep(0.005)
+    hung = p.poll() is None
+    if hung:
+        p.kill()
+        p.wait()
+    threads = sorted(t.name for t in threading.enumerate())
+    warnings.warn(f"SHIM459 rep={rep} worker={os.environ.get('PYTEST_XDIST_WORKER')} "
+                  f"wall={time.strftime('%H:%M:%S')} exit_s={t_exit} rc={p.returncode} "
+                  f"hung={hung} eof={eof} stderr={(out.get('e') or '')!r:.300} "
+                  f"threads={threads} ps=[{extra}]", stacklevel=1)
+    assert not hung and t_exit is not None and t_exit < 30, (t_exit, eof)
+    r = subprocess.CompletedProcess(p.args, p.returncode, out.get("o", ""), out.get("e", ""))
     assert r.returncode == 0, r.stderr
     got = json.loads(r.stdout.strip().splitlines()[0])
     assert got == {"d": [{"n": 4, "s": "b"}], "e": [{"v": 7}], "bound": "4"}
