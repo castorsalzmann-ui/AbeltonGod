@@ -61,6 +61,10 @@ Claude unreachable (#176). Every wait is bounded and every failed session is kil
 - the synchronous ``complete`` waits in ``WAIT_SLICE_S`` slices, so Ctrl+C is seen at once
   (a long lock wait is not interrupted by Ctrl+C on Windows before Python 3.14).
 
+No console window (#453): on Windows, when this process has no console (the windowed exe),
+the CLI is started with ``CREATE_NO_WINDOW`` through the client's private event loop
+(``default_cli_creationflags``). With a console, and on Linux, the start is unchanged.
+
 What is **not verified** (research note ``2026-10-28_agent-sdk-behaviour.md``, #83): that the
 hook fires before the SDK's own schema check (V4/V9), that ``updatedInput`` reaches the tool
 (V9), the init ``tools`` list with this configuration (V6), the ``apiKeySource`` values on the
@@ -93,6 +97,7 @@ import math
 import os
 import signal
 import subprocess
+import sys
 import threading
 import time
 from collections.abc import Callable, Mapping
@@ -273,6 +278,68 @@ def _kill_tree(pid: int) -> None:
             os.kill(target, signal.SIGKILL)
 
 
+# --- #453: no console window for the CLI under the windowed exe -----------------------------
+# The windowed AbeltonGod.exe (#448) has no console. ``claude.exe`` is a console program, and
+# Windows gives a console program whose parent has none a new console window (closing it kills
+# the CLI and the chat). The pinned SDK 0.2.174 starts the CLI (and its ``-v`` probe) with
+# ``anyio.open_process`` and offers no option for ``creationflags``; anyio's asyncio backend
+# starts every process through the running loop's ``subprocess_exec``. So the flag goes in
+# there, on the client's **private** event loop only: nothing global is patched, and no other
+# loop or library is affected.
+# winbase.h value; ``subprocess.CREATE_NO_WINDOW`` exists only on Windows.
+CREATE_NO_WINDOW = 0x08000000
+
+
+def parent_has_console() -> bool:
+    """Windows: True when this process has a console window (``python.exe``, the CLI exe);
+    False for the windowed exe and ``pythonw.exe``. A failed check counts as "no console", so
+    the flag is set (see ``default_cli_creationflags`` for why that is the harmless side)."""
+    try:
+        import ctypes
+
+        return bool(ctypes.windll.kernel32.GetConsoleWindow())  # type: ignore[attr-defined]
+    except Exception:  # noqa: BLE001 - unknown means "no console"
+        return False
+
+
+def default_cli_creationflags(platform: str | None = None,
+                              has_console: Callable[[], bool] = parent_has_console) -> int:
+    """``creationflags`` for the processes the SDK starts: ``CREATE_NO_WINDOW`` on Windows when
+    this process has no console window, else 0 (Linux and macOS: always 0, nothing changes).
+
+    Why not always on Windows: with a console (``python -m orchestrator.chat``, the CLI exe)
+    the CLI shares it today and no extra window appears; its unpiped stderr goes there and
+    Ctrl+C reaches it too. ``CREATE_NO_WINDOW`` would give it a hidden console of its own and
+    change those paths for no gain. Without a console window (the windowed exe, or a parent
+    that itself runs in a hidden console) the flag only keeps it that way."""
+    if (platform if platform is not None else sys.platform) != "win32":
+        return 0
+    return 0 if has_console() else CREATE_NO_WINDOW
+
+
+_DefaultLoop = getattr(asyncio, "ProactorEventLoop", asyncio.SelectorEventLoop)
+
+
+class _CliEventLoop(_DefaultLoop):  # type: ignore[misc, valid-type]
+    """The platform's default event loop class (Windows: Proactor) whose ``subprocess_exec``
+    ORs ``spawn_flags`` into ``creationflags``. Only built when there are flags to add."""
+
+    def __init__(self, spawn_flags: int) -> None:
+        super().__init__()
+        self.spawn_flags = int(spawn_flags)
+
+    async def subprocess_exec(self, protocol_factory, program, *args, **kwargs):
+        kwargs["creationflags"] = int(kwargs.get("creationflags") or 0) | self.spawn_flags
+        return await super().subprocess_exec(protocol_factory, program, *args, **kwargs)
+
+
+def _client_event_loop(spawn_flags: int) -> asyncio.AbstractEventLoop:
+    """The client's private loop: unchanged (``asyncio.new_event_loop``) without flags."""
+    if not spawn_flags:
+        return asyncio.new_event_loop()
+    return _CliEventLoop(spawn_flags)
+
+
 def per_call_estimate(profile: Any) -> float:
     """Reservation per model call: the profile's request budget spread over its model calls.
     A placeholder until #83 (V3) measures real per-call cost."""
@@ -390,7 +457,10 @@ class SdkModelClient:
         env_file: Any = None,
         cli_path: str | None = None,
         grace_s: float = GRACE_S,
+        creationflags: int | None = None,
     ) -> None:
+        """``creationflags``: added to every process the SDK starts for this client (the CLI
+        and its ``-v`` probe); None = ``default_cli_creationflags()`` (#453)."""
         if not isinstance(settings, AuthSettings):
             raise TypeError("settings must be AuthSettings (from orchestrator.auth.load_auth)")
         self.settings = settings
@@ -403,7 +473,9 @@ class SdkModelClient:
         self._cli_path = cli_path
         self._session: _Session | None = None
         self._closing: set[asyncio.Task] = set()  # session shutdowns still running
-        self._loop = asyncio.new_event_loop()
+        self.creationflags = (default_cli_creationflags() if creationflags is None
+                              else int(creationflags))
+        self._loop = _client_event_loop(self.creationflags)
         self._thread = threading.Thread(
             target=self._loop.run_forever, name="claude-agent-sdk", daemon=True
         )
