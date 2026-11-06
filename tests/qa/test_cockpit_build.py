@@ -7,10 +7,13 @@ GitHub and runs the whole gate. The shim is run under node (skipped if node is m
 from __future__ import annotations
 
 import json
+import queue
 import shutil
 import subprocess
 import sys
 import textwrap
+import threading
+import time
 from pathlib import Path
 
 import pytest
@@ -116,12 +119,89 @@ def test_unreachable_site_warns_but_builds_with_gate(env, tmp_path):
 
 NODE = shutil.which("node")
 
+# The first node start on a fresh Windows CI runner is slow, later starts are not (#459).
+# Five runners: the first start reached the script's first line after 2.2-4.0 s on four,
+# and the first `node -e 0` took 15.7 s on the fifth; later starts took 0.02-0.15 s. Three
+# runs (2026-11-06, 13:49-13:55) passed 30 s. The shim's own work after the first line took
+# 2-36 ms. So start-up and the shim get separate deadlines: a generous one until the
+# script's first line runs, and the old 30 s for the shim work after it.
+NODE_START_S = 120.0
+SHIM_RUN_S = 30.0
+READY = "__node_ready__"
+
+
+def run_node(script: Path, start_s: float = NODE_START_S, run_s: float = SHIM_RUN_S):
+    """Run ``node script``; return (stdout, stderr). The script must write
+    ``READY`` + newline to stderr as its first statement. Fails the test, naming the phase,
+    if node does not reach that line within ``start_s`` or does not exit ``run_s`` after it."""
+    t0 = time.perf_counter()
+    p = subprocess.Popen([NODE, str(script)], stdin=subprocess.DEVNULL,
+                         stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    lines: queue.Queue = queue.Queue()
+    out: list[str] = []
+
+    def pump_stderr():
+        for line in p.stderr:
+            lines.put(line)
+
+    readers = [threading.Thread(target=pump_stderr, daemon=True),
+               threading.Thread(target=lambda: out.append(p.stdout.read()), daemon=True)]
+    for t in readers:
+        t.start()
+    err: list[str] = []
+    try:
+        while READY not in "".join(err):
+            left = start_s - (time.perf_counter() - t0)
+            try:
+                err.append(lines.get(timeout=max(left, 0)))
+            except queue.Empty:
+                pytest.fail(f"node did not reach the script's first line within {start_s} s "
+                            f"(start-up, not the shim; #459); stderr so far: {''.join(err)!r}")
+        started = time.perf_counter() - t0
+        try:
+            p.wait(timeout=run_s)
+        except subprocess.TimeoutExpired:
+            pytest.fail(f"node started after {started:.1f} s, then did not finish within "
+                        f"{run_s} s (the shim script hangs)")
+    finally:
+        if p.poll() is None:
+            p.kill()
+            p.wait()
+    for t in readers:
+        t.join(run_s)
+    while not lines.empty():
+        err.append(lines.get())
+    stderr = "".join(err).replace(READY + "\n", "", 1)
+    assert p.returncode == 0, stderr
+    return "".join(out), stderr
+
+
+@pytest.mark.skipif(NODE is None, reason="node not installed")
+@pytest.mark.parametrize(
+    ("body", "start_s", "run_s", "phase"),
+    [
+        # never reaches its first line in time: start-up phase
+        (f"setTimeout(() => process.stderr.write('{READY}\\n'), 60000);", 1.0, 30.0, "start-up"),
+        # starts, then never exits: shim phase (generous start deadline, short run deadline,
+        # the run deadline is the subject here)
+        (f"process.stderr.write('{READY}\\n'); setInterval(() => {{}}, 1000);",
+         NODE_START_S, 1.0, "the shim script hangs"),
+    ],
+    ids=["slow-start", "hang-after-start"],
+)
+def test_run_node_names_the_phase_that_timed_out(tmp_path, body, start_s, run_s, phase):
+    f = tmp_path / "h.js"
+    f.write_text(body)
+    with pytest.raises(pytest.fail.Exception, match=phase):
+        run_node(f, start_s=start_s, run_s=run_s)
+
 
 @pytest.mark.skipif(NODE is None, reason="node not installed")
 def test_shim_api(tmp_path):
     """data, calc (incl. calc of calc), onData, data-source binding, fetch + file:// fallback."""
     js = textwrap.dedent(
         f"""
+        process.stderr.write('{READY}\\n');
         const fs = require('fs');
         const served = {{ nums: [{{n: 1, s: 'a'}}, {{n: 2, s: 'b'}}] }};
         const el = (attrs) => ({{dataset: attrs, textContent: ''}});
@@ -154,7 +234,6 @@ def test_shim_api(tmp_path):
     )
     f = tmp_path / "t.js"
     f.write_text(js)
-    r = subprocess.run([NODE, str(f)], capture_output=True, text=True, timeout=30)
-    assert r.returncode == 0, r.stderr
-    got = json.loads(r.stdout.strip().splitlines()[0])
+    stdout, _stderr = run_node(f)
+    got = json.loads(stdout.strip().splitlines()[0])
     assert got == {"d": [{"n": 4, "s": "b"}], "e": [{"v": 7}], "bound": "4"}
