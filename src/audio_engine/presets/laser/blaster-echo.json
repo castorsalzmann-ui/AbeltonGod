@@ -1,0 +1,21 @@
+{
+  "schema_version": "0.2",
+  "preset": "blaster-echo",
+  "seed": 25,
+  "bpm": 128,
+  "family": "plasma",
+  "length_ms": 2500,
+  "pitch_start_hz": 1900,
+  "pitch_end_hz": 110,
+  "sweep_ms": 700,
+  "sweep_curve": 0.6,
+  "decay_ms": 900,
+  "drive": 0.15,
+  "lp_hz": 3000,
+  "filter_slope": 24,
+  "echo_mix": 0.4,
+  "echo_feedback": 0.45,
+  "echo_sync": "1/8",
+  "echo_damp_hz": 3500,
+  "echo_pingpong": 0.8
+}

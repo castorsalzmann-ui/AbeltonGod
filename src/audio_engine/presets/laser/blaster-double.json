@@ -1,0 +1,19 @@
+{
+  "schema_version": "0.2",
+  "preset": "blaster-double",
+  "seed": 22,
+  "family": "plasma",
+  "length_ms": 1800,
+  "pitch_start_hz": 1900,
+  "pitch_end_hz": 110,
+  "sweep_ms": 700,
+  "sweep_curve": 0.6,
+  "decay_ms": 900,
+  "drive": 0.15,
+  "lp_hz": 3000,
+  "filter_slope": 24,
+  "salvo_count": 2,
+  "salvo_rate_mode": "ms",
+  "salvo_spacing_ms": 160,
+  "salvo_level_step_db": -3
+}
