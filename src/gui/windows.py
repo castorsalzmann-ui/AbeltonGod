@@ -330,7 +330,9 @@ class SettingsDialog(QDialog):
         self.setWindowTitle("Einstellungen")
         lay = QVBoxLayout(self)
         form = QFormLayout()
-        self.output_edit = QLineEdit(str(settings.output_root()))
+        # Empty = the default folder, so OK does not pin today's default as a fixed path.
+        self.output_edit = QLineEdit(settings.output_dir)
+        self.output_edit.setPlaceholderText(f"leer = {settings.output_root()}")
         form.addRow("Ausgabeordner", self._with_chooser(self.output_edit, "Ausgabeordner"))
         self.project_edit = QLineEdit(settings.project_dir)
         self.project_edit.setPlaceholderText("leer = keiner")

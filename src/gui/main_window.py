@@ -94,6 +94,8 @@ class MainWindow(QMainWindow):
         self.models = {c.key: CategoryFormModel(c.key) for c in CATEGORIES}
         for m in self.models.values():
             apply_format_to_form(m, self.hub.settings)
+        self._format = {"sample_rate": self.hub.settings.sample_rate,
+                        "bit_depth": self.hub.settings.bit_depth}  # what the forms were given
         self.form_key = CATEGORIES[0].key  # the category whose form Render uses
         self.on_library = False
         self.on_tool = False  # Goa, Live or chat page: the render column is not used
@@ -232,9 +234,15 @@ class MainWindow(QMainWindow):
         root = str(settings.output_root())
         if self.folder_edit.text().strip() != root:
             self.folder_edit.setText(root)
-        for key, model in self.models.items():
-            if apply_format_to_form(model, settings):
-                self.panels[key].sync_from_model()
+        # Only a changed format touches the forms: a value typed into a form survives a change
+        # of the folders (review of #450).
+        fields = tuple(name for name, old in self._format.items()
+                       if getattr(settings, name) != old)
+        self._format = {"sample_rate": settings.sample_rate, "bit_depth": settings.bit_depth}
+        if fields:
+            for key, model in self.models.items():
+                if apply_format_to_form(model, settings, fields):
+                    self.panels[key].sync_from_model()
         if self.on_library:
             self.library.set_folder(Path(root))
         self._update_state()

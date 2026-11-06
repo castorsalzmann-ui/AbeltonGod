@@ -143,3 +143,11 @@ def test_form_start_values_from_the_settings(category):
     st.apply_format_to_form(d, AppSettings(sample_rate=48000, bit_depth=24))
     if "sample_rate" not in before:
         assert d.build_request() == before
+    # back to "Vertragsstandard" after a value: the request of a fresh form again
+    assert st.apply_format_to_form(m, AppSettings()) is True
+    assert m.build_request() == before
+    # only the named field is applied
+    k = CategoryFormModel(category)
+    st.apply_format_to_form(k, AppSettings(sample_rate=44100, bit_depth=16), ("bit_depth",))
+    req = k.build_request()
+    assert req["bit_depth"] == 16 and req.get("sample_rate") == before.get("sample_rate")

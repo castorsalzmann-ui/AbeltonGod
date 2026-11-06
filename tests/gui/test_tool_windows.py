@@ -125,8 +125,11 @@ def test_goa_window_render_lands_in_the_library(main, tmp_path):
     assert main.stack.currentWidget() is main.library
     assert selected_library_path(main) == samples[0]
     assert set(samples) <= set(library_paths(main))
-    # Goa samples have no sidecar yet (#414): the Live hand-off says so instead of failing late.
-    assert not panel.actions.live_button.isEnabled()
+    # The Live hand-off is offered exactly when the sample has a readable sidecar (none before
+    # #414's fix, one after it): the row says why instead of failing late on the Live page.
+    readable = read_entry(samples[0]).readable
+    assert panel.actions.live_button.isEnabled() == readable
+    assert (panel.actions.note.text() == "") == readable
 
 
 def test_blaster_save_lands_in_the_library_and_goes_to_the_live_page(main, tmp_path):
@@ -300,3 +303,56 @@ def test_main_folder_edit_is_the_shared_output_folder(main, tmp_path):
     acid.folder_edit.setText(str(tmp_path / "mine"))
     main.hub.store.update(output_dir=str(tmp_path / "third"))
     assert Path(acid.folder_edit.text()) == tmp_path / "mine"  # typed by the user: kept
+
+
+# ---- format: back to the contract default, and other settings never touch the forms ----------
+def fresh_requests() -> dict[str, dict]:
+    from gui_core.form import CategoryFormModel
+
+    return {k: CategoryFormModel(k).build_request() for k in ("kick", "bass", "laser")}
+
+
+def test_contract_default_after_a_value_resets_forms_blaster_and_acid(main):
+    fresh = fresh_requests()
+    acid = main.windows.open("acid")
+    bl = main.windows.open("blaster")
+    main.hub.store.update(sample_rate=44100, bit_depth=16)
+    assert main.models["kick"].build_request()["sample_rate"] == 44100
+    assert (acid.sample_rate, acid.bit_depth) == (44100, 16)
+    assert bl.format_overrides == {"sample_rate": 44100, "bit_depth": 16}
+    main.hub.store.update(sample_rate=None, bit_depth=None)  # "Vertragsstandard"
+    for key, req in fresh.items():  # byte-identical to a fresh form again
+        assert main.models[key].build_request() == req, key
+    assert (acid.sample_rate, acid.bit_depth) == (48000, 24)
+    assert bl.format_overrides == {}
+
+
+def test_a_folder_change_keeps_a_sample_rate_typed_into_a_form(main, tmp_path):
+    main.hub.store.update(sample_rate=44100)
+    model = main.models["kick"]
+    model.set_text("sample_rate", "48000")  # the user changes the form by hand
+    main.folder_edit.setText(str(tmp_path / "elsewhere"))
+    main.folder_edit.editingFinished.emit()
+    main.hub.store.update(project_dir=str(tmp_path / "p"))
+    assert model.build_request()["sample_rate"] == 48000
+    main.hub.store.update(bit_depth=16)  # only the changed field is applied
+    req = model.build_request()
+    assert (req["sample_rate"], req["bit_depth"]) == (48000, 16)
+
+
+# ---- a tool window's place is saved when the user closes it ------------------------------------
+def test_closing_a_tool_window_saves_its_place(qapp, tmp_path):
+    cfg = tmp_path / "cfg" / "settings.json"
+    w = MainWindow(out_dir=tmp_path / "out", backend=FakeBackend(),
+                   settings_store=SettingsStore(path=cfg))
+    w.show()
+    acid = w.windows.open("acid")
+    acid.setGeometry(60, 70, 880, 620)
+    geo = acid.geometry()
+    acid.close()  # the user closes Acid; the main window stays open
+    QApplication.processEvents()
+    assert load_settings(cfg).windows["acid"] == WindowState(geo.x(), geo.y(), geo.width(),
+                                                             geo.height())
+    again = w.windows.open("acid")  # reopened in the same session: same place
+    assert (again.geometry().width(), again.geometry().height()) == (geo.width(), geo.height())
+    w.close()

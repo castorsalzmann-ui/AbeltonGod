@@ -15,7 +15,8 @@ What the settings mean (decided in #439):
   export dialog. The library does not read it.
 * ``sample_rate`` / ``bit_depth`` -- ``None`` = the contract default (48000 Hz, 24 bit). A set
   value is the start value of the category forms and is used for Blaster library saves, Blaster
-  banks and Acid WAVs.
+  banks and Acid WAVs. Changing it (also back to ``None``) puts the forms to it; other settings
+  changes never touch the forms.
 * ``windows`` -- last position and size per window key (``main``, ``goa``, ``acid``,
   ``blaster``); the Goa window also keeps ``always_on_top`` and ``animation``.
 """
@@ -213,25 +214,37 @@ def free_stem(folder: Path, stem: str, suffixes: tuple[str, ...] = (".wav", ".js
     return cand
 
 
-def apply_format_to_form(model: Any, settings: AppSettings) -> bool:
-    """Set the form's ``sample_rate`` / ``bit_depth`` to the settings' values (start values of
-    the category forms). A value that is ``None`` (contract default) leaves the field as it is;
-    a value equal to what the form already sends, or to the default of a switched-off field,
-    changes nothing (the request stays byte-identical). True if the form changed."""
+def _field_state(model: Any, name: str) -> tuple[str, bool]:
+    return model.text.get(name, ""), name in model.active
+
+
+def apply_format_to_form(model: Any, settings: AppSettings,
+                         fields: tuple[str, ...] = ("sample_rate", "bit_depth")) -> bool:
+    """Put the form's ``sample_rate`` / ``bit_depth`` (only those in ``fields``) to the
+    settings: a set value is sent; ``None`` (contract default) puts the field back to what a
+    fresh form of the same preset has (the request is then byte-identical to a fresh form). A
+    value equal to what the form already sends, or to the default of a switched-off field,
+    changes nothing. The caller applies this only when the format setting itself changed, so
+    a value typed into a form survives other settings changes. True if the form changed."""
     changed = False
     names = set(model.specs_names())
-    for name, value in (("sample_rate", settings.sample_rate),
-                        ("bit_depth", settings.bit_depth)):
-        if value is None or name not in names:
+    values = {"sample_rate": settings.sample_rate, "bit_depth": settings.bit_depth}
+    for name in fields:
+        if name not in names:
             continue
-        current, problem = model.parse(name)
-        if name in model.active and problem is None and current == value:
-            continue
-        if name not in model.active and model.spec(name).default == value:
-            continue
-        model.set_text(name, str(value))
-        model.set_active(name, True)
-        changed = True
+        value = values[name]
+        before = _field_state(model, name)
+        if value is None:
+            model.reset_field(name)  # back to the preset (= the contract default if absent)
+        else:
+            current, problem = model.parse(name)
+            if name in model.active and problem is None and current == value:
+                continue
+            if name not in model.active and model.spec(name).default == value:
+                continue
+            model.set_text(name, str(value))
+            model.set_active(name, True)
+        changed = changed or _field_state(model, name) != before
     return changed
 
 
