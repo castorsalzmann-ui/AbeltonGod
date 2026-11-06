@@ -23,6 +23,8 @@ Behaviour comes from environment variables (the SDK passes the parent's environm
   shell or an MCP server); its pid goes to the pid file too.
 - ``FAKE_CLI_PIDFILE``: file that gets ``<pid>`` (and ``<child pid>``), one per line.
 - ``FAKE_CLI_RETRY_GAP``: seconds between ``api_retry`` frames (default 0.2).
+- ``FAKE_CLI_CONSOLEFILE``: file that gets this process's console window handle
+  (``GetConsoleWindow``; always 0 off Windows), #453.
 """
 
 from __future__ import annotations
@@ -69,6 +71,15 @@ def main() -> None:
         with open(pidfile + ".tmp", "w", encoding="ascii") as fh:
             fh.write("\n".join(str(p) for p in pids) + "\n")
         os.replace(pidfile + ".tmp", pidfile)
+    console_file = os.environ.get("FAKE_CLI_CONSOLEFILE")
+    if console_file:  # #453: the console window this process got (Windows; 0 = none)
+        window = 0
+        if os.name == "nt":
+            import ctypes
+
+            window = int(ctypes.windll.kernel32.GetConsoleWindow() or 0)
+        with open(console_file, "w", encoding="ascii") as fh:
+            fh.write(f"{window}\n")
     stubborn = mode in ("silent", "offline", "hang")
     if stubborn and hasattr(signal, "SIGTERM") and os.name != "nt":
         signal.signal(signal.SIGTERM, signal.SIG_IGN)
