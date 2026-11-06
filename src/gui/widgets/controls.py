@@ -334,7 +334,7 @@ class ChoiceControl(ParamControl):
         super().__init__(spec, accent=accent)
         em = self.fontMetrics().horizontalAdvance("M")
         self.texts = list(spec.choice_texts)
-        wide = len(self.texts) > 6 or sum(len(t) for t in self.texts) > 36
+        wide = len(self.texts) > 5 or sum(len(t) for t in self.texts) > 28
         self.seg = (WrapSegmented(self.texts) if wide else Segmented(self.texts, accent=accent))
         self.seg.setAccessibleName(spec.label)
         self.seg.setToolTip(spec.description)
