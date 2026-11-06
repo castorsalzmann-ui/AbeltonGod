@@ -37,6 +37,8 @@ from .mapped import KnobDial, MappedSlider, TrackSlider
 from .section import StepEdit
 from .toggle import ActiveDot, Toggle
 
+CHOICE_COLUMN_M = 14  # a choice row beside its 15 M label fits the width of a slider row
+
 
 class ReadoutEdit(QLineEdit):
     """The value as text next to a slider; typing a number and pressing Enter sets it."""
@@ -325,11 +327,19 @@ class SeedControl(ParamControl):
         row.setContentsMargins(0, 0, 0, 0)
         row.addWidget(self.dot)  # hidden, keeps the label column aligned
         row.addWidget(self.label)
-        row.addWidget(self.edit)
-        row.addStretch(1)
+        # The range sits under the field, not beside it: beside it the seed row was the widest
+        # row of a page (37.7 M; #442, 1920 x 1080 at 150 %).
+        column = QVBoxLayout()
+        column.setContentsMargins(0, 0, 0, 0)
+        column.setSpacing(0)
+        column.addWidget(self.edit)
         self.range_label = QLabel(spec.range_text)
         self.range_label.setObjectName("muted")
-        row.addWidget(self.range_label)
+        self.range_label.setWordWrap(True)
+        self.range_label.setFixedWidth(em * 12)
+        column.addWidget(self.range_label)
+        row.addLayout(column)
+        row.addStretch(1)
         self._finish(row)
 
     def set_value(self, value: int | str) -> None:
@@ -366,8 +376,17 @@ class ChoiceControl(ParamControl):
         row = QHBoxLayout()
         row.addWidget(self.dot)
         row.addWidget(self.label)
-        row.addWidget(self.seg, 1)
-        self._finish(row)
+        # A button row wider than its column (the platform font decides: hat "model" is
+        # 330 px on Linux, wider on Windows; #442) goes under the label, so the row never needs
+        # more than a slider row.
+        self.stacked = self.seg.minimumSizeHint().width() > em * CHOICE_COLUMN_M
+        if self.stacked:
+            row.addStretch(1)
+            self._finish(row)
+            self.layout().insertWidget(1, self.seg)
+        else:
+            row.addWidget(self.seg, 1)
+            self._finish(row)
 
     def set_value(self, text: str) -> None:
         self.seg.set_index(self.texts.index(text) if text in self.texts else -1)
