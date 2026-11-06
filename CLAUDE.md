@@ -65,6 +65,8 @@ Things you notice that are wrong or risky but outside scope are **side findings*
 - **Independent review before merge.** Every PR gets a `reviewer` run started by the lead (implementers cannot start agents, D-017). For foundation code (engine, analysis, file writing, anything that writes to Ableton) the review is full-depth; small doc or text changes get a short one.
 - **Green on its own base is not green after main moved (#137).** PR #117 passed CI on a base without the v0.3 contract (#114) and broke main once both were merged; GitHub still showed the PR as `clean`. Before every merge go-ahead the lead runs `ruff check . && pytest` on the merged state (current `origin/main` plus every PR in the batch) and gives the go-ahead only on that result.
 
+- **Again on 2026-11-06 (#458 after #451):** #458's window-fit test was green on a base without #451's taller Live page; merged right after #451, `main` went red on Linux. With several merges in a row, the lead checks before each merge that the PR's CI base contains every merge since; otherwise the PR merges `origin/main` and waits for CI. With 2 cores, the post-merge CI run on `main` is the full gate, so check it before the next merge.
+
 ## Bugs
 
 - Filed with the **Bug** issue form (`bug` label + one `severity:blocker|major|minor|nit`). A bug without a runnable repro goes back to the reporter.
