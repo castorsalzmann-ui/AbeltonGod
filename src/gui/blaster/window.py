@@ -323,7 +323,13 @@ class BlasterWindow(QWidget):
         sl.addWidget(self._cap("Oszilloskop (links / rechts, ganze Datei)"))
         self.scope = SalvoScope()
         sl.addWidget(self.scope)
-        sl.addWidget(self._cap("Schüsse (in Live oder Explorer ziehen)"))
+        # Honest caption (#447): dragging works at the data level (a library copy is offered,
+        # #444); a drop into Live has not been tried.
+        shots_cap = self._cap("Schüsse (herausziehen: Kopie in der Bibliothek)")
+        shots_cap.setToolTip("Ziehen legt den Schuss als WAV + Sidecar in die Bibliothek und "
+                             "bietet diese Datei an. Ob das Ablegen in Live klappt, ist nicht "
+                             "geprüft.")
+        sl.addWidget(shots_cap)
         self.history = DragList(offer=self.offer_for_drag)
         self.history.setMinimumHeight(int(u * 4.5))
         self.history.setMaximumHeight(int(u * 14))

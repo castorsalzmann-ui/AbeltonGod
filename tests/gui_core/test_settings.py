@@ -80,8 +80,8 @@ def test_config_dir_env_wins(tmp_path, monkeypatch):
 
 def test_output_tree_below_the_output_folder(tmp_path):
     s = AppSettings(output_dir=str(tmp_path))
-    assert s.acid_dir() == tmp_path / "acid"
-    assert s.goa_dir() == tmp_path / "goa"
+    assert s.acid_dir() == tmp_path / "Acid"
+    assert s.goa_dir() == tmp_path / "Goa"
     assert s.laser_dir() == tmp_path / "Samples" / "FX" / "Lasers"
     assert s.bank_start_dir() == tmp_path
     assert AppSettings(output_dir=str(tmp_path), project_dir="/proj").bank_start_dir() == \

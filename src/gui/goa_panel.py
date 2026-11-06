@@ -243,7 +243,7 @@ class GoaPanel(QWidget):
         self.setStyleSheet(STYLE)
         self.service = service or GoaService()
         self.opener = opener or (lambda p: False)
-        self.base_dir = Path(base_dir) if base_dir else default_output_dir() / "goa"
+        self.base_dir = Path(base_dir) if base_dir else default_output_dir() / "Goa"
         self.models = {m: GoaFormModel(m) for m in MODES}
         self.mode = MODES[0]
         self.handle = None

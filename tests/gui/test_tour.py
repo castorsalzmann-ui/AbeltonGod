@@ -196,7 +196,7 @@ def test_goa_page_follows_the_output_folder(qapp_tour, home):
     w.categories.setCurrentRow(w.tool_rows["goa"])
     folder = Path(w.goa.folder_edit.text())
     known_gap(441, not folder.is_relative_to(home / "second"),
-              folder.is_relative_to(home / "first" / "goa"), f"Goa page folder {folder}")
+              folder.is_relative_to(home / "first" / "Goa"), f"Goa page folder {folder}")
 
 
 def test_a_gui_render_goes_through_the_live_plan_against_the_fake_server(qapp_tour, home):

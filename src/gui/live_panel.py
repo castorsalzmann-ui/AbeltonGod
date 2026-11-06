@@ -111,7 +111,8 @@ class LivePanel(QWidget):
         project_hint = QLabel(
             "Live importiert nur aus Kategorie-Ordnern wie Samples/Drums/Kicks. Mit "
             "Projektordner kopiert das Programm WAV und Sidecar vorher dorthin; der Plan "
-            "zeigt das Ziel.")
+            "zeigt das Ziel. Ohne Projektordner zeigt der Clip auf die Datei im Ausgabeordner: "
+            "wird der Ordner verschoben oder gelöscht, ist der Clip in Live offline.")
         project_hint.setWordWrap(True)
         project_hint.setObjectName("muted")
         project_hint.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Minimum)

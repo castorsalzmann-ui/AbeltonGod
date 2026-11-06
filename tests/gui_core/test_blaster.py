@@ -358,3 +358,28 @@ def test_category_writer_without_laser_category_is_a_message(monkeypatch, tmp_pa
     monkeypatch.setattr(io, "write_sample", raise_unavailable)
     with pytest.raises(BlasterError, match="Bank nicht möglich"):
         CategoryBankWriter().write(to_engine_params(BlasterSettings()), 1, tmp_path, "x", "d")
+
+
+def test_trim_survives_a_locked_shot_file_and_retries_later(tmp_path, monkeypatch):
+    """#447: on Windows a shot file still held by the player cannot be deleted
+    (PermissionError). The trim must not raise; the file is retried on the next trim / close."""
+    s = BlasterSession(StubLaserEngine(), FakeBackend(), work_dir=tmp_path / "work",
+                       history_limit=1)
+    first = s.fire(play=False).shot
+    locked = {first.wav_path}
+    real_unlink = Path.unlink
+
+    def unlink(self, missing_ok=False):
+        if self in locked:
+            raise PermissionError(13, "in use", str(self))
+        return real_unlink(self, missing_ok=missing_ok)
+
+    monkeypatch.setattr(Path, "unlink", unlink)
+    second = s.fire(play=False)  # trims the first shot: its WAV is "locked"
+    assert second.shot is not None and not second.error
+    assert [h.index for h in s.history] == [second.shot.index]
+    assert s.stale_files == [first.wav_path] and first.wav_path.is_file()
+    assert not first.play_path.exists()  # the unlocked copy is gone
+    locked.clear()  # the player let go
+    s.close()
+    assert s.stale_files == [] and not first.wav_path.exists()

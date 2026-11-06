@@ -211,6 +211,7 @@ class BlasterSession:
         self.history: list[Shot] = []
         self._count = 0
         self._preview_n = 0
+        self.stale_files: list[Path] = []  # trimmed shot files that could not be deleted yet
         self._own_dir = work_dir is None
         self.work_dir = Path(work_dir) if work_dir else Path(
             tempfile.mkdtemp(prefix="abeltongod-blaster-")
@@ -281,11 +282,23 @@ class BlasterSession:
         return replace(shot, wav_path=wav, play_path=play)
 
     def _trim(self) -> None:
+        """Drop the oldest shots beyond the limit and delete their temp files. A file another
+        program still holds (Windows: winsound playing it, a virus scanner) cannot be deleted
+        now (PermissionError): it is kept in ``stale_files`` and tried again on the next trim
+        and on ``close`` (#447); the shot is still dropped from the history."""
         while len(self.history) > self.history_limit:
             old = self.history.pop()
-            for p in (old.wav_path, old.play_path):
-                if p is not None:
-                    p.unlink(missing_ok=True)
+            self.stale_files.extend(p for p in (old.wav_path, old.play_path) if p is not None)
+        self._delete_stale()
+
+    def _delete_stale(self) -> None:
+        left = []
+        for p in self.stale_files:
+            try:
+                p.unlink(missing_ok=True)
+            except OSError:
+                left.append(p)
+        self.stale_files = left
 
     def render_preview(self, settings: BlasterSettings, seed: int
                        ) -> tuple[np.ndarray, dict[str, Any]]:
@@ -314,6 +327,7 @@ class BlasterSession:
 
     def close(self) -> None:
         self.stop()
+        self._delete_stale()  # playback stopped: a held file can usually go now
         if self._own_dir:
             shutil.rmtree(self.work_dir, ignore_errors=True)
 

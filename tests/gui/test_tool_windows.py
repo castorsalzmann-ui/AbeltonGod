@@ -78,12 +78,13 @@ def library_paths(main) -> list[Path]:
 def test_acid_wav_lands_in_the_library_and_is_shown_from_the_acid_window(main, tmp_path):
     acid = main.windows.open("acid")
     assert acid is not None, main.windows.last_error
-    assert Path(acid.folder_edit.text()) == tmp_path / "out" / "acid"
+    assert Path(acid.folder_edit.text()) == tmp_path / "out" / "Acid"
     main.categories.setCurrentRow(main.library_row)  # the library is open while Acid writes
     acid.seed_edit.setText("5")
     acid.generate()
     wav = acid.export_wav()
-    assert wav is not None and wav.parent == tmp_path / "out" / "acid" and wav.is_file()
+    run = tmp_path / "out" / "Acid" / "acid_5"  # one run folder per line (#468)
+    assert wav is not None and wav.parent == run and wav.is_file()
     assert wav in library_paths(main)  # refreshed without a restart
     assert acid.actions.show_button.isEnabled()
     assert not acid.actions.live_button.isEnabled()  # no contract sidecar for acid lines
@@ -100,6 +101,24 @@ def test_acid_wav_lands_in_the_library_and_is_shown_from_the_acid_window(main, t
     assert "nur WAV" in acid.actions.note.text()
 
 
+def test_files_in_the_old_tool_folders_stay_and_are_still_listed(main, tmp_path):
+    """#468: the new layout (Acid/<run>, Goa/<run>) moves nothing; WAVs in the older acid/ and
+    goa/ folders stay where they are and the library still lists them."""
+    old_acid = tmp_path / "out" / "acid" / "acid_1.wav"
+    old_goa = tmp_path / "out" / "goa" / "goa_seed1_145bpm" / "samples" / "kick.wav"
+    for p in (old_acid, old_goa):
+        p.parent.mkdir(parents=True)
+        p.write_bytes(b"RIFF")
+    acid = main.windows.open("acid")
+    acid.generate()
+    new = acid.export_wav()
+    assert new.parent.parent == tmp_path / "out" / "Acid"
+    main.categories.setCurrentRow(main.library_row)
+    listed = library_paths(main)
+    assert {old_acid, old_goa, new} <= set(listed)
+    assert old_acid.read_bytes() == b"RIFF" and old_goa.read_bytes() == b"RIFF"
+
+
 def test_acid_wav_follows_the_shared_sample_rate_and_bit_depth(main):
     acid = main.windows.open("acid")
     main.hub.store.update(sample_rate=44100, bit_depth=16)
@@ -113,7 +132,7 @@ def test_goa_window_render_lands_in_the_library(main, tmp_path):
     win = main.windows.open("goa")
     assert win is not None, main.windows.last_error
     panel = win.body
-    assert Path(panel.folder_edit.text()).parent == tmp_path / "out" / "goa"
+    assert Path(panel.folder_edit.text()).parent == tmp_path / "out" / "Goa"
     panel.forms[next(iter(panel.forms))].edits["seed"].setText("1")
     panel.refresh()
     panel.render_button.click()
@@ -260,11 +279,11 @@ def test_settings_and_window_places_survive_a_restart(qapp, tmp_path):
     dlg.bits_box.setCurrentIndex(dlg.bits_box.findData(16))
     dlg.accept()
     assert w.folder_edit.text() == str(tmp_path / "out2")
-    assert w.goa.base_dir == tmp_path / "out2" / "goa"
+    assert w.goa.base_dir == tmp_path / "out2" / "Goa"
     req = w.models["kick"].build_request()
     assert (req["sample_rate"], req["bit_depth"]) == (44100, 16)
     acid = w.windows.open("acid")
-    assert Path(acid.folder_edit.text()) == tmp_path / "out2" / "acid"
+    assert Path(acid.folder_edit.text()) == tmp_path / "out2" / "Acid"
     acid.setGeometry(40, 50, 900, 640)
     w.setGeometry(20, 30, 1000, 700)
     acid_geo = acid.geometry()
@@ -298,9 +317,9 @@ def test_main_folder_edit_is_the_shared_output_folder(main, tmp_path):
     main.folder_edit.editingFinished.emit()
     assert main.hub.settings.output_root() == tmp_path / "moved"
     acid = main.windows.open("acid")
-    assert Path(acid.folder_edit.text()) == tmp_path / "moved" / "acid"
+    assert Path(acid.folder_edit.text()) == tmp_path / "moved" / "Acid"
     main.hub.store.update(output_dir=str(tmp_path / "again"))
-    assert Path(acid.folder_edit.text()) == tmp_path / "again" / "acid"  # followed: not typed
+    assert Path(acid.folder_edit.text()) == tmp_path / "again" / "Acid"  # followed: not typed
     acid.folder_edit.setText(str(tmp_path / "mine"))
     main.hub.store.update(output_dir=str(tmp_path / "third"))
     assert Path(acid.folder_edit.text()) == tmp_path / "mine"  # typed by the user: kept
