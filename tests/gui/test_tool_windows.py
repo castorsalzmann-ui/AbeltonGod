@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import os
 import time
+import wave
 from pathlib import Path
 
 import pytest
@@ -104,8 +105,6 @@ def test_acid_wav_follows_the_shared_sample_rate_and_bit_depth(main):
     main.hub.store.update(sample_rate=44100, bit_depth=16)
     acid.generate()
     wav = acid.export_wav()
-    import wave
-
     with wave.open(str(wav)) as w:
         assert (w.getframerate(), w.getsampwidth()) == (44100, 2)
 
@@ -162,8 +161,6 @@ def test_blaster_bank_uses_the_project_folder_as_start_and_the_shared_format(mai
     bl.export_bank_dialog()
     assert wait_for(lambda: bl.actions.path is not None)
     assert asked == [tmp_path / "proj"]
-    import wave
-
     with wave.open(str(bl.actions.path)) as w:
         assert w.getsampwidth() == 2
     main.categories.setCurrentRow(main.library_row)
@@ -194,6 +191,9 @@ def test_blaster_drag_never_offers_a_file_from_the_temporary_folder(main, tmp_pa
     work = Path(bl.session.work_dir)
     assert all(not under(p, work) for p in paths), paths
     assert all(under(p, tmp_path / "out") and p.with_suffix(".json").is_file() for p in paths)
+    for p in paths:  # the real laser writer: the stereo 24-bit shot
+        with wave.open(str(p)) as w:
+            assert (w.getnchannels(), w.getsampwidth()) == (2, 3) and w.getnframes() > 0
     bl.close()  # deletes the temporary folder: the offered files stay
     assert not work.exists() and all(p.is_file() for p in paths)
 

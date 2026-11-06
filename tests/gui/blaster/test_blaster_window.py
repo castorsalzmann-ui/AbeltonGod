@@ -11,7 +11,6 @@ import gc
 import os
 import threading
 import time
-import wave
 from pathlib import Path
 
 import pytest
@@ -375,10 +374,8 @@ def test_history_items_drag_out_the_stereo_shot_wav(win, tmp_path):
     assert [p.parent for p in paths] == [lasers, lasers]
     seeds = [win.session.history[0].seed, win.session.history[1].seed]
     assert [p.name for p in paths] == [f"laser_{win.settings.dimension}_s{s}.wav" for s in seeds]
-    for p in paths:
-        assert p.with_suffix(".json").is_file()
-        with wave.open(str(p)) as w:
-            assert (w.getnchannels(), w.getsampwidth()) == (2, 3) and w.getnframes() > 0
+    for p in paths:  # written by the fixture's FakeWriter; the real writer: test_tool_windows
+        assert p.is_file() and p.with_suffix(".json").is_file()
     again = win.history.mimeData([win.history.item(0)])  # a second drag: the same copy
     assert [Path(u.toLocalFile()) for u in again.urls()] == paths[:1]
     assert len(list(lasers.glob("*.wav"))) == 2
