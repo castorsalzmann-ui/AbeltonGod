@@ -260,6 +260,20 @@ def low_pass(x: np.ndarray, sr: int, p: dict[str, Any], starts: list[int]) -> np
 # --- echo (v0.2 additions to the v0.1 echo) -------------------------------------------------------
 
 
+def _ipow(z: np.ndarray, n: int) -> np.ndarray:
+    """``z ** n`` for an integer ``n >= 0`` by square-and-multiply: only multiplications, so the
+    bytes do not depend on the platform's complex ``pow`` (the CI machines gave three
+    different hashes for the echo preset with ``z ** n``)."""
+    out = np.ones_like(z)
+    base = z
+    while n > 0:
+        if n & 1:
+            out = out * base
+        base = base * base
+        n >>= 1
+    return out
+
+
 def echo_v2(x: np.ndarray, p: dict[str, Any], d: int) -> np.ndarray:
     """Echo with damping and hard ping-pong (contract point 20); ``d`` = delay in samples.
 
@@ -281,13 +295,16 @@ def echo_v2(x: np.ndarray, p: dict[str, Any], d: int) -> np.ndarray:
     a = math.exp(-2.0 * math.pi * damp / sr) if damp < 20000.0 else 0.0
     size = fft_size(2 * n + (_memory(a) if a > 0.0 else 0))
     z = _grid(size)
-    zd = np.exp(-2j * math.pi * np.arange(len(z)) * d / size)
+    # exp(-j w d) on the rfft grid; the phase is reduced with integers first (k * d mod size), so
+    # the argument stays below 2 pi: a raw angle of up to d * pi rad would turn last-bit
+    # differences of the platform's sin / cos into ~1e-12 errors and flip 24-bit LSBs
+    zd = np.exp(-2j * math.pi * ((np.arange(len(z), dtype=np.int64) * d) % size) / size)
     h = (1.0 - a) / (1.0 - a * z) if a > 0.0 else np.ones(len(z), dtype=complex)
     r = fb * h * zd
     r2 = r * r
     odd_n, even_n = (taps + 1) // 2, taps // 2
-    geo_odd = (1.0 - r2**odd_n) / (1.0 - r2)
-    geo_even = (1.0 - r2**even_n) / (1.0 - r2)
+    geo_odd = (1.0 - _ipow(r2, odd_n)) / (1.0 - r2)
+    geo_even = (1.0 - _ipow(r2, even_n)) / (1.0 - r2)
     s_odd = mix * zd * geo_odd
     s_even = mix * zd * r * geo_even
     root = math.sqrt(2.0) / 2.0
