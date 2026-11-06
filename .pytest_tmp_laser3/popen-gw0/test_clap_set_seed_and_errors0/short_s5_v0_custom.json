@@ -1,0 +1,45 @@
+{
+  "file": "short_s5_v0_custom.wav",
+  "schema_version": "0.2",
+  "category": "clap",
+  "engine": {
+    "name": "abeltongod-audio-engine-clap",
+    "version": "0.1.0"
+  },
+  "parameters": {
+    "schema_version": "0.1",
+    "preset": "short",
+    "seed": 5,
+    "bursts": 4,
+    "burst_spacing_ms": 10,
+    "burst_decay_ms": 25,
+    "burst_level_falloff": 0.9,
+    "tail_level": 0.4,
+    "tail_decay_ms": 170,
+    "bp_hz": 1200,
+    "bp_q": 1.4,
+    "hp_hz": 350,
+    "length_ms": 250,
+    "sample_rate": 48000,
+    "bit_depth": 24,
+    "room": 0,
+    "room_length_ms": 400,
+    "drive": 0,
+    "polarity": 1,
+    "offset_ms": 0,
+    "peak_ceiling_dbfs": -0.3
+  },
+  "features": {
+    "peak_dbfs": -0.3,
+    "length_ms": 250.0,
+    "spectral_centroid_hz": 2151.91,
+    "hf_share_8k": 0.02819,
+    "t60_ms": 144.542,
+    "rise_time_ms": 30.458
+  },
+  "bpm": null,
+  "key": null,
+  "sha256": "8087977ba7d521aeb6d79d2c7fcadf1938eed30f84462b30a0a3d0362a86a0b1",
+  "created_at": "2026-11-06T00:43:22+00:00",
+  "description": "Preset short: Starter set S of the clap reference analysis: four bursts, short tail, mid band-pass. Variant 0 of 1, base seed 5. Custom values: tail_decay_ms=170."
+}

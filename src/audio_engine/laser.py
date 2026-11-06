@@ -76,6 +76,14 @@ SAW_F_MIN = 20.0
 SAW_F_MAX = 20000.0
 SAW_MAX_HARMONICS = 1024
 SUB_HP_HZ = 20.0
+# Requests that use a v0.2 stage (filter, damped / ping-pong echo, reverb): the voice is rounded
+# to a multiple of 2**-24 before the 20 Hz high-pass loop. That loop (direct form, pole radius
+# ~0.9987) re-randomises its own rounding error (~1e-12) whenever its input differs in the last
+# bit, and the last bits of the oscillator tables (FFT) and of the envelope (exp) differ between
+# CPUs / operating systems; the rounded input hides those differences (error 2**-24 / sqrt(12)
+# rms, below the 24-bit step of 2**-23). Requests that use no v0.2 stage keep the 0.1 bytes
+# (contract point 15), so they are not rounded.
+SNAP_SCALE = 2.0**24
 ION_PARTIALS = ((2.003, 0.5), (3.01, 0.25))
 SUB_RATIO = 0.25
 SUB_DECAY_FACTOR = 1.5
@@ -416,7 +424,7 @@ def _echo(x: np.ndarray, p: dict[str, Any], d: int | None = None) -> np.ndarray:
     return out
 
 
-def _voice(p: dict[str, Any], m: int, fast: bool) -> np.ndarray:
+def _voice(p: dict[str, Any], m: int, fast: bool, snap: bool = False) -> np.ndarray:
     """One shot's voice, shape ``(m, 2)``, before echo (contract points 1-6, 8, 9).
 
     ``fast`` evaluates the voice's internal biquads by FFT convolution instead of the
@@ -440,6 +448,8 @@ def _voice(p: dict[str, Any], m: int, fast: bool) -> np.ndarray:
     for osc, noise in sides:
         y = osc + noise
         if not fast:
+            if snap:
+                y = np.round(y * SNAP_SCALE) / SNAP_SCALE
             y = _highpass(y, rate, SUB_HP_HZ, False)
         cols.append(_decimate(y, m))
     if not m:
@@ -472,6 +482,12 @@ def render_resolved(p: dict[str, Any]) -> np.ndarray:
     m = n - n_off
     fx = _v02_values(p)
     pf = {**p, **fx}
+    # contract point 15: a 0.2 request with every v0.2 field at its default renders the 0.1 bytes
+    v02_active = (
+        fx["hp_hz"] > v02_properties()["hp_hz"]["default"]
+        or fx["lp_hz"] < 20000.0 or fx["lp_sweep_ms"] > 0.0 or fx["reverb_mix"] > 0.0
+        or (p["echo_mix"] > 0.0 and (fx["echo_damp_hz"] < 20000.0 or fx["echo_pingpong"] > 0.0))
+    )
     shots = laser_fx.salvo_plan(fx, p["seed"], sr, m, float(p.get("bpm", SYNC_DEFAULT_BPM)))
     # FFT-evaluated voice filters for salvos and for files only 0.2 can ask for (> 3000 ms, no
     # 0.1 bytes to keep); the per-sample loops stay for every request 0.1 can express
@@ -484,7 +500,7 @@ def render_resolved(p: dict[str, Any]) -> np.ndarray:
             decays = VOICE_DECAYS * (1.5 if p["family"] == "subboom" else 1.0)
             decays *= 2.0**VARIATION_OCTAVES if p["variation"] > 0.0 else 1.0
             voice_n = min(m_k, int(math.ceil(decays * p["decay_ms"] * sr / 1000.0)) + 1)
-        voice = _voice(_shot_params(p, shot), voice_n, fast=multi)
+        voice = _voice(_shot_params(p, shot), voice_n, fast=multi, snap=v02_active)
         if shot.index > 0 and voice_n:
             voice[0] = 0.0
         if shot.pan is not None:

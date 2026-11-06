@@ -1,0 +1,53 @@
+{
+  "file": "plasma-driven.wav",
+  "schema_version": "0.2",
+  "category": "laser",
+  "engine": {
+    "name": "abeltongod-audio-engine-laser",
+    "version": "0.1.0"
+  },
+  "parameters": {
+    "schema_version": "0.1",
+    "preset": "plasma-driven",
+    "seed": 8,
+    "family": "plasma",
+    "length_ms": 500,
+    "pitch_start_hz": 900,
+    "pitch_end_hz": 110,
+    "sweep_ms": 180,
+    "sweep_curve": 3.0,
+    "decay_ms": 300,
+    "drive": 0.6,
+    "ring_amount": 0.3,
+    "ring_hz": 300,
+    "sample_rate": 48000,
+    "bit_depth": 24,
+    "attack_ms": 0.5,
+    "fm_amount": 0,
+    "fm_ratio": 1.5,
+    "noise_level": 0,
+    "noise_hz": 4000,
+    "crackle": 0,
+    "glitch_steps": 8,
+    "echo_mix": 0,
+    "echo_ms": 120,
+    "echo_feedback": 0.4,
+    "stereo_width": 0,
+    "variation": 0,
+    "polarity": 1,
+    "offset_ms": 0,
+    "peak_ceiling_dbfs": -0.3
+  },
+  "features": {
+    "peak_dbfs": -0.3,
+    "length_ms": 500.0,
+    "spectral_centroid_hz": 1523.35,
+    "hf_share_8k": 0.024287,
+    "t60_ms": 268.917,
+    "rise_time_ms": 0.583
+  },
+  "bpm": null,
+  "key": null,
+  "sha256": "992a44f0e33466600d4fd04d5944b61c82967c2a035be97890447c19c13db500",
+  "created_at": "2026-11-06T00:44:35+00:00"
+}

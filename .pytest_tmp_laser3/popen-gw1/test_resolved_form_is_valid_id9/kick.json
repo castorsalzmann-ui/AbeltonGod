@@ -1,0 +1,43 @@
+{
+  "file": "kick.wav",
+  "schema_version": "0.1",
+  "category": "kick",
+  "engine": {
+    "name": "abeltongod-audio-engine",
+    "version": "0.1.0"
+  },
+  "parameters": {
+    "schema_version": "0.3",
+    "seed": 3356916497,
+    "sample_rate": 44100,
+    "click_tone_hz": 2096.931749870374,
+    "peak_ceiling_dbfs": -7.086576195415322,
+    "click_decay_ms": 2.067316974404404,
+    "click_q": 3.3743821256611244,
+    "offset_ms": 12,
+    "pitch_start_hz": 220,
+    "pitch_end_hz": 55.0,
+    "bit_depth": 24,
+    "length_ms": 450,
+    "pitch_decay_ms": 15,
+    "amp_attack_ms": 0.5,
+    "amp_decay_ms": 320,
+    "click_level": 0.35,
+    "drive": 0.2,
+    "tone": 0,
+    "polarity": 1,
+    "clip_db": 0
+  },
+  "features": {
+    "peak_dbfs": -7.087,
+    "length_ms": 450.0,
+    "fundamental_hz": 55.0,
+    "decay_20db_ms": 162.63,
+    "decay_40db_ms": 264.399,
+    "dc_offset": 0.0
+  },
+  "bpm": null,
+  "key": null,
+  "sha256": "c8afafb56cf042acab6e908c8088f9f522e8be40024ded437765c672b5c25792",
+  "created_at": "2026-11-06T00:43:16+00:00"
+}

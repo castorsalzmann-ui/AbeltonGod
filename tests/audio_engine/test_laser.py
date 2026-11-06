@@ -106,11 +106,11 @@ GOLDEN = {
     "rift": "e219d1773176b87ad0dece4c3218ab4606b4fea688ab38b875d9ad2384d3b0b6",
     "subboom": "c062824ba139ec5a47006c1c5f2f559a8b17c3c8a745ec505ffbf515937d5be3",
     # contract v0.2 presets (#425), pinned at LASER_VERSION 0.2.0
-    "blaster": "08339cbe082ec138699d58bca65594dde83f02bd93b0e2185b8794011c6b7277",
+    "blaster": "f5b26ee5824274c8ee83558955642cc389987b44368a1b05fc41d6455d2f5a11",
     "blaster-burst5": "fd0ac80ff07cec258d099127257f4c23686a2ef1f326b7a13347969d0214f8af",
     "blaster-double": "9afff649a1ddb5a6d0046fd8801367ed0700f9248566ca3f3df8744afe038377",
-    "blaster-echo": "6c900608e9b818170f95c61b7147aa4e9cc22173c9c8a93394fa559725fdf3d6",
-    "blaster-reverb": "f4638a524b97f0ea144a48832c5440a163b0fd3edd503ed1f39c184f91db9e86",
+    "blaster-echo": "655829cc224ceb9f7fce49518b1b93a2a82e2b865d952062fd719c8cfb211b3d",
+    "blaster-reverb": "2fc1ae53aa5086a528861d6fd16d187b7205ba20f07975a0599cdce44bbb8b68",
     "blaster-triple-lrl": "cf4829fd345e7fa0f14028b6305a1e7b6fb066407494fff9c58ea3d42d8d0e68",
 }
 

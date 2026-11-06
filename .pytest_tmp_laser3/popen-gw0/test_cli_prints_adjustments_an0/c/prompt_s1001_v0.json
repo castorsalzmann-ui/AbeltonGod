@@ -1,0 +1,44 @@
+{
+  "file": "prompt_s1001_v0.wav",
+  "schema_version": "0.1",
+  "category": "kick",
+  "engine": {
+    "name": "abeltongod-audio-engine",
+    "version": "0.1.0"
+  },
+  "parameters": {
+    "schema_version": "0.3",
+    "seed": 1001,
+    "sample_rate": 48000,
+    "bit_depth": 24,
+    "peak_ceiling_dbfs": -0.3,
+    "length_ms": 400.904542,
+    "pitch_start_hz": 200,
+    "pitch_end_hz": 52,
+    "pitch_decay_ms": 38.698391,
+    "amp_attack_ms": 0.5,
+    "amp_decay_ms": 467.721965,
+    "click_level": 0.35,
+    "click_tone_hz": 3500,
+    "drive": 0.45,
+    "tone": 0.0,
+    "clip_db": 0.0,
+    "click_decay_ms": 3,
+    "click_q": 0.9,
+    "polarity": 1,
+    "offset_ms": 0
+  },
+  "features": {
+    "peak_dbfs": -0.3,
+    "length_ms": 400.896,
+    "fundamental_hz": 52.02,
+    "decay_20db_ms": 261.0,
+    "decay_40db_ms": null,
+    "dc_offset": -0.0
+  },
+  "bpm": null,
+  "key": null,
+  "sha256": "71c33b794fa26c4cbc0f1db4f5172bb710d4c66a82c2bbe518888ea5dc9afbf9",
+  "created_at": "2026-11-06T00:45:22+00:00",
+  "description": "Prompt: kurz | variant 0 of 1, base seed 1001."
+}

@@ -1,0 +1,38 @@
+{
+  "file": "dark-kick.wav",
+  "schema_version": "0.1",
+  "category": "kick",
+  "engine": {
+    "name": "abeltongod-audio-engine",
+    "version": "0.1.0"
+  },
+  "parameters": {
+    "schema_version": "0.2",
+    "seed": 2608872596,
+    "sample_rate": 48000,
+    "bit_depth": 24,
+    "length_ms": 339.40494612070154,
+    "pitch_start_hz": 493.62025485572565,
+    "pitch_decay_ms": 24.226395772114667,
+    "amp_attack_ms": 1.5122977968784723,
+    "amp_decay_ms": 106.04385827064321,
+    "click_level": 0.07000967157061011,
+    "click_tone_hz": 6770.607955632019,
+    "drive": 0.7450177573001999,
+    "tone": 0.055297273163664284,
+    "peak_ceiling_dbfs": -3.7021375435287656,
+    "pitch_end_hz": 78.99598452848203
+  },
+  "features": {
+    "peak_dbfs": -3.702,
+    "length_ms": 339.396,
+    "fundamental_hz": 132.89,
+    "decay_20db_ms": 68.0,
+    "decay_40db_ms": 101.0,
+    "dc_offset": -0.0
+  },
+  "bpm": null,
+  "key": null,
+  "sha256": "7b196aa2b962c05bbaa57b42e240d319fa402070e6b0be8495ac525f41183a97",
+  "created_at": "2026-10-28T12:00:00+00:00"
+}

@@ -1,0 +1,40 @@
+{
+  "file": "driven_s1005_v2.wav",
+  "schema_version": "0.1",
+  "category": "kick",
+  "engine": {
+    "name": "abeltongod-audio-engine",
+    "version": "0.1.0"
+  },
+  "parameters": {
+    "schema_version": "0.2",
+    "preset": "driven",
+    "seed": 498398891,
+    "sample_rate": 48000,
+    "bit_depth": 24,
+    "peak_ceiling_dbfs": -0.3,
+    "length_ms": 420,
+    "pitch_start_hz": 299.6949,
+    "pitch_end_hz": 55.8518,
+    "pitch_decay_ms": 5.0622,
+    "amp_attack_ms": 0.2,
+    "amp_decay_ms": 348.0486,
+    "click_level": 0.8826,
+    "click_tone_hz": 6202.2226,
+    "drive": 0.4889,
+    "tone": 0.5508
+  },
+  "features": {
+    "peak_dbfs": -0.3,
+    "length_ms": 420.0,
+    "fundamental_hz": 55.85,
+    "decay_20db_ms": 172.0,
+    "decay_40db_ms": 288.0,
+    "dc_offset": 0.0
+  },
+  "bpm": null,
+  "key": null,
+  "sha256": "cf433f451f6759649a7ee54164217e4fe5d3ae19847fed13e8ff12a0c9da74ae",
+  "created_at": "2026-11-06T00:43:31+00:00",
+  "description": "Preset driven: Maximum click, bright tilt, deliberate drive, high tail. Variant 2 of 4, base seed 1005."
+}

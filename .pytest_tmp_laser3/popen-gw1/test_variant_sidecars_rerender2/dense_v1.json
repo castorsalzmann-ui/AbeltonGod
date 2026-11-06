@@ -1,0 +1,39 @@
+{
+  "file": "dense_v1.wav",
+  "schema_version": "0.1",
+  "category": "kick",
+  "engine": {
+    "name": "abeltongod-audio-engine",
+    "version": "0.1.0"
+  },
+  "parameters": {
+    "schema_version": "0.2",
+    "preset": "dense",
+    "seed": 1149790815,
+    "sample_rate": 48000,
+    "bit_depth": 24,
+    "peak_ceiling_dbfs": -0.3,
+    "length_ms": 480,
+    "pitch_start_hz": 215.3134,
+    "pitch_end_hz": 52.9918,
+    "pitch_decay_ms": 35.5223,
+    "amp_attack_ms": 0.5,
+    "amp_decay_ms": 525.1091,
+    "click_level": 0.3003,
+    "click_tone_hz": 3209.9477,
+    "drive": 0.455,
+    "tone": 0.0216
+  },
+  "features": {
+    "peak_dbfs": -0.3,
+    "length_ms": 480.0,
+    "fundamental_hz": 52.99,
+    "decay_20db_ms": 293.0,
+    "decay_40db_ms": null,
+    "dc_offset": 0.0
+  },
+  "bpm": null,
+  "key": null,
+  "sha256": "37e8da62559ae7b0be66d1303be32452373f6edaad37bfe80c32647f28ed3f9b",
+  "created_at": "2026-10-28T12:00:00+00:00"
+}

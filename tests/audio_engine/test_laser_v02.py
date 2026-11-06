@@ -902,3 +902,39 @@ def test_old_01_sidecars_still_rerender_without_allow_engine_mismatch(tmp_path: 
     json_path.write_text(json.dumps(meta), encoding="utf-8")
     with pytest.raises(EngineVersionMismatch):
         rerender_from_sidecar(json_path)
+
+
+# --- last-bit stability (CI: Ubuntu and Windows gave different bytes for blaster-echo) ----------
+
+
+def _bytes_with_ulp_noise(name: str, seed: int, monkeypatch: pytest.MonkeyPatch) -> bytes:
+    """WAV bytes with 1e-16 relative noise on the oscillator tables and the envelope: a stand-in
+    for the last-bit differences of FFT / exp between CPUs and operating systems."""
+    rng = np.random.default_rng(seed)
+    tables, envelope = laser._saw_tables.__wrapped__, laser._amp_envelope
+
+    def noisy(a: np.ndarray) -> np.ndarray:
+        return a * (1.0 + 1e-16 * rng.standard_normal(a.shape))
+
+    monkeypatch.setattr(laser, "_saw_tables", lambda rate: noisy(tables(rate)))
+    monkeypatch.setattr(laser, "_amp_envelope", lambda *a: noisy(envelope(*a)))
+    p = resolve_laser_params(load_preset(name, "laser"))
+    audio, r = render_laser_category_for(p)
+    return encode_wav(audio, r["sample_rate"], r["bit_depth"])
+
+
+def render_laser_category_for(p: dict) -> tuple[np.ndarray, dict]:
+    return laser.render_laser_category(p)
+
+
+@pytest.mark.parametrize("name", ["blaster-echo", "blaster", "blaster-reverb"])
+def test_bytes_do_not_depend_on_last_bit_noise_of_the_voice(
+    name: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Without the 2**-24 rounding before the 20 Hz high-pass loop, noise of 1e-16 changes 24-bit
+    samples of blaster-echo in about half of the seeds (measured, #429)."""
+    with monkeypatch.context() as m0:
+        ref = _bytes_with_ulp_noise(name, 0, m0)
+    for seed in range(1, 9):
+        with monkeypatch.context() as m:
+            assert _bytes_with_ulp_noise(name, seed, m) == ref, (name, seed)
