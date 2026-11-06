@@ -38,8 +38,8 @@ def _load(name: str, path: Path):
 tour_mod = _load("gui_tour", ROOT / "scripts" / "qa" / "gui_tour.py")
 gc_mod = _load("gui_controls", ROOT / "scripts" / "qa" / "gui_controls.py")
 
-# Unhandled controls that are known gaps: (area, kind) -> issue. xfail(strict) below turns red
-# once the control gets a receiver.
+# Unhandled controls that are known gaps: (area, kind) -> issue. The test below turns red
+# once the control gets a receiver or disappears.
 KNOWN_DEAD = {("goa", "GoaPlaceholderPanel"): 440}
 
 
@@ -86,12 +86,17 @@ def test_every_control_has_a_handler(controls):
                                 for c in bad)
 
 
-@pytest.mark.parametrize("key", [pytest.param(k, marks=pytest.mark.xfail(
-    strict=True, reason=f"GUI gap #{n}"), id=f"{k[0]}-{k[1]}") for k, n in KNOWN_DEAD.items()])
+@pytest.mark.parametrize("key", list(KNOWN_DEAD), ids=lambda k: f"{k[0]}-{k[1]}")
 def test_known_dead_controls_are_still_dead(controls, key):
-    """xfail(strict): turns red once the control gets a receiver; then drop it from KNOWN_DEAD."""
+    """xfail only while the control exists and has no receiver; red once it is handled or gone
+    (then drop it from KNOWN_DEAD), so the entry cannot hide anything else."""
+    issue = KNOWN_DEAD[key]
     found = [c for c in controls if (c.area, c.kind) == key]
-    assert found and all(c.handled for c in found)
+    if not found:
+        pytest.fail(f"GUI gap #{issue}: {key} is gone; remove it from KNOWN_DEAD")
+    if all(c.handled for c in found):
+        pytest.fail(f"GUI gap #{issue} looks fixed: {key} has a receiver; remove it")
+    pytest.xfail(f"GUI gap #{issue}: {key} has no receiver")
 
 
 def test_inventory_document_lists_exactly_the_controls_of_the_gui(controls):

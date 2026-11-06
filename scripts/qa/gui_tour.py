@@ -17,8 +17,8 @@ backend. It proves that each control path runs and where the files land; it says
 the sound, the look on a real Windows screen, or Live (nothing talks to Ableton).
 
 The library check uses the main window's library page (``LibraryPanel`` over the output folder),
-the same list the user sees. Known gaps are named in :data:`KNOWN_GAPS`; tests turn a gap step
-into ``xfail(strict=True)`` so the test turns red once the gap is fixed.
+the same list the user sees. Known gaps are named in :data:`KNOWN_GAPS` with the text the
+failure must show; a gap step is xfail only for that reason, and red once it passes.
 """
 
 from __future__ import annotations
@@ -40,13 +40,18 @@ TOOL_KEYS = ("goa", "acid", "blaster")
 SCALES = (1.0, 1.5)
 WAIT_S = 60.0  # a render that answers within this is fine; the tour fails, never hangs
 
-# Step name -> issue that explains why it fails today (GUI gaps of #437). The tests mark these
-# steps xfail(strict=True), so a fix turns them red until the entry is removed here.
-KNOWN_GAPS: dict[str, int] = {
-    "render:goa-page": 414,  # Goa sample WAVs have no sidecar: listed as unreadable
-    "render:goa-window": 440,  # Goa window body is a placeholder, Render writes nothing
-    "render:acid": 439,  # Acid writes MIDI only; the library lists WAVs only
-    "render:blaster-shot": 439,  # shots stay in a temp folder outside the library
+# Step name -> (issue, text the step's detail must contain). A known gap counts only when the
+# step fails for exactly that reason; any other failure, and a pass, are unexpected (the tests
+# turn them red, so a fix is noticed and an unrelated break is not hidden as "known").
+KNOWN_GAPS: dict[str, tuple[int, str]] = {
+    # Goa sample WAVs have no sidecar: listed as unreadable
+    "render:goa-page": (414, "Sidecar-Datei fehlt"),
+    # Goa window body is a placeholder, Render writes nothing
+    "render:goa-window": (440, "Noch nicht angeschlossen"),
+    # Acid writes MIDI only; the library lists WAVs only
+    "render:acid": (439, "the library lists only WAVs"),
+    # shots stay in a temp folder outside the library
+    "render:blaster-shot": (439, "is outside the library folder"),
 }
 # Window sizes follow the fonts, so the fit gaps differ per platform (measured: Linux
 # offscreen Acid minimum 1026 x 812, main 1216 x 703; Windows CI runner Acid 1183 x 649, main
@@ -55,7 +60,8 @@ _PLATFORM_GAPS = {
     "fit:acid@150": ("linux", 442),  # too tall on Linux
     "fit:main@150": ("win32", 442),  # too wide on the Windows runner
 }
-KNOWN_GAPS.update({name: issue for name, (platform, issue) in _PLATFORM_GAPS.items()
+KNOWN_GAPS.update({name: (issue, "on a 1280 x 720 screen")
+                   for name, (platform, issue) in _PLATFORM_GAPS.items()
                    if sys.platform.startswith(platform)})
 
 
@@ -68,7 +74,17 @@ class Step:
 
     @property
     def gap(self) -> int | None:
-        return KNOWN_GAPS.get(self.name)
+        """Issue number when this step fails for its known gap's reason, else None."""
+        known = KNOWN_GAPS.get(self.name)
+        if known is None or self.ok or known[1] not in self.detail:
+            return None
+        return known[0]
+
+    @property
+    def known_issue(self) -> int | None:
+        """Issue of the gap this step is listed under (whatever happened)."""
+        known = KNOWN_GAPS.get(self.name)
+        return known[0] if known else None
 
 
 @dataclass
@@ -84,8 +100,9 @@ class TourReport:
 
     @property
     def unexpected(self) -> list[Step]:
-        """Failed steps without a known gap, and known-gap steps that pass now."""
-        return [s for s in self.steps if s.ok == (s.gap is not None)]
+        """Failed steps without their known gap's reason, and known-gap steps that pass now."""
+        return [s for s in self.steps
+                if (s.ok and s.known_issue is not None) or (not s.ok and s.gap is None)]
 
 
 class SilentBackend:
@@ -308,7 +325,9 @@ def render_goa_window(window, win) -> Step:
     t = time.perf_counter()
     before = set(_wavs(window._library_folder()))
     win.body.render_button.click()
-    wait_for(lambda: False, 0.2)
+    # The render may run in a worker thread (GoaPanel); the placeholder answers at once and
+    # has no ``running``. Never a short fixed deadline (CLAUDE.md: >= 5 s for an answer).
+    wait_for(lambda: not getattr(win.body, "running", False), WAIT_S)
     new = sorted(set(_wavs(window._library_folder())) - before)
     status = getattr(win.body, "status", None)
     text = status.text() if status is not None else ""
@@ -452,21 +471,28 @@ def run_tour(home: Path, shots: Path | None = None, tag: str = "100",
 def format_report(report: TourReport) -> str:
     lines = [f"{'step':28} {'result':10} {'s':>6}  detail"]
     for s in report.steps:
-        res = "PASS" if s.ok else (f"GAP #{s.gap}" if s.gap else "FAIL")
-        if s.ok and s.gap:
-            res = f"FIXED? #{s.gap}"
+        if s.ok:
+            res = f"FIXED? #{s.known_issue}" if s.known_issue else "PASS"
+        else:
+            res = f"GAP #{s.gap}" if s.gap else "FAIL"
         lines.append(f"{s.name:28} {res:10} {s.seconds:6.2f}  {s.detail}")
     return "\n".join(lines)
 
 
 def shots_allowed(folder: Path) -> bool:
-    """Screenshots never go into the repo; the git-ignored pytest temp folders
-    (``.pytest_tmp*``, see pyproject ``--basetemp``) are the one exception."""
+    """Screenshots never go into the repo. Inside the checkout a folder is accepted only when
+    ``git check-ignore`` confirms that files in it are ignored (e.g. a pytest ``--basetemp``
+    folder that ``.gitignore`` lists); without git, everything inside the checkout is refused."""
     path = folder.resolve()
     if not path.is_relative_to(ROOT):
         return True
-    first = path.relative_to(ROOT).parts[:1]
-    return bool(first) and first[0].startswith(".pytest_tmp")
+    probe = path / "tour_probe.png"  # check-ignore also answers for paths that do not exist
+    try:
+        res = subprocess.run(["git", "-C", str(ROOT), "check-ignore", "-q", str(probe)],
+                             capture_output=True, timeout=30)
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    return res.returncode == 0
 
 
 def main(argv: list[str] | None = None) -> int:
