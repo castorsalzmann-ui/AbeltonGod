@@ -236,9 +236,9 @@ class MainWindow(QMainWindow):
             self.folder_edit.setText(root)
         # Only a changed format touches the forms: a value typed into a form survives a change
         # of the folders (review of #450).
-        fields = tuple(name for name, old in self._format.items()
-                       if getattr(settings, name) != old)
-        self._format = {"sample_rate": settings.sample_rate, "bit_depth": settings.bit_depth}
+        new = {"sample_rate": settings.sample_rate, "bit_depth": settings.bit_depth}
+        fields = tuple(name for name, old in self._format.items() if new[name] != old)
+        self._format = new
         if fields:
             for key, model in self.models.items():
                 if apply_format_to_form(model, settings, fields):
