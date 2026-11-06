@@ -26,8 +26,8 @@ generator fields). The one button without a receiver that is allowed is
 `blaster · QCheckBox · Dauerfeuer beim Halten` (state, read when the trigger is pressed);
 hidden `ActiveDot` layout spacers are left out.
 
-**Gaps found with this inventory and the tour** (label `gui-gap`): #440 Goa window is a
-placeholder (the one control without a receiver, known in the test), #441 Goa page does not
+**Gaps found with this inventory and the tour** (label `gui-gap`): #440 Goa window was a
+placeholder (fixed in #450: real Goa form), #441 Goa page does not
 follow the output folder, #442 Acid window too tall at 150 % on 1920 x 1080, #443 file names
 without category / three output layouts. Already filed before: #413, #414, #439.
 
@@ -43,7 +43,8 @@ without category / three output layouts. Already filed before: #413, #414, #439.
 | `main · QPushButton · Acid-Linie` | `MainWindow.open_acid_window` | Opens the Acid window with the current output folder (not updated later, #439) |
 | `main · QPushButton · Ausgabeordner öffnen` | `MainWindow.open_folder` | Opens the output folder in the file manager; error text if it does not exist yet |
 | `main · QPushButton · Goa-Fenster` | `MainWindow.open_goa_window` | Opens the Goa skin window (one instance; see #440: body is a placeholder) |
-| `main · QPushButton · Laser-Blaster` | `MainWindow.open_blaster_window` | Opens the Blaster window with the current output folder (not updated later, #439) |
+| `main · QPushButton · Laser-Blaster` | `MainWindow.open_blaster_window` | Opens the Blaster window; it follows the shared settings (#439, fixed in #450) |
+| `main · QPushButton · Einstellungen …` | `MainWindow.open_settings` | Settings dialog: output folder, project folder (= Live page "Live-Projekt"), sample rate, bit depth; saved in the user config dir |
 | `main · QPushButton · Rendern` | `MainWindow.start_render` | Renders the current category form in a worker thread; disabled with the reason while the form is invalid |
 | `main · QPushButton · Stopp` | `MainWindow.stop` | Stops playback |
 | `main · QPushButton · Wählen …` | `MainWindow._choose_folder` | Folder dialog for the output folder |
@@ -160,7 +161,9 @@ differ only in the area. Handler and effect per kind:
 | `goa-page · QLineEdit · Abschnitte` | `OptionForm._edited` (`textEdited`) | Free text option, checked by the module's parser |
 | `goa-page · QLineEdit · Akkordfolge (Stufen)` | `OptionForm._edited` (`textEdited`) | Free text option |
 | `goa-page · QLineEdit · Dichte` | `OptionForm._edited` (`textEdited`) | Free text option |
-| `goa-page · QLineEdit · GoaPanel.folder_edit` | `GoaPanel._folder_typed` | New run folder (auto-named, never overwritten); base does not follow the output folder (#441) |
+| `goa-page · QLineEdit · GoaPanel.folder_edit` | `GoaPanel._folder_typed` | New run folder (auto-named, never overwritten) below `<Ausgabeordner>/goa`; follows the shared settings (#450) |
+| `goa-page · QPushButton · An Live senden` | `ResultActions.send_to_live` | Opens the Live page with the first sample WAV chosen; nothing is sent |
+| `goa-page · QPushButton · In Bibliothek zeigen` | `ResultActions.show_in_library` | Shows the library with the first sample WAV selected |
 | `goa-page · QLineEdit · Grundton` | `OptionForm._edited` (`textEdited`) | Free text option |
 | `goa-page · QLineEdit · Register (Oktaven)` | `OptionForm._edited` (`textEdited`) | Free text option |
 | `goa-page · QPushButton · Ordner öffnen` | `GoaPanel.open_folder` | Opens the run folder (or the last finished one) |
@@ -204,10 +207,26 @@ differ only in the area. Handler and effect per kind:
 | `goa · ChromeButton · Immer im Vordergrund` | `CompactGoaWindow.set_always_on_top` | Stay on top on/off (saved) |
 | `goa · ChromeButton · Minimieren` | `QWidget.showMinimized` | Minimise |
 | `goa · ChromeButton · Schliessen` | `QWidget.close` | Close (saves position/size) |
-| `goa · GoaPlaceholderPanel · CompactGoaWindow.body` | **none**: `render_requested` has no receiver | **Gap #440** (the one unhandled control; known in the test) |
-| `goa · QLineEdit · Aktueller Abschnitt` | none (placeholder) | **Gap #440**: no effect |
-| `goa · QLineEdit · Tempo in BPM` | none (placeholder) | **Gap #440**: no effect |
-| `goa · QPushButton · Render` | `GoaPlaceholderPanel._on_render` | **Gap #440**: says 'Noch nicht angeschlossen', renders nothing |
+| `goa · ActiveDot · Gefüllt: der Wert wird mitgeschickt. Leer: Stand` | `OptionForm._toggled` | As on the Goa page (the window body is the same `GoaPanel`, #440 fixed in #450) |
+| `goa · NumberControl · *` | `OptionForm._edited` | BPM slider |
+| `goa · OptionForm · -` | `GoaPanel.refresh` (via `changed`) | One option form per mode |
+| `goa · PresetChips · *` | `OptionForm._edited` | Choice / multi-choice options |
+| `goa · PresetChips/QPushButton · *` | `PresetChips` -> `chosen` / `changed` | One chip per choice |
+| `goa · QLineEdit · Abschnitte` | `OptionForm._edited` (`textEdited`) | Free text option |
+| `goa · QLineEdit · Akkordfolge (Stufen)` | `OptionForm._edited` (`textEdited`) | Free text option |
+| `goa · QLineEdit · Dichte` | `OptionForm._edited` (`textEdited`) | Free text option |
+| `goa · QLineEdit · GoaPanel.folder_edit` | `GoaPanel._folder_typed` | New run folder below `<Ausgabeordner>/goa` (follows the shared settings) |
+| `goa · QLineEdit · Grundton` | `OptionForm._edited` (`textEdited`) | Free text option |
+| `goa · QLineEdit · Register (Oktaven)` | `OptionForm._edited` (`textEdited`) | Free text option |
+| `goa · QPushButton · An Live senden` | `ResultActions.send_to_live` | Opens the main window's Live page with the first sample WAV chosen (only with a readable sidecar); nothing is sent |
+| `goa · QPushButton · In Bibliothek zeigen` | `ResultActions.show_in_library` | Shows the main library with the first sample WAV selected |
+| `goa · QPushButton · Ordner öffnen` | `GoaPanel.open_folder` | Opens the run folder |
+| `goa · QPushButton · Rendern` | `GoaPanel.start_render` | Runs the Goa generator in a worker; the WAVs appear in the main library |
+| `goa · Segmented · *` | `GoaPanel.set_mode` / `OptionForm` edits | Mode and enum options |
+| `goa · Segmented/QPushButton · *` | `Segmented` -> `chosen` | One button per choice |
+| `goa · StepEdit · Phrasenlänge (Takte)` | `OptionForm._edited` | Phrase length in bars |
+| `goa · StepEdit · Seed` | `OptionForm._edited` | Seed |
+| `goa · Toggle · Keine Samples rendern` | `OptionForm._edited` | Flag: MIDI only |
 
 ### Acid window
 
@@ -230,6 +249,9 @@ differ only in the area. Handler and effect per kind:
 | `acid · QPushButton · Ordner öffnen` | `AcidWindow.open_folder` | Opens the output folder |
 | `acid · QPushButton · Stopp` | `AcidWindow.stop_preview` | Stops the preview |
 | `acid · QPushButton · Vorschau` | `AcidWindow.preview` | Rough preview WAV (no 303 sound) through the backend |
+| `acid · QPushButton · WAV exportieren` | `AcidWindow.export_wav` | Writes the rough preview as WAV into `<Ausgabeordner>/acid` (shared rate/bit depth, no sidecar: no contract) |
+| `acid · QPushButton · In Bibliothek zeigen` | `ResultActions.show_in_library` | Shows the main library with the exported WAV selected |
+| `acid · QPushButton · An Live senden` | `ResultActions.send_to_live` | Disabled for acid WAVs (no sidecar); the row says why |
 | `acid · QSpinBox · AcidWindow.length_spin` | `AcidWindow._length_changed` | Pattern length in steps |
 | `acid · QSpinBox · AcidWindow.octave_spin` | `AcidWindow._octave_changed` | Base octave |
 | `acid · QSpinBox · AcidWindow.range_spin` | read by `AcidWindow.generate` | Octave range of the generator |
@@ -254,6 +276,9 @@ differ only in the area. Handler and effect per kind:
 | `blaster · QLineEdit · BlasterWindow.seed_edit` | `BlasterWindow._on_seed_edited` | Seed of the next shot |
 | `blaster · QPushButton · A > B` | `BlasterWindow.copy_to_other_slot` | Copies the settings into the other A/B slot |
 | `blaster · QPushButton · Alles würfeln` | `BlasterWindow._on_random_all` | Randomises all unlocked groups (Ctrl+R) |
+| `blaster · QPushButton · In Bibliothek speichern` | `BlasterWindow.save_to_library` | Writes the selected shot as WAV + sidecar into `<Ausgabeordner>/Samples/FX/Lasers` (worker, never overwriting) |
+| `blaster · QPushButton · In Bibliothek zeigen` | `ResultActions.show_in_library` | Shows the main library with the saved WAV selected |
+| `blaster · QPushButton · An Live senden` | `ResultActions.send_to_live` | Opens the Live page with the saved WAV chosen; nothing is sent |
 | `blaster · QPushButton · Bank exportieren …` | `BlasterWindow.export_bank_dialog` | Writes WAV + sidecar per shot into Samples/FX/Lasers/laser_bank_NNN under the chosen folder (in the library when chosen inside the output folder) |
 | `blaster · QPushButton · Glitch` | `BlasterWindow._on_dim_clicked` | Weapon dimension |
 | `blaster · QPushButton · Ion` | `BlasterWindow._on_dim_clicked` | Weapon dimension |

@@ -11,7 +11,6 @@ import gc
 import os
 import threading
 import time
-import wave
 from pathlib import Path
 
 import pytest
@@ -364,15 +363,22 @@ def test_recoil_moves_the_gun_and_flash_changes_pixels(win):
 
 
 # ---- history, drag-out -----------------------------------------------------------------------
-def test_history_items_drag_out_the_stereo_shot_wav(win):
+def test_history_items_drag_out_the_stereo_shot_wav(win, tmp_path):
+    """#444: a drag offers a library copy (WAV + sidecar below the output folder), never the
+    shot file in the temporary work folder (trimmed, deleted on close)."""
     click_trigger(win)
     click_trigger(win)
     mime = win.history.mimeData([win.history.item(0), win.history.item(1)])
     paths = [Path(u.toLocalFile()) for u in mime.urls()]
-    assert paths == [win.session.history[0].wav_path, win.session.history[1].wav_path]
-    for p in paths:
-        with wave.open(str(p)) as w:
-            assert (w.getnchannels(), w.getsampwidth()) == (2, 3) and w.getnframes() > 0
+    lasers = tmp_path / "out" / "Samples" / "FX" / "Lasers"
+    assert [p.parent for p in paths] == [lasers, lasers]
+    seeds = [win.session.history[0].seed, win.session.history[1].seed]
+    assert [p.name for p in paths] == [f"laser_{win.settings.dimension}_s{s}.wav" for s in seeds]
+    for p in paths:  # written by the fixture's FakeWriter; the real writer: test_tool_windows
+        assert p.is_file() and p.with_suffix(".json").is_file()
+    again = win.history.mimeData([win.history.item(0)])  # a second drag: the same copy
+    assert [Path(u.toLocalFile()) for u in again.urls()] == paths[:1]
+    assert len(list(lasers.glob("*.wav"))) == 2
 
 
 def test_selecting_a_history_row_shows_its_trace_and_replay_plays_it(win):

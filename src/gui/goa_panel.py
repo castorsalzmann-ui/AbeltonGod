@@ -43,6 +43,7 @@ from .widgets import (
     heading,
     muted,
 )
+from .windows import ResultActions
 
 BODY_HOOK = "goa_body"  # objectName of the page body: a hook for later skins/extra panels
 
@@ -321,8 +322,21 @@ class GoaPanel(QWidget):
         self.note.setWordWrap(True)
         self.note.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Minimum)
         right.addWidget(self.note)
+        self.actions = ResultActions()
+        right.addWidget(self.actions)
         outer.addLayout(right, 4)
+        self.hub = None
         self.refresh()
+
+    def attach_hub(self, hub) -> None:
+        """Follow the shared output folder and hand results to the library / Live page."""
+        self.hub = hub
+        self.actions.set_hub(hub)
+        hub.settings_changed.connect(self._settings_changed)
+        self.set_base_dir(hub.settings.goa_dir())
+
+    def _settings_changed(self, settings) -> None:
+        self.set_base_dir(settings.goa_dir())
 
     # --- state ---------------------------------------------------------------------------
     @property
@@ -420,6 +434,10 @@ class GoaPanel(QWidget):
                 f"Fertig: {result.mid_path.name}, README"
                 + (f" und {len(result.sample_paths)} Beispiel-WAV(s)" if result.sample_paths
                    else "") + f" in {result.out_dir}")
+            files = [*result.sample_paths, result.mid_path]
+            self.actions.set_paths([p for p in files if p is not None])
+            if self.hub is not None:
+                self.hub.files_written.emit(list(result.sample_paths))
         self.refresh()
 
     def open_folder(self) -> None:

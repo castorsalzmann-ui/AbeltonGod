@@ -8,6 +8,7 @@ import tempfile
 from collections.abc import Callable
 from pathlib import Path
 
+from PySide6.QtCore import Qt
 from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -23,6 +24,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from audio_engine.io import encode_wav
 from gui_core.acid_generate import (
     ROOTS,
     SCALES,
@@ -36,10 +38,12 @@ from gui_core.acid_model import (
     parse_percent,
     parse_seed,
 )
-from gui_core.acid_preview import preview_wav_bytes
+from gui_core.acid_preview import preview_wav_bytes, render_preview
 from gui_core.paths import default_output_dir
 from gui_core.preview import PlaybackBackend
+from gui_core.settings import DEFAULT_BIT_DEPTH, DEFAULT_SAMPLE_RATE, free_stem
 
+from ..windows import ResultActions
 from . import skin
 from .widgets import AcidRoot, EtchedPanel, FooterBand, HeaderBand, StepGridWidget
 
@@ -77,6 +81,9 @@ class AcidWindow(QWidget):
 
             backend = choose_backend()
         self.backend = backend
+        self.hub = None
+        self._auto_folder: str | None = None  # the folder the settings gave (not typed)
+        self.sample_rate, self.bit_depth = DEFAULT_SAMPLE_RATE, DEFAULT_BIT_DEPTH
         self._tmp = Path(tempfile.mkdtemp(prefix="abeltongod-acid-"))
         self._build(out_dir or default_output_dir())
         self.sync()
@@ -181,17 +188,29 @@ class AcidWindow(QWidget):
         self.save_button = QPushButton("JSON speichern")
         self.export_button = QPushButton("MIDI exportieren")
         self.export_button.setObjectName("primary")
+        self.wav_button = QPushButton("WAV exportieren")
+        self.wav_button.setToolTip(f"Schreibt die Vorschau als WAV ({PREVIEW_LABEL}) in den "
+                                   "Ausgabeordner. Ohne Sidecar: für Acid-Linien gibt es keinen "
+                                   "Vertrag.")
         self.open_button = QPushButton("Ordner öffnen")
         self.preview_button = QPushButton("Vorschau")
         self.stop_button = QPushButton("Stopp")
         self.anim_box = QCheckBox("Animation")
-        for w in (self.load_button, self.save_button, self.export_button, self.open_button,
-                  self.preview_button, self.stop_button, self.anim_box):
+        for w in (self.load_button, self.save_button, self.export_button,
+                  self.open_button, self.preview_button, self.stop_button, self.anim_box):
             row.addWidget(w)
         al.addLayout(row)
+        # Second row: WAV export, the hand-off and the preview note (the note had a line of its
+        # own before, so the window keeps its height and width at 150 %, #442).
+        row2 = QHBoxLayout()
+        row2.setSpacing(int(u * 0.5))
+        row2.addWidget(self.wav_button, 0, Qt.AlignmentFlag.AlignTop)
+        self.actions = ResultActions()
+        row2.addWidget(self.actions, 1)
         self.preview_note = QLabel(f"Vorschau: {PREVIEW_LABEL}")
         self.preview_note.setObjectName("muted")
-        al.addWidget(self.preview_note)
+        row2.addWidget(self.preview_note)
+        al.addLayout(row2)
         col.addWidget(act_panel)
         # --- footer / status
         self.footer = FooterBand()
@@ -215,6 +234,7 @@ class AcidWindow(QWidget):
         self.load_button.clicked.connect(self.load)
         self.save_button.clicked.connect(self.save_json)
         self.export_button.clicked.connect(self.export_midi)
+        self.wav_button.clicked.connect(self.export_wav)
         self.open_button.clicked.connect(self.open_folder)
         self.preview_button.clicked.connect(self.preview)
         self.stop_button.clicked.connect(self.stop_preview)
@@ -355,6 +375,7 @@ class AcidWindow(QWidget):
             self._fail(exc)
             return None
         self.set_status(f"Gespeichert: {p}")
+        self.actions.set_paths([p])
         return p
 
     def export_midi(self) -> Path | None:
@@ -365,7 +386,48 @@ class AcidWindow(QWidget):
             self._fail(exc, self.bpm_edit if isinstance(exc, AcidOptionError) else None)
             return None
         self.set_status(f"MIDI geschrieben: {p}  (nicht in Live getestet)")
+        self.actions.set_paths([p])
         return p
+
+    def export_wav(self) -> Path | None:
+        """The rough preview as a WAV in the output folder (never overwriting: ``_2`` ...), at
+        the shared sample rate and bit depth. No sidecar: there is no contract for acid lines."""
+        try:
+            self.model.bpm = parse_bpm(self.bpm_edit.text())
+            samples = render_preview(self.model.to_line(), self.model.bpm, self.sample_rate)
+            data = encode_wav(samples, self.sample_rate, self.bit_depth)
+            folder = self._folder()
+            folder.mkdir(parents=True, exist_ok=True)
+            p = folder / f"{free_stem(folder, self._stem(), ('.wav',))}.wav"
+            with open(p, "xb") as f:  # "x": never replace a file
+                f.write(data)
+        except (AcidOptionError, ValueError, OSError) as exc:
+            self._fail(exc, self.bpm_edit if isinstance(exc, AcidOptionError) else None)
+            return None
+        self.set_status(f"WAV geschrieben: {p}  ({PREVIEW_LABEL}, {self.sample_rate} Hz, "
+                        f"{self.bit_depth} Bit, ohne Sidecar)")
+        self.actions.set_paths([p])
+        if self.hub is not None:
+            self.hub.files_written.emit([p])
+        return p
+
+    # ---- shared settings / hand-off -----------------------------------------------------
+    def attach_hub(self, hub) -> None:
+        """Shared output folder and audio format, library and Live hand-off (main window)."""
+        self.hub = hub
+        self.actions.set_hub(hub)
+        self._auto_folder = str(hub.settings.acid_dir())
+        self.folder_edit.setText(self._auto_folder)
+        self._settings_changed(hub.settings)
+        hub.settings_changed.connect(self._settings_changed)
+
+    def _settings_changed(self, settings) -> None:
+        self.sample_rate = settings.effective_sample_rate()
+        self.bit_depth = settings.effective_bit_depth()
+        new = str(settings.acid_dir())
+        if self.folder_edit.text().strip() == self._auto_folder:
+            self.folder_edit.setText(new)  # a folder the user typed is kept
+        self._auto_folder = new
 
     def open_folder(self) -> None:
         folder = self._folder()
