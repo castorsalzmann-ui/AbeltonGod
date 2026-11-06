@@ -15,6 +15,7 @@ import os
 import re
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -122,21 +123,24 @@ def test_screenshots_of_every_page_and_window_at_100_percent(tour):
 
 @pytest.fixture(scope="module")
 def tour150(tmp_path_factory, tour):
-    """The 150 % pass in a child process (the scale factor is fixed when Qt starts)."""
-    out = tmp_path_factory.mktemp("tour150")
-    report = out / "report.json"
-    env = dict(os.environ)
-    env["PYTHONPATH"] = os.pathsep.join(
-        [str(ROOT / "src")] + ([env["PYTHONPATH"]] if env.get("PYTHONPATH") else []))
-    proc = subprocess.run(
-        [sys.executable, str(TOUR_PY), "--scale", "1.5", "--no-renders",
-         "--shots", str(out / "shots"), "--json", str(report)],
-        capture_output=True, text=True, env=env, timeout=300)
-    assert report.is_file(), proc.stdout + proc.stderr
-    data = json.loads(report.read_text(encoding="utf-8"))
-    data["returncode"] = proc.returncode
-    data["stdout"] = proc.stdout
-    return data
+    """The 150 % pass in a child process (the scale factor is fixed when Qt starts). Its shots
+    go to the system temp folder, outside the checkout: the CLI only accepts folders inside
+    the checkout that git ignores, and a mutation-runner copy is no git checkout."""
+    with tempfile.TemporaryDirectory(prefix="abeltongod-tour150-") as tmp:
+        out = Path(tmp)
+        report = out / "report.json"
+        env = dict(os.environ)
+        env["PYTHONPATH"] = os.pathsep.join(
+            [str(ROOT / "src")] + ([env["PYTHONPATH"]] if env.get("PYTHONPATH") else []))
+        proc = subprocess.run(
+            [sys.executable, str(TOUR_PY), "--scale", "1.5", "--no-renders",
+             "--shots", str(out / "shots"), "--json", str(report)],
+            capture_output=True, text=True, env=env, timeout=300)
+        assert report.is_file(), proc.stdout + proc.stderr
+        data = json.loads(report.read_text(encoding="utf-8"))
+        data["returncode"] = proc.returncode
+        data["stdout"] = proc.stdout
+        yield data
 
 
 def test_150_percent_pass_has_every_page_and_window_at_one_and_a_half_pixels(tour, tour150):
@@ -164,7 +168,8 @@ def test_screenshots_never_go_into_the_repo(tmp_path, monkeypatch):
     assert not tour_mod.shots_allowed(ROOT / "shots")
     assert not tour_mod.shots_allowed(ROOT / "docs" / "qa")
     assert not tour_mod.shots_allowed(ROOT / ".tour_not_ignored" / "shots")
-    assert tour_mod.shots_allowed(ROOT / ".pytest_tmp" / "shots")  # .gitignore lists it
+    if (ROOT / ".git").exists():  # a mutation-runner copy has no git: all refused there
+        assert tour_mod.shots_allowed(ROOT / ".pytest_tmp" / "shots")  # .gitignore lists it
     assert tour_mod.shots_allowed(Path(os.path.abspath(os.sep)) / "elsewhere" / "shots")
     assert tour_mod.main(["--scale", "1", "--shots", str(ROOT / "shots")]) == 2
     assert not (ROOT / "shots").exists()
