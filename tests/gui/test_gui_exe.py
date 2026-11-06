@@ -273,7 +273,9 @@ def gui_files(window, qapp, preset, seed, sets, variants, out: Path):
     window.start_render()
     assert wait_for(qapp, lambda: not window.running)
     assert window.status.text().startswith("Fertig"), window.status.text()
-    return {p.name: p.read_bytes() for p in sorted(out.iterdir())}
+    folder = out / "Samples" / "FX" / "Lasers"  # #443: project-shaped output tree
+    # names as the CLI writes them: the GUI adds the category in front (#443)
+    return {p.name.removeprefix("laser_"): p.read_bytes() for p in sorted(folder.iterdir())}
 
 
 CASES = [
@@ -293,6 +295,7 @@ def test_laser_form_writes_the_same_bytes_as_the_cli(window, qapp, tmp_path, pre
         if name.endswith(".json"):  # the sidecar carries a creation time
             a, b = json.loads(ref[name]), json.loads(got[name])
             a.pop("created_at", None), b.pop("created_at", None)
+            assert b.pop("file") == "laser_" + a.pop("file"), name
             assert a == b, name
         else:
             assert got[name] == ref[name], name

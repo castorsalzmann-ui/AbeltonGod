@@ -108,9 +108,9 @@ class LivePanel(QWidget):
         prow.addWidget(self.project_button)
         form.addRow("Live-Projekt", prow)
         project_hint = QLabel(
-            "Live importiert Samples nur aus dem Kategorie-Ordner eines Projekts (z. B. "
-            "Samples/Drums/Kicks). Liegt die WAV woanders, kopiert das Programm WAV und "
-            "Sidecar vor dem Import dorthin; der Plan zeigt das Ziel.")
+            "Live importiert nur aus Kategorie-Ordnern wie Samples/Drums/Kicks. Mit "
+            "Projektordner kopiert das Programm WAV und Sidecar vorher dorthin; der Plan "
+            "zeigt das Ziel.")
         project_hint.setWordWrap(True)
         project_hint.setObjectName("muted")
         project_hint.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Minimum)

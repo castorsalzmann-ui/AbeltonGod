@@ -6,7 +6,6 @@ import hashlib
 import io
 import json
 import random
-import re
 from pathlib import Path
 
 import pytest
@@ -212,10 +211,6 @@ PINNED = [
 ]
 
 
-def body(path: Path) -> str:
-    return re.sub(r'"created_at": "[^"]*"', "", path.read_text(encoding="utf-8"))
-
-
 @pytest.mark.parametrize("cat,preset,seed,n,sets,hashes", PINNED)
 def test_bytes_equal_the_category_cli(tmp_path, cat, preset, seed, n, sets, hashes):
     m = CategoryFormModel(cat, preset)
@@ -236,9 +231,17 @@ def test_bytes_equal_the_category_cli(tmp_path, cat, preset, seed, n, sets, hash
         args += ["--set", item]
     assert cli.main(args, stdout=io.StringIO(), stderr=io.StringIO()) == 0
     for f in result.files:
-        assert f.wav_path.read_bytes() == (tmp_path / "cli" / f.wav_path.name).read_bytes()
-        assert body(f.json_path) == body(tmp_path / "cli" / f.json_path.name)
-        assert json.loads(f.json_path.read_text())["category"] == cat
+        # #443: the GUI name is the CLI name with the category in front; same bytes
+        cli_name = f.wav_path.name.removeprefix(f"{cat}_")
+        assert f.wav_path.name.startswith(f"{cat}_{preset}_s{seed}_v")
+        assert f.wav_path.read_bytes() == (tmp_path / "cli" / cli_name).read_bytes()
+        gui_meta = json.loads(f.json_path.read_text(encoding="utf-8"))
+        cli_side = tmp_path / "cli" / cli_name.replace(".wav", ".json")
+        cli_meta = json.loads(cli_side.read_text(encoding="utf-8"))
+        assert gui_meta["file"] == f.wav_path.name and cli_meta["file"] == cli_name
+        skip = {"file": None, "created_at": None}
+        assert {**gui_meta, **skip} == {**cli_meta, **skip}
+        assert gui_meta["category"] == cat
 
 
 @pytest.mark.parametrize("cat", CATS)

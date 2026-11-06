@@ -134,7 +134,7 @@ def test_render_in_another_category_lists_the_file(qapp, window):
     go(window, "hat")
     window.render_button.click()
     assert wait_for(qapp, lambda: window.results.count() == 1)
-    assert window.results.item(0).text().startswith("hat  closed-std_s")
+    assert window.results.item(0).text().startswith("hat  hat_closed-std_s")
     assert window.status.text().startswith("Fertig: 1 Datei(en)")
     path = Path(window.results.item(0).data(PATH_ROLE))
     assert path.is_file() and path.with_suffix(".json").is_file()
