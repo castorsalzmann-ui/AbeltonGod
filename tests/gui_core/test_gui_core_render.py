@@ -48,7 +48,11 @@ def test_same_params_and_seed_give_the_bytes_of_the_cli(tmp_path):
     result = run_job(job_from_form(form(42, 2), tmp_path / "gui"))
     assert result.ok and len(result.files) == 2
     assert [sha(f.wav_path) for f in result.files] == list(PUNCHY_S42)
-    assert [f.wav_path.name for f in result.files] == ["punchy_s42_v0.wav", "punchy_s42_v1.wav"]
+    assert [f.wav_path.name for f in result.files] == ["kick_punchy_s42_v0.wav",
+                                                       "kick_punchy_s42_v1.wav"]
+    # #443: in the kick folder of the project-shaped output tree
+    assert {f.wav_path.parent for f in result.files} == {
+        tmp_path / "gui" / "Samples" / "Drums" / "Kicks"}
 
     # Independent route: the real CLI entry point, compared byte for byte.
     cli_out = tmp_path / "cli"
@@ -58,19 +62,21 @@ def test_same_params_and_seed_give_the_bytes_of_the_cli(tmp_path):
     )
     assert code == 0
     for f in result.files:
-        assert f.wav_path.read_bytes() == (cli_out / f.wav_path.name).read_bytes()
-        # sidecar: identical bytes except the creation time stamp
+        cli_name = f.wav_path.name.removeprefix("kick_")  # #443: GUI adds the category
+        assert f.wav_path.read_bytes() == (cli_out / cli_name).read_bytes()
+        # sidecar: identical bytes except the creation time stamp and the file name
         def body(p: Path) -> str:
-            return re.sub(r'"created_at": "[^"]*"', "", p.read_text(encoding="utf-8"))
+            text = re.sub(r'"created_at": "[^"]*"', "", p.read_text(encoding="utf-8"))
+            return re.sub(r'"file": "[^"]*"', "", text)
 
-        assert body(f.json_path) == body(cli_out / f.json_path.name)
+        assert body(f.json_path) == body(cli_out / cli_name.replace(".wav", ".json"))
 
 
 def test_overrides_match_cli_set_and_are_named_custom(tmp_path):
     result = run_job(job_from_form(form(7, drive="0,5"), tmp_path / "gui"))
     assert result.ok
     [f] = result.files
-    assert f.wav_path.name == "punchy_s7_v0_custom.wav"
+    assert f.wav_path.name == "kick_punchy_s7_v0_custom.wav"
     assert sha(f.wav_path) == PUNCHY_S7_DRIVE
     assert f.seed == 7
     assert f.peak_dbfs == pytest.approx(-0.3, abs=0.01)
@@ -79,13 +85,36 @@ def test_overrides_match_cli_set_and_are_named_custom(tmp_path):
     assert "drive=0.5" in meta["description"]
 
 
+def test_every_category_gets_its_folder_and_a_name_with_its_category(tmp_path):
+    """#443: one default render per category into one output folder: no counter suffix, the
+    category in the name, the project layout's folder (written out here, not taken from the
+    layout object)."""
+    from gui_core.form import CATEGORY_KEYS, CategoryFormModel
+    folders = {"kick": "Samples/Drums/Kicks", "clap": "Samples/Drums/Claps",
+               "hat": "Samples/Drums/Hats", "snare": "Samples/Drums/Snares",
+               "rim": "Samples/Drums/Rims", "bass": "Samples/Bass",
+               "laser": "Samples/FX/Lasers"}
+    assert set(folders) == set(CATEGORY_KEYS)
+    out = tmp_path / "out"
+    for cat in ("snare", "bass", *sorted(set(CATEGORY_KEYS) - {"snare", "bass"})):
+        m = CategoryFormModel(cat)
+        m.set_text("seed", "1")
+        m.set_text("variants", "1")
+        r = run_job(RenderJob(m.build_request(), out, m.preset, m.overrides(), cat))
+        assert r.ok, r.error
+        [f] = r.files
+        assert f.wav_path.parent == out / folders[cat]
+        assert f.wav_path.name == f"{cat}_{m.preset}_s1_v0.wav"
+        assert f.json_path == f.wav_path.with_suffix(".json")
+
+
 def test_second_run_never_overwrites(tmp_path):
     out = tmp_path / "o"
     a = run_job(job_from_form(form(5), out))
     b = run_job(job_from_form(form(5), out))
     assert a.ok and b.ok
     assert a.files[0].wav_path != b.files[0].wav_path
-    assert b.files[0].wav_path.name == "punchy_s5_v0_002.wav"
+    assert b.files[0].wav_path.name == "kick_punchy_s5_v0_002.wav"
     assert a.files[0].wav_path.read_bytes() == b.files[0].wav_path.read_bytes()
 
 

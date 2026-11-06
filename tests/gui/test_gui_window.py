@@ -149,8 +149,8 @@ def test_render_lists_file_and_preview_player_loads_it(qapp, window):
     for row in range(2):
         path = Path(window.results.item(row).data(Qt.ItemDataRole.UserRole))
         assert path.is_file()
-        assert path.parent == Path(window.folder_edit.text())
-    assert window.results.item(0).text().startswith("kick  punchy_s")
+        assert path.parent == Path(window.folder_edit.text()) / "Samples" / "Drums" / "Kicks"
+    assert window.results.item(0).text().startswith("kick  kick_punchy_s")
     # first new result is selected and loaded
     assert window.results.currentRow() == 0
     assert window.preview.state == LOADED

@@ -105,11 +105,13 @@ def test_tool_windows_open_and_close_with_the_main_window(tour, name):
 
 
 def test_category_names_do_not_collide(tour):
-    """One render per category into a fresh folder must not need a counter suffix (#443)."""
+    """One render per category into a fresh folder must not need a counter suffix, and each
+    name starts with its category (#443)."""
     names = [tour.step(f"render:{k}").detail for k in tour_mod.CATEGORY_KEYS]
     assert all(n.endswith(".wav") for n in names), names  # every render produced a file
     clashes = [n for n in names if re.search(r"_\d{3}\.wav$", n)]
-    known_gap(443, bool(clashes), clashes == ["default_s1_v0_002.wav"], f"names {names}")
+    assert clashes == [], names
+    assert [n.split("_")[0] for n in names] == list(tour_mod.CATEGORY_KEYS), names
 
 
 def test_screenshots_of_every_page_and_window_at_100_percent(tour):

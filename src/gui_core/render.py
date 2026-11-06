@@ -5,8 +5,17 @@ disk, a cancel and unexpected engine errors come back as an :class:`ErrorInfo` (
 ``cancelled``), never as an exception in the caller and never as a hang. A stopped or failed
 request is never ``ok``.
 
-Naming and variants follow ``python -m audio_engine.kick`` (cli.plan): the same preset, seed,
-overrides and variant count give the same files and the same bytes.
+Variants follow ``python -m audio_engine.kick`` (cli.plan): the same preset, seed, overrides
+and variant count give the same bytes.
+
+Output layout (#443): the main window's output folder is laid out like a Live project. A
+render of ``category`` goes into that category's library folder below it
+(``<out>/Samples/Drums/Kicks``, ``<out>/Samples/Bass``, ``<out>/Samples/FX/Lasers`` …, from
+``library.LibraryLayout``) and its name starts with the category:
+``<category>_<preset>_s<seed>_v<n>[_custom].wav``. So snare and bass ``default`` renders no
+longer collide, the category is visible in Explorer and Live's browser, and the bridge's
+folder rule (``bridge.sample_info``) accepts the file where it is. The names differ from the
+CLI's (``<preset>_s<seed>_v<n>``); the WAV bytes do not. Files written before are not moved.
 """
 
 from __future__ import annotations
@@ -33,6 +42,7 @@ from audio_engine import (
 from audio_engine.categories import get_category
 from audio_engine.io import write_kick
 from audio_engine.presets import UnknownPresetError, describe
+from library import DEFAULT_LAYOUT
 
 _VARIANTS: dict[str, Callable[[dict[str, Any], int], list[dict[str, Any]]]] = {
     "kick": kick_variants.make_variants,
@@ -58,6 +68,11 @@ class RenderJob:
     preset: str
     overrides: dict[str, Any] = field(default_factory=dict)
     category: str = "kick"
+
+    @property
+    def folder(self) -> Path:
+        """Where the files go: the category's library folder below ``out_dir`` (#443)."""
+        return Path(self.out_dir).joinpath(*DEFAULT_LAYOUT.parts_for(self.category))
 
 
 @dataclass(frozen=True)
@@ -114,7 +129,7 @@ def run_job(
             if cancel.is_set():
                 return RenderResult(job, tuple(files), cancelled=True)
             extra = {} if job.category == "kick" else {"category": job.category}
-            wav, sidecar = writer(params, job.out_dir, name=stem, description=text, **extra)
+            wav, sidecar = writer(params, job.folder, name=stem, description=text, **extra)
             files.append(RenderedFile(
                 i, Path(wav), Path(sidecar), int(params["seed"]), dict(params), _peak(sidecar)
             ))
@@ -142,7 +157,7 @@ def _plan(job: RenderJob) -> tuple[list[dict[str, Any]], list[str], list[str]]:
     base = get_category(job.category).resolve(request)
     variants = _VARIANTS[job.category](request, base["variants"])  # all made before writing
     suffix = "_custom" if job.overrides else ""
-    stem = f"{job.preset}_s{base['seed']}"
+    stem = f"{job.category}_{job.preset}_s{base['seed']}"
     stems = [f"{stem}_v{i}{suffix}" for i in range(len(variants))]
     text = describe(job.preset, job.category)
     custom = ", ".join(f"{k}={v}" for k, v in job.overrides.items())
