@@ -19,7 +19,8 @@ from gui_core.form import CATEGORY_KEYS, CategoryFormModel  # noqa: E402
 from gui_core.preset_texts import PRESET_TEXTS_DE  # noqa: E402
 
 SHIPPED = [(c, p) for c in CATEGORY_KEYS for p in preset_names(c)]
-GERMAN = re.compile(r"(?i)\b(und|mit|der|die|das|kein|keine|ohne|plus|bei|über|von|ein|eine|einem|nur|auf|aus)\b|[äöüß]")
+ENGLISH = re.compile(  # stand-alone words; hyphenated terms like Sample-and-Hold are fine
+    r"(?<![\w-])(the|with|and|of|a|an|one|two|higher|lower|long|short|more|no)(?![\w-])")
 
 
 @pytest.fixture(scope="module")
@@ -32,7 +33,7 @@ def test_every_shipped_preset_has_a_german_text_and_no_stale_entries():
     assert missing == []
     assert set(PRESET_TEXTS_DE) == set(SHIPPED)  # no entry for a preset that does not exist
     for key, text in PRESET_TEXTS_DE.items():
-        assert GERMAN.search(text), key  # reads as German, not the copied English text
+        assert not ENGLISH.search(text), key  # no English words left (preset names aside)
         assert text != describe(key[1], key[0]), key
 
 
