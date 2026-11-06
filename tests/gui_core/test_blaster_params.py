@@ -440,3 +440,25 @@ def test_window_path_is_byte_identical_to_render_laser_for_salvo_filter_reverb(
     if not engine_renders_v02():
         pytest.skip("this engine version does not render contract v0.2 yet (PR #429)")
     check_bytes(values, request_, 11, tmp_path)
+
+
+def test_every_shipped_preset_renders_byte_identical_through_the_window_path(tmp_path):
+    """Preset file -> model -> request -> engine equals the preset file rendered directly."""
+    from gui_core.blaster import load_engine
+
+    names = bp.laser_preset_names()
+    assert {"blaster", "blaster-double", "blaster-triple-lrl", "blaster-burst5",
+            "blaster-echo", "blaster-reverb"} <= set(names)
+    assert names[:6] == sorted(n for n in names if n.startswith("blaster"))
+    engine, _ = load_engine()
+    session = BlasterSession(engine, None, tmp_path / "w")
+    try:
+        for n in names:
+            raw = json.loads((Path("src/audio_engine/presets/laser") / f"{n}.json")
+                             .read_text("utf-8"))
+            raw.pop("seed", None)
+            raw.pop("preset", None)
+            samples, _ = session.render_shot(bp.load_named_preset(n), 5)
+            assert encode_wav(samples, 48000, 24) == encode_wav(render_laser(raw, 5), 48000, 24), n
+    finally:
+        session.close()

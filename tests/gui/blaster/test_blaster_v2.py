@@ -862,3 +862,20 @@ def test_repeated_open_use_close_does_not_crash(qapp, tmp_path):
         w.deleteLater()
         QApplication.processEvents()
     assert True
+
+
+def test_real_engine_window_plays_every_blaster_preset_and_live_preview_is_cheaper(qapp, tmp_path):
+    w = BlasterWindow(out_dir=tmp_path / "out", work_dir=tmp_path / "work", backend=FakeBackend(),
+                      opener=lambda p: True)
+    assert "Stub" not in w.windowTitle() and w.gun.ready
+    names = [n for n in bp.laser_preset_names() if n.startswith("blaster")]
+    assert len(names) == 6 and w.chips.items[:6] == names
+    for n in names:
+        w.chips.buttons[w.chips.items.index(n)].click()
+        fire(w)
+        shot = w.session.history[0]
+        assert not is_error(w) and shot.params["schema_version"] == "0.2"
+        assert len(shot.samples) == round(shot.params["length_ms"] * 48)
+    w.live_check.setChecked(True)
+    assert idle(w)
+    assert w.scope.preview and w.history.count() == 6 and not is_error(w)

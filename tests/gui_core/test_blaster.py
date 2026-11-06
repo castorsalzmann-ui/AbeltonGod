@@ -124,10 +124,10 @@ def test_real_engine_same_seed_same_bytes_and_seed_matters_with_noise(tmp_path):
 
 def test_real_engine_random_settings_render_valid_stereo(real_session):
     rng = random.Random(11)
-    for _ in range(12):
-        # the whole weapon group over its contract range (the v0.1 fields every engine renders)
-        s = randomise(BlasterSettings(), ["weapon"], rng.randint(0, 10**6)).with_values(
-            length_ms=100)  # keep it quick
+    for _ in range(25):
+        # every group (salvo, filter, delay, reverb too) over its contract range
+        s = randomise(BlasterSettings(), ["weapon", "salvo", "filter", "delay", "reverb"],
+                      rng.randint(0, 10**6)).with_values(length_ms=rng.choice([100, 600]))
         samples, params = real_session.render_shot(s, rng.randint(0, bl.SEED_MAX))
         n = round(params["length_ms"] * 48000 / 1000)
         assert samples.shape == (n, 2) and np.all(np.isfinite(samples))
