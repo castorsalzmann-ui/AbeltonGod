@@ -31,7 +31,24 @@ Doppelklick auf `AbeltonGod.exe` oeffnet das Hauptfenster:
 - Ohne PySide6 im Paket (nur bei Selbstbau ohne `[gui]`) faellt der Doppelklick auf das
   Textmenue zurueck. `AbeltonGod.exe --menu` startet das Textmenue immer.
 - Das schwarze Konsolenfenster wird beim Doppelklick versteckt (Windows, nur wenn die exe es
-  allein besitzt). Das ist auf dem Runner nicht pruefbar.
+  allein besitzt), und zwar erst, wenn das Hauptfenster steht. Das Verstecken selbst ist auf dem
+  Runner nicht pruefbar.
+
+## Wenn die Oberflaeche nicht startet
+
+Ein Fehler beim Start geht nie still verloren:
+
+- Er wird angehaengt an `%LOCALAPPDATA%\AbeltonGod\logs\startup-errors.log`
+  (z. B. `C:\Users\<du>\AppData\Local\AbeltonGod\logs\`). Anderer Ort: Umgebungsvariable
+  `ABELTONGOD_LOG_DIR`. Die Datei bleibt unter 256 KB (aeltere Haelfte wird verworfen).
+- Ist Qt schon gestartet, zeigt ein Fenster "AbeltonGod - Startfehler" den Fehler und den Pfad
+  der Logdatei. Sonst bleibt das Konsolenfenster offen, zeigt den Fehler und wartet auf Enter.
+- Exit-Code dann 4. `AbeltonGod.exe --menu` startet das Textmenue ohne Oberflaeche.
+- Fehler waehrend des Laufs (in einem Knopf o. ae.) landen ebenfalls in der Logdatei
+  (`stage: running`), zeigen aber kein Fenster.
+- Geprueft auf dem Runner: erzwungene Fehler in drei Startphasen (vor Qt, Qt da, Fenster) in der
+  gebauten exe schreiben die Logdatei und enden mit Exit-Code 4. Das Meldungsfenster selbst ist
+  nur mit Attrappen getestet (die CI hat keinen Bildschirm, der es wegklicken koennte).
 
 ## Benutzen: Kommandozeile
 

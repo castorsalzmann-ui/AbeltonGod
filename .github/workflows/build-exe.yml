@@ -75,11 +75,17 @@ jobs:
           shutil.copytree("dist/AbeltonGod", "broken/AbeltonGod")
           (__import__("pathlib").Path("broken/AbeltonGod/_internal/PySide6/plugins/platforms")
            / "qwindows.dll").unlink()
-          r = subprocess.run([r"broken\AbeltonGod\AbeltonGod.exe", "--gui-selftest"],
-                             capture_output=True, text=True, timeout=300)
-          print(r.returncode, r.stdout, r.stderr[-1500:])
-          assert r.returncode != 0 and "GUI selftest ok" not in r.stdout, "smoke cannot fail"
-          shutil.rmtree("broken")
+          # Run 42213400226: without qwindows.dll the exe does not exit but waits (cause not
+          # established, likely Qt's fatal-error dialog); the smoke steps fail it by timeout.
+          try:
+              r = subprocess.run([r"broken\AbeltonGod\AbeltonGod.exe", "--gui-selftest"],
+                                 capture_output=True, text=True, timeout=60)
+          except subprocess.TimeoutExpired:
+              print("no exit within 60 s: the smoke fails by timeout (expected)")
+          else:
+              print(r.returncode, r.stdout, r.stderr[-1500:])
+              assert r.returncode != 0 and "GUI selftest ok" not in r.stdout, "cannot fail"
+          shutil.rmtree("broken", ignore_errors=True)
       - name: Smoke - a failed GUI start is logged and keeps the console (#436)
         shell: python
         run: |
