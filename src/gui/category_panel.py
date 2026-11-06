@@ -10,7 +10,7 @@ the engine's own ``resolve``, exclusions and derived values from the contract) l
 from __future__ import annotations
 
 from PySide6.QtCore import QTimer, Signal
-from PySide6.QtWidgets import QHBoxLayout, QLabel, QScrollArea, QSizePolicy, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QLabel, QScrollArea, QSizePolicy, QVBoxLayout, QWidget
 
 from gui_core import links
 from gui_core.form import ALWAYS_ACTIVE, CategoryFormModel, FieldSpec, _text_of
@@ -20,6 +20,7 @@ from .widgets import (
     BoolControl,
     ChoiceControl,
     Collapsible,
+    FlowLayout,
     NumberControl,
     ParamControl,
     PresetChips,
@@ -93,14 +94,15 @@ class CategoryPanel(QScrollArea):
         lay.addWidget(heading("Hauptregler"))
         for name in main_choices(model.category):
             lay.addWidget(self._make(model.spec(name), main=True))
-        knob_row = QHBoxLayout()
-        knob_row.setSpacing(2)
+        # The knobs wrap to a second line on a narrow page (#442: five knobs in one row made
+        # the page 47 M wide, too wide for 1920 x 1080 at 150 %).
+        self.knob_box = QWidget()
+        knob_row = FlowLayout(self.knob_box, spacing=2)
         for name in self.main_names:
             knob = self._make(model.spec(name), main=True)
             self.knobs.append(knob)  # type: ignore[arg-type]
             knob_row.addWidget(knob)
-        knob_row.addStretch(1)
-        lay.addLayout(knob_row)
+        lay.addWidget(self.knob_box)
         self.link_label = QLabel()
         self.link_label.setObjectName("linkhint")
         self.link_label.setWordWrap(True)
@@ -139,7 +141,9 @@ class CategoryPanel(QScrollArea):
             body.addWidget(self._make(spec, main=False))
         if gated:
             versions = ", ".join(sorted({s.gate_version for s in gated}))  # type: ignore[type-var]
-            body.addWidget(heading(f"Zusätzliche Felder (Kontrakt {versions})"))
+            title = heading(f"Zusätzliche Felder (Kontrakt {versions})")
+            title.setWordWrap(True)  # the upper-case title must not widen the page (#442)
+            body.addWidget(title)
             for spec in gated:
                 body.addWidget(self._make(spec, main=False))
         self.advanced.set_title(f"Erweitert ({len(extra)} Felder)")
