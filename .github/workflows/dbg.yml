@@ -13,6 +13,6 @@ jobs:
         with:
           python-version: "3.12"
       - run: python -m pip install -e ".[dev]"
-      - run: python dbgtmp/dbg.py
+      - run: python dbgtmp/dbg2.py
         env:
           PYTHONPATH: src
