@@ -1,0 +1,42 @@
+{
+  "file": "rim_s41_v1.wav",
+  "schema_version": "0.2",
+  "category": "rim",
+  "engine": {
+    "name": "abeltongod-audio-engine-rim",
+    "version": "0.1.0"
+  },
+  "parameters": {
+    "schema_version": "0.1",
+    "preset": "rim",
+    "seed": 2901600090,
+    "sample_rate": 48000,
+    "bit_depth": 24,
+    "length_ms": 200,
+    "f1_hz": 439.3124,
+    "f2_ratio": 3.5743,
+    "level2": 0.6047,
+    "decay1_ms": 41.7542,
+    "decay2_ms": 14.2716,
+    "hp_hz": 200,
+    "click_level": 0.2,
+    "click_ms": 1,
+    "drive": 0,
+    "polarity": 1,
+    "offset_ms": 0,
+    "peak_ceiling_dbfs": -0.3
+  },
+  "features": {
+    "peak_dbfs": -0.3,
+    "length_ms": 200.0,
+    "spectral_centroid_hz": 579.82,
+    "hf_share_8k": 0.001183,
+    "t60_ms": 40.375,
+    "rise_time_ms": 1.146
+  },
+  "bpm": null,
+  "key": null,
+  "sha256": "4fb52a656b46e372e8d68e464c9b7b2393f8a640e0dd03bfa3254033d665e7bc",
+  "created_at": "2026-11-06T02:13:56+00:00",
+  "description": "Preset rim: The contract defaults written out (two damped partials, short noise click). Variant 1 of 2, base seed 41."
+}

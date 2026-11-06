@@ -1,0 +1,40 @@
+{
+  "file": "punchy_s2_v1.wav",
+  "schema_version": "0.1",
+  "category": "kick",
+  "engine": {
+    "name": "abeltongod-audio-engine",
+    "version": "0.1.0"
+  },
+  "parameters": {
+    "schema_version": "0.2",
+    "preset": "punchy",
+    "seed": 3092755591,
+    "sample_rate": 48000,
+    "bit_depth": 24,
+    "peak_ceiling_dbfs": -0.3,
+    "length_ms": 400,
+    "pitch_start_hz": 236.4663,
+    "pitch_end_hz": 57.1419,
+    "pitch_decay_ms": 5.1413,
+    "amp_attack_ms": 0.3,
+    "amp_decay_ms": 449.6846,
+    "click_level": 0.7072,
+    "click_tone_hz": 4708.4376,
+    "drive": 0.1876,
+    "tone": 0.2028
+  },
+  "features": {
+    "peak_dbfs": -0.3,
+    "length_ms": 400.0,
+    "fundamental_hz": 57.14,
+    "decay_20db_ms": 199.0,
+    "decay_40db_ms": 348.0,
+    "dc_offset": -0.0
+  },
+  "bpm": null,
+  "key": null,
+  "sha256": "1a0ebee9791ce5eaa90cd87fc697bc41fb8b8365a5b7df26872beef93949b348",
+  "created_at": "2026-11-06T02:13:59+00:00",
+  "description": "Preset punchy: Higher tail, one of the two fastest pitch drops, more click, light drive. Variant 1 of 3, base seed 2."
+}

@@ -1,0 +1,132 @@
+{
+  "format": "acid_line",
+  "version": "0.1-proposal",
+  "seed": 457973,
+  "root": "F",
+  "root_octave": 4,
+  "scale": "major",
+  "length": 22,
+  "steps": [
+    {
+      "on": true,
+      "note": 65,
+      "accent": false,
+      "slide": true,
+      "degree": 0,
+      "octave": 0
+    },
+    {
+      "on": false
+    },
+    {
+      "on": true,
+      "note": 67,
+      "accent": false,
+      "slide": true,
+      "degree": 1,
+      "octave": 0
+    },
+    {
+      "on": false
+    },
+    {
+      "on": true,
+      "note": 69,
+      "accent": true,
+      "slide": true,
+      "degree": 2,
+      "octave": 0
+    },
+    {
+      "on": true,
+      "note": 65,
+      "accent": false,
+      "slide": false,
+      "degree": 0,
+      "octave": 0
+    },
+    {
+      "on": false
+    },
+    {
+      "on": true,
+      "note": 72,
+      "accent": false,
+      "slide": false,
+      "degree": 4,
+      "octave": 0
+    },
+    {
+      "on": false
+    },
+    {
+      "on": false
+    },
+    {
+      "on": false
+    },
+    {
+      "on": false
+    },
+    {
+      "on": true,
+      "note": 72,
+      "accent": false,
+      "slide": false,
+      "degree": 4,
+      "octave": 0
+    },
+    {
+      "on": true,
+      "note": 67,
+      "accent": false,
+      "slide": true,
+      "degree": 1,
+      "octave": 0
+    },
+    {
+      "on": true,
+      "note": 72,
+      "accent": false,
+      "slide": true,
+      "degree": 4,
+      "octave": 0
+    },
+    {
+      "on": true,
+      "note": 76,
+      "accent": false,
+      "slide": false,
+      "degree": 6,
+      "octave": 0
+    },
+    {
+      "on": true,
+      "note": 69,
+      "accent": false,
+      "slide": true,
+      "degree": 2,
+      "octave": 0
+    },
+    {
+      "on": false
+    },
+    {
+      "on": true,
+      "note": 72,
+      "accent": false,
+      "slide": true,
+      "degree": 4,
+      "octave": 0
+    },
+    {
+      "on": false
+    },
+    {
+      "on": false
+    },
+    {
+      "on": false
+    }
+  ]
+}

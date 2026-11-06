@@ -1,0 +1,92 @@
+{
+  "format": "acid_line",
+  "version": "0.1-proposal",
+  "seed": 735933,
+  "root": "C#",
+  "root_octave": 3,
+  "scale": "major",
+  "length": 22,
+  "steps": [
+    {
+      "on": false
+    },
+    {
+      "on": true,
+      "note": 78,
+      "accent": false,
+      "slide": false,
+      "degree": 3,
+      "octave": 2
+    },
+    {
+      "on": false
+    },
+    {
+      "on": false
+    },
+    {
+      "on": false
+    },
+    {
+      "on": false
+    },
+    {
+      "on": false
+    },
+    {
+      "on": false
+    },
+    {
+      "on": false
+    },
+    {
+      "on": false
+    },
+    {
+      "on": false
+    },
+    {
+      "on": false
+    },
+    {
+      "on": false
+    },
+    {
+      "on": false
+    },
+    {
+      "on": false
+    },
+    {
+      "on": true,
+      "note": 56,
+      "accent": false,
+      "slide": false,
+      "degree": 4,
+      "octave": 0
+    },
+    {
+      "on": false
+    },
+    {
+      "on": false
+    },
+    {
+      "on": true,
+      "note": 84,
+      "accent": true,
+      "slide": false,
+      "degree": 6,
+      "octave": 2
+    },
+    {
+      "on": false
+    },
+    {
+      "on": false
+    },
+    {
+      "on": false
+    }
+  ]
+}

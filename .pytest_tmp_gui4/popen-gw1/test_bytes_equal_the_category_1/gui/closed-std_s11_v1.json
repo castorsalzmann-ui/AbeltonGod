@@ -1,0 +1,50 @@
+{
+  "file": "closed-std_s11_v1.wav",
+  "schema_version": "0.2",
+  "category": "hat",
+  "engine": {
+    "name": "abeltongod-audio-engine-hat",
+    "version": "0.1.0"
+  },
+  "parameters": {
+    "schema_version": "0.1",
+    "preset": "closed-std",
+    "seed": 2231218780,
+    "decay_ms": 66.8221,
+    "hp_hz": 6003.7875,
+    "sample_rate": 48000,
+    "bit_depth": 24,
+    "model": "metal_bank",
+    "attack_ms": 0.8,
+    "metal": 0.6461,
+    "pitch_scale": 0.9616,
+    "color": 0.4917,
+    "lp_hz": 18000,
+    "bp_hz": 7100,
+    "bp_q": 0.7,
+    "bp_mix": 0,
+    "peak_hz": 9000,
+    "peak_db": 0,
+    "body_mix": 0,
+    "decay_hi_ratio": 0.5,
+    "drive": 0,
+    "choke_ms": 0,
+    "polarity": 1,
+    "offset_ms": 0,
+    "peak_ceiling_dbfs": -0.3,
+    "length_ms": 97.6221
+  },
+  "features": {
+    "peak_dbfs": -0.3,
+    "length_ms": 97.625,
+    "spectral_centroid_hz": 11404.37,
+    "hf_share_8k": 0.769659,
+    "t60_ms": 63.729,
+    "rise_time_ms": 1.5
+  },
+  "bpm": null,
+  "key": null,
+  "sha256": "d1906eb2df0a15288218d332408f3a8ba8c5c04d6865a23672b882f850764793",
+  "created_at": "2026-11-06T02:13:56+00:00",
+  "description": "Preset closed-std: Closed hat, medium decay, mid high-pass corner (starter set of the hat targets note). Variant 1 of 2, base seed 11."
+}

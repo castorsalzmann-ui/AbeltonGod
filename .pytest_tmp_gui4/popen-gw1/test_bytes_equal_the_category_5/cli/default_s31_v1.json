@@ -1,0 +1,45 @@
+{
+  "file": "default_s31_v1.wav",
+  "schema_version": "0.2",
+  "category": "clap",
+  "engine": {
+    "name": "abeltongod-audio-engine-clap",
+    "version": "0.1.0"
+  },
+  "parameters": {
+    "schema_version": "0.1",
+    "preset": "default",
+    "seed": 780487881,
+    "bursts": 3,
+    "burst_spacing_ms": 11.9349,
+    "burst_decay_ms": 24.987,
+    "burst_level_falloff": 0.8858,
+    "tail_level": 0.7698,
+    "tail_decay_ms": 184.182,
+    "bp_hz": 1300.886,
+    "bp_q": 1.5732,
+    "hp_hz": 459.6789,
+    "length_ms": 500,
+    "sample_rate": 48000,
+    "bit_depth": 24,
+    "room": 0,
+    "room_length_ms": 400,
+    "drive": 0,
+    "polarity": 1,
+    "offset_ms": 0,
+    "peak_ceiling_dbfs": -0.3
+  },
+  "features": {
+    "peak_dbfs": -0.3,
+    "length_ms": 500.0,
+    "spectral_centroid_hz": 2091.06,
+    "hf_share_8k": 0.023896,
+    "t60_ms": 149.375,
+    "rise_time_ms": 43.167
+  },
+  "bpm": null,
+  "key": null,
+  "sha256": "72913f31b1aa0f16af21d1492d0c8d280f4bad25ca813b5bd00f31bc88008bc4",
+  "created_at": "2026-11-06T02:13:56+00:00",
+  "description": "Preset default: The contract defaults written out (three bursts, mid band-pass, 200 ms tail). Variant 1 of 2, base seed 31."
+}

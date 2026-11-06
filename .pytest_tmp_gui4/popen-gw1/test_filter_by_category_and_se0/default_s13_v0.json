@@ -1,0 +1,45 @@
+{
+  "file": "default_s13_v0.wav",
+  "schema_version": "0.2",
+  "category": "bass",
+  "engine": {
+    "name": "abeltongod-audio-engine-bass",
+    "version": "0.2.0"
+  },
+  "parameters": {
+    "schema_version": "0.1",
+    "preset": "default",
+    "seed": 13,
+    "sample_rate": 48000,
+    "bit_depth": 24,
+    "note": 43,
+    "cents": 0,
+    "saw_level": 0.7,
+    "square_level": 0,
+    "sine_level": 0.7,
+    "sub_octave_level": 0,
+    "gate_ms": 250,
+    "release_ms": 60,
+    "amp_attack_ms": 3,
+    "hp_hz": 20,
+    "lp_hz": 350,
+    "lp_q": 0.9,
+    "lp_env_amount": 1.5,
+    "lp_env_decay_ms": 120,
+    "drive": 0.2,
+    "polarity": 1,
+    "offset_ms": 0,
+    "peak_ceiling_dbfs": -0.3
+  },
+  "features": {
+    "peak_dbfs": -0.3,
+    "length_ms": 310.0,
+    "dc_offset": -0.0,
+    "fundamental_hz": 98.0
+  },
+  "bpm": null,
+  "key": null,
+  "sha256": "8f738491634dda2ce31d883f3baebfca63a19c5321f4b52b8daac81e01e50e24",
+  "created_at": "2026-11-06T02:13:58+00:00",
+  "description": "Preset default: The contract defaults written out (note 43, saw plus sine, 250 ms gate). Variant 0 of 1, base seed 13."
+}

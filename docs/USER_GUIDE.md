@@ -12,7 +12,8 @@ Eine Seite: was es gibt, was du startest, was nicht verifiziert ist. Alle Befehl
 
 | Bereich | Was | Einstieg |
 | --- | --- | --- |
-| Samples | Kick, Hat, Snare, Clap, Rim, Bass: Presets und Varianten als WAV + Sidecar-JSON | `python -m audio_engine.kick --list-presets`, weitere Kategorien: `src/audio_engine/` (Module `hat`, `snare`, `clap`, `rim`, `bass`), Presets in `src/audio_engine/presets/` |
+| Programm mit Oberfläche | `AbeltonGod.exe` (Windows, ohne Python): Doppelklick öffnet das Hauptfenster mit allen Kategorien einschließlich Laser, Bibliothek, Goa, Live-Import, Copilot und Knöpfen für die Fenster Goa, Acid-Linie und Laser-Blaster. Aus Quelltext: `python -m gui` | `docs/setup/EXE.md`; Aussehen unter Windows, Drag-and-drop, Klang auf deinem Gerät und ein Lauf der exe bei dir sind nicht geprüft (die CI startet die Oberfläche nur ohne Bildschirm) |
+| Samples | Kick, Hat, Snare, Clap, Rim, Bass, Laser: Presets und Varianten als WAV + Sidecar-JSON | `python -m audio_engine.kick --list-presets`, weitere Kategorien: `src/audio_engine/` (Module `hat`, `snare`, `clap`, `rim`, `bass`), Presets in `src/audio_engine/presets/` |
 | Goa-Arrangement | Mehrspur-MIDI: Kick, Bass, Hat, Snare, Clap, Rim (aus Engine-Presets, mit gerenderten One-Shots) plus Melodie | `python -m audio_engine.goa_arrangement --out <Ordner> --seed 1 --bpm 145` |
 | Goa-Melodie | Lead, Arp, Pad, Pluck als MIDI, alles einstellbar | `python -m audio_engine.goa_melody --out <Ordner> --seed 1 --bpm 145` |
 | Import in Live | WAV als Clip über AbletonOSC (Python-Remote-Script, kein Max for Live) | `python scripts/live_import.py "<Pfad der WAV>"`, Rezepte in `docs/setup/*_TO_LIVE.md` |

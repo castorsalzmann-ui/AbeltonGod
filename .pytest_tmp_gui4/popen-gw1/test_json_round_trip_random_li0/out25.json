@@ -1,0 +1,67 @@
+{
+  "format": "acid_line",
+  "version": "0.1-proposal",
+  "seed": 401242,
+  "root": "B",
+  "root_octave": 4,
+  "scale": "major",
+  "length": 12,
+  "steps": [
+    {
+      "on": false
+    },
+    {
+      "on": false
+    },
+    {
+      "on": false
+    },
+    {
+      "on": false
+    },
+    {
+      "on": true,
+      "note": 97,
+      "accent": true,
+      "slide": false,
+      "degree": 1,
+      "octave": 2
+    },
+    {
+      "on": true,
+      "note": 92,
+      "accent": true,
+      "slide": false,
+      "degree": 5,
+      "octave": 1
+    },
+    {
+      "on": true,
+      "note": 104,
+      "accent": false,
+      "slide": true,
+      "degree": 5,
+      "octave": 2
+    },
+    {
+      "on": false
+    },
+    {
+      "on": true,
+      "note": 100,
+      "accent": false,
+      "slide": false,
+      "degree": 3,
+      "octave": 2
+    },
+    {
+      "on": false
+    },
+    {
+      "on": false
+    },
+    {
+      "on": false
+    }
+  ]
+}

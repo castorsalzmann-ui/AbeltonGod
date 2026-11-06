@@ -23,6 +23,7 @@ from audio_engine import cli as engine_cli  # noqa: E402
 from gui import selftest  # noqa: E402
 from gui.app import create_app  # noqa: E402
 from gui.main_window import MainWindow  # noqa: E402
+from gui.widgets.choice import WrapSegmented  # noqa: E402
 from gui.windows import DEFAULT_FACTORIES, WINDOW_KEYS, WindowManager  # noqa: E402
 from gui_core.form import CATEGORY_KEYS, CategoryFormModel  # noqa: E402
 from gui_core.form_layout import main_choices, main_controls  # noqa: E402
@@ -209,6 +210,20 @@ def test_laser_groups_hold_the_contract_fields_by_prefix(window):
     assert "echo_sync" in {c.name for c in panel.controls.values()
                            if panel.group_sections["Delay"].body.isAncestorOf(c)}
     assert not panel.group_sections["Salve"].is_expanded()
+
+
+def test_wide_enums_wrap_instead_of_widening_the_page(window):
+    go_laser(window)
+    pan = window.panel.controls["salvo_pan_mode"]
+    assert isinstance(pan.seg, WrapSegmented) and pan.seg.items[1] == "alternate_lr"
+    pan.seg.buttons[2].click()
+    assert pan.value() == "alternate_rl" and window.model.text["salvo_pan_mode"] == "alternate_rl"
+    assert "salvo_pan_mode" in window.model.active
+    note = window.panel.controls["salvo_sync_note"]
+    assert isinstance(note.seg, WrapSegmented) and len(note.seg.buttons) == 12
+    # the two-value rows keep the compact segmented look
+    assert type(window.panel.controls["salvo_rate_mode"].seg).__name__ == "Segmented"
+    assert window.panel.horizontalScrollBar().maximum() == 0
 
 
 def test_laser_edit_activates_the_version_0_2_field_and_renders(window, qapp):

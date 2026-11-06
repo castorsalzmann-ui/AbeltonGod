@@ -1,0 +1,29 @@
+{
+  "format": "acid_line",
+  "version": "0.1-proposal",
+  "seed": 913175,
+  "root": "C#",
+  "root_octave": 1,
+  "scale": "minor",
+  "length": 6,
+  "steps": [
+    {
+      "on": false
+    },
+    {
+      "on": false
+    },
+    {
+      "on": false
+    },
+    {
+      "on": false
+    },
+    {
+      "on": false
+    },
+    {
+      "on": false
+    }
+  ]
+}

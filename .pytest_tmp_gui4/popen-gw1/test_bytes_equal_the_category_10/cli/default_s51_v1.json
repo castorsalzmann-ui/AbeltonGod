@@ -1,0 +1,45 @@
+{
+  "file": "default_s51_v1.wav",
+  "schema_version": "0.2",
+  "category": "bass",
+  "engine": {
+    "name": "abeltongod-audio-engine-bass",
+    "version": "0.2.0"
+  },
+  "parameters": {
+    "schema_version": "0.1",
+    "preset": "default",
+    "seed": 2855613209,
+    "sample_rate": 48000,
+    "bit_depth": 24,
+    "note": 43,
+    "cents": 0,
+    "saw_level": 0.7,
+    "square_level": 0,
+    "sine_level": 0.7,
+    "sub_octave_level": 0,
+    "gate_ms": 250,
+    "release_ms": 60,
+    "amp_attack_ms": 3,
+    "hp_hz": 20,
+    "lp_hz": 372.1622,
+    "lp_q": 0.8614,
+    "lp_env_amount": 1.6441,
+    "lp_env_decay_ms": 125.6705,
+    "drive": 0.2102,
+    "polarity": 1,
+    "offset_ms": 0,
+    "peak_ceiling_dbfs": -0.3
+  },
+  "features": {
+    "peak_dbfs": -0.3,
+    "length_ms": 310.0,
+    "dc_offset": -0.0,
+    "fundamental_hz": 97.99
+  },
+  "bpm": null,
+  "key": null,
+  "sha256": "8647ae112a0ad5c8f824fefb6fa340485d00af7230f3d48fb25711aab025d01d",
+  "created_at": "2026-11-06T02:13:56+00:00",
+  "description": "Preset default: The contract defaults written out (note 43, saw plus sine, 250 ms gate). Variant 1 of 2, base seed 51."
+}

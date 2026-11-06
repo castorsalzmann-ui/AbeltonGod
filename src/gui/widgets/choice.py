@@ -233,3 +233,25 @@ class PresetChips(_KeyRow):
             event.accept()
             return
         super().keyPressEvent(event)
+
+
+class WrapSegmented(PresetChips):
+    """Same interface as :class:`Segmented` (index in, index out) but the buttons wrap to the
+    next line. Used for enums whose buttons do not fit in one row (laser pan pattern, the 12
+    note values), so the page never needs a horizontal scroll bar."""
+
+    chosen = Signal(int)  # type: ignore[assignment]  # the index, as Segmented
+
+    def index(self) -> int:
+        return self.items.index(self._current) if self._current in self.items else -1
+
+    def set_index(self, index: int) -> None:
+        """Programmatic: shows the choice without emitting."""
+        self.set_current(self.items[index] if 0 <= index < len(self.items) else "")
+
+    def _clicked(self, index: int) -> None:
+        self._focus = index
+        changed = index != self.index()
+        self.set_index(index)
+        if changed:
+            self.chosen.emit(index)

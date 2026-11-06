@@ -1,0 +1,38 @@
+{
+  "format": "acid_line",
+  "version": "0.1-proposal",
+  "seed": 267299,
+  "root": "A",
+  "root_octave": 1,
+  "scale": "major",
+  "length": 4,
+  "steps": [
+    {
+      "on": true,
+      "note": 44,
+      "accent": false,
+      "slide": true,
+      "degree": 6,
+      "octave": 0
+    },
+    {
+      "on": false
+    },
+    {
+      "on": true,
+      "note": 57,
+      "accent": false,
+      "slide": true,
+      "degree": 0,
+      "octave": 2
+    },
+    {
+      "on": true,
+      "note": 33,
+      "accent": false,
+      "slide": true,
+      "degree": 0,
+      "octave": 0
+    }
+  ]
+}

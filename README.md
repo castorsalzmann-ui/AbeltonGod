@@ -8,6 +8,10 @@ Der Copilot soll Samples erzeugen und verfeinern, Arrangements vorschlagen, beim
 
 **Cockpit:** Roadmap, Forschungsnotizen, offene Aufgaben für den Nutzer und wer gerade arbeitet: [Projekt-Cockpit](https://castorsalzmann-ui.github.io/AbeltonGod/) (aktualisiert sich alle 30 Minuten selbst; der Banner oben zeigt das Alter der Daten). Was nur der Nutzer tun kann, steht in [`docs/WAITING_ON_USER.md`](docs/WAITING_ON_USER.md), die Feature-Tabelle in [`docs/ROADMAP.md`](docs/ROADMAP.md), der ausführliche Stand in [`docs/CURRENT_STATE.md`](docs/CURRENT_STATE.md).
 
+## Programm mit Oberfläche (`AbeltonGod.exe`)
+
+Ein Doppelklick auf `AbeltonGod.exe` öffnet das Hauptfenster: links die Klangkategorien (Kick bis Laser), Bibliothek, Goa, Live-Import und Copilot, darunter Knöpfe für die Fenster Goa, Acid-Linie und Laser-Blaster. Mit Argumenten bleibt es die Kommandozeile (`AbeltonGod.exe kick --help`). Die exe kommt aus dem GitHub-Lauf „Build exe“ (Reiter Actions, Artifact `AbeltonGod-windows`, oder unter Releases, sobald eins veröffentlicht ist). Anleitung und ehrlicher Status: [`docs/setup/EXE.md`](docs/setup/EXE.md). Das Aussehen unter Windows, Drag-and-drop in Live, der Klang auf einem echten Gerät und ein Lauf der exe auf deinem PC sind noch nicht geprüft.
+
 ## Architektur in einem Satz
 
 Eine lokale Python-Audio-Engine erzeugt Samples, eine Remote-Script-Bridge (AbletonOSC) spricht mit Ableton, und Claude entscheidet als Orchestrator, welche Werkzeuge aufgerufen werden. Details: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md), Entscheidungen: [`docs/DECISIONS.md`](docs/DECISIONS.md).

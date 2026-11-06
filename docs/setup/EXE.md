@@ -7,17 +7,35 @@ Status: gebaut und getestet nur auf dem GitHub-Actions-Runner `windows-latest`
 
 1. GitHub, Reiter Actions, Workflow "Build exe", letzter gruener Lauf, Artifact
    `AbeltonGod-windows` herunterladen (oder den Workflow per "Run workflow" neu starten).
+   Wenn ein Release veroeffentlicht wurde, liegt dieselbe ZIP-Datei unter Releases. Ein Release
+   entsteht nur, wenn der Workflow von Hand mit dem Feld `release_tag` gestartet wird.
 2. Die ZIP-Datei in einen Ordner entpacken, z. B. `C:\AbeltonGod\`. Der Ordner muss
    zusammenbleiben: `AbeltonGod.exe`, `_internal\`, `contracts\`, `config\`.
 3. Windows SmartScreen kann warnen (die exe ist nicht signiert): "Weitere Informationen",
    dann "Trotzdem ausführen".
 
-## Benutzen
+## Benutzen: Oberflaeche
 
-- Doppelklick auf `AbeltonGod.exe`: Textmenue. Werkzeug waehlen (Nummer oder Name),
-  Ausgabeordner angeben (Enter = `%USERPROFILE%\AbeltonGod-out`), optional weitere Optionen,
-  am Ende zeigt das Fenster, wo die Dateien liegen, und wartet auf Enter.
-- Kommandozeile (`cmd` oder PowerShell im Ordner):
+Doppelklick auf `AbeltonGod.exe` oeffnet das Hauptfenster:
+
+- Links die Klangkategorien (Kick, Hi-Hat, Snare, Clap, Rim, Bass, Laser), die Bibliothek,
+  Goa-Arrangement, Live-Import und Copilot. Rechts Ausgabeordner, Rendern, Ergebnisse, Vorhoeren.
+- Links unten "Weitere Fenster": Goa-Fenster, Acid-Linie, Laser-Blaster. Jedes oeffnet sich als
+  eigenes Fenster, hoechstens eines je Art (ein zweiter Klick holt es nach vorn). Ein Fenster zu
+  schliessen beendet das Programm nicht; das Hauptfenster zu schliessen schliesst alle.
+- Laser: Die Seite "Laser" hat dieselben Regler wie die anderen Kategorien (Hauptregler oben,
+  Salve, Filter, Delay und Reverb als aufklappbare Gruppen). Abzug, Salven-Muster, A/B und Undo
+  gibt es im Fenster "Laser-Blaster".
+- Hinter der Oberflaeche steht dieselbe Engine: dieselben Parameter und derselbe Seed ergeben
+  dieselben Bytes wie auf der Kommandozeile (fuer Laser mit 3 Faellen getestet).
+- Ohne PySide6 im Paket (nur bei Selbstbau ohne `[gui]`) faellt der Doppelklick auf das
+  Textmenue zurueck. `AbeltonGod.exe --menu` startet das Textmenue immer.
+- Das schwarze Konsolenfenster wird beim Doppelklick versteckt (Windows, nur wenn die exe es
+  allein besitzt). Das ist auf dem Runner nicht pruefbar.
+
+## Benutzen: Kommandozeile
+
+Mit Argumenten bleibt die exe ein Kommandozeilenwerkzeug (`cmd` oder PowerShell im Ordner):
 
 ```
 AbeltonGod.exe --version
@@ -25,6 +43,7 @@ AbeltonGod.exe --list
 AbeltonGod.exe kick --preset centre --seed 7 --out C:\Samples\kicks
 AbeltonGod.exe goa-arrangement --seed 3 --out C:\Samples\goa1
 AbeltonGod.exe <werkzeug> --help
+AbeltonGod.exe --gui-selftest      # startet die Oberflaeche ohne Bildschirm und beendet sich
 ```
 
 `AbeltonGod.exe <werkzeug> ...` ist dasselbe wie das jeweilige `python -m ...` bzw.
@@ -43,8 +62,9 @@ AbletonOSC nicht (`ABLETONOSC_WINDOWS.md`).
 
 ## Zugangsdaten fuer `chat`
 
-Die exe enthaelt keine Schluessel. `chat` liest `.env` aus dem Ordner neben `AbeltonGod.exe`
-(Vorlage: `.env.example`, wird mitgeliefert). Ohne `.env` laufen alle anderen Werkzeuge normal.
+Die exe enthaelt keine Schluessel. `chat` (auch der Copilot im Hauptfenster) liest `.env` aus
+dem Ordner neben `AbeltonGod.exe` (Vorlage: `.env.example`, wird mitgeliefert). Ohne `.env`
+laufen alle anderen Funktionen normal.
 
 ## Warum ein Ordner und keine einzelne Datei (onedir)
 
@@ -56,7 +76,7 @@ Virenscanner-Alarm aus.
 ## Selbst bauen
 
 ```
-pip install -e ".[build]"
+pip install -e ".[build,gui]"
 python scripts/build_exe.py          # Ergebnis: dist\AbeltonGod\AbeltonGod.exe
 python scripts/exe_smoke.py dist\AbeltonGod\AbeltonGod.exe
 ```
@@ -64,5 +84,8 @@ python scripts/exe_smoke.py dist\AbeltonGod\AbeltonGod.exe
 ## Nicht abgedeckt
 
 - Kein Lauf auf deinem PC, keiner mit Live (die CI hat kein Live).
-- Keine Signatur, kein Installer, kein Auto-Update, keine GUI.
+- Die CI startet die Oberflaeche nur ohne Bildschirm (Qt offscreen): wie sie unter Windows
+  aussieht, Drag-and-drop einer WAV nach Live oder in den Explorer und der Klang auf einem
+  echten Geraet (Vorhoeren ueber `winsound`) sind nicht geprueft.
+- Keine Signatur, kein Installer, kein Auto-Update.
 - `chat` ist nur auf `--help` getestet (Imports im Bundle), nicht mit echtem Zugang.

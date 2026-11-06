@@ -1,0 +1,180 @@
+{
+  "format": "acid_line",
+  "version": "0.1-proposal",
+  "seed": 774008,
+  "root": "B",
+  "root_octave": 0,
+  "scale": "minor",
+  "length": 28,
+  "steps": [
+    {
+      "on": false
+    },
+    {
+      "on": true,
+      "note": 43,
+      "accent": false,
+      "slide": false,
+      "degree": 5,
+      "octave": 1
+    },
+    {
+      "on": true,
+      "note": 37,
+      "accent": true,
+      "slide": true,
+      "degree": 1,
+      "octave": 1
+    },
+    {
+      "on": true,
+      "note": 23,
+      "accent": true,
+      "slide": false,
+      "degree": 0,
+      "octave": 0
+    },
+    {
+      "on": true,
+      "note": 43,
+      "accent": true,
+      "slide": false,
+      "degree": 5,
+      "octave": 1
+    },
+    {
+      "on": false
+    },
+    {
+      "on": false
+    },
+    {
+      "on": true,
+      "note": 37,
+      "accent": true,
+      "slide": false,
+      "degree": 1,
+      "octave": 1
+    },
+    {
+      "on": true,
+      "note": 35,
+      "accent": true,
+      "slide": false,
+      "degree": 0,
+      "octave": 1
+    },
+    {
+      "on": true,
+      "note": 38,
+      "accent": true,
+      "slide": false,
+      "degree": 2,
+      "octave": 1
+    },
+    {
+      "on": true,
+      "note": 42,
+      "accent": true,
+      "slide": true,
+      "degree": 4,
+      "octave": 1
+    },
+    {
+      "on": false
+    },
+    {
+      "on": true,
+      "note": 25,
+      "accent": true,
+      "slide": false,
+      "degree": 1,
+      "octave": 0
+    },
+    {
+      "on": true,
+      "note": 38,
+      "accent": true,
+      "slide": false,
+      "degree": 2,
+      "octave": 1
+    },
+    {
+      "on": true,
+      "note": 26,
+      "accent": false,
+      "slide": false,
+      "degree": 2,
+      "octave": 0
+    },
+    {
+      "on": false
+    },
+    {
+      "on": false
+    },
+    {
+      "on": true,
+      "note": 28,
+      "accent": true,
+      "slide": true,
+      "degree": 3,
+      "octave": 0
+    },
+    {
+      "on": false
+    },
+    {
+      "on": false
+    },
+    {
+      "on": false
+    },
+    {
+      "on": true,
+      "note": 26,
+      "accent": true,
+      "slide": false,
+      "degree": 2,
+      "octave": 0
+    },
+    {
+      "on": true,
+      "note": 42,
+      "accent": true,
+      "slide": false,
+      "degree": 4,
+      "octave": 1
+    },
+    {
+      "on": true,
+      "note": 31,
+      "accent": true,
+      "slide": false,
+      "degree": 5,
+      "octave": 0
+    },
+    {
+      "on": false
+    },
+    {
+      "on": false
+    },
+    {
+      "on": true,
+      "note": 28,
+      "accent": true,
+      "slide": true,
+      "degree": 3,
+      "octave": 0
+    },
+    {
+      "on": true,
+      "note": 25,
+      "accent": true,
+      "slide": false,
+      "degree": 1,
+      "octave": 0
+    }
+  ]
+}

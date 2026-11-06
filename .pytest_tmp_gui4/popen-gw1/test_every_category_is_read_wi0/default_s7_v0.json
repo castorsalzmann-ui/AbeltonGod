@@ -1,0 +1,48 @@
+{
+  "file": "default_s7_v0.wav",
+  "schema_version": "0.2",
+  "category": "snare",
+  "engine": {
+    "name": "abeltongod-audio-engine-snare",
+    "version": "0.1.0"
+  },
+  "parameters": {
+    "schema_version": "0.1",
+    "preset": "default",
+    "seed": 7,
+    "sample_rate": 48000,
+    "bit_depth": 24,
+    "length_ms": 400,
+    "body_hz": 190,
+    "mode_ratio": 1.85,
+    "pitch_drop": 1.4,
+    "pitch_drop_ms": 25,
+    "body_decay_ms": 90,
+    "body2_decay_ratio": 0.7,
+    "body_level": 0.6,
+    "noise_decay_ms": 180,
+    "noise_band_mix": 0.4,
+    "noise_hp_hz": 1800,
+    "noise_lp_hz": 9000,
+    "noise_attack_ms": 0.8,
+    "tone_peak_hz": 5000,
+    "tone_peak_db": 0,
+    "drive": 0,
+    "polarity": 1,
+    "offset_ms": 0,
+    "peak_ceiling_dbfs": -0.3
+  },
+  "features": {
+    "peak_dbfs": -0.3,
+    "length_ms": 400.0,
+    "spectral_centroid_hz": 3427.24,
+    "hf_share_8k": 0.13199,
+    "t60_ms": 145.812,
+    "rise_time_ms": 0.521
+  },
+  "bpm": null,
+  "key": null,
+  "sha256": "1d8e68a03a5ed610a810470637df179d08466b4dcb342c748b99b83251ba5f23",
+  "created_at": "2026-11-06T02:13:58+00:00",
+  "description": "Preset default: The contract defaults written out (190 Hz body, 180 ms noise decay). Variant 0 of 1, base seed 7."
+}

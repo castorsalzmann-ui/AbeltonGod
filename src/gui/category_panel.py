@@ -99,9 +99,12 @@ class CategoryPanel(QScrollArea):
             "Preset zurück.")
         lay.addWidget(self.hint_label)
         if model.category == "laser":
-            lay.addWidget(muted(
+            note = muted(
                 "Abzug, Salven-Muster, A/B-Speicher und Undo gibt es im Fenster "
-                "\"Laser-Blaster\" (Knopf links unten)."))
+                "\"Laser-Blaster\" (Knopf links unten).")
+            note.setWordWrap(True)
+            note.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Minimum)
+            lay.addWidget(note)
 
         lay.addWidget(rule())
         lay.addWidget(heading("Ausgabe"))
