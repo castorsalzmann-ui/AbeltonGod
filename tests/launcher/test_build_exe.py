@@ -56,6 +56,59 @@ def test_prune_list_never_touches_what_the_gui_needs(build_exe):
                        for req in build_exe.QT_REQUIRED), rel
 
 
+def test_spec_builds_a_windowed_and_a_console_exe_in_one_folder(build_exe, tmp_path):
+    import ast
+
+    text = build_exe.spec_text(tmp_path / "build_info.json")
+    tree = ast.parse(text)
+    calls = {}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
+            calls.setdefault(node.func.id, []).append(
+                {k.arg: ast.literal_eval(k.value) for k in node.keywords
+                 if isinstance(k.value, ast.Constant)})
+    exes = {c["name"]: c["console"] for c in calls["EXE"]}
+    assert exes == {"AbeltonGod": False, "AbeltonGod-cli": True}
+    assert len(calls["COLLECT"]) == 1 and calls["COLLECT"][0]["name"] == "AbeltonGod"
+    assert "exe_entry.py" in text and "PySide6.QtWebEngineCore" not in text
+
+
+def _pe(subsystem: int) -> bytes:
+    data = bytearray(512)
+    data[:2] = b"MZ"
+    data[0x3C:0x40] = (0x80).to_bytes(4, "little")
+    data[0x80:0x84] = b"PE\0\0"
+    data[0x80 + 24 + 68:0x80 + 24 + 70] = subsystem.to_bytes(2, "little")
+    return bytes(data)
+
+
+def test_pe_subsystem_reads_the_header(build_exe, tmp_path):
+    for value in (2, 3):
+        p = tmp_path / f"{value}.exe"
+        p.write_bytes(_pe(value))
+        assert build_exe.pe_subsystem(p) == value
+    (tmp_path / "x.exe").write_bytes(b"not a pe")
+    with pytest.raises(ValueError):
+        build_exe.pe_subsystem(tmp_path / "x.exe")
+
+
+def test_pe_subsystem_of_a_real_windows_exe(build_exe):
+    """Independent reference: a Windows exe shipped inside pip/setuptools (console launchers,
+    subsystem 3, and gui launchers, subsystem 2), when present."""
+    import glob
+    import site
+
+    roots = site.getsitepackages() + [site.getusersitepackages()]
+    found = {}
+    for root in roots:
+        for path in glob.glob(f"{root}/setuptools/cli-64.exe") + glob.glob(
+                f"{root}/setuptools/gui-64.exe"):
+            found[Path(path).name] = build_exe.pe_subsystem(Path(path))
+    if not found:
+        pytest.skip("no setuptools launcher exes installed")
+    assert found.get("cli-64.exe", 3) == 3 and found.get("gui-64.exe", 2) == 2
+
+
 def test_size_report_lists_folders_and_largest_files(build_exe, tmp_path):
     folder = _fake_bundle(tmp_path, ("Qt6Core.dll",))
     (folder / "_internal" / "big.bin").write_bytes(b"x" * 3 * 1024 * 1024)

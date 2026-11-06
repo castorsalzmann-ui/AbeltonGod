@@ -42,6 +42,30 @@ def log_path() -> Path:
     return log_dir() / LOG_NAME
 
 
+OUTPUT_NAME = "output.log"
+
+
+def redirect_missing_streams() -> Path | None:
+    """A windowed exe (``AbeltonGod.exe``) has ``sys.stdout``/``sys.stderr`` = None, and any
+    write would raise. Send them to ``output.log`` in :func:`log_dir` (overwritten per start),
+    or to a discarding stream if that file cannot be opened. Returns the file's path, or None
+    when nothing was missing or it could not be opened."""
+    if sys.stdout is not None and sys.stderr is not None:
+        return None
+    path = log_dir() / OUTPUT_NAME
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        stream = open(path, "w", encoding="utf-8", errors="backslashreplace",  # noqa: SIM115
+                      buffering=1)
+    except OSError:
+        path, stream = None, open(os.devnull, "w", encoding="utf-8")  # noqa: SIM115
+    if sys.stdout is None:
+        sys.stdout = stream
+    if sys.stderr is None:
+        sys.stderr = stream
+    return path
+
+
 def format_error(exc: BaseException, stage: str) -> str:
     from .version import version_line
 
