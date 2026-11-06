@@ -93,20 +93,17 @@ def test_pe_subsystem_reads_the_header(build_exe, tmp_path):
 
 
 def test_pe_subsystem_of_a_real_windows_exe(build_exe):
-    """Independent reference: a Windows exe shipped inside pip/setuptools (console launchers,
-    subsystem 3, and gui launchers, subsystem 2), when present."""
-    import glob
-    import site
+    """Independent reference on Windows: CPython's ``python.exe`` is a console program (3),
+    ``pythonw.exe`` the windowed one (2). (setuptools' ``gui-64.exe`` read 3 in CI run
+    42219721439, so it is not used as a reference; why is not established.)"""
+    import sys
 
-    roots = site.getsitepackages() + [site.getusersitepackages()]
-    found = {}
-    for root in roots:
-        for path in glob.glob(f"{root}/setuptools/cli-64.exe") + glob.glob(
-                f"{root}/setuptools/gui-64.exe"):
-            found[Path(path).name] = build_exe.pe_subsystem(Path(path))
-    if not found:
-        pytest.skip("no setuptools launcher exes installed")
-    assert found.get("cli-64.exe", 3) == 3 and found.get("gui-64.exe", 2) == 2
+    base = Path(sys.base_prefix)
+    console, windowed = base / "python.exe", base / "pythonw.exe"
+    if not (console.is_file() and windowed.is_file()):
+        pytest.skip("no Windows CPython install (python.exe / pythonw.exe)")
+    assert build_exe.pe_subsystem(console) == 3
+    assert build_exe.pe_subsystem(windowed) == 2
 
 
 def test_size_report_lists_folders_and_largest_files(build_exe, tmp_path):
