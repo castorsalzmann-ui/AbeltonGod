@@ -38,5 +38,5 @@ Thumbs.db
 .claude/settings.local.json
 
 # pytest temp folder (--basetemp in pyproject.toml)
-.pytest_tmp/
+.pytest_tmp*/
 pytest-junit.xml

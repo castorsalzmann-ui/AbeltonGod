@@ -505,12 +505,10 @@ def test_a_refused_combination_that_cannot_be_repaired_still_blocks_render(qapp,
         w.close()
 
 
-# The laser form has 4x the numeric fields of the others, so every edit re-checks far more
-# limits (about 0.2 s per edit on Linux, 0.5 s on the Windows runner): three seeds, not seven,
-# keep the Windows job inside its 20 minutes (CI run 42150106875 was cancelled at the limit;
-# the cost itself is issue #434).
+# Every category with all seven seeds again: since #434 a refresh probes only the limits the
+# page shows (PR #433 had cut laser to three seeds at ~0.2 s per edit).
 _SEEDS = (1, 2, 3, 4, 5, 6, 4242)
-_RANDOM_CASES = [(c, s) for c in CATEGORY_KEYS for s in ((1, 2, 4242) if c == "laser" else _SEEDS)]
+_RANDOM_CASES = [(c, s) for c in CATEGORY_KEYS for s in _SEEDS]
 
 
 @pytest.mark.parametrize(("category", "seed"), _RANDOM_CASES,
@@ -546,4 +544,6 @@ def test_random_actions_with_dots_choices_and_presets_keep_the_form_accepted(mak
                 c.toggle.setChecked(not c.toggle.isChecked())
         else:
             p.chips.buttons[rng.randrange(len(p.chips.buttons))].click()
+        # issues() does not check a kick request with length_beats (its rule needs a render;
+        # the render itself checks it), so such states pass here unchecked (#428 nit).
         assert p.model.issues() == [], (category, seed, step, p.model.issues())
