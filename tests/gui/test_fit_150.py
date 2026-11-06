@@ -44,6 +44,51 @@ def _param(key: str):
     return pytest.param(key, marks=marks, id=key)
 
 
+def _name(w) -> str:
+    """Class, object name and a short text or accessible name: enough to find the widget."""
+    text = ""
+    get = getattr(w, "text", None)
+    if callable(get):
+        try:
+            value = get()
+            text = value[:32] if isinstance(value, str) else ""
+        except TypeError:
+            text = ""
+    text = text or w.accessibleName()
+    return (f"{type(w).__name__}{'#' + w.objectName() if w.objectName() else ''}"
+            f"{' ' + repr(text) if text else ''}")
+
+
+def _widest(root, count: int = 6) -> list[str]:
+    """The widest widgets under ``root`` by their own minimum width, without the containers
+    whose width only comes from a child further down (leaf-most first)."""
+    from PySide6.QtWidgets import QWidget
+
+    def own_w(w):
+        return max(w.minimumSizeHint().width(), w.minimumWidth())
+
+    def field(w):  # the contract field of the control the widget belongs to
+        while w is not None and w is not root:
+            if hasattr(w, "spec") and hasattr(w, "name"):
+                return f" ({w.name})"
+            w = w.parentWidget()
+        return ""
+
+    found: dict[str, int] = {}
+    for w in root.findChildren(QWidget):
+        if w.isWindow() or not w.isVisibleTo(root):
+            continue
+        kids = [c for c in w.findChildren(QWidget) if c.isVisibleTo(root)]
+        if any(own_w(c) >= own_w(w) for c in kids):
+            continue  # a child is as wide: report the child
+        kind = type(w).__name__ if hasattr(w, "spec") else _name(w)
+        found[kind] = max(found.get(kind, 0), own_w(w))
+        if hasattr(w, "spec"):
+            found[kind + field(w)] = own_w(w)
+            found.pop(kind)
+    return [f"{wd} {n}" for n, wd in sorted(found.items(), key=lambda kv: -kv[1])[:count]]
+
+
 # --- child process -----------------------------------------------------------------------------
 
 def _child(out: Path) -> None:
@@ -60,20 +105,24 @@ def _child(out: Path) -> None:
         return max(h.width(), w.minimumWidth()), max(h.height(), w.minimumHeight())
 
     def drivers(root, axis):
-        """Descendants whose own minimum is at least a third of the window's (a size path)."""
+        """Descendants whose own minimum is at least a third of the window's (a size path).
+        Every page of a stacked widget is walked, also the hidden ones (they count for the
+        stack's minimum)."""
+        from PySide6.QtWidgets import QStackedWidget
+
         total, rows = own(root)[axis], []
 
         def walk(w, depth):
             for c in w.findChildren(QWidget, options=Qt.FindChildOption.FindDirectChildrenOnly):
-                if c.isWindow() or not c.isVisibleTo(root):
+                hidden_page = isinstance(w, QStackedWidget)
+                if c.isWindow() or not (c.isVisibleTo(root) or hidden_page):
                     continue
                 m = own(c)[axis]
                 if m >= total / 3 and depth < 6:
-                    rows.append(f"{'  ' * depth}{m} {type(c).__name__}"
-                                f"{'#' + c.objectName() if c.objectName() else ''}")
+                    rows.append(f"{'  ' * depth}{m} {_name(c)}")
                     walk(c, depth + 1)
         walk(root, 0)
-        return rows[:12]
+        return rows[:16]
 
     def make(key):
         if key == "main":
@@ -145,7 +194,7 @@ def qapp():
 
 
 @pytest.mark.parametrize("category", ["kick", "hat", "snare", "clap", "rim", "bass", "laser"])
-def test_category_page_fits_a_column_of_34_m_without_horizontal_scroll(qapp, category):
+def test_category_page_fits_a_column_of_34_m_without_horizontal_scroll(qapp, category, capsys):
     from gui.category_panel import CategoryPanel
     from gui_core.form import CategoryFormModel
 
@@ -158,6 +207,10 @@ def test_category_page_fits_a_column_of_34_m_without_horizontal_scroll(qapp, cat
     p.show()
     qapp.processEvents()
     root = p.widget()
+    with capsys.disabled():  # CI log: the widest widgets of each page on this platform
+        print(f"\n[#442] page {category} on {sys.platform}: content min "
+              f"{root.minimumSizeHint().width()} px, M = {m} px; widest: "
+              + " | ".join(_widest(root)))
     assert root.minimumSizeHint().width() <= PAGE_MAX_M * m, root.minimumSizeHint()
     assert p.horizontalScrollBar().maximum() == 0
     # the knobs wrap: none outside the page, none on top of another or of the hint below

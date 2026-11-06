@@ -37,6 +37,8 @@ from .mapped import KnobDial, MappedSlider, TrackSlider
 from .section import StepEdit
 from .toggle import ActiveDot, Toggle
 
+CHOICE_COLUMN_M = 14  # a choice row beside its 15 M label fits the width of a slider row
+
 
 class ReadoutEdit(QLineEdit):
     """The value as text next to a slider; typing a number and pressing Enter sets it."""
@@ -374,8 +376,17 @@ class ChoiceControl(ParamControl):
         row = QHBoxLayout()
         row.addWidget(self.dot)
         row.addWidget(self.label)
-        row.addWidget(self.seg, 1)
-        self._finish(row)
+        # A button row wider than its column (the platform font decides: hat "model" is
+        # 330 px on Linux, wider on Windows; #442) goes under the label, so the row never needs
+        # more than a slider row.
+        self.stacked = self.seg.minimumSizeHint().width() > em * CHOICE_COLUMN_M
+        if self.stacked:
+            row.addStretch(1)
+            self._finish(row)
+            self.layout().insertWidget(1, self.seg)
+        else:
+            row.addWidget(self.seg, 1)
+            self._finish(row)
 
     def set_value(self, text: str) -> None:
         self.seg.set_index(self.texts.index(text) if text in self.texts else -1)

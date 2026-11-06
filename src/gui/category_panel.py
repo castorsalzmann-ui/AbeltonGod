@@ -141,7 +141,9 @@ class CategoryPanel(QScrollArea):
             body.addWidget(self._make(spec, main=False))
         if gated:
             versions = ", ".join(sorted({s.gate_version for s in gated}))  # type: ignore[type-var]
-            body.addWidget(heading(f"Zusätzliche Felder (Kontrakt {versions})"))
+            title = heading(f"Zusätzliche Felder (Kontrakt {versions})")
+            title.setWordWrap(True)  # the upper-case title must not widen the page (#442)
+            body.addWidget(title)
             for spec in gated:
                 body.addWidget(self._make(spec, main=False))
         self.advanced.set_title(f"Erweitert ({len(extra)} Felder)")
