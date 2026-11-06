@@ -252,13 +252,23 @@ def hat_part(kit: dict[str, dict[str, Any]], energy: float, bpm: float) -> dict[
 # ------------------------------------------------------------------ samples
 
 
-def render_kit(kit: dict[str, dict[str, Any]]) -> list[tuple[str, bytes, str]]:
-    """Render the one-shots with the engines: ``[(file name, WAV bytes, description)]``."""
+KIT_ORDER = ("kick", "bass", "hat", "snare", "clap", "rim")
+
+
+def kit_files(kit: dict[str, dict[str, Any]]) -> list[tuple[str, str, dict[str, Any], str]]:
+    """The one-shots of ``kit`` without rendering: ``[(file stem, category, params,
+    description)]`` in :data:`KIT_ORDER`."""
     files = []
-    for cat in ("kick", "bass", "hat", "snare", "clap", "rim"):
+    for cat in KIT_ORDER:
         if cat not in kit:
             continue
         name = kit[cat]["preset"]
-        wav, _audio, _resolved = render_sample_wav(cat, dict(kit[cat]["params"]))
-        files.append((f"{cat}_{name}.wav", wav, f"{cat} engine, preset `{name}`"))
+        files.append((f"{cat}_{name}", cat, dict(kit[cat]["params"]),
+                      f"{cat} engine, preset `{name}`"))
     return files
+
+
+def render_kit(kit: dict[str, dict[str, Any]]) -> list[tuple[str, bytes, str]]:
+    """Render the one-shots with the engines: ``[(file name, WAV bytes, description)]``."""
+    return [(f"{stem}.wav", render_sample_wav(cat, params)[0], desc)
+            for stem, cat, params, desc in kit_files(kit)]

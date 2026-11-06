@@ -2,6 +2,7 @@
 rhythm tracks. Expected values are written here (bar counts, ticks, counts), not taken from
 the code under test; MIDI is read back with the independent parser of test_goa_arrangement."""
 
+import json
 import random
 
 import pytest
@@ -209,9 +210,14 @@ def test_cli_options_readme_and_samples(tmp_path):
                     "--intro-bars", "16", "--breakdowns", "1", "--outro", "kick_less",
                     "--outro-bars", "16", "--bass-preset", "goa-roll-long"]) == 0
     files = sorted(p.relative_to(out) for p in out.rglob("*") if p.is_file())
-    assert len(files) == 8  # mid, README, six one-shots
+    assert len(files) == 14  # mid, README, six one-shots with their sidecars (#414)
     for f in files:
-        assert (out / f).read_bytes() == (out2 / f).read_bytes()
+        a, b = out / f, out2 / f
+        if f.suffix == ".json":  # a sidecar differs only by its wall-clock time stamp
+            ma, mb = (json.loads(p.read_text(encoding="utf-8")) for p in (a, b))
+            assert {**ma, "created_at": None} == {**mb, "created_at": None}, f
+        else:
+            assert a.read_bytes() == b.read_bytes(), f
     # existing sample target blocks everything
     assert ga.main(["--out", str(out), "--seed", "4", "--bpm", "141"]) == 2
 

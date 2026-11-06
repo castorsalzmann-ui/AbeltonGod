@@ -194,10 +194,6 @@ class _Probe:
         return self._resolved.get(name)
 
 
-def _accepts(model: CategoryFormModel, name: str, value: Any) -> tuple[bool, str]:
-    return _Probe(model).accepts(name, value)
-
-
 # --- value limits ----------------------------------------------------------------------------
 
 
