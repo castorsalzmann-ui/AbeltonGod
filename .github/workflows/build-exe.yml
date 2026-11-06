@@ -40,20 +40,93 @@ jobs:
         run: |
           $mb = (Get-ChildItem dist/AbeltonGod -Recurse -File | Measure-Object Length -Sum).Sum / 1MB
           "unzipped folder: {0:N0} MB" -f $mb
-      - name: Smoke - version
-        run: python scripts/exe_smoke.py dist/AbeltonGod/AbeltonGod.exe version
-      - name: Smoke - help and tool modules load
-        run: python scripts/exe_smoke.py dist/AbeltonGod/AbeltonGod.exe help unknown
-      - name: Smoke - kick WAV
-        run: python scripts/exe_smoke.py dist/AbeltonGod/AbeltonGod.exe kick
-      - name: Smoke - goa_arrangement
-        run: python scripts/exe_smoke.py dist/AbeltonGod/AbeltonGod.exe goa
-      - name: Smoke - text menu with piped stdin
-        run: python scripts/exe_smoke.py dist/AbeltonGod/AbeltonGod.exe menu
-      - name: Smoke - GUI starts offscreen, opens all windows, exits 0
-        run: python scripts/exe_smoke.py dist/AbeltonGod/AbeltonGod.exe gui
-      - name: Smoke - same output as python -m (SHA-256)
-        run: python scripts/exe_smoke.py dist/AbeltonGod/AbeltonGod.exe determinism
+      - name: Size per folder and largest files
+        run: python scripts/build_exe.py --report dist/AbeltonGod
+      # Two exes in one folder (#445): AbeltonGod.exe windowed (GUI), AbeltonGod-cli.exe console.
+      - name: PE subsystem - AbeltonGod.exe windowed (2), AbeltonGod-cli.exe console (3)
+        run: python scripts/build_exe.py --subsystem dist/AbeltonGod
+      - name: Smoke CLI exe - version
+        run: python scripts/exe_smoke.py dist/AbeltonGod/AbeltonGod-cli.exe version
+      - name: Smoke CLI exe - help and tool modules load
+        run: python scripts/exe_smoke.py dist/AbeltonGod/AbeltonGod-cli.exe help unknown
+      - name: Smoke CLI exe - kick WAV
+        run: python scripts/exe_smoke.py dist/AbeltonGod/AbeltonGod-cli.exe kick
+      - name: Smoke CLI exe - goa_arrangement
+        run: python scripts/exe_smoke.py dist/AbeltonGod/AbeltonGod-cli.exe goa
+      - name: Smoke CLI exe - text menu with piped stdin
+        run: python scripts/exe_smoke.py dist/AbeltonGod/AbeltonGod-cli.exe menu
+      - name: Smoke CLI exe - without arguments opens the text menu, not the GUI
+        # file-name rule of exe_entry.py; offscreen + timeout: a wrong rule would start the GUI
+        shell: python
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          import subprocess
+          r = subprocess.run([r"dist\AbeltonGod\AbeltonGod-cli.exe"], input="",
+                             capture_output=True, text=True, timeout=60)
+          print(r.returncode, r.stdout[-800:], r.stderr[-800:])
+          assert r.returncode == 0 and "Werkzeuge:" in r.stdout, r
+          assert "Abgebrochen" in r.stdout, r.stdout
+      - name: Smoke CLI exe - GUI starts offscreen, opens all windows, exits 0
+        run: python scripts/exe_smoke.py dist/AbeltonGod/AbeltonGod-cli.exe gui
+      - name: Smoke GUI exe - selftest offscreen and on the real windows platform (qwindows.dll)
+        # A windowed exe has no stdout (PyInstaller sets it to None); the launcher writes it to
+        # output.log in ABELTONGOD_LOG_DIR, so the check reads that file.
+        shell: python
+        run: |
+          import os, pathlib, subprocess, tempfile
+          for platform in ("offscreen", "windows"):
+              logs = pathlib.Path(tempfile.mkdtemp()) / "logs"
+              env = {**os.environ, "QT_QPA_PLATFORM": platform, "ABELTONGOD_LOG_DIR": str(logs)}
+              r = subprocess.run([r"dist\AbeltonGod\AbeltonGod.exe", "--gui-selftest"],
+                                 capture_output=True, text=True, timeout=300, env=env)
+              out = logs / "output.log"
+              text = r.stdout + (out.read_text(encoding="utf-8") if out.is_file() else "")
+              print(platform, r.returncode, text.strip())
+              assert r.returncode == 0 and "GUI selftest ok" in text, (r.returncode, text)
+              assert "3 windows opened" in text and f"platform {platform}" in text, text
+      - name: Smoke GUI exe - a bundle without qwindows.dll fails the GUI smoke (fault injection)
+        shell: python
+        env:
+          QT_QPA_PLATFORM: windows
+        run: |
+          import shutil, subprocess
+          shutil.copytree("dist/AbeltonGod", "broken/AbeltonGod")
+          (__import__("pathlib").Path("broken/AbeltonGod/_internal/PySide6/plugins/platforms")
+           / "qwindows.dll").unlink()
+          # Run 42213400226 (console exe): without qwindows.dll the exe does not exit but waits
+          # (cause not established, likely Qt's fatal-error dialog); the smoke fails it by
+          # timeout. Both exes are checked here.
+          for exe in (r"broken\AbeltonGod\AbeltonGod.exe", r"broken\AbeltonGod\AbeltonGod-cli.exe"):
+              try:
+                  r = subprocess.run([exe, "--gui-selftest"], capture_output=True, text=True,
+                                     timeout=60)
+              except subprocess.TimeoutExpired:
+                  print(exe, "no exit within 60 s: the smoke fails by timeout (expected)")
+              else:
+                  print(exe, r.returncode, r.stdout, r.stderr[-1500:])
+                  assert r.returncode != 0 and "GUI selftest ok" not in r.stdout, "cannot fail"
+          shutil.rmtree("broken", ignore_errors=True)
+      - name: Smoke GUI exe - a failed start is logged and exits 4 (#436)
+        # offscreen: no screen, so neither message box is shown (they would wait for a click)
+        shell: python
+        run: |
+          import os, pathlib, subprocess, tempfile
+          for stage in ("import", "qt", "window"):
+              logs = pathlib.Path(tempfile.mkdtemp()) / "logs"
+              env = {**os.environ, "QT_QPA_PLATFORM": "offscreen",
+                     "ABELTONGOD_LOG_DIR": str(logs), "ABELTONGOD_TEST_START_FAILURE": stage}
+              r = subprocess.run([r"dist\AbeltonGod\AbeltonGod.exe"], capture_output=True,
+                                 text=True, timeout=120, env=env)
+              log = (logs / "startup-errors.log").read_text(encoding="utf-8")
+              out = logs / "output.log"
+              text = r.stderr + (out.read_text(encoding="utf-8") if out.is_file() else "")
+              print(stage, r.returncode, log.splitlines()[0])
+              assert r.returncode == 4, (r.returncode, r.stdout, r.stderr)
+              assert f"stage: {stage}" in log and "Traceback" in log, log
+              assert "Details stehen in" in text, text
+      - name: Smoke CLI exe - same output as python -m (SHA-256)
+        run: python scripts/exe_smoke.py dist/AbeltonGod/AbeltonGod-cli.exe determinism
       - name: Check that no secret was bundled
         shell: python
         run: |

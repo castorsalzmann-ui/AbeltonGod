@@ -98,7 +98,7 @@ class ParamControl(QWidget):
         self.note.setWordWrap(True)
         self.note.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Minimum)
         self.note.hide()
-        self.limit_reason = ""  # why a linked parameter limits this field (German)
+        self._limit_reason = ""  # why a linked parameter limits this field (German)
         self.edit_note = ""  # what happened to the last typed value; stays until the next edit
         self.derived_note = ""  # what the engine made of this field
         self.show_limit_note = False  # slider rows show the limit under the slider
@@ -134,8 +134,8 @@ class ParamControl(QWidget):
             text, error = self.edit_note, True
         elif self.derived_note:
             text, error = self.derived_note, False
-        elif self.show_limit_note and self.limit_reason:
-            text, error = self.limit_reason, True
+        elif self.show_limit_note and self._limit_reason:
+            text, error = self._limit_reason, True
         else:
             text, error = "", False
         name = "linkhint" if error else "muted"
@@ -145,6 +145,14 @@ class ParamControl(QWidget):
             self.note.style().polish(self.note)
         self.note.setText(text)
         self.note.setVisible(bool(text))
+
+    @property
+    def limit_reason(self) -> str:
+        self._want_limits()
+        return self._limit_reason
+
+    def _want_limits(self) -> None:  # NumberControl: ask the page for fresh limits
+        pass
 
     def set_derived_note(self, text: str) -> None:
         self.derived_note = text
@@ -163,7 +171,14 @@ class ParamControl(QWidget):
 
 
 class NumberControl(ParamControl):
-    """A number field as a slider row (``style="row"``) or as a knob (``style="knob"``)."""
+    """A number field as a slider row (``style="row"``) or as a knob (``style="knob"``).
+
+    ``limitsWanted(name)`` is emitted (synchronously) right before the limits are read: by a
+    user move, a typed value, or code reading ``limits`` / ``limit_reason``. A page that keeps
+    only the limits of visible controls up to date (#434) brings this one up to date first.
+    """
+
+    limitsWanted = Signal(str)
 
     def __init__(self, spec: FieldSpec, style: str = "row", always_active: bool = False,
                  accent: bool = False, vmap: ValueMap | None = None) -> None:
@@ -214,6 +229,7 @@ class NumberControl(ParamControl):
             self.show_limit_note = True
         self.slider.setAccessibleName(spec.label)
         self.slider.setToolTip(spec.description)
+        self.slider.aboutToMove.connect(self._want_limits)
         self.slider.userChanged.connect(self._slid)
         self.slider.released.connect(lambda: self.committed.emit(self.name))
         self.slider.resetRequested.connect(lambda: self.resetRequested.emit(self.name))
@@ -236,13 +252,20 @@ class NumberControl(ParamControl):
 
     def set_limits(self, lo: float, hi: float, reason: str = "") -> None:
         self.slider.set_limits(lo, hi)
-        self.limit_reason = reason
+        self._limit_reason = reason
         self.slider.setToolTip((self.spec.description + "\n\n" + reason).strip())
         self._show_note()
 
     @property
     def limits(self) -> tuple[float, float]:
+        self._want_limits()
         return self.slider.limits
+
+    def _want_limits(self) -> None:
+        self.limitsWanted.emit(self.name)
+
+    def is_dragging(self) -> bool:
+        return self.slider.is_dragging()
 
     def _slid(self, value: float) -> None:
         self.clear_edit_note()
@@ -264,7 +287,7 @@ class NumberControl(ParamControl):
             self.set_edit_note("Bitte eine Zahl eingeben.")
             return
         value = self.vmap.clamp(number)
-        lo, hi = self.slider.limits
+        lo, hi = self.limits  # the page may bring stale limits up to date first
         if not (self.vmap.zero_off and value == 0):
             if lo > self.vmap.minimum:
                 value = max(value, lo)

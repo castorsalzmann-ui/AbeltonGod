@@ -37,9 +37,11 @@ jobs:
         env:
           ABELTONGOD_REQUIRE_GUI: "1"
         run: pytest tests/gui -v -n 0 -rs
+      # tests/gui already ran in the step above; running them twice pushed the Windows job
+      # to 18 of 20 minutes (PR #449). The GUI step fails the job on its own.
       - name: Test
         id: test
-        run: pytest --junitxml=pytest-junit.xml
+        run: pytest --ignore=tests/gui --junitxml=pytest-junit.xml
       # Job logs need a signed-in browser; check-run annotations are readable through the
       # REST API. When the Test step fails, name the failed tests as annotations (#145).
       # GitHub keeps at most 10 error annotations per step, so: 9 tests + 1 total line.

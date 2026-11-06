@@ -9,7 +9,7 @@ the engine's own ``resolve``, exclusions and derived values from the contract) l
 
 from __future__ import annotations
 
-from PySide6.QtCore import Signal
+from PySide6.QtCore import QTimer, Signal
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QScrollArea, QSizePolicy, QVBoxLayout, QWidget
 
 from gui_core import links
@@ -29,6 +29,7 @@ from .widgets import (
     rule,
 )
 
+IDLE_BATCH = 4  # stale sliders probed per idle tick (#434: ~3 resolves each, a few ms)
 LASER_GROUPS = (("salvo_", "Salve"), ("filter_", "Filter"), ("hp_", "Filter"), ("lp_", "Filter"),
                 ("echo_", "Delay"), ("reverb_", "Reverb"))
 
@@ -61,6 +62,18 @@ class CategoryPanel(QScrollArea):
         self.knobs: list[NumberControl] = []
         self._notices: list[str] = []
         self._syncing = False
+        # Limits (#434). Each probe is an engine resolve (~0.5 ms laser), so a refresh probes
+        # only the Hauptregler at once; the other shown sliders are "stale" and probed in small
+        # batches while the event loop is idle, hidden ones when a section opens. Right before
+        # the user moves or types into a stale control, or code reads its limits
+        # (``limitsWanted``), it is probed first, so a stale limit is never used. During a
+        # mouse drag only the Hauptregler are probed; the release refreshes the rest.
+        self._lims: dict[str, links.Limit] = {}
+        self._stale: set[str] = set()
+        self._pending: list[str] = []
+        self._idle = QTimer(self)
+        self._idle.setInterval(0)
+        self._idle.timeout.connect(self._probe_pending)
 
         root = QWidget()
         root.setObjectName("root")
@@ -130,6 +143,7 @@ class CategoryPanel(QScrollArea):
             for spec in gated:
                 body.addWidget(self._make(spec, main=False))
         self.advanced.set_title(f"Erweitert ({len(extra)} Felder)")
+        self.advanced.toggled.connect(self._section_toggled)
         lay.addWidget(self.advanced)
         self.group_sections: dict[str, Collapsible] = {}
         for label, members in groups.items():  # laser: Salve, Filter, Delay, Reverb
@@ -139,6 +153,7 @@ class CategoryPanel(QScrollArea):
             inner.setSpacing(4)
             for spec in members:
                 inner.addWidget(self._make(spec, main=False))
+            section.toggled.connect(self._section_toggled)
             self.group_sections[label] = section
             lay.addWidget(section)
         lay.addStretch(1)
@@ -158,6 +173,8 @@ class CategoryPanel(QScrollArea):
         else:
             c = NumberControl(spec, style="row", always_active=spec.name in ALWAYS_ACTIVE)
         c.edited.connect(self._edited)
+        if isinstance(c, NumberControl):
+            c.limitsWanted.connect(self._ensure_limit)
         c.activeToggled.connect(self._active_toggled)
         c.committed.connect(self._committed)
         c.resetRequested.connect(self._reset)
@@ -181,7 +198,9 @@ class CategoryPanel(QScrollArea):
         text = value if isinstance(value, str) else _text_of(spec, value)
         self.model.set_text(name, text)
         self._repair(name)
-        self._refresh(skip=name)
+        c = self.controls[name]
+        dragging = isinstance(c, NumberControl) and c.is_dragging()
+        self._refresh(skip=name, probe_limits=not dragging)
         self.changed.emit()
 
     def _repair(self, changed: str) -> None:
@@ -234,14 +253,74 @@ class CategoryPanel(QScrollArea):
         finally:
             self._syncing = False
 
-    def _refresh(self, skip: str | None, final: bool = False) -> None:
+    # --- limits ------------------------------------------------------------------------------
+    def _shown_numbers(self) -> list[str]:
+        return [n for n, c in self.controls.items()
+                if isinstance(c, NumberControl) and c.isVisibleTo(self)]
+
+    def _probe(self, names: list[str]) -> None:
+        """Probe the limits of ``names`` now and show them."""
+        if not names:
+            return
+        fresh = links.limits(self.model, names=names)
+        for name, lim in fresh.items():
+            self._lims[name] = lim
+            self._stale.discard(name)
+            self.controls[name].set_limits(lim.lo, lim.hi, lim.reason)  # type: ignore[attr-defined]
+
+    def _ensure_limit(self, name: str) -> None:
+        """A control is about to read its limits (user move or typed value)."""
+        if name in self._stale:
+            self._probe([name])
+
+    def _section_toggled(self, on: bool) -> None:
+        if on:
+            self._probe([n for n in self._shown_numbers() if n in self._stale])
+
+    def _schedule(self, names: list[str]) -> None:
+        self._pending = names
+        if names:
+            self._idle.start()
+        else:
+            self._idle.stop()
+
+    def _probe_pending(self) -> None:
+        """Idle timer: probe the next few shown stale sliders (each batch stays short)."""
+        shown = set(self._shown_numbers())
+        batch: list[str] = []
+        while self._pending and len(batch) < IDLE_BATCH:
+            name = self._pending.pop(0)
+            if name in self._stale and name in shown:
+                batch.append(name)
+        self._probe(batch)
+        if not self._pending:
+            self._idle.stop()
+
+    def settle(self) -> None:
+        """Probe every pending limit now (tests, screenshots)."""
+        while self._pending:
+            self._probe_pending()
+
+    def _refresh(self, skip: str | None, final: bool = False, probe_limits: bool = True) -> None:
         was = self._syncing
         self._syncing = True
         try:
             model = self.model
             problems = model.field_issues()
             derived = links.derived_values(model, heavy=final)
-            lims = links.limits(model, skip=skip)
+            numbers = [n for n, c in self.controls.items()
+                       if isinstance(c, NumberControl) and n != skip]
+            shown = self._shown_numbers()
+            # The Hauptregler are probed on every refresh, also during a drag: the link hint
+            # lists their limits with the partner's current value (5 fields, mostly cached).
+            now = [n for n in shown if n in self.main_names]
+            if not probe_limits:  # mouse drag: the other sliders wait for the release
+                shown = now
+            lims = links.limits(model, skip=skip, names=now)
+            self._lims.update(lims)
+            self._stale.update(n for n in numbers if n not in lims)
+            self._stale.difference_update(lims)
+            self._schedule([n for n in shown if n != skip and n not in lims])
             for name, c in self.controls.items():
                 active = name in model.active
                 c.set_active(active)
@@ -253,7 +332,7 @@ class CategoryPanel(QScrollArea):
                     lim = lims[name]
                     c.set_limits(lim.lo, lim.hi, lim.reason)
                 c.set_derived_note(derived.notes.get(name, ""))
-            self._show_links(lims, links_issue=model.cross_issue())
+            self._show_links(self._lims, links_issue=model.cross_issue())
         finally:
             self._syncing = was
 
