@@ -196,8 +196,11 @@ class NumberControl(ParamControl):
         if style == "knob":
             self.slider: MappedSlider = KnobDial(self.vmap, accent=True)
             self.readout.setFixedWidth(em * 7)
-            self.label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            self.label.setAlignment(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop)
             self.label.setWordWrap(True)
+            # Always room for two label lines, so a wrapped label ("Klang (dunkel/hell)") does
+            # not move its knob against the others in the row (#467).
+            self.label.setFixedHeight(self.fontMetrics().lineSpacing() * 2 + 2)
             self.label.setObjectName("muted")
             lay = QVBoxLayout(self)
             lay.setContentsMargins(0, 0, 0, 0)
@@ -213,6 +216,7 @@ class NumberControl(ParamControl):
             lay.addLayout(row)
             self.note.setAlignment(Qt.AlignmentFlag.AlignHCenter)
             lay.addWidget(self.note)  # a wrapped line under the knob (clamped entry)
+            lay.addStretch(1)  # extra height goes below, the dial stays at the top
             self.setFixedWidth(em * 9)
         else:
             self.slider = TrackSlider(self.vmap, accent=accent)
