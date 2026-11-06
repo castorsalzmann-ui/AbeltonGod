@@ -12,13 +12,24 @@ calls refuse unless ``accept_unverified`` is set (then exactly those ids are pas
 
 What is NOT done here (the script does it, the GUI does not): the undo question, the listening
 question. Removing an import is done in Live by hand; the result text says how.
+
+Samples outside a project (#413): the bridge (``bridge.sample_info.read_sample_info``) only
+imports a WAV with a sidecar from its category folder of a Live project
+(``<project>/Samples/Drums/Kicks`` …), but the GUI renders into its own output folder. For
+such a file :func:`plan_placement` plans a copy of WAV + sidecar into that folder of the
+project the user names (checked with ``library.check_project_dir``); :func:`execute_import`
+copies right before the first Live write and imports the copy, so the bridge rule and the
+capabilities stay unchanged. The copy never overwrites: an identical pair already there is
+reused, a different one gets the next free ``_002`` … name (the sidecar's ``file`` field is
+updated to match). If nothing reached Live, the copy is removed again.
 """
 
 from __future__ import annotations
 
 import json
 import os
-from collections.abc import Iterator
+import shutil
+from collections.abc import Iterable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -49,7 +60,19 @@ from bridge.osc_client import (
     BridgeUnavailableError,
     ReceivePortInUseError,
 )
-from bridge.sample_info import SampleInfo, read_sample_info
+from bridge.sample_info import SampleCategoryError, SampleInfo, read_sample_info
+from launcher.paths import is_frozen
+from library import (
+    DEFAULT_LAYOUT,
+    LibraryLayout,
+    LibraryPathError,
+    check_project_dir,
+    library_folder,
+    longest_path,
+    path_chars,
+    sidecar_path,
+)
+from library.project import ProjectDirProblem, ProjectReason
 
 REQUIRED_CAPS = (
     "app.version", "song.track_names.get", "song.num_scenes.get", "track.has_audio_input.get",
@@ -136,8 +159,9 @@ class LiveInspection:
     tracks: tuple[TrackInfo, ...] = ()
     num_scenes: int = 0
     sample: SampleInfo | None = None
-    path: str = ""
+    path: str = ""  # the file Live gets (the project copy if one is planned)
     unverified: tuple[CapRow, ...] = ()
+    placement: Placement | None = None
 
 
 @dataclass
@@ -152,6 +176,7 @@ class ImportPlan:
     expected: SlotState | None = None
     names: tuple[str, ...] = ()
     unverified: tuple[CapRow, ...] = ()
+    placement: Placement | None = None  # set on an ok plan; copy before the first write
 
 
 @dataclass
@@ -197,14 +222,201 @@ def _connection_error(exc: Exception, config: LiveConfig) -> str:
     return f"Unerwartete Antwort von AbletonOSC: {exc}"
 
 
+# --- placement into a project (#413) -------------------------------------------------------
+
+_MAX_COPY_NAMES = 999  # stem, stem_002 … stem_999
+
+
+@dataclass(frozen=True)
+class Placement:
+    """Which file Live gets. ``target == source``: the WAV is importable where it is.
+    Otherwise ``target`` lies in the project's category folder; ``copy`` says whether
+    :func:`copy_into_project` still has to write it (False: an identical pair is there)."""
+
+    source: str
+    target: str
+    sample: SampleInfo
+    copy: bool = False
+
+    @property
+    def moved(self) -> bool:
+        return self.target != self.source
+
+
+def default_refused_roots() -> tuple[Path, ...] | None:
+    """``()`` in the frozen exe, else ``None`` (``check_project_dir``'s own default: the
+    verified checkout is refused, and an unverified one refuses every folder with
+    ``checkout_unknown``, fail-closed). Only the exe skips the rule: it has no checkout to
+    protect, and the default would refuse every folder there."""
+    return () if is_frozen() else None
+
+
+def project_problem_text(problem: ProjectDirProblem) -> str:
+    raw, reason, detail = problem.path, problem.reason, problem.detail
+    if reason is ProjectReason.EMPTY:
+        return "Kein Projektordner angegeben."
+    if reason is ProjectReason.NOT_ABSOLUTE:
+        return f"Der Projektordner muss ein voller Pfad sein, nicht {raw!r}."
+    if reason is ProjectReason.MISSING:
+        return f"Den Projektordner gibt es nicht: {raw}"
+    if reason is ProjectReason.CHECKOUT_UNKNOWN:
+        return ("Der AbeltonGod-Ordner, aus dem das Programm läuft, ist nicht als Checkout "
+                f"erkennbar ({detail}); aus Vorsicht wird kein Projektordner angenommen.")
+    if reason is ProjectReason.IN_CHECKOUT:
+        return f"{raw} liegt im AbeltonGod-Ordner ({detail}); das ist kein Live-Projekt."
+    if reason is ProjectReason.BACKUP_FOLDER:
+        return f"{raw} ist Lives Backup-Ordner. Bitte den Ordner darüber nehmen."
+    if reason is ProjectReason.UNREADABLE:
+        return f"{raw} lässt sich nicht lesen: {detail}"
+    if reason is ProjectReason.NO_ALS_FILE:
+        return (f"In {raw} liegt keine .als-Datei, also ist es nicht der Projektordner eines "
+                "gespeicherten Live-Sets. Set zuerst in Live speichern, dann den Ordner mit "
+                "der .als-Datei wählen.")
+    return f"{raw} wurde abgelehnt ({reason}: {detail})."
+
+
+def _misplaced_category(path: Path, layout: LibraryLayout) -> str | None:
+    """The category of a WAV whose only fault is its folder, else None (any other sidecar
+    problem keeps the bridge's own refusal)."""
+    try:
+        meta = json.loads(sidecar_path(path).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    category = meta.get("category") if isinstance(meta, dict) else None
+    if not isinstance(category, str):
+        return None
+    try:
+        parts = layout.parts_for(category)
+    except LibraryPathError:
+        return None
+    folder = tuple(p.casefold() for p in path.parent.parts[-len(parts):])
+    if folder == tuple(p.casefold() for p in parts):
+        return None  # already in place: the refusal had another reason
+    return category
+
+
+def _same_file(a: Path, b: Path) -> bool:
+    try:
+        return a.read_bytes() == b.read_bytes()
+    except OSError:
+        return False
+
+
+def _same_sidecar(src_side: Path, side: Path, wav: Path) -> bool:
+    """``side`` is ``src_side`` as :func:`copy_into_project` writes it for ``wav``."""
+    try:
+        a = json.loads(src_side.read_text(encoding="utf-8"))
+        b = json.loads(side.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return False
+    if not isinstance(a, dict) or not isinstance(b, dict):
+        return False
+    if wav.name != src_side.with_suffix(".wav").name:
+        a = {**a, "file": wav.name}
+    return a == b
+
+
+def _target_in(folder: Path, source: Path, limit: int | None) -> tuple[Path, bool]:
+    """``(target WAV, copy needed)``: the first name in ``folder`` that is free (copy) or
+    already holds exactly this pair (reuse). Never an existing different file."""
+    src_side = sidecar_path(source)
+    for n in range(1, _MAX_COPY_NAMES + 1):
+        stem = source.stem if n == 1 else f"{source.stem}_{n:03d}"
+        wav = folder / f"{stem}.wav"
+        side = sidecar_path(wav)
+        if limit is not None and path_chars(longest_path(wav)) > limit:
+            raise ImportPathError(
+                f"Der Zielpfad {wav} wäre mit Lives Analyse-Datei (.asd) länger als {limit} "
+                "Zeichen (Windows MAX_PATH). Projekt an einen kürzeren Pfad legen.")
+        taken = [p for p in (wav, side) if p.exists() or p.is_symlink()]
+        if not taken:
+            return wav, True
+        if len(taken) == 2 and _same_file(source, wav) and _same_sidecar(src_side, side, wav):
+            return wav, False  # this pair was copied here before: reuse it
+    raise ImportPathError(f"Kein freier Dateiname für {source.stem} in {folder}.")
+
+
+def plan_placement(wav: str | os.PathLike[str], project_dir: str | os.PathLike[str] | None,
+                   *, layout: LibraryLayout = DEFAULT_LAYOUT,
+                   refused_roots: Iterable[str | os.PathLike[str]] | None = None) -> Placement:
+    """Where Live will read ``wav`` from. Writes nothing; raises :class:`ImportPathError`
+    with a German reason. ``refused_roots`` None means :func:`default_refused_roots`."""
+    path = validate_wav_path(wav)
+    try:
+        return Placement(path, path, read_sample_info(path, layout=layout))
+    except SampleCategoryError as exc:
+        category = _misplaced_category(Path(path), layout)
+        if category is None:
+            raise
+        refusal = str(exc)
+    folder_name = os.sep.join(layout.parts_for(category))
+    if project_dir is None or not os.fspath(project_dir).strip():
+        raise ImportPathError(
+            f"{refusal} Live-Projektordner wählen (der Ordner mit der .als-Datei des Test-Sets): "
+            f"dann kopiert das Programm WAV und Sidecar vor dem Import nach "
+            f"<Projekt>{os.sep}{folder_name} und importiert die Kopie.")
+    roots = default_refused_roots() if refused_roots is None else tuple(refused_roots)
+    problem = check_project_dir(project_dir, refused_roots=roots)
+    if problem is not None:
+        raise ImportPathError(project_problem_text(problem))
+    folder = library_folder(project_dir, layout, category)
+    target, copy = _target_in(folder, Path(path), layout.max_path_chars)
+    return Placement(path, str(target), SampleInfo(category, target.stem), copy)
+
+
+def copy_into_project(placement: Placement) -> None:
+    """Write the planned copy: sidecar first, then the WAV, both with exclusive create (an
+    existing file is never overwritten). A renamed copy gets its sidecar ``file`` field set
+    to the new WAV name. Afterwards the copy must pass the bridge's own check. On any failure
+    the files this call wrote are removed and the error is raised (``OSError`` or
+    :class:`ImportPathError`)."""
+    if not placement.copy:
+        return
+    src, dst = Path(placement.source), Path(placement.target)
+    side_bytes = sidecar_path(src).read_bytes()  # bytes: keeps CRLF of a Windows sidecar
+    if dst.name != src.name:
+        meta = json.loads(side_bytes.decode("utf-8"))
+        meta["file"] = dst.name
+        eol = "\r\n" if b"\r\n" in side_bytes else "\n"
+        text = json.dumps(meta, indent=2, ensure_ascii=False, allow_nan=False) + "\n"
+        side_bytes = text.replace("\n", eol).encode("utf-8")
+    written: list[Path] = []
+    try:
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        with open(sidecar_path(dst), "xb") as fh:
+            written.append(sidecar_path(dst))
+            fh.write(side_bytes)
+        with open(src, "rb") as fin, open(dst, "xb") as fout:
+            written.append(dst)
+            shutil.copyfileobj(fin, fout)
+        if not _same_file(src, dst):
+            raise ImportPathError(f"Die Kopie {dst} weicht vom Original ab.")
+        read_sample_info(dst)
+    except BaseException:
+        remove_copy(written)
+        raise
+
+
+def remove_copy(paths: Iterable[str | os.PathLike[str]]) -> None:
+    for p in paths:
+        try:
+            os.unlink(p)
+        except OSError:
+            pass
+
+
 def inspect_live(config: LiveConfig, wav: str | os.PathLike[str],
                  registry: CapabilityRegistry | None = None,
-                 accept_unverified: bool = False) -> LiveInspection:
-    """Check the file, then read version, tracks and scenes. Sends no write."""
+                 accept_unverified: bool = False,
+                 project_dir: str | os.PathLike[str] | None = None,
+                 refused_roots: Iterable[str | os.PathLike[str]] | None = None
+                 ) -> LiveInspection:
+    """Check the file (and where it will be copied, see :func:`plan_placement`), then read
+    version, tracks and scenes. Sends no write, writes no file."""
     try:
         registry = registry or CapabilityRegistry.from_file()
-        path = validate_wav_path(wav)
-        sample = read_sample_info(path)
+        placement = plan_placement(wav, project_dir, refused_roots=refused_roots)
+        path, sample = placement.target, placement.sample
     except ImportPathError as exc:
         return LiveInspection(False, f"Mit der Datei stimmt etwas nicht: {exc}")
     except CapabilityError as exc:
@@ -231,18 +443,21 @@ def inspect_live(config: LiveConfig, wav: str | os.PathLike[str],
                               path=path, sample=sample)
     tracks = tuple(TrackInfo(i, n, a) for i, (n, a) in enumerate(zip(names, audio, strict=True)))
     return LiveInspection(True, "", f"{major}.{minor}", tracks, scenes, sample, path,
-                          tuple(bad))
+                          tuple(bad), placement)
 
 
 def prepare_import(config: LiveConfig, wav: str | os.PathLike[str], track: int | None,
                    slot: int | None, registry: CapabilityRegistry | None = None,
-                   accept_unverified: bool = False) -> ImportPlan:
-    """The plan the user confirms: target, slot (first free one if ``slot`` is None) and the
-    state of the set it was made from. Sends no write."""
+                   accept_unverified: bool = False,
+                   project_dir: str | os.PathLike[str] | None = None,
+                   refused_roots: Iterable[str | os.PathLike[str]] | None = None) -> ImportPlan:
+    """The plan the user confirms: target, slot (first free one if ``slot`` is None), the
+    copy into the project if one is needed, and the state of the set it was made from.
+    Sends no write, writes no file."""
     try:
         registry = registry or CapabilityRegistry.from_file()
-        path = validate_wav_path(wav)
-        sample = read_sample_info(path)
+        placement = plan_placement(wav, project_dir, refused_roots=refused_roots)
+        path, sample = placement.target, placement.sample
     except ImportPathError as exc:
         return ImportPlan(False, f"Mit der Datei stimmt etwas nicht: {exc}")
     except CapabilityError as exc:
@@ -284,15 +499,23 @@ def prepare_import(config: LiveConfig, wav: str | os.PathLike[str], track: int |
         return ImportPlan(False, f"Fehler in der Konfiguration: {exc}")
     except BridgeError as exc:
         return ImportPlan(False, _connection_error(exc, config))
-    return ImportPlan(True, "", plan_text(path, tuple(names), track, use, sample), path, track,
-                      use, scenes, expected, tuple(names), tuple(bad))
+    return ImportPlan(True, "", plan_text(path, tuple(names), track, use, sample, placement),
+                      path, track, use, scenes, expected, tuple(names), tuple(bad), placement)
 
 
 def plan_text(path: str, names: tuple[str, ...], track: int | None, slot: int,
-              sample: SampleInfo | None) -> str:
+              sample: SampleInfo | None, placement: Placement | None = None) -> str:
     where = (f"die neue Spur {live_number(len(names))}" if track is None
              else f"Spur {live_number(track)} '{names[track]}'")
-    lines = ["Geplante Änderungen im Live-Set:"]
+    lines = []
+    if placement is not None and placement.copy:
+        lines += ["Vorher auf der Festplatte: WAV und Sidecar in den Projektordner kopieren",
+                  f"  von  {placement.source}", f"  nach {placement.target}",
+                  "  (nichts wird überschrieben; geht der Import schief, bevor etwas in Live "
+                  "ankommt, wird die Kopie wieder gelöscht)."]
+    elif placement is not None and placement.moved:
+        lines.append(f"Die Datei liegt schon unverändert im Projektordner: {placement.target}")
+    lines.append("Geplante Änderungen im Live-Set:")
     n = 1
     if track is None:
         lines.append(f"  {n}. Neue Audiospur am Ende anlegen (wird Spur "
@@ -302,7 +525,7 @@ def plan_text(path: str, names: tuple[str, ...], track: int | None, slot: int,
         f"  {n}. Audio-Clip in {where}, Szene {live_number(slot)}, aus der Datei:",
         *([f"       Sample: {sample.label}"] if sample is not None else []),
         f"       {path}",
-        "Live verweist auf die Datei; sie wird nicht kopiert oder verändert.",
+        "Live verweist auf diese Datei; das Programm verändert sie danach nicht.",
         "Danach liest das Programm die Zellen der Spur und den Dateipfad des Clips zurück. "
         "Jede Änderung wird vorher und nachher in das Aktions-Log geschrieben.",
         "Ein Undo sendet dieses Fenster nicht; zum Entfernen siehe unten.",
@@ -352,6 +575,28 @@ def execute_import(config: LiveConfig, plan: ImportPlan, test_set_confirmed: boo
     refusal = _refuse_unverified(bad, accept_unverified)
     if refusal:
         return ImportResult(False, refusal)
+    placement = plan.placement
+    if placement is None or not placement.copy:
+        return _execute(config, plan, registry, allow)
+    try:
+        copy_into_project(placement)
+    except (OSError, ImportPathError, ValueError) as exc:
+        return ImportResult(False, f"Kopieren in den Projektordner fehlgeschlagen: {exc} "
+                            "Es wurde nichts in Live geändert.")
+    # An unexpected exception keeps the copy: whether Live already points at it is unknown.
+    res = _execute(config, plan, registry, allow)
+    # writes_sent = a write was confirmed; outcome_unknown = a write may still be applied
+    # by Live later (timeout). In both cases Live may point at the copy: keep it.
+    if res.ok or res.writes_sent or res.outcome_unknown:
+        res.message += f" Die Kopie liegt in {placement.target}."
+    else:
+        remove_copy((sidecar_path(placement.target), placement.target))
+        res.message += " Die Kopie im Projektordner wurde wieder gelöscht."
+    return res
+
+
+def _execute(config: LiveConfig, plan: ImportPlan, registry: CapabilityRegistry,
+             allow: list[str]) -> ImportResult:
     log = ActionLog(config.log_path)
     try:
         before_size = Path(log.path).stat().st_size
