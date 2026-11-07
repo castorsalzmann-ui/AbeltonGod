@@ -85,8 +85,12 @@ def tour(tmp_path_factory):
 def test_the_tour_visits_exactly_the_expected_steps(tour):
     names = [s.name for s in tour.steps]
     expected = (PAGE_STEPS + RENDER_STEPS[:8] + WINDOW_STEPS + RENDER_STEPS[8:]
-                + ["close:tools-with-main"])
+                + ["close:tools-with-main", "choice:library"])
     assert names == expected
+
+
+def test_a_library_file_can_be_marked_as_favourite(tour):
+    expect_step(tour.step("choice:library"))
 
 
 @pytest.mark.parametrize("name", PAGE_STEPS)
