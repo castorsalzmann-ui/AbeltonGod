@@ -210,7 +210,7 @@ METADATA_INVALID = {
     "snare with the hat engine name": _changed("engine.name", "abeltongod-audio-engine-hat"),
     "snare parameters without seed": _changed("parameters.seed", ...),
     "snare parameters with kick-params version": _changed("parameters.schema_version", "0.3"),
-    "category perc": _changed("category", "perc"),
+    "category tom (a perc model)": _changed("category", "tom"),
 }
 
 

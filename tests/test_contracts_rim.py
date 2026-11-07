@@ -205,7 +205,7 @@ METADATA_INVALID = {
     "rim with the snare engine name": _changed("engine.name", "abeltongod-audio-engine-snare"),
     "rim parameters without seed": _changed("parameters.seed", ...),
     "rim parameters with kick-params version": _changed("parameters.schema_version", "0.3"),
-    "category perc": _changed("category", "perc"),
+    "category tom (a perc model)": _changed("category", "tom"),
 }
 
 
