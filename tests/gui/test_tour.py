@@ -85,10 +85,19 @@ def tour(tmp_path_factory):
 def test_the_tour_visits_exactly_the_expected_steps(tour):
     names = [s.name for s in tour.steps]
     split = len(tour_mod.CATEGORY_KEYS) + 2  # category renders, Goa page render, planner export
-    expected = (PAGE_STEPS + RENDER_STEPS[:split] + ["reference:kick"] + WINDOW_STEPS
-                + RENDER_STEPS[split:] + ["close:tools-with-main", "choice:library",
-                                          "kit:library"])
+    expected = (PAGE_STEPS + RENDER_STEPS[:split] + ["reference:kick", "chat:generate"]
+                + WINDOW_STEPS + RENDER_STEPS[split:] + ["close:tools-with-main",
+                                                         "choice:library", "kit:library"])
     assert names == expected
+
+
+def test_the_copilot_page_generates_into_the_library(tour):
+    """#491: a fake-model request on the Copilot page wrote a clap through the orchestrator
+    and the guard; the step found it in the library and in the transcript (no Claude call,
+    no Live)."""
+    step = tour.step("chat:generate")
+    expect_step(step)
+    assert step.detail.startswith("short_s7_v0") and step.detail.endswith(".wav")
 
 
 def test_a_library_file_can_be_marked_as_favourite(tour):

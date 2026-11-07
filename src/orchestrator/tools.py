@@ -267,6 +267,7 @@ class Toolbox:
             )
         self._gate = capability_gate
         self.clock = clock
+        self._window_left: float | None = None
         self._tools: dict[str, Tool] = {}
         for tool in tools:
             self.register(tool)
@@ -295,6 +296,12 @@ class Toolbox:
                         "a tool that changes the Live set needs approval 'confirm'"
                     )
         self._tools[tool.name] = tool
+
+    def confirm_window_left(self) -> float | None:
+        """Seconds of ``CONFIRM_WINDOW_S`` still left for the call whose approver is being
+        asked right now (from the model turn's start, ``Toolbox.clock``); ``None`` outside an
+        approval or without a turn start. A yes after it is refused as ``too_late``."""
+        return self._window_left
 
     @property
     def names(self) -> tuple[str, ...]:
@@ -392,12 +399,18 @@ class Toolbox:
                 return late
             approved = False
             if approver is not None:
+                # What is left of the confirmation window while the user is asked (#493
+                # review): a GUI countdown shows this, not a fresh CONFIRM_WINDOW_S.
+                self._window_left = (None if turn_started is None
+                                     else CONFIRM_WINDOW_S - (self.clock() - turn_started))
                 try:
                     approved = approver.confirm(
                         tool, copy.deepcopy(arguments), copy.deepcopy(plan)
                     ) is True
                 except Exception:  # noqa: BLE001 - a broken prompt is a "no", never a "yes"
                     approved = False
+                finally:
+                    self._window_left = None
             if not approved:
                 req.after_tool(permit, files_written=0, live_writes=0, ok=False)
                 return _error(call, "declined", "the user did not confirm this action")
