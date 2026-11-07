@@ -93,6 +93,24 @@ def _widest(root, count: int = 6) -> list[str]:
 
 # --- child process -----------------------------------------------------------------------------
 
+def _planner_on_screen(app, w, screen) -> dict:
+    """The Arrangement-Planer page (#139) in a main window as big as the screen: horizontal
+    scroll range, and where its working part (curve + export button) ends in the viewport."""
+    from PySide6.QtCore import QPoint
+
+    w.resize(screen.width(), screen.height())
+    w.categories.setCurrentRow(w.tool_rows["planner"])
+    app.processEvents()
+    box, page = w.tool_scrolls["planner"], w.planner
+    view = box.viewport()
+    button = page.export_button.mapTo(view, QPoint(0, page.export_button.height()))
+    canvas = page.canvas.mapTo(view, QPoint(page.canvas.width(), 0))
+    return {"hscroll": box.horizontalScrollBar().maximum(),
+            "viewport": (view.width(), view.height()),
+            "content_min_w": page.minimumSizeHint().width(),
+            "button_bottom": button.y(), "canvas_right": canvas.x()}
+
+
 def _child(out: Path) -> None:
     """Runs with the emulated screen; writes {key: {min, screen, drivers}} to ``out``."""
     from PySide6.QtCore import Qt
@@ -152,6 +170,8 @@ def _child(out: Path) -> None:
         app.processEvents()
         result[key] = {"min": own(w), "screen": (screen.width(), screen.height()),
                        "width": drivers(w, 0), "height": drivers(w, 1)}
+        if key == "main":
+            result["planner"] = _planner_on_screen(app, w, screen)
         w.close()
     out.write_text(json.dumps(result), encoding="utf-8")
 
@@ -184,6 +204,20 @@ def test_window_minimum_fits_1920x1080_at_150_percent(sizes150, key, capsys):
         for axis in ("width", "height"):
             print(f"[#442]   {axis}: " + " | ".join(got[axis]))
     assert w <= sw and h <= sh, f"{key}: smallest {w} x {h} on a {sw} x {sh} screen"
+
+
+def test_planner_page_works_without_scrolling_on_1280x720(sizes150, capsys):
+    """#139: at 150 % on 1920 x 1080, with the main window as big as the screen, the planner
+    page needs no horizontal scroll bar, and curve, element lanes and the export button are
+    inside the visible area (only the section table below may need the vertical scroll)."""
+    got = sizes150["planner"]
+    vw, vh = got["viewport"]
+    with capsys.disabled():
+        print(f"\n[#139] planner on {sys.platform}: {got}")
+    assert got["hscroll"] == 0, got
+    assert got["content_min_w"] <= vw, got
+    assert got["canvas_right"] <= vw, got
+    assert 0 < got["button_bottom"] <= vh, got
 
 
 # --- category pages (in process, normal scale) --------------------------------------------------

@@ -51,7 +51,7 @@ from live_helpers import config_for, make_fake, writes  # noqa: E402
 PAGE_LABELS = [c.label for c in CATEGORIES] + [LIBRARY_LABEL] + [t[1] for t in TOOL_PAGES]
 PAGE_STEPS = [f"page:{tour_mod._slug(label)}" for label in PAGE_LABELS]
 RENDER_STEPS = ([f"render:{k}" for k in tour_mod.CATEGORY_KEYS]
-                + ["render:goa-page", "render:goa-window", "render:acid",
+                + ["render:goa-page", "export:planner", "render:goa-window", "render:acid",
                    "render:blaster-shot", "render:blaster-bank"])
 WINDOW_STEPS = [f"open:{k}" for k in tour_mod.TOOL_KEYS]
 
@@ -84,7 +84,7 @@ def tour(tmp_path_factory):
 
 def test_the_tour_visits_exactly_the_expected_steps(tour):
     names = [s.name for s in tour.steps]
-    expected = (PAGE_STEPS + RENDER_STEPS[:8] + WINDOW_STEPS + RENDER_STEPS[8:]
+    expected = (PAGE_STEPS + RENDER_STEPS[:9] + WINDOW_STEPS + RENDER_STEPS[9:]
                 + ["close:tools-with-main"])
     assert names == expected
 
