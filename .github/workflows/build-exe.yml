@@ -127,6 +127,26 @@ jobs:
               assert "Details stehen in" in text, text
       - name: Smoke CLI exe - same output as python -m (SHA-256)
         run: python scripts/exe_smoke.py dist/AbeltonGod/AbeltonGod-cli.exe determinism
+      - name: Smoke CLI exe - laser and perc WAV, same SHA-256 as python -m (#494)
+        shell: python
+        run: |
+          import hashlib, pathlib, subprocess, sys, tempfile
+          for cat, preset in (("laser", "blaster"), ("perc", "conga")):
+              args = ["--preset", preset, "--seed", "7"]
+              tmp = pathlib.Path(tempfile.mkdtemp())
+              cmds = {"exe": [r"dist\AbeltonGod\AbeltonGod-cli.exe", cat, *args],
+                      "py": [sys.executable, "-m", "audio_engine.kick", "--category", cat,
+                             *args]}
+              digest = {}
+              for key, cmd in cmds.items():
+                  r = subprocess.run([*cmd, "--out", str(tmp / key)], capture_output=True,
+                                     text=True, timeout=300)
+                  assert r.returncode == 0, (cmd, r.returncode, r.stdout, r.stderr)
+                  wavs = sorted((tmp / key).glob("*.wav"))
+                  assert len(wavs) == 1, wavs
+                  digest[key] = (wavs[0].name, hashlib.sha256(wavs[0].read_bytes()).hexdigest())
+              print(cat, digest)
+              assert digest["exe"] == digest["py"], digest
       - name: Screenshots on the real windows platform at 100 % and 150 % (#463)
         # Built exe, real qwindows plugin, every main page + Goa/Acid/Blaster. Temp output only.
         shell: python
