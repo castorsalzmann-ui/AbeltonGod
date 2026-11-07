@@ -13,10 +13,28 @@ from launcher.tools import BY_NAME, TOOLS, Tool
 
 # Written out here, not derived from the table under test.
 EXPECTED_TOOLS = {
-    "kick", "hat", "snare", "clap", "rim", "bass", "goa-arrangement", "goa-melody",
+    "kick", "hat", "snare", "clap", "rim", "bass", "laser", "perc", "goa-arrangement",
+    "goa-melody",
     "goa-patterns", "arrangement-midi", "live-import", "kick-to-live", "bridge-check",
     "arrangement-check", "install-abletonosc", "als-inspect", "plan", "chat",
 }
+
+
+@pytest.mark.parametrize("name,preset", [("laser", "blaster"), ("perc", "conga")])
+def test_laser_and_perc_render_like_python_m(tmp_path: Path, name, preset):
+    """Same bytes through the launcher as through ``audio_engine.cli`` directly (#494)."""
+    import hashlib
+
+    from audio_engine import cli as engine_cli
+
+    a, b = tmp_path / "launcher", tmp_path / "direct"
+    args = ["--preset", preset, "--seed", "7"]
+    assert tools.run_tool(BY_NAME[name], [*args, "--out", str(a)]) == 0
+    assert engine_cli.main(["--category", name, *args, "--out", str(b)]) in (0, None)
+    wa, wb = sorted(a.glob("*.wav")), sorted(b.glob("*.wav"))
+    assert len(wa) == 1 and [p.name for p in wa] == [p.name for p in wb]
+    assert hashlib.sha256(wa[0].read_bytes()).digest() == hashlib.sha256(
+        wb[0].read_bytes()).digest()
 
 
 def test_table_has_exactly_the_expected_tools():
@@ -35,7 +53,8 @@ def test_every_tool_resolves_to_a_real_main(tool: Tool):
 @pytest.mark.parametrize("name,prefix", [
     ("kick", []), ("hat", ["--category", "hat"]), ("snare", ["--category", "snare"]),
     ("clap", ["--category", "clap"]), ("rim", ["--category", "rim"]),
-    ("bass", ["--category", "bass"]),
+    ("bass", ["--category", "bass"]), ("laser", ["--category", "laser"]),
+    ("perc", ["--category", "perc"]),
 ])
 def test_sound_tools_go_to_audio_engine_cli_with_category(monkeypatch, name, prefix):
     seen = []
