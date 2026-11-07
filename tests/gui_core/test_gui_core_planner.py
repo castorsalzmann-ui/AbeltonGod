@@ -14,13 +14,13 @@ from pathlib import Path
 
 import pytest
 from jsonschema import Draft202012Validator
+from support.kick_params import rng, seed
 
 from gui_core import planner
 from gui_core.planner import ExportError, PlannerModel, export_plan, section_rows
 from orchestrator.arrangement_generator import generate_plan
 from orchestrator.arrangement_layout import SETTING_ALLOWED, SETTING_DEFAULTS, PlanRequest
 from orchestrator.arrangement_plan import plan_problems
-from tests.support.kick_params import rng, seed
 
 SCHEMA = Path(__file__).resolve().parents[2] / "contracts" / "arrangement-plan.schema.json"
 

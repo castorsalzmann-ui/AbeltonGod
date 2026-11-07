@@ -45,7 +45,7 @@ class PlannerCanvas(QWidget):
         self.setMouseTracking(True)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-        self.setMinimumWidth(int(self._em() * 30))
+        self.setMinimumWidth(int(self._em() * 20))
         self.setFixedHeight(self._needed_height())
 
     # --- geometry (font units: follows the DPI) ------------------------------------------

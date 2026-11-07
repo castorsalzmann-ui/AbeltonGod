@@ -41,7 +41,7 @@ from gui_core.planner import (
 from .planner_curve import PlannerCanvas, event_summary
 from .tool_style import STYLE
 from .widgets import StepEdit, Stepper, heading, muted
-from .widgets.choice import WrapSegmented
+from .widgets.choice import FlowLayout, WrapSegmented
 
 MOUSE_HELP = ("Klick: Punkt setzen und ziehen · Standardpunkt anklicken: übernehmen · "
               "Shift+Klick auf Punkt: Stufe · Rechtsklick/Entf: löschen")
@@ -70,7 +70,7 @@ class PlannerPanel(QWidget):
         top = QHBoxLayout()
         outer.addLayout(top)
         left = QWidget()
-        left.setFixedWidth(em * 28)
+        left.setFixedWidth(em * 25)
         top.addWidget(left, 0, Qt.AlignmentFlag.AlignTop)
         form = QVBoxLayout(left)
         form.setContentsMargins(0, 0, 0, 0)
@@ -109,7 +109,8 @@ class PlannerPanel(QWidget):
         right.addWidget(muted(MOUSE_HELP))
         self.events_label = muted()
         right.addWidget(self.events_label)
-        buttons = QHBoxLayout()
+        bar = QWidget()
+        buttons = FlowLayout(bar)  # wraps on narrow pages and wide fonts (Windows, #139)
         self.clear_button = QPushButton("Gezeichnete Punkte löschen")
         self.clear_button.clicked.connect(self.clear_drawn)
         self.export_button = QPushButton("Plan exportieren")
@@ -117,11 +118,10 @@ class PlannerPanel(QWidget):
         self.export_button.clicked.connect(self.export)
         self.open_button = QPushButton("Plan-Ordner öffnen")
         self.open_button.clicked.connect(self.open_folder)
-        buttons.addWidget(self.clear_button)
-        buttons.addStretch(1)
-        buttons.addWidget(self.open_button)
         buttons.addWidget(self.export_button)
-        right.addLayout(buttons)
+        buttons.addWidget(self.open_button)
+        buttons.addWidget(self.clear_button)
+        right.addWidget(bar)
         self.status = QLabel()
         self.status.setObjectName("status")
         self.status.setWordWrap(True)
@@ -152,7 +152,7 @@ class PlannerPanel(QWidget):
         lay.setContentsMargins(0, 0, 0, 0)
         em = self.fontMetrics().horizontalAdvance("M")
         caption = QLabel(label)
-        caption.setFixedWidth(em * 10)
+        caption.setFixedWidth(em * 9)
         caption.setWordWrap(True)
         if help_text:
             caption.setToolTip(help_text)
