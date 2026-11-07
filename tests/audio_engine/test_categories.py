@@ -49,7 +49,7 @@ def test_registry_and_contract_agree() -> None:
     schema = json.loads(METADATA_SCHEMA_FILE.read_text(encoding="utf-8"))
     assert tuple(schema["properties"]["category"]["enum"]) == CONTRACT_CATEGORIES
     assert registered_categories() == ("kick", "clap", "hat", "snare", "rim", "laser", "bass",
-                                       "perc")
+                                       "perc", "fx")
     assert get_category("kick").engine == {"name": ENGINE_NAME, "version": ENGINE_VERSION}
 
 

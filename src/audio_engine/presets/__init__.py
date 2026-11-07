@@ -138,6 +138,25 @@ PERC_DESCRIPTIONS = {
 }
 
 
+_FX_BPM = " Written at 135 BPM: set bpm to the track's tempo, or the file misses the bar line."
+FX_DESCRIPTIONS = {
+    "riser-8bar": "Noise riser over 8 bars, band-pass rising, level rising (kind defaults)."
+    + _FX_BPM,
+    "riser-16bar": "Noise riser over 16 bars, the riser kind defaults written out." + _FX_BPM,
+    "riser-32bar": "Noise riser over 32 bars, band-pass rising, level rising (kind defaults)."
+    + _FX_BPM,
+    "downlifter": "Noise downlifter over 2 bars, band-pass falling, level falling (kind "
+    "defaults)." + _FX_BPM,
+    "sweep": "Resonant low-pass noise sweep over 4 bars (kind defaults)." + _FX_BPM,
+    "impact": "Short noise burst with a falling sine and a long reverb tail (kind defaults)."
+    + _FX_BPM,
+    "noise-crash": "High-passed noise fading out over 4 bars from the drop (kind defaults)."
+    + _FX_BPM,
+    "reverse-crash": "Metallic partials and noise swelling into the bar line over one bar, "
+    "ending exactly on it (kind defaults)." + _FX_BPM,
+}
+
+
 class UnknownPresetError(KeyError):
     """No preset with this name. The message lists the valid names."""
 
@@ -162,6 +181,8 @@ def _folder(category: str) -> Path:
         return PRESETS_DIR / "laser"
     if category == "perc":
         return PRESETS_DIR / "perc"
+    if category == "fx":
+        return PRESETS_DIR / "fx"
     raise ValueError(f"no presets for category {category!r}")
 
 
@@ -184,6 +205,6 @@ def describe(name: str, category: str = "kick") -> str:
     table = {
         "clap": CLAP_DESCRIPTIONS, "hat": HAT_DESCRIPTIONS, "snare": SNARE_DESCRIPTIONS,
         "rim": RIM_DESCRIPTIONS, "bass": BASS_DESCRIPTIONS,
-        "laser": LASER_DESCRIPTIONS, "perc": PERC_DESCRIPTIONS,
+        "laser": LASER_DESCRIPTIONS, "perc": PERC_DESCRIPTIONS, "fx": FX_DESCRIPTIONS,
     }.get(category, DESCRIPTIONS)
     return table.get(name, "")

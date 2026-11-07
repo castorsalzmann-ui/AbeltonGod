@@ -2,9 +2,12 @@
 
     python -m audio_engine.kick --preset NAME [--variants N] --out DIR
                                 [--seed INT] [--set FIELD=VALUE ...]
-                                [--category kick|clap|hat|snare|rim|bass|laser|perc]
+                                [--category kick|clap|hat|snare|rim|bass|laser|perc|fx]
     python -m audio_engine.kick --list-presets
-                                [--category kick|clap|hat|snare|rim|bass|laser|perc]
+                                [--category kick|clap|hat|snare|rim|bass|laser|perc|fx]
+
+``--category fx`` (#482): the presets are written at 135 BPM; set the track's tempo with
+``--set bpm=<track bpm>``, otherwise the file does not end on the bar line in Live.
 
 ``--category clap`` (#231) renders clap presets from ``presets/clap/`` and writes
 ``clap-params`` sidecars; the default is ``kick``.
@@ -34,6 +37,7 @@ from typing import Any, TextIO
 from . import (
     bass_variants,
     clap_variants,
+    fx_variants,
     hat_variants,
     laser_variants,
     perc_variants,
@@ -43,6 +47,8 @@ from . import (
 from .bass import BassParamsError, resolve_bass_params
 from .categories import CategoryUnavailable, get_category
 from .clap import ClapParamsError, resolve_clap_params
+from .fx import FxParamsError, resolve_fx_params
+from .fx import _schema as fx_schema
 from .hat import HatParamsError, resolve_hat_params
 from .io import write_kick
 from .laser import LaserParamsError, resolve_laser_params, v02_properties
@@ -74,7 +80,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="python -m audio_engine.kick",
         description="Render sample presets and variants (--category kick, clap, hat, snare, "
-        "rim, bass, laser, perc) as WAV + sidecar JSON; laser files are 2-channel.",
+        "rim, bass, laser, perc, fx) as WAV + sidecar JSON; laser and fx files are 2-channel.",
     )
     parser.add_argument("--preset", help="preset name (see --list-presets)")
     parser.add_argument(
@@ -94,7 +100,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--category",
-        choices=("kick", "clap", "hat", "snare", "rim", "bass", "laser", "perc"),
+        choices=("kick", "clap", "hat", "snare", "rim", "bass", "laser", "perc", "fx"),
         default="kick",
         help="sound category (default kick)",
     )
@@ -159,6 +165,11 @@ def plan(args: argparse.Namespace) -> tuple[str, list[dict[str, Any]], list[str]
     text_fields = frozenset(
         k for k, spec in v02_properties().items() if "enum" in spec and k != "filter_slope"
     ) if category == "laser" else frozenset()
+    if category == "fx":  # kind, noise_color, filter_mode, tone_wave, echo_note (#482)
+        text_fields = frozenset(
+            k for k, spec in fx_schema()["properties"].items()
+            if all(isinstance(v, str) for v in spec.get("enum", (0,)))
+        )
     overrides = parse_overrides(args.overrides, text_fields)
     base = dict(load_preset(args.preset, category))
     if args.seed is not None:
@@ -179,6 +190,7 @@ def plan(args: argparse.Namespace) -> tuple[str, list[dict[str, Any]], list[str]
         "bass": (resolve_bass_params, bass_variants.make_variants),
         "laser": (resolve_laser_params, laser_variants.make_variants),
         "perc": (resolve_perc_params, perc_variants.make_variants),
+        "fx": (resolve_fx_params, fx_variants.make_variants),
     }[category]
     base = resolve(request)
     # The request, not its resolved form: variants of a tail_note / length_beats request keep
@@ -209,7 +221,7 @@ def _plan_prompt(
     if getattr(args, "category", "kick") != "kick":
         raise UsageError(
             "--prompt is a kick vocabulary, not usable with --category clap, hat, snare, rim, "
-            "bass, laser or perc"
+            "bass, laser, perc or fx"
         )
     if not args.out:
         raise UsageError("--out is required")
@@ -274,7 +286,7 @@ def _main(argv: list[str] | None, stdout: TextIO, stderr: TextIO) -> int:
         out_dir, variants, stems, descriptions = plan(args)
     except (UsageError, UnknownPresetError, KickParamsError, ClapParamsError,
                 HatParamsError, SnareParamsError, RimParamsError, BassParamsError,
-                LaserParamsError, PercParamsError) as exc:
+                LaserParamsError, PercParamsError, FxParamsError) as exc:
         print(f"error: {exc}", file=stderr)
         return EXIT_USAGE
 
