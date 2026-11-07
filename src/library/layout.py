@@ -40,6 +40,7 @@ DEFAULT_CLAP_FOLDER = "Samples/Drums/Claps"
 DEFAULT_HAT_FOLDER = "Samples/Drums/Hats"
 DEFAULT_SNARE_FOLDER = "Samples/Drums/Snares"
 DEFAULT_RIM_FOLDER = "Samples/Drums/Rims"
+DEFAULT_PERC_FOLDER = "Samples/Drums/Percs"  # conga, tom, shaker, cowbell, clave (#475)
 DEFAULT_LASER_FOLDER = "Samples/FX/Lasers"  # RX ear candy, not a drum (#416)
 DEFAULT_BASS_FOLDER = "Samples/Bass"  # a bass is not a drum: outside Samples/Drums (#328)
 MIN_STEM_CHARS = 16  # below this the name would be cut too short to stay readable
@@ -82,6 +83,7 @@ class LibraryLayout:
     rims: str = DEFAULT_RIM_FOLDER  # rim voice (#321)
     bass: str = DEFAULT_BASS_FOLDER  # bass voice (#328)
     lasers: str = DEFAULT_LASER_FOLDER  # laser voice (#416)
+    percs: str = DEFAULT_PERC_FOLDER  # used once the perc voice exists (#475)
 
     def __post_init__(self) -> None:
         split_folder(self.kicks)  # raises LibraryPathError
@@ -91,6 +93,7 @@ class LibraryLayout:
         split_folder(self.rims)
         split_folder(self.bass)
         split_folder(self.lasers)
+        split_folder(self.percs)
         limit = self.max_path_chars
         if limit is not None and (isinstance(limit, bool) or not isinstance(limit, int)):
             raise TypeError(f"max_path_chars must be an int or None, got {limit!r}")
@@ -117,6 +120,8 @@ class LibraryLayout:
             return split_folder(self.bass)
         if category == "laser":
             return split_folder(self.lasers)
+        if category == "perc":
+            return split_folder(self.percs)
         raise LibraryPathError(f"no library folder is defined for category {category!r}")
 
 
