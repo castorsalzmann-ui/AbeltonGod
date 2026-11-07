@@ -233,7 +233,8 @@ differ only in the area. Handler and effect per kind:
 
 The Live confirmation dialog of the Copilot page appears only while a request waits for it, so
 the inventory does not walk it: buttons "Ja, ins Live-Set schreiben" and "Nein" (default and
-Esc), closing as no after the orchestrator's confirmation window (20 s). Checked by
+Esc), closing as no when the orchestrator's confirmation window (20 s from the model turn)
+ends; its countdown shows what is left of that window. Checked by
 `tests/gui/test_chat_page.py`.
 
 ### Main window: Referenz page (#480)

@@ -8,6 +8,7 @@ from __future__ import annotations
 import json
 import threading
 import time
+from pathlib import Path
 
 import pytest
 from chat_helpers import (
@@ -25,6 +26,7 @@ from chat_helpers import (
 
 from guard import Limit
 from gui_core.chat import (
+    CONFIRM_TIMEOUT_S,
     LOGIN_HINT,
     ChatSession,
     ConfirmRequest,
@@ -108,6 +110,61 @@ def test_a_refused_output_folder_leaves_only_the_plan_tools(tmp_path):
     assert [t.name for t in model.requests[0].tools] == ["plan_arrangement"]
     st = session.tools_state()
     assert st.folder is None and "Backup" in st.note and "Nur Planen" in st.note
+
+
+def _refused_note(tmp_path, out, roots=()):
+    session = ChatSession(tmp_path / ".env", model=FakeModel([turn_text("Nur planen.")]),
+                          guard=guard_for(tmp_path), output_dir=out,
+                          session_options={"refused_roots": roots})
+    assert session.ask("Hallo").success
+    st = session.tools_state()
+    assert st.folder is None and "Nur Planen" in st.note
+    assert "Projektordner" not in st.note and "Ausgabeordner" in st.note
+    return st.note
+
+
+def test_a_refused_output_folder_is_never_created(tmp_path, monkeypatch):
+    """#493 review: check first, create only after the check passed."""
+    monkeypatch.chdir(tmp_path)
+    note = _refused_note(tmp_path, Path("relout/x"))
+    assert not (tmp_path / "relout").exists() and "voller Pfad" in note
+    inside = tmp_path / "checkout" / "a" / "out"
+    (tmp_path / "checkout").mkdir()
+    note = _refused_note(tmp_path, inside, roots=(tmp_path / "checkout",))
+    assert not (tmp_path / "checkout" / "a").exists() and "AbeltonGod-Ordner" in note
+    (tmp_path / "Backup").mkdir()
+    note = _refused_note(tmp_path, tmp_path / "Backup" / "new" / "out")
+    assert not (tmp_path / "Backup" / "new").exists() and "Backup" in note
+    note = _refused_note(tmp_path, tmp_path / "x" / "Backup")
+    assert not (tmp_path / "x").exists() and "Backup" in note
+
+
+def test_a_missing_accepted_output_folder_is_created_on_the_first_question(tmp_path):
+    out = tmp_path / "new" / "deeper" / "out"
+    session, _ = make_chat(tmp_path, [turn_text()], out=out)
+    assert not out.exists() and session.ask("Hallo").success
+    assert out.is_dir() and session.tools_state().folder == out
+
+
+def test_the_dialog_gets_only_what_is_left_of_the_confirmation_window(tmp_path, fake):
+    """#493 review: work before the dialog (Live reads in prepare, slow earlier calls) uses up
+    the window that started with the model turn; the dialog's time and text show the rest."""
+    approver, shown = gui_approver(None, timeout_s=CONFIRM_TIMEOUT_S)
+    session, _ = make_chat(tmp_path, import_script(), fake, approver=approver)
+    session.tools_state()  # nothing built yet: the folder does not exist
+    (tmp_path / "out").mkdir()
+    session.tools_state()
+    def clock():  # 15 s "pass" once prepare() has read Live (after the import turn started)
+        return 1000.0 + (15.0 if fake.payload() else 0.0)
+
+    session._toolbox.clock = clock
+    t = time.monotonic()
+    reply = session.ask("Clap erzeugen und importieren")
+    assert not reply.success and writes(fake) == []
+    req = shown[0]
+    assert req.timeout_s == pytest.approx(5.0)
+    assert "innerhalb von 5 s" in req.text.text and "20 s" not in req.text.text
+    assert time.monotonic() - t < CONFIRM_TIMEOUT_S - 5  # it did not wait the full 20 s
 
 
 def test_output_folder_check_lets_only_the_missing_set_file_pass(tmp_path):

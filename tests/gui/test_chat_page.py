@@ -37,6 +37,7 @@ from gui.app import create_app  # noqa: E402
 from gui.chat_panel import NO_TEXT, YES_TEXT  # noqa: E402
 from gui.drag import PATH_ROLE  # noqa: E402
 from gui.main_window import MainWindow  # noqa: E402
+from gui_core.chat import ConfirmRequest, ConfirmText  # noqa: E402
 
 WAIT_S = 30.0
 
@@ -203,6 +204,23 @@ def test_the_dialog_closes_as_no_when_its_time_is_up(qapp, tmp_path, fake):
         assert wait_for(qapp, lambda: not c.busy)
         assert c.confirm_dialog is None and not c.last_reply.success
         assert writes(fake) == []
+    finally:
+        w.close()
+
+
+def test_the_gui_countdown_closes_the_dialog_by_itself(qapp, tmp_path):
+    """#493 review (mutant R1): no worker waits here, so only the dialog's own timer can close
+    it; it answers no when the request's deadline is reached, and shows the time left."""
+    w, _ = window_for(tmp_path, [turn_text()])
+    try:
+        c = w.chat
+        request = ConfirmRequest(ConfirmText("Live-Set ändern?", ("Test",)), 1.5)
+        c._show_confirm(request)
+        dlg = c.confirm_dialog
+        assert dlg is not None and dlg.isVisible()
+        assert dlg.informativeText() in ("Noch 2 s.", "Noch 1 s.")
+        assert wait_for(qapp, lambda: c.confirm_dialog is None, seconds=10)
+        assert request.closed and request.wait() is False
     finally:
         w.close()
 

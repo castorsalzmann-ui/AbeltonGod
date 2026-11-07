@@ -15,6 +15,8 @@ library re-reads the output folder."""
 from __future__ import annotations
 
 import html
+import math
+import time
 from collections.abc import Callable
 from pathlib import Path
 
@@ -255,18 +257,21 @@ class ChatPanel(QWidget):
         dlg.setDefaultButton(no)
         dlg.setEscapeButton(no)
         dlg.setWindowModality(Qt.WindowModality.ApplicationModal)
-        left = [int(request.timeout_s)]
-        dlg.setInformativeText(f"Noch {left[0]} s.")
+        # The countdown ends at the request's deadline: the rest of the orchestrator's
+        # confirmation window, counted from the model turn (#493 review), not a fresh 20 s.
+        def left() -> int:
+            return max(0, math.ceil(request.deadline - time.monotonic()))
+
+        dlg.setInformativeText(f"Noch {left()} s.")
         timer = QTimer(dlg)
-        timer.setInterval(1000)
+        timer.setInterval(200)
 
         def tick() -> None:
-            left[0] -= 1
-            if request.closed or left[0] <= 0:
+            if request.closed or left() <= 0:
                 request.expire()  # the worker's own timeout says the same
                 dlg.done(0)
                 return
-            dlg.setInformativeText(f"Noch {left[0]} s.")
+            dlg.setInformativeText(f"Noch {left()} s.")
 
         def finished(_result: int) -> None:
             timer.stop()

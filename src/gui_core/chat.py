@@ -26,8 +26,10 @@ Differences to the terminal chat (#491):
 
 from __future__ import annotations
 
+import math
 import os
 import threading
+import time
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -35,10 +37,10 @@ from typing import Any
 
 from bridge.capabilities import CapabilityError
 from guard import Guard
-from gui_core.live import default_refused_roots, project_problem_text
+from gui_core.live import default_refused_roots
 from launcher.paths import app_dir
 from library import check_project_dir
-from library.project import ProjectReason
+from library.project import ProjectDirProblem, ProjectReason
 from orchestrator.auth import AuthConfigError, AuthMode, load_auth
 from orchestrator.clients import make_model_client
 from orchestrator.kick_tools import ImportPlan, KickSession
@@ -159,7 +161,8 @@ class ConfirmRequest:
 
     def __init__(self, text: ConfirmText, timeout_s: float) -> None:
         self.text = text
-        self.timeout_s = float(timeout_s)
+        self.timeout_s = max(0.0, float(timeout_s))
+        self.deadline = time.monotonic() + self.timeout_s  # the GUI countdown ends here
         self._lock = threading.Lock()
         self._done = threading.Event()
         self._answer: bool | None = None
@@ -211,8 +214,18 @@ class GuiApprover:
         self.asked: list[ConfirmText] = []  # what was shown, oldest first
 
     def confirm(self, tool: Tool, arguments: dict[str, Any], plan: Plan | None = None) -> bool:
-        request = ConfirmRequest(confirm_text(tool, arguments, plan, self.timeout_s),
-                                 self.timeout_s)
+        return self.confirm_within(tool, arguments, plan, None)
+
+    def confirm_within(self, tool: Tool, arguments: dict[str, Any], plan: Plan | None,
+                       window_s: float | None) -> bool:
+        """``window_s``: what is left of the orchestrator's confirmation window (from the
+        model turn's start, ``Toolbox.confirm_window_left``); the dialog's time and text use
+        it instead of a fresh ``timeout_s`` (#493 review). None: ``timeout_s``."""
+        timeout = self.timeout_s
+        if window_s is not None:
+            timeout = max(0.0, min(timeout, float(window_s)))
+        request = ConfirmRequest(confirm_text(tool, arguments, plan, math.floor(timeout)),
+                                 timeout)
         with self._lock:
             self._open.append(request)
             self.asked.append(request.text)
@@ -247,6 +260,64 @@ def output_folder_check(folder: str | os.PathLike[str], *,
     if problem is not None and problem.reason is ProjectReason.NO_ALS_FILE:
         return None
     return problem
+
+
+class _FolderRefused(ValueError):
+    """The output folder was refused before anything was created (German text)."""
+
+
+_BEFORE_CREATE = (ProjectReason.EMPTY, ProjectReason.NOT_ABSOLUTE,
+                  ProjectReason.CHECKOUT_UNKNOWN, ProjectReason.IN_CHECKOUT,
+                  ProjectReason.BACKUP_FOLDER, ProjectReason.UNREADABLE)
+
+
+def folder_problem_before_create(folder: Path, check: Callable[..., Any],
+                                 refused_roots: Any) -> Any:
+    """The refusal of ``folder`` that is known before creating it, or None. An existing folder
+    gets the full check. For a missing one: a relative path is refused as such; a folder named
+    ``Backup`` is refused; the nearest existing parent is checked and its checkout, Backup and
+    unreadable refusals count for the new folder too (``missing`` and ``no_als_file`` of the
+    parent do not). Creates nothing."""
+    def run(path: Path) -> Any:
+        return (check(path) if refused_roots is None
+                else check(path, refused_roots=refused_roots))
+
+    if not os.path.isabs(folder) or folder.is_dir():
+        return run(folder)
+    if folder.name.casefold() == "backup":
+        return ProjectDirProblem(ProjectReason.BACKUP_FOLDER, os.fspath(folder), str(folder))
+    parent = folder.parent
+    while not parent.exists() and parent != parent.parent:
+        parent = parent.parent
+    if parent.exists() and not parent.is_dir():
+        return ProjectDirProblem(ProjectReason.MISSING, os.fspath(folder),
+                                 f"{parent} is a file")
+    problem = run(parent)
+    if problem is not None and getattr(problem, "reason", None) in _BEFORE_CREATE:
+        return ProjectDirProblem(problem.reason, os.fspath(folder), problem.detail)
+    return None
+
+
+def output_problem_text(problem: Any) -> str:
+    """German refusal text for the **output** folder (``project_problem_text`` speaks of the
+    Live project folder)."""
+    reason, raw, detail = (getattr(problem, "reason", None), getattr(problem, "path", ""),
+                           getattr(problem, "detail", ""))
+    texts = {
+        ProjectReason.EMPTY: "Kein Ausgabeordner angegeben.",
+        ProjectReason.NOT_ABSOLUTE: f"Der Ausgabeordner muss ein voller Pfad sein, nicht {raw!r}.",
+        ProjectReason.MISSING: f"Den Ausgabeordner gibt es nicht und er lässt sich nicht "
+                               f"anlegen: {raw} ({detail})",
+        ProjectReason.CHECKOUT_UNKNOWN: "Der AbeltonGod-Ordner, aus dem das Programm läuft, ist "
+                                        f"nicht als Checkout erkennbar ({detail}); aus Vorsicht "
+                                        "wird kein Ausgabeordner angenommen.",
+        ProjectReason.IN_CHECKOUT: f"Der Ausgabeordner {raw} liegt im AbeltonGod-Ordner "
+                                   f"({detail}).",
+        ProjectReason.BACKUP_FOLDER: f"Der Ausgabeordner {raw} ist (oder liegt in) Lives "
+                                     "Backup-Ordner.",
+        ProjectReason.UNREADABLE: f"Der Ausgabeordner {raw} lässt sich nicht lesen: {detail}",
+    }
+    return texts.get(reason, f"Der Ausgabeordner {raw} wurde abgelehnt ({reason}: {detail}).")
 
 
 @dataclass(frozen=True)
@@ -309,7 +380,12 @@ class _ApproverSlot:
         self._session = session
 
     def confirm(self, tool: Tool, arguments: dict[str, Any], plan: Plan | None = None) -> bool:
-        return self._session.approver.confirm(tool, arguments, plan) is True
+        approver = self._session.approver
+        within = getattr(approver, "confirm_within", None)
+        box = self._session._toolbox
+        if callable(within) and box is not None:
+            return within(tool, arguments, plan, box.confirm_window_left()) is True
+        return approver.confirm(tool, arguments, plan) is True
 
 
 class ChatSession:
@@ -393,18 +469,25 @@ class ChatSession:
         limit = self.guard.policy.profile(DEFAULT_PROFILE).max_files_written
         kick: KickSession | None = None
         why = ""
+        options = {"project_check": output_folder_check,
+                   "refused_roots": default_refused_roots(), **self._session_options}
         try:
+            # Check first, create only then (review of #493): a relative folder, one inside
+            # the checkout or below Live's Backup folder is refused without creating anything.
+            problem = folder_problem_before_create(folder, options["project_check"],
+                                                   options["refused_roots"])
+            if problem is not None:
+                raise _FolderRefused(output_problem_text(problem))
             folder.mkdir(parents=True, exist_ok=True)  # the GUI renders here as well
-            options = {"project_check": output_folder_check,
-                       "refused_roots": default_refused_roots(), **self._session_options}
             kick = KickSession(folder, **options)
             toolbox = Toolbox(kick.tools(files_per_request=limit)
                               + SampleTools(kick).tools(files_per_request=limit)
                               + plans.tools(), capability_gate=kick.gate())
         except ToolDefinitionError as exc:  # e.g. a Live capability is not `tested`
             kick, why = None, f"eine Live-Funktion nicht freigegeben ist: {exc}"
-        except ValueError as exc:  # KickSession refused the folder
-            kick, why = None, f"der Ausgabeordner abgelehnt wurde: {self._refusal(folder, exc)}"
+        except ValueError as exc:  # the check (before or in KickSession) refused the folder
+            kick, why = None, (f"der Ausgabeordner abgelehnt wurde: "
+                               f"{self._refusal(folder, exc, options['refused_roots'])}")
         except (ProjectCheckUnavailable, CapabilityError, OSError) as exc:
             kick, why = None, f"{type(exc).__name__}: {exc}"
         if kick is None:
@@ -428,12 +511,14 @@ class ChatSession:
         if self._orch is not None:  # same model and memory, new tools
             self._orch = self._make_orch(self._orch.model)
 
-    def _refusal(self, folder: Path, exc: Exception) -> str:
+    @staticmethod
+    def _refusal(folder: Path, exc: Exception, roots: Any) -> str:
         """German text of the folder refusal (the check's own result, else the error)."""
-        roots = self._session_options.get("refused_roots", default_refused_roots())
+        if isinstance(exc, _FolderRefused):
+            return str(exc)
         problem = output_folder_check(folder, refused_roots=roots)
         if problem is not None and hasattr(problem, "reason"):
-            return project_problem_text(problem)
+            return output_problem_text(problem)
         return str(exc)
 
     def _make_orch(self, model: ModelClient) -> Orchestrator:
