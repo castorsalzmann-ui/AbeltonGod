@@ -48,6 +48,15 @@ Download: GitHub → Actions → „Build exe“ → neuester Lauf auf `main` �
 9. Copilot-Seite: eine kurze Frage stellen: Antwort kommt, **kein** Konsolenfenster geht auf.
 10. `AbeltonGod-cli.exe kick --help` in einer Eingabeaufforderung: Hilfe erscheint.
 
+**Neu aus Sprint W2 (Parkplatz, 2026-11-07), weitere ~10 Minuten:**
+
+11. Perc-Seite: alle 9 Presets anhören (Conga, Bongo, Shaker, Cowbell, Clave, Hard-Groove-Toms). Passen sie in einen Techno-Loop, willst du die Toms überhaupt?
+12. FX-Seite: Tempo auf das deines Tracks stellen, `riser-8bar` und `reverse-crash` rendern, in Live auf einen Drop legen: endet der Riser auf dem Taktstrich? (Live kann lange Dateien automatisch warpen, #484.)
+13. Referenz-Seite: eine eigene Kick-WAV wählen, „Als Startwerte übernehmen“, rendern: ist der Vorschlag ein brauchbarer Startpunkt?
+14. Arrangement-Planer: Energiekurve zeichnen, „Exportieren“: Plan-Datei unter `Plans/`.
+15. Bibliothek: ein paar Samples „Favorit“ / „Passt nicht“ markieren, dann „Kit erstellen“ → „Aus Favoriten“ → „Kit exportieren“: Ordner unter `Samples/Kits/`.
+16. Copilot: „Mach mir drei dunkle Kicks für 140 BPM“, dann einen in Live importieren lassen: Bestätigungsdialog erscheint, Nein = nichts passiert, Ja = Clip in Live (bei gesetztem Projektordner als Kopie im Projekt).
+
 Jeder Punkt ist bisher nur automatisch (ohne Bildschirm bzw. gegen einen nachgebauten Live-Server) oder gar nicht geprüft; deine Rückmeldung ist der erste echte Beleg.
 
 ## Wenn du irgendwann testen willst (alles optional)

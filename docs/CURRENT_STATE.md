@@ -2,6 +2,14 @@
 
 _Last updated: 2026-11-05 (Endstand-Zeile unten) (Stand-Block unten, ältere Einträge teils historisch) · Written only by the lead session on `main` after a merge. Parallel tracks: `docs/ROADMAP.md` → Pipeline._
 
+## Stand 2026-11-07, nachmittags (Lead): Sprint W2 „Parkplatz“ (D-032)
+
+- **Plan:** `docs/sprints/2026-11-07_parking-lot-sprint.md`. Jeder PR unabhängig reviewt (≤ 2 Runden), CI Ubuntu + Windows grün, Gate = CI auf `main` vor dem nächsten Merge.
+- **Gemergt:** #479 (FX-Recherche, #476), #477 + #486 (Auswahl-Log: Vertrag choice-log v0.1, Bibliothek „Favorit/Passt nicht“, lokal `choices.jsonl`, nichts wird gesendet; #110), #478 + #488 (Kategorie `perc`: Vertrag, Engine, 9 Presets, Toms nur `hard-groove-*`; #475), #481 (Arrangement-Planer-Seite, Export `Plans/`; Refs #139), #485 (Referenz-Seite: eigene Kick-WAV → nächster von 48 Kandidaten, DC entfernt; #480/#58), #489 (BS.1770-Lautheit, mit pyloudnorm DeMan auf 1e-11 LU verglichen; #483), #490 + #499 + #505 (FX: Vertrag fx-params v0.1, Engine mit eigenen Polynom-Funktionen, Windows-Hashes gleich, GUI-Seite mit Tempo oben und grober Zeitwarnung; #482; Langsamkeit bei tiefen Tönen #503 offen), #495 (CLI-exe: laser, perc; fx über #505; #494), #497 (Formular: Defaults je `kind`; #492), #493 + #504 (Copilot-Seite mit echten Werkzeugen, GUI-Bestätigungsdialog Default Nein, Import kopiert ins Projekt; #491/#487/#500), #502 (Kit-Export `Samples/Kits/`, Vertrag kit v0.1, nur Kick Pflicht; #498).
+- **Rate-Limit:** zweimal ausgelaufen (Fr ~16:50, Sa ~13:00), danach fortgesetzt; höchstens 4–5 Agents.
+- **Nicht geprüft:** nichts gehört, nichts in Live, kein echter Claude-Aufruf aus der GUI, kein Lauf auf dem PC des Nutzers. Checkliste Punkte 11–16 in `docs/USER_GUIDE.md`.
+- **Offen:** #484 (Warp langer Riser, Nutzer), #496 (fx-Vertragstext: Engine-Entscheidungen), #501 (x-derived-default), #503 (schneller Ton-Generator), #506 (Copilot-Import-Nits), #422 (Laser-Alias). Fragen an den Nutzer: was vom Auswahl-Log an Claude darf (B6); Hörtest-Antworten ins echte Log?
+
 ## Stand 2026-11-06, abends (Lead): Sprint W1 „gesamte GUI integriert“
 
 - **Plan:** `docs/sprints/2026-11-06_weekend-gui-sprint.md`. Alle PRs unabhängig reviewt, CI Ubuntu + Windows grün, Gate = CI-Lauf auf `main` nach jedem Merge (2 Kerne; Lehre in CLAUDE.md nach #458/#461).
