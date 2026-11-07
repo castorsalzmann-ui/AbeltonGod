@@ -676,7 +676,11 @@ def test_tool_errors_go_back_to_the_model_and_count_declared_writes(make_guard, 
     assert [r.content["error"] for r in results] == ["tool_error", "internal_error"]
     assert results[0].content["message"] == "disk full"
     assert out.success is False and {"Werkzeug bad", "Werkzeug bug"} <= set(out.open)
-    assert out.usage == {}  # not a guard stop; usage only on guard outcomes
+    # #491: a failure that is not a guard stop carries the guard's own count up to it (the GUI
+    # status line shows it); the declared 3 files of the failed tool are counted
+    assert {k: out.usage[k] for k in ("model_calls", "tool_calls", "files_written",
+                                      "live_writes")} == {
+        "model_calls": 2, "tool_calls": 2, "files_written": 3, "live_writes": 0}
     # a failed tool may have written part of its files: the declared 3 are counted
     tool_entries = [e for e in log_entries(guard) if e["kind"] == "tool"]
     assert [(e["tool"], e["ok"], e["files_written"]) for e in tool_entries] == [

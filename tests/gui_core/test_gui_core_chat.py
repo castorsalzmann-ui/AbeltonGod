@@ -58,13 +58,15 @@ def test_ask_without_access_does_not_call_the_model(tmp_path):
 def test_chat_on_a_fake_model_answers_and_keeps_the_guard(tmp_path):
     model = FakeModel([{"text": "Hallo, ich plane mit dir."}])
     guard = Guard(log_path=tmp_path / "usage.jsonl")
-    session = ChatSession(tmp_path / ".env", model=model, guard=guard)
+    session = ChatSession(tmp_path / ".env", model=model, guard=guard,
+                          output_dir=tmp_path / "out", session_options={"refused_roots": ()})
     reply = session.ask("Hallo")
     assert reply.success and "Hallo, ich plane mit dir." in reply.text
     assert len(model.requests) == 1
-    # the plan tools of the terminal chat (no project folder) are what the model is offered
-    names = {t.name for t in model.requests[0].tools}
-    assert names and "generate_kick" not in names and "import_sample" not in names
+    # #491: the tools of the terminal chat with --project, written down here
+    names = [t.name for t in model.requests[0].tools]
+    assert names == ["generate_kick", "list_tracks", "import_sample", "generate_sample",
+                     "plan_arrangement"]
     assert guard.policy.profile("kick_generation").max_model_calls == 8  # policy file unchanged
 
 
@@ -72,7 +74,8 @@ def test_unreachable_model_is_a_german_failure_not_an_exception(tmp_path):
     model = FakeModel([{"error": "unavailable", "detail": "connection refused",
                         "request_sent": False}])
     session = ChatSession(tmp_path / ".env", model=model,
-                          guard=Guard(log_path=tmp_path / "usage.jsonl"))
+                          guard=Guard(log_path=tmp_path / "usage.jsonl"),
+                          output_dir=tmp_path / "out")
     reply = session.ask("Hallo")
     assert not reply.success and reply.text
     assert "Traceback" not in reply.text

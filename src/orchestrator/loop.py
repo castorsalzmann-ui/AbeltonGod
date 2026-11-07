@@ -15,6 +15,7 @@ failed tool all end as ``success=False`` with what was finished and what is stil
 from __future__ import annotations
 
 import math
+import threading
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
@@ -112,6 +113,9 @@ _FAILURE_DE = {
     "Internetverbindung. {changes} Kick-Engine und Ableton-Bridge funktionieren weiter ohne "
     "Claude.",
     "interrupted": "Abgebrochen (Strg+C). {changes}",
+    # #491: the GUI's cancel button, honoured at the next guard step (before a model or tool
+    # call); a model call that is already running is waited for, not cut off.
+    "cancelled": "Abgebrochen (Knopf Abbrechen). {changes}",
     "model_limit": "Claude hat die Anfrage an einer eigenen Grenze beendet ({detail}).",
     "model_protocol": "Die Antwort von Claude war nicht lesbar ({detail}).",
     "model_client_error": "Interner Fehler im Modell-Client ({detail}).",
@@ -247,6 +251,20 @@ class Orchestrator:
             estimate_cost_usd = getattr(model, "estimate_cost_usd", None)
         self._estimate = estimate_cost_usd or (lambda _request: None)
         self._unreachable: ModelUnreachable | None = None  # per request, set by _call_model
+        # #491: set from another thread (the GUI's cancel button); checked before every model
+        # call and every tool call of the running request, cleared when a request ends.
+        self._cancel = threading.Event()
+
+    def cancel(self) -> None:
+        """Ask the running request to stop at its next step (before the next model or tool
+        call). Thread-safe. A model call already in flight is not cut off: the request ends
+        when it returns (or at the guard's timeout). Pressed while no request runs, it stops
+        the next request before its first model call (the caller enables it only while busy)."""
+        self._cancel.set()
+
+    def _check_cancel(self) -> None:
+        if self._cancel.is_set():
+            raise _Abort("cancelled", "")
 
     def handle(self, text: str) -> Outcome:
         """Run one user request to its end. Never raises for model, tool or guard failures."""
@@ -255,6 +273,7 @@ class Orchestrator:
             self.memory.remember(text, self._said(outcome))
             return outcome
         finally:
+            self._cancel.clear()
             end = getattr(self.model, "end_request", None)
             if callable(end):
                 try:
@@ -323,6 +342,8 @@ class Orchestrator:
             open=still_open or (ANSWER_ITEM,),
             error=error,
             warnings=tuple(warnings),
+            # the guard's own count up to the failure (#491: the GUI status line shows it)
+            usage=req.usage() if req is not None else {},
         )
 
     # ----- internals ------------------------------------------------------------------------
@@ -352,6 +373,7 @@ class Orchestrator:
         handed = getattr(self.model, "tool_call_presented", None)
         presented = handed if callable(handed) else None
         while True:
+            self._check_cancel()
             response = self._call_model(req, messages, system)
             # One start for the whole turn: the confirmation window is per model turn, so time
             # spent on earlier calls of the turn counts (the CLI waits for all of them).
@@ -362,6 +384,7 @@ class Orchestrator:
             messages.append(AssistantMessage(response.text, response.tool_calls))
             results = []
             for call in response.tool_calls:
+                self._check_cancel()
                 results.append(self.toolbox.run(
                     req, call, self.approver,
                     turn_started=turn_started, still_waiting=still_waiting,
