@@ -145,10 +145,36 @@ def test_copy_is_removed_when_nothing_reached_live(tmp_path, fake):
     def take_slot():
         fake.tracks[2]["slots"][0] = "C:/someone.wav"
 
-    session, _ = make_chat(tmp_path, script(), fake, approver=Answer(True, take_slot),
-                           project=str(proj))
-    assert not session.ask("Clap in Spur 3").success
+    session, model = make_chat(tmp_path, script(), fake, approver=Answer(True, take_slot),
+                               project=str(proj))
+    reply = session.ask("Clap in Spur 3")
+    assert not reply.success
     assert writes(fake) == [] and project_files(proj) == []
+    # #506: the removed copy is not counted (only the 2 generated files are)
+    assert model.requests[2].messages[-1].results[0].content["copy"] == "removed"
+    assert "2 von 12 Dateien" in reply.budget
+
+
+def test_a_changed_copy_decision_with_the_same_target_is_refused(tmp_path, fake):
+    """#506 (reviewer mutant R3 of #504): between plan and yes an identical pair appears at the
+    target, so the re-plan says "reuse" instead of "copy" for the same path. The user
+    confirmed a copy: refused, nothing sent."""
+    proj = make_project(tmp_path)
+
+    def identical_pair_appears():
+        src = wavs(tmp_path / "out")[0]
+        target = proj.joinpath(*CLAPS, src.name)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(src.read_bytes())
+        target.with_suffix(".json").write_bytes(src.with_suffix(".json").read_bytes())
+
+    approver = Answer(True, identical_pair_appears)
+    session, model = make_chat(tmp_path, script(), fake, approver=approver, project=str(proj))
+    assert not session.ask("Clap in Spur 3").success
+    assert approver.asked[0].summary["copy_from"] is not None  # a copy was planned and shown
+    assert writes(fake) == []
+    result = model.requests[2].messages[-1].results[0].content
+    assert "changed since the plan" in result["message"] and result["live"] == "unchanged"
 
 
 def test_an_identical_copy_is_reused_and_a_different_file_is_never_overwritten(tmp_path, fake):

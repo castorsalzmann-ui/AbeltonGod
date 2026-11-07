@@ -86,7 +86,9 @@ class CategoryAdapter:
 
 ADAPTERS: Mapping[str, CategoryAdapter] = {
     "clap": CategoryAdapter("clap", "clap-params.schema.json", make_variants, noun="clap"),
-    "hat": CategoryAdapter("hat", "hat-params.schema.json", hat_variants, noun="hat"),
+    # #506: hat `model` (metal_bank / noise) is a text choice like perc model: preset only.
+    "hat": CategoryAdapter("hat", "hat-params.schema.json", hat_variants, noun="hat",
+                           preset_only=("model",)),
     "snare": CategoryAdapter("snare", "snare-params.schema.json", snare_variants, noun="snare"),
     "rim": CategoryAdapter("rim", "rim-params.schema.json", rim_variants, noun="rim"),
     "bass": CategoryAdapter("bass", "bass-params.schema.json", bass_variants, noun="bass"),
