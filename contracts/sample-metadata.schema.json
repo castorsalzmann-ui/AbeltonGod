@@ -36,7 +36,7 @@
         "hf_share_8k": { "type": ["number", "null"], "minimum": 0, "maximum": 1, "description": "v0.2. Share of the spectral energy above 8 kHz, 0 ... 1." },
         "t60_ms": { "type": ["number", "null"], "minimum": 0, "description": "v0.2. Time from the peak until the envelope has fallen 60 dB, ms, measured on the signal after a 30 Hz high-pass; null if it does not within the file." },
         "rise_time_ms": { "type": ["number", "null"], "minimum": 0, "description": "v0.2. Onset rise time, 10 % to 90 % of the peak envelope, ms." },
-        "boundary_frame": { "type": "integer", "minimum": 0, "description": "v0.2, fx only (required there, #482). Frame index of the musical boundary: round(length_beats * 60 * sample_rate / bpm) for anchor start (a riser's drop), the last frame for anchor end (reverse_crash). A placer aligns this frame with the event's bar line." },
+        "boundary_frame": { "type": "integer", "minimum": 0, "description": "v0.2, fx only (required there, #482). Frame index of the musical boundary, round(length_beats * 60 * sample_rate / bpm) for every kind: the first frame at the bar line. Anchor start (a riser's drop): the first frame of the tail. Anchor end (reverse_crash, no tail): the frame count N, one past the last frame N - 1. A placer aligns this frame index with the event's bar line." },
         "anchor": { "enum": ["start", "end"], "description": "v0.2, fx only (required there, #482). start = the file's first sample sits on the event beat; end = the file ends on it (reverse_crash)." }
       }
     },

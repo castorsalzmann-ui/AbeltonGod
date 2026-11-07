@@ -42,8 +42,8 @@ FX_RANGES = {
     "cutoff_start_hz": (20, 20000, None),
     "cutoff_end_hz": (20, 20000, None),
     "lp_ratio": (1.5, 16, 4),
-    "filter_q": (0.5, 12, 1.2),
-    "sweep_curve": (0.2, 6, 1),
+    "filter_q": (0.5, 12, None),
+    "sweep_curve": (0.2, 6, None),
     "level_start_db": (-60, 0, None),
     "level_end_db": (-60, 0, None),
     "level_curve": (0.2, 6, 1),
@@ -83,30 +83,32 @@ _TONE_OFF = {"tone_level": 0, "tone_decay_beats": 0}
 # off are placeholders so that turning the tone on gives a defined sound.
 KIND_DEFAULTS = {
     "riser": {"length_beats": 64, "tail_beats": 4, "filter_mode": "bp",
-              "cutoff_start_hz": 300, "cutoff_end_hz": 9000, "sweep_curve": 1.5,
+              "cutoff_start_hz": 300, "cutoff_end_hz": 9000, "filter_q": 1.2,
+              "sweep_curve": 1.5,
               "level_start_db": -36, "level_end_db": 0, **_TONE_OFF, "tone_wave": "sine",
               "tone_start_hz": 220, "tone_end_hz": 880, "reverb_mix": 0.3},
     "sweep": {"length_beats": 16, "tail_beats": 2, "filter_mode": "lp",
-              "cutoff_start_hz": 200, "cutoff_end_hz": 12000, "filter_q": 4,
+              "cutoff_start_hz": 200, "cutoff_end_hz": 12000, "filter_q": 4, "sweep_curve": 1,
               "level_start_db": -6, "level_end_db": 0, **_TONE_OFF, "tone_wave": "sine",
               "tone_start_hz": 220, "tone_end_hz": 880, "reverb_mix": 0.2},
     "downlifter": {"length_beats": 8, "tail_beats": 4, "filter_mode": "bp",
-                   "cutoff_start_hz": 8000, "cutoff_end_hz": 200, "sweep_curve": 0.7,
+                   "cutoff_start_hz": 8000, "cutoff_end_hz": 200, "filter_q": 1.2,
+                   "sweep_curve": 0.7,
                    "level_start_db": 0, "level_end_db": -36, **_TONE_OFF, "tone_wave": "saw",
                    "tone_start_hz": 400, "tone_end_hz": 60, "reverb_mix": 0.35},
     "impact": {"length_beats": 8, "tail_beats": 8, "filter_mode": "hp",
-               "cutoff_start_hz": 30, "cutoff_end_hz": 30, "filter_q": 0.7071,
+               "cutoff_start_hz": 30, "cutoff_end_hz": 30, "filter_q": 0.7071, "sweep_curve": 1,
                "level_start_db": 0, "level_end_db": -60, "ramp_beats": 0.25,
                "tone_level": 1, "tone_wave": "sine", "tone_start_hz": 150, "tone_end_hz": 40,
                "tone_glide_beats": 0.5, "tone_decay_beats": 6, "reverb_mix": 0.4},
     "noise_crash": {"length_beats": 16, "tail_beats": 4, "filter_mode": "hp",
                     "cutoff_start_hz": 1000, "cutoff_end_hz": 1000, "filter_q": 0.7071,
-                    "level_start_db": 0, "level_end_db": -60, **_TONE_OFF,
+                    "sweep_curve": 1, "level_start_db": 0, "level_end_db": -60, **_TONE_OFF,
                     "tone_wave": "sine", "tone_start_hz": 150, "tone_end_hz": 40,
                     "reverb_mix": 0.3},
     "reverse_crash": {"length_beats": 4, "tail_beats": 0, "filter_mode": "hp",
                       "cutoff_start_hz": 3000, "cutoff_end_hz": 3000, "filter_q": 0.7071,
-                      "level_start_db": -60, "level_end_db": 0, "tone_level": 0.5,
+                      "sweep_curve": 1, "level_start_db": -60, "level_end_db": 0, "tone_level": 0.5,
                       "tone_wave": "metal", "tone_start_hz": 205.3, "tone_end_hz": 205.3,
                       "tone_decay_beats": 0, "reverb_mix": 0.3},
 }
@@ -218,9 +220,10 @@ def test_every_kind_resolves_every_field() -> None:
     per_kind = {n for n, p in FX["properties"].items() if "default" not in p} - {
         "schema_version", "seed", "bpm", "preset"}
     assert per_kind == {"length_beats", "tail_beats", "filter_mode", "cutoff_start_hz",
-                        "cutoff_end_hz", "level_start_db", "level_end_db", "ramp_beats",
-                        "tone_level", "tone_wave", "tone_start_hz", "tone_end_hz",
-                        "tone_glide_beats", "tone_decay_beats", "reverb_mix"}
+                        "cutoff_end_hz", "filter_q", "sweep_curve", "level_start_db",
+                        "level_end_db", "ramp_beats", "tone_level", "tone_wave",
+                        "tone_start_hz", "tone_end_hz", "tone_glide_beats", "tone_decay_beats",
+                        "reverb_mix"}
     for kind in KINDS:
         branch_fields = set(KIND_DEFAULTS[kind])
         assert per_kind - DERIVED <= branch_fields, kind
@@ -231,6 +234,46 @@ def test_every_kind_resolves_every_field() -> None:
     assert (impact["ramp_beats"], impact["tone_glide_beats"]) == (0.25, 0.5)
     riser = resolve(BASE)
     assert (riser["ramp_beats"], riser["tone_glide_beats"]) == (64, 64)
+
+
+def test_no_field_has_both_a_top_level_and_a_branch_default() -> None:
+    """Under the documented order (top level first, then the branch, each filling only missing
+    keys) a branch default next to a top-level default would never take effect (#490 review)."""
+    top = {n for n, p in FX["properties"].items() if "default" in p}
+    for branch in FX["allOf"]:
+        in_branch = {n for n, p in branch["then"]["properties"].items() if "default" in p}
+        assert not top & in_branch, (branch["if"], top & in_branch)
+
+
+# Fully RESOLVED values per kind, written by hand (not read from the branches): the fields whose
+# default differs between kinds, plus the derived ones and a few top-level ones.
+RESOLVED = {
+    "riser": {"filter_q": 1.2, "sweep_curve": 1.5, "length_beats": 64, "ramp_beats": 64,
+              "filter_mode": "bp", "cutoff_end_hz": 9000, "level_start_db": -36,
+              "level_curve": 1, "peak_ceiling_dbfs": -1.0},
+    "sweep": {"filter_q": 4, "sweep_curve": 1, "filter_mode": "lp", "tail_beats": 2,
+              "tone_glide_beats": 16},
+    "downlifter": {"filter_q": 1.2, "sweep_curve": 0.7, "cutoff_start_hz": 8000,
+                   "tone_wave": "saw", "ramp_beats": 8},
+    "impact": {"filter_q": 0.7071, "sweep_curve": 1, "ramp_beats": 0.25,
+               "tone_glide_beats": 0.5, "tone_decay_beats": 6, "tone_level": 1},
+    "noise_crash": {"filter_q": 0.7071, "sweep_curve": 1, "cutoff_start_hz": 1000,
+                    "level_end_db": -60, "ramp_beats": 16},
+    "reverse_crash": {"filter_q": 0.7071, "sweep_curve": 1, "tail_beats": 0,
+                      "tone_wave": "metal", "level_start_db": -60, "ramp_beats": 4},
+}
+
+
+@pytest.mark.parametrize("kind", KINDS)
+def test_resolved_values_per_kind(kind: str) -> None:
+    resolved = resolve({**BASE, "kind": kind})
+    for name, value in RESOLVED[kind].items():
+        assert resolved[name] == value, (kind, name)
+    if kind == "riser":  # omitted kind resolves exactly like riser
+        assert resolve(BASE)["sweep_curve"] == 1.5
+        assert resolve(BASE)["filter_q"] == 1.2
+    # a given value always beats the kind default
+    assert resolve({**BASE, "kind": kind, "filter_q": 9})["filter_q"] == 9
 
 
 def test_defaults_satisfy_the_cross_field_rules_at_every_tempo() -> None:
@@ -262,8 +305,15 @@ def test_boundary_frames_by_hand() -> None:
     text = FX["$comment"]
     for needle in ("round((length_beats + tail_beats) * 60 * sample_rate / bpm) frames",
                    "round(length_beats * 60 * sample_rate / bpm)", "anchor end",
-                   "boundary - length_beats"):
+                   "boundary - length_beats", "for EVERY kind",
+                   "it equals the frame count N, one past its last frame N - 1",
+                   "boundary_frame = N"):
         assert needle in text, needle
+    # reverse_crash default (4 beats, no tail) at 135 BPM, 48 kHz: boundary_frame = N = 85333,
+    # one past the last frame index 85332
+    assert round(4 * 60 * 48000 / 135) == round((4 + 0) * 60 * 48000 / 135) == 85333
+    desc = META["properties"]["features"]["properties"]["boundary_frame"]["description"]
+    assert "for every kind" in desc and "one past the last frame N - 1" in desc
 
 
 def test_fx_random_values_inside_and_outside_range() -> None:
