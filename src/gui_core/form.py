@@ -219,17 +219,19 @@ def selector_branches(schema: dict[str, Any]) -> list[SelectorBranch]:
     return out
 
 
-_DERIVED = re.compile(r"Omitted = ([a-z_][a-z_0-9]*) \(derived default\)")
+DERIVED_KEY = "x-derived-default"  # contract annotation: name of the source field (#501)
 
 
 def derived_defaults(schema: dict[str, Any]) -> dict[str, str]:
-    """``{field: source}`` for fields whose contract text says "Omitted = <source> (derived
-    default)" (fx ``ramp_beats`` -> ``length_beats``). A branch default wins over this."""
+    """``{field: source}`` for fields with the contract annotation ``x-derived-default``
+    (fx ``ramp_beats`` -> ``length_beats``). A branch default wins over this. The description
+    text says the same in words but is not parsed (#501)."""
     out: dict[str, str] = {}
-    for name, d in schema.get("properties", {}).items():
-        m = _DERIVED.search(str(d.get("description", "")))
-        if m and m.group(1) in schema["properties"] and m.group(1) != name:
-            out[name] = m.group(1)
+    props = schema.get("properties", {})
+    for name, d in props.items():
+        source = d.get(DERIVED_KEY)
+        if isinstance(source, str) and source in props and source != name:
+            out[name] = source
     return out
 
 
