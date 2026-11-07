@@ -40,6 +40,7 @@ class ValueMap:
     zero_off: bool = False
     unit: str = ""
     steps: int = MAX_STEPS  # positions between minimum and maximum (not counting "off")
+    grid: float = 0.0  # contract multipleOf: every position is a multiple of it (0 = none)
 
     # --- positions -----------------------------------------------------------------------
     @property
@@ -55,6 +56,9 @@ class ValueMap:
     def decimals(self) -> int:
         if self.integer:
             return 0
+        if self.grid:  # 0.25 -> 2 decimals
+            text = repr(self.grid)
+            return len(text.split(".")[1].rstrip("0")) if "." in text else 0
         span = self.maximum - self.minimum
         return max(0, min(6, math.ceil(-math.log10(span / self.steps))))
 
@@ -62,6 +66,18 @@ class ValueMap:
         if self.zero_off and value == 0:
             return 0
         return min(max(value, self.minimum), self.maximum)
+
+    def snap(self, value: float, lo: float | None = None, hi: float | None = None) -> float:
+        """The nearest multiple of ``grid`` inside ``[lo, hi]`` (default: the range); the value
+        itself without a grid. A typed 12.8 beats becomes 12.75 (fx, #482)."""
+        if not self.grid:
+            return value
+        lo = self.minimum if lo is None else lo
+        hi = self.maximum if hi is None else hi
+        g = self.grid
+        out = round(value / g) * g
+        out = min(max(out, math.ceil(lo / g - 1e-9) * g), math.floor(hi / g + 1e-9) * g)
+        return round(out, self.decimals)
 
     def from_pos(self, pos: int) -> float | int:
         pos = min(max(int(pos), 0), self.pos_max)
@@ -73,6 +89,8 @@ class ValueMap:
             value = _round_sig(value, 3)
         else:
             value = self.minimum + t * (self.maximum - self.minimum)
+            if self.grid:
+                value = round(value / self.grid) * self.grid
             value = round(value, self.decimals)
         value = self.clamp(value)
         return int(round(value)) if self.integer else float(value)
@@ -120,4 +138,8 @@ def map_of(spec: FieldSpec) -> ValueMap:
     steps = MAX_STEPS
     if integer and hi - lo <= MAX_STEPS:
         steps = int(hi - lo)
-    return ValueMap(lo, hi, integer, log, spec.zero_ok, spec.unit, max(1, steps))
+    grid = float(spec.step) if spec.step else 0.0
+    if grid and not integer:  # one position per grid step, linear (fx beats, #482)
+        log = False
+        steps = min(MAX_STEPS, int(round((hi - lo) / grid)))
+    return ValueMap(lo, hi, integer, log, spec.zero_ok, spec.unit, max(1, steps), grid)

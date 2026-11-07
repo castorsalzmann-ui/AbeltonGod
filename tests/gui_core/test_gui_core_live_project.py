@@ -32,7 +32,8 @@ FOLDERS = {"kick": ("Samples", "Drums", "Kicks"), "clap": ("Samples", "Drums", "
            "hat": ("Samples", "Drums", "Hats"), "snare": ("Samples", "Drums", "Snares"),
            "rim": ("Samples", "Drums", "Rims"), "bass": ("Samples", "Bass"),
            "laser": ("Samples", "FX", "Lasers"),
-           "perc": ("Samples", "Drums", "Percs")}  # written out, not taken from the layout
+           "perc": ("Samples", "Drums", "Percs"),
+           "fx": ("Samples", "FX", "Transitions")}  # written out, not taken from the layout
 
 
 @pytest.fixture

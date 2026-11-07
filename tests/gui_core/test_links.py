@@ -5,6 +5,7 @@ The references here are written in the test or taken straight from ``get_categor
 
 from __future__ import annotations
 
+import math
 import random
 
 import pytest
@@ -148,6 +149,10 @@ def test_limits_hold_the_engine_to_the_edge_for_every_category_and_random_state(
                     value = round(value)
                 lim = links.limit_of(m, name)
                 value = min(max(value, lim.lo), lim.hi)
+                if spec.step:  # fx beats: the slider only gives multiples of 0.25 (#482)
+                    value = min(max(round(value / spec.step) * spec.step,
+                                    math.ceil(lim.lo / spec.step) * spec.step),
+                                math.floor(lim.hi / spec.step) * spec.step)
                 m.set_text(name, repr(value) if spec.kind == "float" else str(value))
                 assert m.cross_issue() is None, (category, name, value)
             for name in names:

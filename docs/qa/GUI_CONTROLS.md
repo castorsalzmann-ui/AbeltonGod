@@ -49,7 +49,7 @@ without category / three output layouts. Already filed before: #413, #414, #439.
 | `main · QPushButton · Stopp` | `MainWindow.stop` | Stops playback |
 | `main · QPushButton · Wählen …` | `MainWindow._choose_folder` | Folder dialog for the output folder |
 
-### Main window: category pages `kick`, `hat`, `snare`, `clap`, `rim`, `bass`, `laser`, `perc`
+### Main window: category pages `kick`, `hat`, `snare`, `clap`, `rim`, `bass`, `laser`, `perc`, `fx`
 
 The seven category pages are built by `CategoryPanel` from the category's contract; their rows
 differ only in the area. Handler and effect per kind:
@@ -150,6 +150,17 @@ differ only in the area. Handler and effect per kind:
 | `perc · SeedControl · *` | `CategoryPanel._edited` | Seed field |
 | `perc · Segmented/QPushButton · *` | `Segmented` -> `chosen` -> `ChoiceControl._chosen` | One button per enum choice |
 | `perc · WrapSegmented/QPushButton · *` | `WrapSegmented` -> `chosen` -> `ChoiceControl._chosen` | Enum with many choices, wrapping (model) |
+| `fx · ChoiceControl · *` | `CategoryPanel._edited` / `_active_toggled` | Enum field |
+| `fx · ChoiceControl/ActiveDot · *` | `ParamControl` -> `activeToggled` | Dot of an enum field |
+| `fx · Collapsible · *` | self-contained | Section shows / hides its fields (Erweitert, Rauschen und Filter, Pegel, Ton, Delay, Reverb) |
+| `fx · Collapsible/QToolButton · *` | `Collapsible` (internal) | Section header |
+| `fx · NumberControl · *` | `CategoryPanel._edited` / `_committed` / `_active_toggled` / `_reset` | Number field (Tempo on top, #482) |
+| `fx · NumberControl/ActiveDot · *` | `ParamControl` -> `activeToggled` | Dot of a number field |
+| `fx · PresetChips · *` | `CategoryPanel._preset_chosen` | Preset chips row |
+| `fx · PresetChips/QPushButton · *` | `PresetChips` -> `chosen` | One chip per preset |
+| `fx · SeedControl · *` | `CategoryPanel._edited` | Seed field |
+| `fx · Segmented/QPushButton · *` | `Segmented` -> `chosen` -> `ChoiceControl._chosen` | One button per enum choice |
+| `fx · WrapSegmented/QPushButton · *` | `WrapSegmented` -> `chosen` -> `ChoiceControl._chosen` | Enum with many choices, wrapping (kind) |
 
 ### Main window: Bibliothek
 

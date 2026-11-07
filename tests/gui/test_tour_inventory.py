@@ -110,7 +110,7 @@ def test_inventory_document_lists_exactly_the_controls_of_the_gui(controls):
 
 def test_inventory_covers_every_page_and_window(controls):
     areas = {c.area for c in controls}
-    assert areas == {"main", "kick", "hat", "snare", "clap", "rim", "bass", "laser", "perc",
+    assert areas == {"main", "kick", "hat", "snare", "clap", "rim", "bass", "laser", "perc", "fx",
                      "library", "goa-page", "planner", "live", "chat", "reference", "goa",
                      "acid", "blaster"}
 

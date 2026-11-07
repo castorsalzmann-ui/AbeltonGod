@@ -17,14 +17,14 @@ from audio_engine.categories import get_category
 from audio_engine.params import CONTRACTS_DIR, load_schema
 from audio_engine.presets import describe, load_preset, preset_names
 
-CATEGORY_KEYS = ("kick", "hat", "snare", "clap", "rim", "bass", "laser", "perc")
+CATEGORY_KEYS = ("kick", "hat", "snare", "clap", "rim", "bass", "laser", "perc", "fx")
 # Contract fields the form does not edit as a value: the format version is derived, the preset
 # name has its own drop-down.
 HIDDEN_FIELDS = ("schema_version", "preset")
 ALWAYS_ACTIVE = ("seed", "variants")
 DEFAULT_PRESETS = {
     "kick": "punchy", "hat": "closed-std", "snare": "default", "clap": "default",
-    "rim": "rim", "bass": "default", "laser": "blaster", "perc": "conga",
+    "rim": "rim", "bass": "default", "laser": "blaster", "perc": "conga", "fx": "riser-8bar",
 }
 DEFAULT_PRESET = DEFAULT_PRESETS["kick"]
 YES, NO = "ja", "nein"
@@ -94,8 +94,19 @@ LABELS_DE: dict[str, str] = {
     "tune_semitones": "Stimmung", "decay_scale": "Abfall-Faktor",
     "attack_scale": "Anstiegs-Faktor", "bend_ratio": "Glide-Verhältnis", "bend_ms": "Glide-Zeit",
     "tick_level": "Tick-Pegel", "tick_hz": "Tick-Frequenz",
+    # fx (#482)
+    "kind": "Art", "tail_beats": "Ausklang nach dem Ziel", "cut_beats": "Pause vor dem Ziel",
+    "pump_depth": "Pump-Tiefe", "noise_color": "Rauschfarbe", "filter_mode": "Filter-Art",
+    "cutoff_start_hz": "Filter Start", "cutoff_end_hz": "Filter Ende",
+    "lp_ratio": "Tiefpass-Verhältnis", "filter_q": "Filter-Güte (Q)",
+    "level_start_db": "Pegel Start", "level_end_db": "Pegel Ende", "level_curve": "Pegel-Kurve",
+    "ramp_beats": "Pegel-Rampe", "tone_level": "Ton-Pegel", "tone_wave": "Ton-Wellenform",
+    "tone_start_hz": "Ton Start", "tone_end_hz": "Ton Ende", "tone_glide_beats": "Ton-Glide",
+    "tone_decay_beats": "Ton-Abfall", "echo_note": "Echo-Notenwert",
 }
-_UNIT_BY_NAME = {"bpm": "BPM", "length_beats": "Beats", "tail_note": "MIDI", "note": "MIDI",
+_UNIT_BY_NAME = {"bpm": "BPM", "length_beats": "Beats", "tail_beats": "Beats",
+                 "cut_beats": "Beats", "ramp_beats": "Beats", "tone_glide_beats": "Beats",
+                 "tone_decay_beats": "Beats", "tail_note": "MIDI", "note": "MIDI",
                  "cents": "Cent", "bursts": "", "rate_div": "", "salvo_pitch_step_st": "st",
                  "salvo_count": "", "glitch_steps": "", "tune_semitones": "st"}
 _UNIT_BY_SUFFIX = (("_dbfs", "dBFS"), ("_db", "dB"), ("_ms", "ms"), ("_hz", "Hz"))
@@ -114,6 +125,7 @@ class FieldSpec:
     description: str  # contract text, shown as tooltip
     gate_version: str | None = None  # lives in the branch of this schema_version
     zero_ok: bool = False  # 0 = "off" besides the range (hat choke_ms, clap gate_ms)
+    step: float | None = None  # contract ``multipleOf`` (fx lengths: 0.25 beat, #482)
 
     @property
     def optional_v03(self) -> bool:  # kept for the first GUI's name
@@ -165,6 +177,7 @@ def _spec(name: str, d: dict[str, Any], gate: str | None) -> FieldSpec:
         name=name, label=LABELS_DE.get(name, name), kind=kind, minimum=lo, maximum=hi,
         default=d.get("default"), choices=choices, unit=_unit(name),
         description=str(d.get("description", "")), gate_version=gate, zero_ok=zero_ok,
+        step=d.get("multipleOf"),
     )
 
 
@@ -307,6 +320,9 @@ class CategoryFormModel:
         self.text: dict[str, str] = {}
         self.active: set[str] = set()
         self._schema = load_schema(schema_path(category))
+        # Always sent: seed, variants and every field the contract requires (fx: bpm, #482).
+        required = set(self._schema.get("required", ())) & set(self._by_name)
+        self.locked: frozenset[str] = frozenset(ALWAYS_ACTIVE) | frozenset(required)
         self._versions = list(self._schema["properties"]["schema_version"].get("enum", []))
         self.preset = ""
         self._preset_values: dict[str, Any] = {}
@@ -319,8 +335,18 @@ class CategoryFormModel:
         else:
             self.set_preset(preset or DEFAULT_PRESETS[category])
 
+    @classmethod
+    def without_preset(cls, category: str) -> CategoryFormModel:
+        """A form at the contract's own defaults (no preset values, no preset name sent)."""
+        m = cls(category)
+        m.preset = ""
+        m._preset_values = {}
+        m.text = {}
+        m._start_without_preset()
+        return m
+
     def _start_without_preset(self) -> None:
-        self.active = {"seed", "variants"} & set(self._by_name)
+        self.active = set(self.locked)
         self._defaults = self._resolved_defaults()
         for spec in self.specs:
             self.text[spec.name] = self._placeholder(spec)
@@ -341,7 +367,7 @@ class CategoryFormModel:
         values = load_preset(name, self.category)  # UnknownPresetError for a made-up name
         self.preset = name
         self._preset_values = values
-        self.active = {"seed", "variants"}
+        self.active = set(self.locked)
         for spec in self.specs:
             if spec.name in values:
                 self.text[spec.name] = _text_of(spec, values[spec.name])
@@ -412,7 +438,7 @@ class CategoryFormModel:
         if name in self._preset_values:
             self.text[name] = _text_of(spec, self._preset_values[name])
             self.active.add(name)
-        elif name not in ALWAYS_ACTIVE:
+        elif name not in self.locked:
             self.active.discard(name)
             self._refresh_defaults()
             self.text[name] = self._placeholder(spec)
@@ -420,7 +446,7 @@ class CategoryFormModel:
         self._refresh_defaults()
 
     def set_active(self, name: str, on: bool) -> None:
-        if name in ALWAYS_ACTIVE:
+        if name in self.locked:
             return
         self._by_name[name]
         (self.active.add if on else self.active.discard)(name)

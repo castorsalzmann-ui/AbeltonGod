@@ -15,6 +15,7 @@ from PySide6.QtWidgets import QLabel, QScrollArea, QSizePolicy, QVBoxLayout, QWi
 from gui_core import links
 from gui_core.form import ALWAYS_ACTIVE, CategoryFormModel, FieldSpec, _text_of
 from gui_core.form_layout import main_choices, main_controls
+from gui_core.fx_cost import cost_note
 
 from .widgets import (
     BoolControl,
@@ -33,17 +34,25 @@ from .widgets import (
 IDLE_BATCH = 4  # stale sliders probed per idle tick (#434: ~3 resolves each, a few ms)
 LASER_GROUPS = (("salvo_", "Salve"), ("filter_", "Filter"), ("hp_", "Filter"), ("lp_", "Filter"),
                 ("echo_", "Delay"), ("reverb_", "Reverb"))
+FX_GROUPS = (("noise_", "Rauschen und Filter"), ("filter_", "Rauschen und Filter"),
+             ("cutoff_", "Rauschen und Filter"), ("lp_ratio", "Rauschen und Filter"),
+             ("sweep_", "Rauschen und Filter"), ("level_", "Pegel"), ("ramp_", "Pegel"),
+             ("pump_", "Pegel"), ("tone_", "Ton"), ("echo_", "Delay"), ("reverb_", "Reverb"))
+GROUPS = {"laser": LASER_GROUPS, "fx": FX_GROUPS}
+FX_BPM_HINT = ("Tempo des Tracks einstellen: die Längen sind in Beats, sonst endet das FX nicht "
+               "auf dem Taktstrich in Live.")
 
 
 def _field_groups(category: str, specs: list[FieldSpec]) -> dict[str, list[FieldSpec]]:
-    """Laser: the salvo, filter, delay and reverb fields of the contract, each group its own
-    collapsible section (grouped by the contract's field-name prefix, so a new field with such a
-    prefix lands in its group). Other categories have no groups."""
-    if category != "laser":
+    """Laser and fx: groups of contract fields, each its own collapsible section (grouped by
+    the contract's field-name prefix, so a new field with such a prefix lands in its group).
+    Other categories have no groups."""
+    table = GROUPS.get(category)
+    if table is None:
         return {}
     out: dict[str, list[FieldSpec]] = {}
-    for label in dict.fromkeys(g for _, g in LASER_GROUPS):  # group order of the table
-        prefixes = tuple(p for p, g in LASER_GROUPS if g == label)
+    for label in dict.fromkeys(g for _, g in table):  # group order of the table
+        prefixes = tuple(p for p, g in table if g == label)
         members = [s for s in specs if s.name.startswith(prefixes)]
         if members:
             out[label] = members
@@ -91,6 +100,19 @@ class CategoryPanel(QScrollArea):
         self.preset_text = muted()
         lay.addWidget(self.preset_text)
 
+        # fx (#482): all lengths are in beats, so the tempo is shown on top with a hint.
+        self.top_fields: tuple[str, ...] = ("bpm",) if model.category == "fx" else ()
+        self.cost_label: QLabel | None = None
+        if self.top_fields:
+            lay.addWidget(heading("Tempo"))
+            for name in self.top_fields:
+                lay.addWidget(self._make(model.spec(name), main=False))
+            bpm_hint = muted(FX_BPM_HINT)
+            bpm_hint.setObjectName("bpmhint")
+            bpm_hint.setWordWrap(True)
+            bpm_hint.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Minimum)
+            lay.addWidget(bpm_hint)
+
         lay.addWidget(heading("Hauptregler"))
         for name in main_choices(model.category):
             lay.addWidget(self._make(model.spec(name), main=True))
@@ -125,13 +147,21 @@ class CategoryPanel(QScrollArea):
         lay.addWidget(heading("Ausgabe"))
         for name in ALWAYS_ACTIVE:
             lay.addWidget(self._make(model.spec(name), main=False))
+        if model.category == "fx":  # render-time note before rendering (#503), never blocks
+            self.cost_label = QLabel()
+            self.cost_label.setObjectName("costhint")
+            self.cost_label.setWordWrap(True)
+            self.cost_label.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Minimum)
+            self.cost_label.hide()
+            lay.addWidget(self.cost_label)
 
         self.advanced = Collapsible("Erweitert")
         body = QVBoxLayout(self.advanced.body)
         body.setContentsMargins(0, 0, 0, 0)
         body.setSpacing(4)
         extra = [s for s in model.specs if s.name not in self.main_names
-                 and s.name not in ALWAYS_ACTIVE and s.name not in main_choices(model.category)]
+                 and s.name not in ALWAYS_ACTIVE and s.name not in main_choices(model.category)
+                 and s.name not in self.top_fields]
         groups = _field_groups(model.category, extra)
         grouped = {s.name for members in groups.values() for s in members}
         extra = [s for s in extra if s.name not in grouped]
@@ -175,7 +205,7 @@ class CategoryPanel(QScrollArea):
         elif main and spec.name in self.main_names:
             c = NumberControl(spec, style="knob", accent=True)
         else:
-            c = NumberControl(spec, style="row", always_active=spec.name in ALWAYS_ACTIVE)
+            c = NumberControl(spec, style="row", always_active=spec.name in self.model.locked)
         c.edited.connect(self._edited)
         if isinstance(c, NumberControl):
             c.limitsWanted.connect(self._ensure_limit)
@@ -337,8 +367,17 @@ class CategoryPanel(QScrollArea):
                     c.set_limits(lim.lo, lim.hi, lim.reason)
                 c.set_derived_note(derived.notes.get(name, ""))
             self._show_links(self._lims, links_issue=model.cross_issue())
+            self._show_cost()
         finally:
             self._syncing = was
+
+    def _show_cost(self) -> None:
+        """fx: the rough render-time note of the current request (#503); hidden otherwise."""
+        if self.cost_label is None:
+            return
+        text = cost_note(self.model)
+        self.cost_label.setText(text)
+        self.cost_label.setVisible(bool(text))
 
     def _show_value(self, c: ParamControl, active: bool, derived: links.Derived) -> None:
         spec = c.spec

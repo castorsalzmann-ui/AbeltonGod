@@ -17,7 +17,7 @@ KINDS = FX["properties"]["kind"]["enum"]
 
 
 def fx(kind: str | None = None) -> CategoryFormModel:
-    m = CategoryFormModel("fx")
+    m = CategoryFormModel.without_preset("fx")  # contract defaults (fx has presets since #482)
     if kind is not None:
         m.set_active("kind", True)
         m.set_text("kind", kind)
@@ -115,7 +115,7 @@ def _old_placeholder(spec):
     return repr(spec.minimum) if isinstance(spec.minimum, float) else str(spec.minimum)
 
 
-@pytest.mark.parametrize("category", CATEGORY_KEYS)
+@pytest.mark.parametrize("category", [c for c in CATEGORY_KEYS if c != "fx"])  # fx: kind-aware
 def test_existing_categories_keep_their_placeholders_and_requests(category):
     rng = random.Random(f"keep-{category}")
     for preset in preset_names(category):

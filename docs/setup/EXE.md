@@ -81,7 +81,7 @@ AbeltonGod-cli.exe --gui-selftest      # startet die Oberflaeche ohne Bildschirm
 
 | Werkzeug | entspricht |
 | --- | --- |
-| kick, hat, snare, clap, rim, bass, laser, perc | `python -m audio_engine.kick [--category ...]` (laser: Stereo-WAV; laser und perc in der CI mit gleicher SHA-256 wie `python -m` geprueft) |
+| kick, hat, snare, clap, rim, bass, laser, perc, fx | `python -m audio_engine.kick [--category ...]` (laser und fx: Stereo-WAV; fx: `--set bpm=<Tempo des Tracks>`, die Presets sind mit 135 BPM gespeichert; laser, perc und fx in der CI mit gleicher SHA-256 wie `python -m` geprueft) |
 | goa-arrangement, goa-melody, goa-patterns, arrangement-midi | `python -m audio_engine.<name>` |
 | live-import, kick-to-live, bridge-check, arrangement-check, install-abletonosc, als-inspect | `python scripts/<name>.py` |
 | plan, chat | `python -m orchestrator.plan_cli`, `python -m orchestrator.chat` |
