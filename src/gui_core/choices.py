@@ -10,8 +10,9 @@ anything anywhere.
 * :meth:`ChoiceLog.append` validates the entry against the contract and appends it as one line
   with a single write. A line a crash left without its newline is closed first, so the new
   entry always starts on its own line (the broken line is then skipped by readers).
-* :meth:`ChoiceLog.read` never stops at a bad line: invalid UTF-8, invalid JSON and entries the
-  contract refuses are skipped and counted. It never repairs the file.
+* :meth:`ChoiceLog.read` never stops at a bad line: invalid UTF-8, invalid JSON, entries the
+  contract refuses and times that are not a real instant (2026-02-30, which the contract's
+  pattern lets through) are skipped and counted. It never repairs the file.
 * :func:`current_verdicts` is the newest entry per SHA-256 by parsed instant (equal instants:
   the later line), never by comparing the time strings.
 
@@ -138,8 +139,7 @@ def make_entry(wav: Path, output_dir: Path, verdict: str, note: str = "",
         "sidecar": sidecar,
         "source": "gui",
     }
-    note = note.strip()
-    if note:
+    if note.strip():  # verbatim, as the user typed it; a blank note is left out
         entry["note"] = note
     found = problems(entry)
     if found:
@@ -167,6 +167,11 @@ def parse_lines(data: bytes) -> LogRead:
             res.skipped += 1
             continue
         if problems(entry):
+            res.skipped += 1
+            continue
+        try:  # the pattern has no calendar check: 2026-02-30 passes it (#486 review)
+            instant(entry["time"])
+        except ValueError:
             res.skipped += 1
             continue
         res.entries.append(entry)
@@ -198,6 +203,10 @@ class ChoiceLog:
         written) or ``OSError`` (disk); a short write leaves at most one unterminated line,
         which the next append closes and readers skip."""
         found = problems(entry)
+        try:
+            instant(entry["time"])
+        except (ValueError, KeyError, TypeError, AttributeError):
+            found = found or ["time: kein gültiger Zeitpunkt"]
         if found:
             raise ChoiceError("Eintrag passt nicht zum Format: " + found[0])
         data = encode(entry)

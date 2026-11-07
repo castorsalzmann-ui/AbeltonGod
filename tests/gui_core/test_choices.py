@@ -52,7 +52,9 @@ def test_entry_from_a_sidecar_copies_parameters_verbatim(out):
                            "category": "kick"}
     assert e["sidecar"] == {"engine": {"name": "abeltongod-audio-engine", "version": "0.0.1"},
                             "preset": None, "seed": 5, "parameters": side["parameters"]}
-    assert e["note"] == "zu dumpf" and e["source"] == "gui" and e["time"] == NOW
+    assert e["note"] == "  zu dumpf  "  # verbatim (contract), not stripped
+    assert e["source"] == "gui" and e["time"] == NOW
+    assert "note" not in make_entry(wav, out, "favourite", "   ", now=NOW)  # blank: left out
 
 
 def test_entry_without_sidecar(out):
@@ -104,6 +106,11 @@ def test_refused_entry_writes_nothing(out, tmp_path):
     e["verdict"] = "Favorit"
     with pytest.raises(ChoiceError):
         log.append(e)
+    e = make_entry(out / "loose.wav", out, "favourite", now=NOW)
+    e["time"] = "2026-02-30T10:00:00Z"  # passes the pattern, no such day
+    assert list(CONTRACT.iter_errors(e)) == []
+    with pytest.raises(ChoiceError):
+        log.append(e)
     assert not log.path.exists()
 
 
@@ -116,12 +123,15 @@ def test_reader_skips_and_counts_bad_lines(tmp_path):
         b"\xff\xfe broken utf-8",
         b'{"schema_version": "0.1"}',  # JSON, refused by the contract
         b"[]",
+        # #486 review: contract-valid by pattern, but no such day; crashed the panel.
+        good[0].replace(b'"2026-11-07T09:12:30Z"', b'"2026-02-30T10:00:00Z"'),
         good[1],
     ]) + b"\n"
+    assert b"2026-02-30" in data
     path = tmp_path / "choices.jsonl"
     path.write_bytes(data)
     res = ChoiceLog(path).read()
-    assert res.skipped == 5
+    assert res.skipped == 6
     assert res.entries == [json.loads(good[0]), json.loads(good[1])]
     assert path.read_bytes() == data  # never repaired
 

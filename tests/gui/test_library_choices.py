@@ -119,6 +119,24 @@ def test_log_survives_a_new_panel_and_bad_lines_are_counted(qapp, out, tmp_path)
     assert "1 fehlerhafte Zeilen übersprungen" in q.choice_info.text()
 
 
+def test_panel_builds_with_an_impossible_date_in_the_log(qapp, out, tmp_path):
+    """#486 review: a line with 2026-02-30 passes the schema pattern and crashed
+    LibraryPanel.__init__ (the app did not start). It must be skipped and counted."""
+    log = tmp_path / "choices.jsonl"
+    p = panel_for(out, log)
+    select(p, "k1.wav")
+    p.favourite_button.click()
+    good = log.read_text(encoding="utf-8").splitlines()[0]
+    entry = json.loads(good)
+    entry["time"] = "2026-02-30T10:00:00Z"
+    with open(log, "a", encoding="utf-8") as f:
+        f.write(json.dumps(entry) + "\n")
+    q = panel_for(out, log)  # must not raise
+    assert "1 Einträge" in q.choice_info.text()
+    assert "1 fehlerhafte Zeilen übersprungen" in q.choice_info.text()
+    assert any(r.startswith("★ k1.wav") for r in rows(q))
+
+
 def test_write_failure_is_shown_not_raised(qapp, out, tmp_path):
     blocker = tmp_path / "file"
     blocker.write_text("x")

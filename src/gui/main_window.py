@@ -44,6 +44,7 @@ from .goa_panel import GoaPanel
 from .library_panel import LibraryPanel
 from .live_panel import LivePanel
 from .planner_panel import PlannerPanel
+from .reference_panel import ReferencePanel
 from .waveform_widget import WaveformWidget
 from .windows import (
     WINDOW_KEYS,
@@ -56,7 +57,7 @@ from .windows import (
 
 # Pages after the sample categories and the library (left list order).
 TOOL_PAGES = (("goa", "Goa-Arrangement"), ("planner", "Arrangement-Planer"),
-              ("live", "Live-Import"), ("chat", "Copilot"))
+              ("live", "Live-Import"), ("chat", "Copilot"), ("reference", "Referenz"))
 
 
 class _Bridge(QObject):
@@ -155,12 +156,14 @@ class MainWindow(QMainWindow):
         self.live = LivePanel(live_config, registry, self._library_folder)
         self.live.attach_hub(self.hub)  # its "Live-Projekt" field is the shared project folder
         self.chat = ChatPanel(chat_session)
+        self.reference = ReferencePanel()
+        self.reference.apply_requested.connect(self.apply_reference)
         self.tool_rows = {}
         self.tool_scrolls: dict[str, QScrollArea] = {}
         self.planner = PlannerPanel(self.hub.settings.output_root(), opener)
         self.planner.attach_hub(self.hub)  # plans go to <Ausgabeordner>/Plans
         for key, widget in (("goa", self.goa), ("planner", self.planner), ("live", self.live),
-                            ("chat", self.chat)):
+                            ("chat", self.chat), ("reference", self.reference)):
             # A scroll area per tool page: their content does not set the window's minimum
             # (fits 1920 x 1080 at 150 %, #442 P1).
             box = QScrollArea()
@@ -307,6 +310,19 @@ class MainWindow(QMainWindow):
             self.live.add_wav(path)
         self.live.set_status(f"{path.name} gewählt. Live-Set lesen, Plan prüfen, Test-Set "
                              "bestätigen, dann importieren.")
+
+    def apply_reference(self, candidate) -> None:
+        """"Als Startwerte übernehmen" on the Referenz page (#480): the candidate's preset and
+        values go into the kick form, the output format stays as the settings say, and the
+        kick page is shown. Nothing is rendered."""
+        from gui_core.reference import apply_to_form
+
+        model = self.models["kick"]
+        apply_to_form(model, candidate)
+        apply_format_to_form(model, self.hub.settings)
+        self.panels["kick"].sync_from_model()
+        self.categories.setCurrentRow([c.key for c in CATEGORIES].index("kick"))
+        self.set_status(f"Startwerte aus der Referenz: {candidate.name}. Prüfen, dann rendern.")
 
     def _open_window(self, key: str) -> None:
         win = self.windows.open(key)
@@ -564,5 +580,6 @@ class MainWindow(QMainWindow):
         self.hub.detach()
         self.goa.shutdown()
         self.chat.shutdown()
+        self.reference.shutdown()
         self.preview.close()
         super().closeEvent(event)
