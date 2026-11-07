@@ -267,6 +267,34 @@ def render_goa_page(window) -> Step:
                            f"{res.mid_path.name} + {len(res.sample_paths)} WAV")
 
 
+def reference_kick(window) -> Step:
+    """Referenz page (#480): measure the tour's own kick render, take the nearest candidate
+    as start values; the kick page must show that candidate's preset."""
+    t = time.perf_counter()
+    name = "reference:kick"
+    kicks = [p for p in window.result_paths if p.name.startswith("kick")]
+    if not kicks:
+        return Step(name, False, "no kick render to measure", time.perf_counter() - t)
+    window.categories.setCurrentRow(window.tool_rows["reference"])
+    page = window.reference
+    if not page.analyse(kicks[0]):
+        return Step(name, False, "measurement refused (busy)", time.perf_counter() - t)
+    if not wait_for(lambda: not page.busy):
+        return Step(name, False, f"no result after {WAIT_S:.0f} s", time.perf_counter() - t)
+    if page.outcome is None or not page.outcome.ok:
+        return Step(name, False, f"measurement failed: {page.status.text()}",
+                    time.perf_counter() - t)
+    if not page.apply_button.isEnabled():
+        return Step(name, False, "apply button disabled after a result", time.perf_counter() - t)
+    page.apply_button.click()
+    wait_for(lambda: True, 0)
+    cand = page.outcome.match.nearest
+    if window.form_key != "kick" or window.model.preset != cand.preset:
+        return Step(name, False, f"kick form shows {window.form_key}/{window.model.preset}, "
+                    f"expected kick/{cand.preset}", time.perf_counter() - t)
+    return Step(name, True, cand.name, time.perf_counter() - t)
+
+
 def export_planner(window) -> Step:
     """Arrangement-Planer page (#139): export the default plan; the file must lie in
     ``<Ausgabeordner>/Plans`` and pass the contract checker ``plan_problems``."""
@@ -442,6 +470,7 @@ def run_tour(home: Path, shots: Path | None = None, tag: str = "100",
                 report.steps += [render_category(window, k) for k in CATEGORY_KEYS]
                 report.steps.append(render_goa_page(window))
                 report.steps.append(export_planner(window))
+                report.steps.append(reference_kick(window))
             wins = {}
             for key in TOOL_KEYS:
                 step, wins[key] = open_tool(window, key, shots, tag)

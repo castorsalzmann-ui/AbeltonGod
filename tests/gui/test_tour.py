@@ -85,9 +85,15 @@ def tour(tmp_path_factory):
 def test_the_tour_visits_exactly_the_expected_steps(tour):
     names = [s.name for s in tour.steps]
     split = len(tour_mod.CATEGORY_KEYS) + 2  # category renders, Goa page render, planner export
-    expected = (PAGE_STEPS + RENDER_STEPS[:split] + WINDOW_STEPS + RENDER_STEPS[split:]
-                + ["close:tools-with-main"])
+    expected = (PAGE_STEPS + RENDER_STEPS[:split] + ["reference:kick"] + WINDOW_STEPS
+                + RENDER_STEPS[split:] + ["close:tools-with-main"])
     assert names == expected
+
+
+def test_reference_page_measures_the_kick_render_and_fills_the_kick_form(tour):
+    """#480: the Referenz page measured the tour's kick render and "Als Startwerte übernehmen"
+    put the nearest candidate's preset into the kick form (the step checks the form)."""
+    expect_step(tour.step("reference:kick"))
 
 
 @pytest.mark.parametrize("name", PAGE_STEPS)
