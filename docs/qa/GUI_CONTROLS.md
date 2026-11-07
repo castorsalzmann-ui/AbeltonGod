@@ -164,6 +164,18 @@ differ only in the area. Handler and effect per kind:
 | `library · QPushButton · Favorit` | `LibraryPanel.judge("favourite")` | Appends a `favourite` entry for the selected WAV to `choices.jsonl` next to `settings.json` (in memory without a settings file); local only, D-032 (#110) |
 | `library · QPushButton · Passt nicht` | `LibraryPanel.judge("reject")` | Appends a `reject` entry for the selected WAV, same log (#110) |
 | `library · QListWidget · choices_log` | filled by `LibraryPanel._load_choices` | The newest 50 choice-log entries, newest first; skipped bad lines are counted in the line above (#110) |
+| `library · Collapsible · *` | self-contained | Section "Kit erstellen" (closed at the start) shows / hides the kit fields (#498) |
+| `library · Collapsible/QToolButton · *` | `Collapsible` (internal) | Section header: expand / collapse |
+| `library · QComboBox · Kit Kick` | read by `LibraryPanel.export_kit` | Kick of the kit: readable library WAVs of the slot's category (kit copies left out), favourites marked ★; prefilled with the newest favourite (#498) |
+| `library · QComboBox · Kit Clap / Snare` | read by `LibraryPanel.export_kit` | Same for the clap/snare slot (clap or snare files) |
+| `library · QComboBox · Kit Hat geschlossen` | read by `LibraryPanel.export_kit` | Same for the closed hat (prefill prefers hats whose preset does not say "open") |
+| `library · QComboBox · Kit Hat offen` | read by `LibraryPanel.export_kit` | Same for the open hat (prefill prefers presets with "open") |
+| `library · QComboBox · Kit Rim` | read by `LibraryPanel.export_kit` | Same for the rim slot |
+| `library · QComboBox · Kit Perc` | read by `LibraryPanel.export_kit` | Same for the perc slot |
+| `library · QComboBox · Kit Bass (optional)` | read by `LibraryPanel.export_kit` | Same for the bass slot; "(keine)" leaves it out of the kit |
+| `library · QLineEdit · Kit-Name` | read by `LibraryPanel.export_kit` | Kit name (made file-system safe); an existing kit of that name gives `<name>_002` |
+| `library · QPushButton · Aus Favoriten` | `LibraryPanel.prefill_kit` | Sets every slot to the newest current favourite that fits (parsed instant), "(keine)" when none |
+| `library · QPushButton · Kit exportieren` | `LibraryPanel.export_kit` | Copies the picked WAVs (01_kick_….wav …), their sidecars verbatim and a kit.json (contract kit v0.1) into `<Ausgabeordner>/Samples/Kits/<Name>/`; never overwrites, a failure leaves nothing. Files only, no Drum Rack, nothing goes to Live |
 
 ### Main window: Goa-Arrangement page
 
