@@ -30,7 +30,7 @@ def test_fx_page_shows_tempo_on_top_with_the_hint(qapp) -> None:
     hints = [w for w in widgets if w is not None and w.objectName() == "bpmhint"]
     assert len(hints) == 1 and hints[0].text() == FX_BPM_HINT and "Takt" in FX_BPM_HINT
     assert bpm.parent() is panel.widget()  # not inside "Erweitert"
-    assert set(panel.group_sections) == {"Rauschen und Filter", "Pegel", "Ton", "Delay",
+    assert set(panel.group_sections) == {"Rauschen", "Filter", "Pegel", "Ton", "Delay",
                                          "Reverb"}
     other = CategoryPanel(CategoryFormModel("laser"))
     assert other.top_fields == () and other.cost_label is None

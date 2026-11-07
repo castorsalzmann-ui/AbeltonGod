@@ -152,7 +152,7 @@ differ only in the area. Handler and effect per kind:
 | `perc · WrapSegmented/QPushButton · *` | `WrapSegmented` -> `chosen` -> `ChoiceControl._chosen` | Enum with many choices, wrapping (model) |
 | `fx · ChoiceControl · *` | `CategoryPanel._edited` / `_active_toggled` | Enum field |
 | `fx · ChoiceControl/ActiveDot · *` | `ParamControl` -> `activeToggled` | Dot of an enum field |
-| `fx · Collapsible · *` | self-contained | Section shows / hides its fields (Erweitert, Rauschen und Filter, Pegel, Ton, Delay, Reverb) |
+| `fx · Collapsible · *` | self-contained | Section shows / hides its fields (Erweitert, Rauschen, Filter, Pegel, Ton, Delay, Reverb) |
 | `fx · Collapsible/QToolButton · *` | `Collapsible` (internal) | Section header |
 | `fx · NumberControl · *` | `CategoryPanel._edited` / `_committed` / `_active_toggled` / `_reset` | Number field (Tempo on top, #482) |
 | `fx · NumberControl/ActiveDot · *` | `ParamControl` -> `activeToggled` | Dot of a number field |

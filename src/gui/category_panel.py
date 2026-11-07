@@ -34,9 +34,9 @@ from .widgets import (
 IDLE_BATCH = 4  # stale sliders probed per idle tick (#434: ~3 resolves each, a few ms)
 LASER_GROUPS = (("salvo_", "Salve"), ("filter_", "Filter"), ("hp_", "Filter"), ("lp_", "Filter"),
                 ("echo_", "Delay"), ("reverb_", "Reverb"))
-FX_GROUPS = (("noise_", "Rauschen und Filter"), ("filter_", "Rauschen und Filter"),
-             ("cutoff_", "Rauschen und Filter"), ("lp_ratio", "Rauschen und Filter"),
-             ("sweep_", "Rauschen und Filter"), ("level_", "Pegel"), ("ramp_", "Pegel"),
+# Short labels: "Rauschen und Filter (6 Felder)" was 407 px on Windows CI, above the 34 M page.
+FX_GROUPS = (("noise_", "Rauschen"), ("filter_", "Filter"), ("cutoff_", "Filter"),
+             ("lp_ratio", "Filter"), ("sweep_", "Filter"), ("level_", "Pegel"), ("ramp_", "Pegel"),
              ("pump_", "Pegel"), ("tone_", "Ton"), ("echo_", "Delay"), ("reverb_", "Reverb"))
 GROUPS = {"laser": LASER_GROUPS, "fx": FX_GROUPS}
 FX_BPM_HINT = ("Tempo des Tracks einstellen: die Längen sind in Beats, sonst endet das FX nicht "
