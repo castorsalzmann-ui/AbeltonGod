@@ -1,0 +1,7 @@
+{
+  "schema_version": "0.1",
+  "preset": "downlifter",
+  "seed": 1,
+  "bpm": 135,
+  "kind": "downlifter"
+}

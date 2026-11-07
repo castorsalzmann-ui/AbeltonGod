@@ -217,6 +217,9 @@ def smoke_library(res: Results, work: Path) -> None:
             if cat == "kick":
                 params = {"schema_version": "0.2", "seed": 5, "length_ms": 150.0,
                           "amp_decay_ms": 60.0, "drive": 0.0, "bpm": 136}
+            if cat == "fx":  # fx-params requires bpm (lengths in beats); a short file (#482)
+                params = {"schema_version": "0.1", "seed": 5, "bpm": 136,
+                          "kind": "impact", "length_beats": 1, "tail_beats": 1}
             first = place_sample(cat, params, project, name="smoke")
         except CategoryUnavailable:
             continue

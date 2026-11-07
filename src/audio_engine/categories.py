@@ -3,7 +3,8 @@
 ``sample-metadata.schema.json`` v0.2 names two categories, ``kick`` and ``clap``. Each category
 carries its own engine name and version, so a byte change in one never invalidates the sidecars
 of another. Only categories that have a renderer are *registered* here: kick, clap
-(#231), hat (#270), snare (#308), rim (#321), bass (#328), laser (#416) and perc (#475). A
+(#231), hat (#270), snare (#308), rim (#321), bass (#328), laser (#416), perc (#475) and fx
+(#482). A
 category the contract names but that is not registered raises :class:`CategoryUnavailable` before
 any parameter of that category is looked at.
 """
@@ -22,6 +23,7 @@ from . import (
     analysis,
     bass,
     clap,
+    fx,
     hat,
     kick,
     laser,
@@ -160,6 +162,18 @@ _REGISTRY: dict[str, Category] = {
         resolve=perc.resolve_perc_params,
         render=lambda params: perc.render_perc(params),
         analyse=lambda audio, sr: analysis.analyse_nonpitched(audio, sr),
+    ),
+    "fx": Category(
+        name="fx",
+        engine_name=fx.FX_NAME,
+        engine_version=fx.FX_VERSION,
+        metadata_schema_version="0.2",
+        default_stem="fx",
+        resolve=fx.resolve_fx_params,
+        render=lambda params: fx.render_fx(params),
+        analyse=laser.analyse_laser,
+        # boundary_frame and anchor come from the resolved parameters (sample-metadata, #482)
+        analyse_resolved=fx.analyse_fx,
     ),
 }
 
