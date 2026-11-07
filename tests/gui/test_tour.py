@@ -84,7 +84,8 @@ def tour(tmp_path_factory):
 
 def test_the_tour_visits_exactly_the_expected_steps(tour):
     names = [s.name for s in tour.steps]
-    expected = (PAGE_STEPS + RENDER_STEPS[:8] + WINDOW_STEPS + RENDER_STEPS[8:]
+    split = len(tour_mod.CATEGORY_KEYS) + 1  # the category renders and the Goa page render
+    expected = (PAGE_STEPS + RENDER_STEPS[:split] + WINDOW_STEPS + RENDER_STEPS[split:]
                 + ["close:tools-with-main"])
     assert names == expected
 

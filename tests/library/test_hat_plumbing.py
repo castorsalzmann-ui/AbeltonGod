@@ -26,7 +26,7 @@ def test_hat_folder_is_samples_drums_hats() -> None:
 
 def test_hat_is_registered_with_its_own_engine_identity() -> None:
     assert sorted(registered_categories()) == [
-        "bass", "clap", "hat", "kick", "laser", "rim", "snare"
+        "bass", "clap", "hat", "kick", "laser", "perc", "rim", "snare"
     ]
     engine = get_category("hat").engine
     assert engine == {"name": "abeltongod-audio-engine-hat", "version": "0.1.0"}

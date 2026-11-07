@@ -31,7 +31,8 @@ NO_ROOTS = ()  # pytest's temp folder lies inside the checkout
 FOLDERS = {"kick": ("Samples", "Drums", "Kicks"), "clap": ("Samples", "Drums", "Claps"),
            "hat": ("Samples", "Drums", "Hats"), "snare": ("Samples", "Drums", "Snares"),
            "rim": ("Samples", "Drums", "Rims"), "bass": ("Samples", "Bass"),
-           "laser": ("Samples", "FX", "Lasers")}  # written out, not taken from the layout
+           "laser": ("Samples", "FX", "Lasers"),
+           "perc": ("Samples", "Drums", "Percs")}  # written out, not taken from the layout
 
 
 @pytest.fixture

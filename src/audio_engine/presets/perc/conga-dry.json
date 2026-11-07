@@ -1,0 +1,8 @@
+{
+  "schema_version": "0.1",
+  "preset": "conga-dry",
+  "seed": 1,
+  "model": "conga",
+  "tick_level": 0,
+  "decay_scale": 0.7
+}

@@ -2,9 +2,9 @@
 
     python -m audio_engine.kick --preset NAME [--variants N] --out DIR
                                 [--seed INT] [--set FIELD=VALUE ...]
-                                [--category kick|clap|hat|snare|rim|bass|laser]
+                                [--category kick|clap|hat|snare|rim|bass|laser|perc]
     python -m audio_engine.kick --list-presets
-                                [--category kick|clap|hat|snare|rim|bass|laser]
+                                [--category kick|clap|hat|snare|rim|bass|laser|perc]
 
 ``--category clap`` (#231) renders clap presets from ``presets/clap/`` and writes
 ``clap-params`` sidecars; the default is ``kick``.
@@ -36,6 +36,7 @@ from . import (
     clap_variants,
     hat_variants,
     laser_variants,
+    perc_variants,
     rim_variants,
     snare_variants,
 )
@@ -46,6 +47,7 @@ from .hat import HatParamsError, resolve_hat_params
 from .io import write_kick
 from .laser import LaserParamsError, resolve_laser_params, v02_properties
 from .params import KickParamsError, resolve_kick_params
+from .perc import PercParamsError, resolve_perc_params
 from .presets import UnknownPresetError, describe, load_preset, preset_names
 from .prompt import PromptError, parse_prompt
 from .rim import RimParamsError, resolve_rim_params
@@ -72,7 +74,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="python -m audio_engine.kick",
         description="Render sample presets and variants (--category kick, clap, hat, snare, "
-        "rim, bass, laser) as WAV + sidecar JSON; laser files are 2-channel.",
+        "rim, bass, laser, perc) as WAV + sidecar JSON; laser files are 2-channel.",
     )
     parser.add_argument("--preset", help="preset name (see --list-presets)")
     parser.add_argument(
@@ -91,7 +93,8 @@ def build_parser() -> argparse.ArgumentParser:
         "salvo_pan_mode=alternate_lr --set echo_sync=1/8 --set reverb_mix=0.3 --set lp_hz=3000",
     )
     parser.add_argument(
-        "--category", choices=("kick", "clap", "hat", "snare", "rim", "bass", "laser"),
+        "--category",
+        choices=("kick", "clap", "hat", "snare", "rim", "bass", "laser", "perc"),
         default="kick",
         help="sound category (default kick)",
     )
@@ -175,6 +178,7 @@ def plan(args: argparse.Namespace) -> tuple[str, list[dict[str, Any]], list[str]
         "rim": (resolve_rim_params, rim_variants.make_variants),
         "bass": (resolve_bass_params, bass_variants.make_variants),
         "laser": (resolve_laser_params, laser_variants.make_variants),
+        "perc": (resolve_perc_params, perc_variants.make_variants),
     }[category]
     base = resolve(request)
     # The request, not its resolved form: variants of a tail_note / length_beats request keep
@@ -204,8 +208,8 @@ def _plan_prompt(
         raise UsageError("--prompt cannot be combined with --preset or --set")
     if getattr(args, "category", "kick") != "kick":
         raise UsageError(
-            "--prompt is a kick vocabulary, not usable with --category clap, hat, snare, rim "
-            "or bass"
+            "--prompt is a kick vocabulary, not usable with --category clap, hat, snare, rim, "
+            "bass, laser or perc"
         )
     if not args.out:
         raise UsageError("--out is required")
@@ -270,7 +274,7 @@ def _main(argv: list[str] | None, stdout: TextIO, stderr: TextIO) -> int:
         out_dir, variants, stems, descriptions = plan(args)
     except (UsageError, UnknownPresetError, KickParamsError, ClapParamsError,
                 HatParamsError, SnareParamsError, RimParamsError, BassParamsError,
-                LaserParamsError) as exc:
+                LaserParamsError, PercParamsError) as exc:
         print(f"error: {exc}", file=stderr)
         return EXIT_USAGE
 

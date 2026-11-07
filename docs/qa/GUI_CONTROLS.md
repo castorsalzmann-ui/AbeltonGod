@@ -49,7 +49,7 @@ without category / three output layouts. Already filed before: #413, #414, #439.
 | `main · QPushButton · Stopp` | `MainWindow.stop` | Stops playback |
 | `main · QPushButton · Wählen …` | `MainWindow._choose_folder` | Folder dialog for the output folder |
 
-### Main window: category pages `kick`, `hat`, `snare`, `clap`, `rim`, `bass`, `laser`
+### Main window: category pages `kick`, `hat`, `snare`, `clap`, `rim`, `bass`, `laser`, `perc`
 
 The seven category pages are built by `CategoryPanel` from the category's contract; their rows
 differ only in the area. Handler and effect per kind:
@@ -139,6 +139,16 @@ differ only in the area. Handler and effect per kind:
 | `laser · SeedControl · *` | `CategoryPanel._edited` | Seed field |
 | `laser · Segmented/QPushButton · *` | `Segmented` -> `chosen` -> `ChoiceControl._chosen` | One button per enum choice |
 | `laser · WrapSegmented/QPushButton · *` | `WrapSegmented` -> `chosen` -> `ChoiceControl._chosen` | Enum with many choices, wrapping |
+| `perc · ChoiceControl · *` | `CategoryPanel._edited` / `_active_toggled` | Enum field |
+| `perc · ChoiceControl/ActiveDot · *` | `ParamControl` -> `activeToggled` | Dot of an enum field |
+| `perc · Collapsible · *` | self-contained | Section shows / hides its fields |
+| `perc · Collapsible/QToolButton · *` | `Collapsible` (internal) | Section header |
+| `perc · NumberControl · *` | `CategoryPanel._edited` / `_committed` / `_active_toggled` / `_reset` | Number field |
+| `perc · NumberControl/ActiveDot · *` | `ParamControl` -> `activeToggled` | Dot of a number field |
+| `perc · PresetChips · *` | `CategoryPanel._preset_chosen` | Preset chips row |
+| `perc · PresetChips/QPushButton · *` | `PresetChips` -> `chosen` | One chip per preset |
+| `perc · SeedControl · *` | `CategoryPanel._edited` | Seed field |
+| `perc · Segmented/QPushButton · *` | `Segmented` -> `chosen` -> `ChoiceControl._chosen` | One button per enum choice |
 
 ### Main window: Bibliothek
 

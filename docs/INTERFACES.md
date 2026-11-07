@@ -13,7 +13,7 @@ Machine-readable contracts live in `contracts/`. This file explains them. Changi
 | `contracts/rim-params.schema.json` | Orchestrator / CLI → audio engine | v0.1 proposal (#296); no engine yet; ranges are hypotheses from one weak source plus placeholders the engine PR measures and may adjust |
 | `contracts/bass-params.schema.json` | Orchestrator / CLI → audio engine | v0.1 proposal (#320); no engine yet; ranges are placeholders (one tutorial is the only source) the engine PR measures and may adjust |
 | `contracts/laser-params.schema.json` | Blaster GUI / CLI / orchestrator → audio engine | v0.1 proposal (#416, D-030), v0.2 salvo / filter / delay / reverb (#425, D-031); stereo category `(n, 2)`; engine `abeltongod-audio-engine-laser` (#421); `sample-metadata` has category `laser` |
-| `contracts/perc-params.schema.json` | Orchestrator / CLI / GUI → audio engine | v0.1 proposal (#475, D-032); models `conga`, `tom`, `shaker`, `cowbell`, `clave`; no engine yet; base values are artifact prior art or placeholders the engine PR measures and may adjust; `sample-metadata` has category `perc` |
+| `contracts/perc-params.schema.json` | Orchestrator / CLI / GUI → audio engine | v0.1 proposal (#475, D-032); models `conga`, `tom`, `shaker`, `cowbell`, `clave`; engine `abeltongod-audio-engine-perc` 0.1.0 (#475 step 2), contract unchanged; base values are artifact prior art or placeholders, not taste targets; `sample-metadata` has category `perc` |
 | `contracts/capabilities.json` (+ `capabilities.schema.json`) | Bridge → orchestrator | v1 — statuses updated in Phase 02 (#42: entry `track.mute.get` added, no format change) and Phase 03 (#50: `clip_slot.create_audio_clip` → `tested`, no format change; #143: `song.create_audio_track` → `tested`, own `tested` entries `track.has_audio_input.get`, `clip_slot.has_clip.get`, `clip.file_path.get`, `song.num_scenes.get` (no borrowed gate any more), no format change; one undo may revert track + clip together; #140: 12 Arrangement-check entries added as `unknown`, no format change) |
 | `contracts/guard-policy.schema.json` → `config/guard-policy.json` | User config → resource guard | v1 — default values are untuned starting points |
 | `contracts/tool-list-tracks.schema.json`, `contracts/tool-import-sample.schema.json` | Claude (tool arguments) → orchestrator | v1 (#81) — input schemas only; not wired yet |
@@ -166,7 +166,7 @@ No tool schema (`generate_laser`) exists.
 - Sidecars: category `perc`, `schema_version` `0.2`, `engine.name` `abeltongod-audio-engine-perc` with its own version (D-025), `parameters.schema_version` `0.1`; features are the existing non-pitched ones. Library folder `Samples/Drums/Percs` (`LibraryLayout.percs`).
 - Not in v0.1: bongo (conga + 12 semitones), tambourine, FM bell / metal, ride, a second membrane mode, key / note-name resolution, stereo.
 
-No tool schema (`generate_perc`) exists.
+Engine (#475 step 2): `audio_engine.perc.render_perc(params) -> (audio, resolved)`, mono float64; CLI `--category perc`; 9 presets in `presets/perc/` (toms only in `hard-groove-*`, D-032); GUI page "Perc" (form from this contract). No tool schema (`generate_perc`) exists; `generate_sample` has no perc row yet.
 
 ## Guard policy
 

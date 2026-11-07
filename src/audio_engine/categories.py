@@ -3,8 +3,9 @@
 ``sample-metadata.schema.json`` v0.2 names two categories, ``kick`` and ``clap``. Each category
 carries its own engine name and version, so a byte change in one never invalidates the sidecars
 of another. Only categories that have a renderer are *registered* here: kick, clap
-(#231), hat (#270), snare (#308) and rim (#321). A category the contract names but that is not
-registered raises :class:`CategoryUnavailable` before any parameter of that category is looked at.
+(#231), hat (#270), snare (#308), rim (#321), bass (#328), laser (#416) and perc (#475). A
+category the contract names but that is not registered raises :class:`CategoryUnavailable` before
+any parameter of that category is looked at.
 """
 
 from __future__ import annotations
@@ -15,7 +16,19 @@ from typing import Any
 
 import numpy as np
 
-from . import ENGINE_NAME, ENGINE_VERSION, analysis, bass, clap, hat, kick, laser, rim, snare
+from . import (
+    ENGINE_NAME,
+    ENGINE_VERSION,
+    analysis,
+    bass,
+    clap,
+    hat,
+    kick,
+    laser,
+    perc,
+    rim,
+    snare,
+)
 from .params import resolve_kick_params
 
 # Categories named by contracts/sample-metadata.schema.json (a test compares with the file).
@@ -137,6 +150,16 @@ _REGISTRY: dict[str, Category] = {
         # Not analysis.analyse: its tail window lands in the release of a gated note.
         analyse=bass.analyse_basic,
         analyse_resolved=bass.analyse_bass,
+    ),
+    "perc": Category(
+        name="perc",
+        engine_name=perc.PERC_NAME,
+        engine_version=perc.PERC_VERSION,
+        metadata_schema_version="0.2",
+        default_stem="perc",
+        resolve=perc.resolve_perc_params,
+        render=lambda params: perc.render_perc(params),
+        analyse=lambda audio, sr: analysis.analyse_nonpitched(audio, sr),
     ),
 }
 

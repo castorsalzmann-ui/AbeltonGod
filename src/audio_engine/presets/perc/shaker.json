@@ -1,0 +1,6 @@
+{
+  "schema_version": "0.1",
+  "preset": "shaker",
+  "seed": 1,
+  "model": "shaker"
+}
