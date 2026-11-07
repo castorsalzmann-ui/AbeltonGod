@@ -53,8 +53,9 @@ oversampling, echo) and NumPy's normal sampler. All are covered by the golden ha
 checks on Ubuntu and Windows.
 
 Cost: the filter loop is ~0.7 us per sample and channel. The additive tone layer costs in
-proportion to the partial count 0.45 * sr / tone_hz: a 72 s saw or metal tone at 20 Hz takes
-~40-110 s (review of PR #499; follow-up #503).
+proportion to the partial count 0.45 * sr / tone_hz; since #503 it runs in cache-sized blocks
+with exact shortcuts (same bytes): a 72 s saw at 20 Hz took 40.2 s before and 7.1 s after,
+metal at 20 Hz 78.9 s -> 15.8 s (dev container, one run each).
 """
 
 from __future__ import annotations
@@ -83,6 +84,7 @@ MAX_FILE_MS = 72000.0  # cross-field rule A
 FADE_MS = 5.0
 NYQUIST_SHARE = 0.45
 PARTIAL_FADE_START = 0.40  # partials fade from 0.40 * sr to 0 at 0.45 * sr (engine choice)
+ADDITIVE_BLOCK = 8192  # samples per block of the additive tone (cache-sized, #503)
 HP_LP_Q = 0.7071
 PINK_REF_HZ, PINK_LOW_HZ = 1000.0, 20.0
 METAL_HZ = (205.3, 304.4, 369.6, 522.7, 540.0, 800.0)  # hat-params $comment point 2
@@ -419,19 +421,43 @@ def _partial_weight(kf: np.ndarray, sr: int) -> np.ndarray:
 
 def _additive(cyc: np.ndarray, f: np.ndarray, sr: int, odd_only: bool, alternate: bool
               ) -> np.ndarray:
-    """``sum_k w_k(t) sign_k sin(2 pi k cyc) / k`` with sin(k x) by the Chebyshev recurrence."""
-    s1 = sin_cycles(cyc)
-    two_c = 2.0 * cos_cycles(cyc)
-    out = np.zeros(len(cyc))
-    prev, cur = np.zeros(len(cyc)), s1
-    k = 1
-    fmin = float(np.min(f)) if len(f) else 0.0
-    while len(f) and k * fmin < NYQUIST_SHARE * sr:
-        if not odd_only or k % 2 == 1:
-            sign = -1.0 if (alternate and k % 2 == 0) else 1.0
-            out += (sign / k) * _partial_weight(k * f, sr) * cur
-        prev, cur = cur, two_c * cur - prev
-        k += 1
+    """``sum_k w_k(t) sign_k sin(2 pi k cyc) / k`` with sin(k x) by the Chebyshev recurrence.
+
+    Evaluated in blocks of :data:`ADDITIVE_BLOCK` samples (#503). Every sample gets exactly the
+    same sequence of floating-point operations as one pass over the whole file, so the bytes do
+    not change; the speed comes from three exact shortcuts: a block stops at the first partial
+    whose weight is 0 at the block's lowest frequency (all later terms are exactly 0), the
+    weight is not computed where it is 1 at the block's highest frequency (``x * 1.0 == x``),
+    and the arrays of a block stay in the CPU cache.
+    """
+    n = len(cyc)
+    out = np.zeros(n)
+    hi = NYQUIST_SHARE * sr
+    for a in range(0, n, ADDITIVE_BLOCK):
+        b = min(n, a + ADDITIVE_BLOCK)
+        fb = f[a:b]
+        fmin, fmax = float(np.min(fb)), float(np.max(fb))
+        cur = sin_cycles(cyc[a:b])
+        two_c = 2.0 * cos_cycles(cyc[a:b])
+        prev = np.zeros(b - a)
+        nxt = np.empty(b - a)
+        term = np.empty(b - a)
+        acc = out[a:b]
+        k = 1
+        while k * fmin < hi:
+            if not odd_only or k % 2 == 1:
+                sign = -1.0 if (alternate and k % 2 == 0) else 1.0
+                if float(_partial_weight(np.array([k * fmax]), sr)[0]) == 1.0:
+                    # every weight in the block is exactly 1: (s / k) * 1.0 * cur == (s / k) * cur
+                    np.multiply(sign / k, cur, out=term)
+                else:
+                    np.multiply((sign / k) * _partial_weight(k * fb, sr), cur, out=term)
+                acc += term
+            # next = 2 cos(x) * cur - prev, written into reused buffers (same two roundings)
+            np.multiply(two_c, cur, out=nxt)
+            np.subtract(nxt, prev, out=nxt)
+            prev, cur, nxt = cur, nxt, prev
+            k += 1
     return out
 
 

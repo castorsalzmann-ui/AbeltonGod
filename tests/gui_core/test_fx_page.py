@@ -91,19 +91,22 @@ BASE = {"schema_version": "0.1", "seed": 1, "bpm": 120, "kind": "sweep", "length
 # Render times MEASURED in the dev container (Xeon 2.3 GHz, 2026-11-07, one process per case,
 # 32 s at 48 kHz), plus the reviewer's 72 s cases of PR #499. Rough by nature: the estimate
 # must stay within a factor of 2 of each.
-MEASURED = [
-    ({**BASE, "stereo_width": 0}, 0.85),
-    ({**BASE, "stereo_width": 1}, 1.49),
-    ({**BASE, "stereo_width": 1, "filter_mode": "hp_lp"}, 2.61),
+MEASURED = [  # re-measured after the blocked additive tone of #503 (same bytes, faster)
+    ({**BASE, "stereo_width": 0}, 0.87),
+    ({**BASE, "stereo_width": 1}, 1.36),
+    ({**BASE, "stereo_width": 1, "filter_mode": "hp_lp"}, 2.56),
     ({**BASE, "noise_level": 0, "tone_level": 1, "tone_wave": "saw", "tone_start_hz": 50,
-      "tone_end_hz": 50}, 5.09),
+      "tone_end_hz": 50}, 1.52),
     ({**BASE, "noise_level": 0, "tone_level": 1, "tone_wave": "metal", "tone_start_hz": 100,
-      "tone_end_hz": 100}, 5.72),
-    ({**BASE, "stereo_width": 1, "drive": 0.5}, 4.48),
+      "tone_end_hz": 100}, 1.86),
+    ({**BASE, "stereo_width": 1, "drive": 0.5}, 4.91),
     ({**BASE, "length_beats": 128, "tail_beats": 16, "noise_level": 0, "tone_level": 1,
-      "tone_wave": "saw", "tone_start_hz": 20, "tone_end_hz": 20}, 41.8),
+      "tone_wave": "saw", "tone_start_hz": 20, "tone_end_hz": 20}, 7.13),
     ({**BASE, "length_beats": 128, "tail_beats": 16, "noise_level": 0, "tone_level": 1,
-      "tone_wave": "metal", "tone_start_hz": 20, "tone_end_hz": 20}, 109.3),
+      "tone_wave": "metal", "tone_start_hz": 20, "tone_end_hz": 20}, 15.84),
+    ({**BASE, "length_beats": 128, "tail_beats": 16, "filter_mode": "hp_lp", "drive": 1,
+      "echo_mix": 0.5, "reverb_mix": 0.5, "reverb_decay_ms": 8000, "pump_depth": 0.5,
+      "tone_level": 1, "tone_wave": "saw", "tone_start_hz": 40, "tone_end_hz": 4000}, 18.54),
 ]
 
 
