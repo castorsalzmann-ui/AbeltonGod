@@ -40,11 +40,12 @@ def test_render_time_note_appears_for_slow_settings_and_never_blocks(qapp) -> No
     model = CategoryFormModel("fx")
     panel = CategoryPanel(model)
     assert panel.cost_label is not None and panel.cost_label.isHidden()
-    for name, text in (("noise_level", "0"), ("tone_level", "1"), ("tone_wave", "saw"),
+    # metal at 20 Hz over 32 bars: the slowest tone (~18 s estimated after #503; saw is ~6 s)
+    for name, text in (("noise_level", "0"), ("tone_level", "1"), ("tone_wave", "metal"),
                        ("tone_start_hz", "20"), ("tone_end_hz", "20"),
                        ("length_beats", "128")):
         model.set_active(name, True)
         model.set_text(name, text)
     panel.sync_from_model()
-    assert not panel.cost_label.isHidden() and "Sägezahn" in panel.cost_label.text()
+    assert not panel.cost_label.isHidden() and "Metall" in panel.cost_label.text()
     assert model.is_valid  # a note only: the request can still be rendered
