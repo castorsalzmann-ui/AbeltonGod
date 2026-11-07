@@ -23,6 +23,7 @@ from chat_helpers import (  # noqa: E402
     CREATE,
     make_chat,
     make_fake,
+    make_project,
     turn_generate,
     turn_import,
     turn_text,
@@ -264,5 +265,26 @@ def test_the_page_follows_the_output_folder_setting(qapp, tmp_path):
         ask(qapp, w, "Clap")
         assert wait_for(qapp, lambda: not w.chat.busy)
         assert len(wavs(other)) == 1 and wavs(tmp_path / "out") == []
+    finally:
+        w.close()
+
+
+def test_with_the_project_setting_the_dialog_names_the_copy_and_yes_imports_it(
+        qapp, tmp_path, fake):
+    """#500: the shared project folder (settings) makes the import copy into it first."""
+    proj = make_project(tmp_path)
+    w, _ = window_for(tmp_path, import_turns(), fake)
+    try:
+        c = w.chat
+        w.hub.store.update(project_dir=str(proj))
+        assert c.session.project_dir == str(proj)
+        ask(qapp, w, "Clap in Spur 3")
+        dlg = wait_dialog(qapp, c)
+        target = proj / "Samples" / "Drums" / "Claps" / wavs(tmp_path / "out")[0].name
+        assert f"nach {target}" in dlg.text()
+        c.confirm_buttons["yes"].click()
+        assert wait_for(qapp, lambda: not c.busy)
+        assert c.last_reply.success and writes(fake) == [(CREATE, (2, 0, str(target)))]
+        assert target.is_file() and f"Projektordner {proj}" in c.tools_info.text()
     finally:
         w.close()

@@ -37,9 +37,15 @@ from typing import Any
 
 from bridge.capabilities import CapabilityError
 from guard import Guard
-from gui_core.live import default_refused_roots
+from gui_core.live import (
+    Placement,
+    copy_into_project,
+    default_refused_roots,
+    plan_placement,
+    remove_copy,
+)
 from launcher.paths import app_dir
-from library import check_project_dir
+from library import check_project_dir, sidecar_path
 from library.project import ProjectDirProblem, ProjectReason
 from orchestrator.auth import AuthConfigError, AuthMode, load_auth
 from orchestrator.clients import make_model_client
@@ -135,6 +141,20 @@ def confirm_text(tool: Tool, arguments: Mapping[str, Any], plan: Plan | None,
             "Schließen wird nichts ausgeführt.")
     if tool.name == "import_sample" and isinstance(data, ImportPlan):
         e = data.entry
+        p = data.placement
+        if p is None or getattr(p, "project_dir", None) == "":
+            where = ("Live verweist danach auf diese Datei im Ausgabeordner (kein Projektordner "
+                     "in den Einstellungen, also keine Kopie ins Projekt).",)
+        elif p.copy:
+            where = ("Vorher auf der Festplatte: WAV und Sidecar in den Projektordner kopieren",
+                     f"  nach {p.target}",
+                     "  (nichts wird überschrieben; erreicht nichts Live, wird die Kopie wieder "
+                     "gelöscht). Live verweist danach auf die Kopie.")
+        elif str(p.target) != str(p.source):
+            where = (f"Die Datei liegt schon unverändert im Projektordner: {p.target}",
+                     "Live verweist danach auf diese Datei.")
+        else:
+            where = ("Die Datei liegt schon im Projektordner; Live verweist danach auf sie.",)
         return ConfirmText("Live-Set ändern?", (
             "Der Copilot möchte das geöffnete Live-Set ändern:",
             f"  1 Audio-Clip anlegen in Spur {data.track_index + 1} \"{data.track_name}\", "
@@ -142,9 +162,8 @@ def confirm_text(tool: Tool, arguments: Mapping[str, Any], plan: Plan | None,
             f"  Sample: {e.sample_id} ({e.category})",
             f"  Datei: {e.path}",
             f"  SHA-256: {e.sha256}",
-            "Live verweist danach auf diese Datei im Ausgabeordner (keine Kopie in den "
-            "Projektordner). Es wird kein Clip überschrieben; ein Undo sendet das Programm "
-            "nicht.",
+            *where,
+            "Es wird kein Clip überschrieben; ein Undo sendet das Programm nicht.",
             tail,
         ))
     shown = s or dict(arguments)
@@ -274,20 +293,23 @@ _BEFORE_CREATE = (ProjectReason.EMPTY, ProjectReason.NOT_ABSOLUTE,
 def folder_problem_before_create(folder: Path, check: Callable[..., Any],
                                  refused_roots: Any) -> Any:
     """The refusal of ``folder`` that is known before creating it, or None. An existing folder
-    gets the full check. For a missing one: a relative path is refused as such; a folder named
-    ``Backup`` is refused; the nearest existing parent is checked and its checkout, Backup and
-    unreadable refusals count for the new folder too (``missing`` and ``no_als_file`` of the
-    parent do not). Creates nothing."""
+    gets the full check. For a missing one: a relative path is refused as such; a missing
+    component named ``Backup`` (anywhere on the way) is refused; the nearest existing parent
+    is checked and its checkout, Backup and unreadable refusals count for the new folder too
+    (``missing`` and ``no_als_file`` of the parent do not). Creates nothing."""
     def run(path: Path) -> Any:
         return (check(path) if refused_roots is None
                 else check(path, refused_roots=refused_roots))
 
     if not os.path.isabs(folder) or folder.is_dir():
         return run(folder)
-    if folder.name.casefold() == "backup":
-        return ProjectDirProblem(ProjectReason.BACKUP_FOLDER, os.fspath(folder), str(folder))
-    parent = folder.parent
+    parent = folder
     while not parent.exists() and parent != parent.parent:
+        # #500 (review nit of #493): no folder named Backup is created anywhere on the way,
+        # not only as the last component.
+        if parent.name.casefold() == "backup":
+            return ProjectDirProblem(ProjectReason.BACKUP_FOLDER, os.fspath(folder),
+                                     str(parent))
         parent = parent.parent
     if parent.exists() and not parent.is_dir():
         return ProjectDirProblem(ProjectReason.MISSING, os.fspath(folder),
@@ -388,21 +410,60 @@ class _ApproverSlot:
         return approver.confirm(tool, arguments, plan) is True
 
 
+@dataclass(frozen=True)
+class ChatPlacement:
+    """Where Live reads an imported file from (``KickSession`` placement plan, #500)."""
+
+    source: str
+    target: str
+    copy: bool
+    project_dir: str  # "" = no project folder set: Live reads the file where it is
+    placement: Placement | None = None  # gui_core.live's plan, None without a project
+
+
+class ProjectCopy:
+    """``ImportPlacement`` for the copilot: the Live page's copy plan (``gui_core.live``)
+    into the shared project folder, read at plan time (a settings change needs no rebuild).
+    No project folder: Live reads the file in the output folder, as before #500."""
+
+    def __init__(self, project_dir: str = "", refused_roots: Any = None) -> None:
+        self.project_dir = project_dir
+        self.refused_roots = refused_roots
+
+    def plan(self, wav: str) -> ChatPlacement:
+        project = (self.project_dir or "").strip()
+        if not project:
+            return ChatPlacement(str(wav), str(wav), False, "")
+        p = plan_placement(wav, project, refused_roots=self.refused_roots)  # ImportPathError
+        return ChatPlacement(str(p.source), str(p.target), bool(p.copy), project, p)
+
+    def copy(self, placement: ChatPlacement) -> None:
+        if placement.placement is not None:
+            copy_into_project(placement.placement)
+
+    def remove(self, placement: ChatPlacement) -> None:
+        remove_copy((sidecar_path(placement.target), placement.target))
+
+
 class ChatSession:
     """One chat: tools for the current output folder, the orchestrator built on the first
     question, one ``ChatMemory`` for the whole chat (kept when the folder changes)."""
 
     def __init__(self, env_file: Path | str | None = None, *, model: ModelClient | None = None,
                  guard: Guard | None = None, output_dir: Path | str | None = None,
-                 approver: Any = None,
+                 approver: Any = None, project_dir: str = "",
                  session_options: Mapping[str, Any] | None = None) -> None:
         """``session_options``: extra ``KickSession`` arguments (tests: ``bridge_factory`` to
-        the fake AbletonOSC, ``registry``, ``action_log``, ``refused_roots``)."""
+        the fake AbletonOSC, ``registry``, ``action_log``, ``refused_roots``; the latter is
+        also used for the project-folder copy plan). ``project_dir``: the shared Live project
+        folder; set, ``import_sample`` copies into it first (#500)."""
         self.env_file = Path(env_file) if env_file is not None else default_env_file()
         self._model = model
         self._guard = guard
         self.approver = approver if approver is not None else DenyApprover()
         self._session_options = dict(session_options or {})
+        self.placement = ProjectCopy(project_dir, self._session_options.get(
+            "refused_roots", default_refused_roots()))
         self.memory = ChatMemory()
         self._lock = threading.Lock()
         self._folder = Path(output_dir) if output_dir is not None else default_output_dir()
@@ -433,6 +494,15 @@ class ChatSession:
         with self._lock:
             self._folder = Path(folder)
 
+    @property
+    def project_dir(self) -> str:
+        return self.placement.project_dir
+
+    def set_project_dir(self, project_dir: str) -> None:
+        """The shared project folder; read by the next import's plan (no rebuild, the
+        samples of this chat stay importable)."""
+        self.placement.project_dir = project_dir or ""
+
     def status(self) -> ChatStatus:
         if self._model is not None:  # injected client (tests): no access check needed
             return ChatStatus(True, "Testmodell (kein Claude).", "fake")
@@ -450,8 +520,16 @@ class ChatSession:
                     f"werden bei der ersten Frage eingerichtet; dabei wird der Ausgabeordner "
                     f"{folder} angelegt."))
             self._build_tools()
-            assert self._tools_state is not None
-            return self._tools_state
+            st = self._tools_state
+            assert st is not None
+            if st.folder is None:
+                return st
+            project = self.project_dir.strip()
+            where = (f" Vor dem Import kopiert der Copilot WAV und Sidecar in den Projektordner "
+                     f"{project} (wie die Live-Import-Seite)." if project else
+                     " Kein Projektordner eingestellt: Live verweist beim Import auf die Datei "
+                     "im Ausgabeordner.")
+            return ToolsState(st.names, st.folder, st.note + where)
 
     def budget(self, usage: Mapping[str, Any] | None = None) -> str:
         return budget_text(self.guard, usage, mode=self.status().mode)
@@ -470,7 +548,8 @@ class ChatSession:
         kick: KickSession | None = None
         why = ""
         options = {"project_check": output_folder_check,
-                   "refused_roots": default_refused_roots(), **self._session_options}
+                   "refused_roots": default_refused_roots(), "placement": self.placement,
+                   **self._session_options}
         try:
             # Check first, create only then (review of #493): a relative folder, one inside
             # the checkout or below Live's Backup folder is refused without creating anything.

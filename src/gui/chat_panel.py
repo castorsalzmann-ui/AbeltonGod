@@ -144,6 +144,7 @@ class ChatPanel(QWidget):
         session.approver = self.approver
         if self.hub is not None:
             session.set_output_dir(self.hub.settings.output_root())
+            session.set_project_dir(self.hub.settings.project_dir)
         self.refresh_access()
 
     def attach_hub(self, hub) -> None:
@@ -154,6 +155,7 @@ class ChatPanel(QWidget):
 
     def _settings_changed(self, settings) -> None:
         self.session.set_output_dir(settings.output_root())
+        self.session.set_project_dir(settings.project_dir)  # #500: import copies into it
         if not self.busy:
             self.refresh_tools()
 
