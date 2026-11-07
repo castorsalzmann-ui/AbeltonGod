@@ -2,10 +2,11 @@
 
 The fx engine's cost grows with the file length, the filter stages, the drive stage, and above
 all with the tone layer's partial count ``0.45 * sr / tone_hz`` (saw, square and metal are
-additive; a 72 s saw at 20 Hz took ~42 s in review). The constants below were MEASURED ONCE in
-the development container (Xeon 2.3 GHz, Python 3.13, NumPy 2.5; 32 s files at 48 kHz, one
-process per case, 2026-11-07) and are rough: on the user's PC the time may be half or twice
-as long. The estimate never blocks a render; it only produces a German note.
+additive; a 72 s saw at 20 Hz took ~40 s before the blocked additive of #503, ~7 s after). The
+constants below were MEASURED ONCE in the development container (Xeon 2.3 GHz, Python 3.13,
+NumPy 2.5; 32 s files at 48 kHz, one process per case, 2026-11-07; PARTIAL_S re-measured after
+#503) and are rough: on the user's PC the time may be half or twice as long. The estimate never
+blocks a render; it only produces a German note.
 """
 
 from __future__ import annotations
@@ -16,7 +17,7 @@ from typing import Any
 BASE_S = 0.15e-6  # noise, curves, peak scaling
 FILTER_S = 0.40e-6  # one state-variable filter stage, per channel
 TONE_S = 0.20e-6  # tone curves and envelope
-PARTIAL_S = 10e-9  # one partial of saw / square / metal, per frame
+PARTIAL_S = 1.8e-9  # one partial of saw / square / metal, per frame (blocked additive, #503)
 DRIVE_S = 0.97e-6  # 8x oversampled drive, per channel
 REVERB_S = 0.25e-6
 ECHO_S = 0.30e-6

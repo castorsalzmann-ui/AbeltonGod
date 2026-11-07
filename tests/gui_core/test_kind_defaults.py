@@ -10,7 +10,7 @@ import pytest
 
 from audio_engine.params import CONTRACTS_DIR
 from audio_engine.presets import preset_names
-from gui_core.form import CATEGORY_KEYS, CategoryFormModel, resolve_defaults
+from gui_core.form import CATEGORY_KEYS, CategoryFormModel, derived_defaults, resolve_defaults
 
 FX = json.loads((CONTRACTS_DIR / "fx-params.schema.json").read_text(encoding="utf-8"))
 KINDS = FX["properties"]["kind"]["enum"]
@@ -94,6 +94,25 @@ def test_property_every_branch_default_of_every_kind_is_shown_for_random_states(
                 assert m.parse(n)[0] == d, (kind, n, m.text[n])
                 checked += 1
     assert checked > 300
+
+
+def test_derived_defaults_come_from_the_annotation_not_the_text():
+    """#501 guard: the reader follows `x-derived-default`; changing the description wording
+    changes nothing, removing the annotation removes the derived default."""
+    import copy
+
+    assert derived_defaults(FX) == {"ramp_beats": "length_beats",
+                                    "tone_glide_beats": "length_beats"}
+    reworded = copy.deepcopy(FX)
+    for name in ("ramp_beats", "tone_glide_beats"):
+        reworded["properties"][name]["description"] = "Reworded without the old phrase."
+    assert derived_defaults(reworded) == derived_defaults(FX)
+    bare = copy.deepcopy(FX)
+    del bare["properties"]["ramp_beats"]["x-derived-default"]
+    assert derived_defaults(bare) == {"tone_glide_beats": "length_beats"}
+    bad = copy.deepcopy(FX)
+    bad["properties"]["ramp_beats"]["x-derived-default"] = "no_such_field"
+    assert "ramp_beats" not in derived_defaults(bad)
 
 
 def test_resolver_absent_kind_uses_only_branches_without_required():

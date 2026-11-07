@@ -313,6 +313,42 @@ def test_band_limited_waves_have_no_partial_above_0_45_sr(wave: str) -> None:
         assert 10 * math.log10(float(np.max(spec[k2 - 3:k2 + 4])) / top) < -60
 
 
+def _additive_one_pass(cyc, f, sr, odd_only, alternate):
+    """The additive tone as PR #499 shipped it: one pass over the whole file, the weight always
+    computed (copied here as the byte reference for #503's blocked version)."""
+    s1 = F.sin_cycles(cyc)
+    two_c = 2.0 * F.cos_cycles(cyc)
+    out = np.zeros(len(cyc))
+    prev, cur = np.zeros(len(cyc)), s1
+    k = 1
+    fmin = float(np.min(f))
+    while k * fmin < 0.45 * sr:
+        if not odd_only or k % 2 == 1:
+            sign = -1.0 if (alternate and k % 2 == 0) else 1.0
+            w = np.clip((0.45 * sr - k * f) / (0.45 * sr - 0.40 * sr), 0.0, 1.0)
+            out += (sign / k) * w * cur
+        prev, cur = cur, two_c * cur - prev
+        k += 1
+    return out
+
+
+@pytest.mark.parametrize("block", [8192, 1000, 37])
+def test_blocked_additive_is_byte_identical_to_the_one_pass_version(block, monkeypatch) -> None:
+    """#503: blocks, the early stop per block and the skipped weight of 1 change no bit. Glides
+    up and down across the partial fade region, block lengths that do not divide the file."""
+    monkeypatch.setattr(F, "ADDITIVE_BLOCK", block)
+    rng = np.random.default_rng(503)
+    for sr in (44100, 48000):
+        for _ in range(4):
+            n = int(rng.integers(3000, 9000))
+            f0, f1 = float(rng.uniform(150, 4000)), float(rng.uniform(150, 4000))
+            f = f0 * (f1 / f0) ** np.linspace(0.0, 1.0, n)
+            cyc = F._phase_cycles(f, sr)
+            for odd_only, alternate in ((False, True), (True, False)):
+                got = F._additive(cyc, f, sr, odd_only, alternate)
+                assert np.array_equal(got, _additive_one_pass(cyc, f, sr, odd_only, alternate))
+
+
 def test_tone_decay_falls_60_db_over_tone_decay_beats() -> None:
     """tone_decay_beats 2 at 120 BPM = 1 s for 60 dB: windows 0.5 s apart differ by 30 dB."""
     x = _r(bpm=120, noise_level=0, tone_level=1, tone_start_hz=1000, tone_end_hz=1000,
