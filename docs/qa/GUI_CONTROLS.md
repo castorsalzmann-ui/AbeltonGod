@@ -149,6 +149,7 @@ differ only in the area. Handler and effect per kind:
 | `perc · PresetChips/QPushButton · *` | `PresetChips` -> `chosen` | One chip per preset |
 | `perc · SeedControl · *` | `CategoryPanel._edited` | Seed field |
 | `perc · Segmented/QPushButton · *` | `Segmented` -> `chosen` -> `ChoiceControl._chosen` | One button per enum choice |
+| `perc · WrapSegmented/QPushButton · *` | `WrapSegmented` -> `chosen` -> `ChoiceControl._chosen` | Enum with many choices, wrapping (model) |
 
 ### Main window: Bibliothek
 

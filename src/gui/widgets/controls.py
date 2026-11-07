@@ -371,7 +371,9 @@ class ChoiceControl(ParamControl):
         super().__init__(spec, accent=accent)
         em = self.fontMetrics().horizontalAdvance("M")
         self.texts = list(spec.choice_texts)
-        wide = len(self.texts) > 5 or sum(len(t) for t in self.texts) > 28
+        # 20 characters: perc `model` (5 choices, 26 characters) measured 438 px as one row on
+        # Windows CI, above the 34 M page (408 px); every other enum is <= 15 or >= 29 (#475).
+        wide = len(self.texts) > 5 or sum(len(t) for t in self.texts) > 20
         self.seg = (WrapSegmented(self.texts) if wide else Segmented(self.texts, accent=accent))
         self.seg.setAccessibleName(spec.label)
         self.seg.setToolTip(spec.description)
