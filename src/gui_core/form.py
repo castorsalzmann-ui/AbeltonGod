@@ -17,14 +17,14 @@ from audio_engine.categories import get_category
 from audio_engine.params import CONTRACTS_DIR, load_schema
 from audio_engine.presets import describe, load_preset, preset_names
 
-CATEGORY_KEYS = ("kick", "hat", "snare", "clap", "rim", "bass", "laser")
+CATEGORY_KEYS = ("kick", "hat", "snare", "clap", "rim", "bass", "laser", "perc")
 # Contract fields the form does not edit as a value: the format version is derived, the preset
 # name has its own drop-down.
 HIDDEN_FIELDS = ("schema_version", "preset")
 ALWAYS_ACTIVE = ("seed", "variants")
 DEFAULT_PRESETS = {
     "kick": "punchy", "hat": "closed-std", "snare": "default", "clap": "default",
-    "rim": "rim", "bass": "default", "laser": "blaster",
+    "rim": "rim", "bass": "default", "laser": "blaster", "perc": "conga",
 }
 DEFAULT_PRESET = DEFAULT_PRESETS["kick"]
 YES, NO = "ja", "nein"
@@ -90,10 +90,14 @@ LABELS_DE: dict[str, str] = {
     "reverb_mix": "Hall-Anteil", "reverb_size": "Hall-Größe", "reverb_decay_ms": "Nachhall",
     "reverb_damp_hz": "Hall-Dämpfung", "reverb_predelay_ms": "Hall-Vorverzögerung",
     "reverb_width": "Hall-Breite",
+    # perc (#475)
+    "tune_semitones": "Stimmung", "decay_scale": "Abfall-Faktor",
+    "attack_scale": "Anstiegs-Faktor", "bend_ratio": "Glide-Verhältnis", "bend_ms": "Glide-Zeit",
+    "tick_level": "Tick-Pegel", "tick_hz": "Tick-Frequenz",
 }
 _UNIT_BY_NAME = {"bpm": "BPM", "length_beats": "Beats", "tail_note": "MIDI", "note": "MIDI",
                  "cents": "Cent", "bursts": "", "rate_div": "", "salvo_pitch_step_st": "st",
-                 "salvo_count": "", "glitch_steps": ""}
+                 "salvo_count": "", "glitch_steps": "", "tune_semitones": "st"}
 _UNIT_BY_SUFFIX = (("_dbfs", "dBFS"), ("_db", "dB"), ("_ms", "ms"), ("_hz", "Hz"))
 
 

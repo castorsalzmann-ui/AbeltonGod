@@ -1,0 +1,8 @@
+{
+  "schema_version": "0.1",
+  "preset": "clave",
+  "seed": 1,
+  "model": "clave",
+  "tick_level": 0.1,
+  "hp_hz": 400
+}

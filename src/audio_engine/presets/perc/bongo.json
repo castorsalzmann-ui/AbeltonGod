@@ -1,0 +1,11 @@
+{
+  "schema_version": "0.1",
+  "preset": "bongo",
+  "seed": 1,
+  "model": "conga",
+  "tune_semitones": 12,
+  "decay_scale": 0.6,
+  "bend_ratio": 1.3,
+  "bend_ms": 4,
+  "tick_level": 0.3
+}

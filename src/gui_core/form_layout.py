@@ -25,6 +25,7 @@ from audio_engine import (
     clap_variants,
     hat_variants,
     laser_variants,
+    perc_variants,
     rim_variants,
     snare_variants,
 )
@@ -42,7 +43,7 @@ HOUSEKEEPING = frozenset({
 })
 _VARIANT_MODULES = {
     "kick": kick_variants, "hat": hat_variants, "snare": snare_variants, "clap": clap_variants,
-    "rim": rim_variants, "bass": bass_variants, "laser": laser_variants,
+    "rim": rim_variants, "bass": bass_variants, "laser": laser_variants, "perc": perc_variants,
 }
 
 

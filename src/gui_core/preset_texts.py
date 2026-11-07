@@ -115,6 +115,24 @@ PRESET_TEXTS_DE: dict[tuple[str, str], str] = {
                        "langer Abfall, breit.",
     ("laser", "subboom"): "Dimension subboom: Sweep-Stimme plus Sub-Schicht zwei Oktaven tiefer, "
                           "langer Abfall.",
+    # perc (#475)
+    ("perc", "bongo"): "Modell Conga eine Oktave höher, kürzerer Abfall, Glide und Tick wie "
+                       "die Conga des Artefakts (Platzhalterwerte).",
+    ("perc", "clave"): "Modell Clave mit Grundwerten (Sinus 2400 Hz), leiser Tick, Hochpass "
+                       "400 Hz.",
+    ("perc", "conga"): "Die Vertrags-Standardwerte ausgeschrieben (Modell Conga, Grundton C4, "
+                       "Glide 1,25, Tick 0,2).",
+    ("perc", "conga-dry"): "Conga ohne Tick, kürzerer Abfall (Platzhalterwerte).",
+    ("perc", "cowbell"): "Modell Cowbell mit Grundwerten (Rechtecke 540 + 800 Hz, Bandpass "
+                         "2,6 kHz), leiser Tick.",
+    ("perc", "hard-groove-tom"): "Tom nur für Hard Groove (D-032): Grundton C3, Tick und "
+                                 "Glide-Zeit wie die Tom des Artefakts.",
+    ("perc", "hard-groove-tom-low"): "Tom nur für Hard Groove (D-032): 5 Halbtöne tiefer, "
+                                     "längerer Abfall, leichter Drive.",
+    ("perc", "shaker"): "Modell Shaker mit Grundwerten (bandgefiltertes Rauschen, 12 ms "
+                        "Anstieg).",
+    ("perc", "shaker-long"): "Shaker mit doppeltem Abfall, langsamerem Anstieg, 3 Halbtöne "
+                             "tiefer.",
 }
 
 
