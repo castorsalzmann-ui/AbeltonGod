@@ -194,7 +194,10 @@ def test_contract_text_fixes_the_agreed_definitions() -> None:
                    "No cross-field rule", "bend_ratio and bend_ms act only on tom and conga",
                    "tick_level and tick_hz have no effect at shaker", "800 / 540",
                    "the rule of audio_engine.dsp.square_bank", "20 = off (no filter)",
-                   "existing non-pitched ones"):
+                   "existing non-pitched ones",
+                   "base_decay_ms 30 (placeholder; the artifact's 'decay 30' is the rim "
+                   "recipe's decay knob, not a time to -60 dB)",
+                   "a simplification: the rim voice reduced to a single partial"):
         assert needle in text, needle
     desc = PERC["description"]
     for needle in ("PROPOSALS", "D-032", "prior art from one browser artifact",
