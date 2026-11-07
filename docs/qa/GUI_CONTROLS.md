@@ -13,7 +13,7 @@ buttons, number fields ...) passes nothing on. Print the current list with
 `python scripts/qa/gui_controls.py` (`NEW` = missing here, `GONE` = row without a control).
 
 **Reading an ID.** `area · class · label`. Areas: `main` (left list, window buttons, render
-column), the category pages `kick` … `laser`, `library`, `goa-page`, `live`, `chat`, and the
+column), the category pages `kick` … `laser`, `library`, `goa-page`, `live`, `chat`, `reference`, and the
 windows `goa`, `acid`, `blaster`. `Container/Class` means a control generated inside a kit
 container, one row per kind (`*`), because their number follows the contract fields. Inputs
 without a caption are named by the attribute that holds them (`AcidWindow.seed_edit`).
@@ -198,6 +198,14 @@ differ only in the area. Handler and effect per kind:
 | --- | --- | --- |
 | `chat · QLineEdit · ChatPanel.input` | `ChatPanel.send` (Enter), `_update_state` | Question to the copilot |
 | `chat · QPushButton · Senden` | `ChatPanel.send` | Sends through the guard; no tools, no Live writes (text in the page says so) |
+
+### Main window: Referenz page (#480)
+
+| ID | Handler | Effect |
+| --- | --- | --- |
+| `reference · QPushButton · WAV wählen …` | `ReferencePanel.pick_file` | File dialog for a kick WAV; the measurement runs in a worker thread (dropping one WAV on the page does the same) |
+| `reference · ReferencePanel · reference_body` | `MainWindow.apply_reference` (`apply_requested`) | The page itself: hands the nearest candidate to the main window |
+| `reference · QPushButton · Als Startwerte übernehmen` | `ReferencePanel.apply` | Loads the nearest candidate's preset and values into the kick form (format stays as set) and shows the kick page; renders nothing; enabled only after a successful measurement |
 
 ### Goa window (Weitere Fenster)
 
