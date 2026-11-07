@@ -241,8 +241,8 @@ METADATA_INVALID = {
         CLAP_DOC, "parameters.schema_version", "0.3"),
     "clap parameters with an unknown version 0.2.1": _changed(
         CLAP_DOC, "parameters.schema_version", "0.2.1"),
-    "category perc not allowed": _changed(CLAP_DOC, "category", "perc"),
-    "category perc": _changed(KICK_DOC, "category", "perc"),
+    "category tom not allowed": _changed(CLAP_DOC, "category", "tom"),  # perc model (D-032)
+    "category tom": _changed(KICK_DOC, "category", "tom"),
     "kick with schema_version 0.2": _changed(KICK_DOC, "schema_version", "0.2"),
     "schema_version 0.3": _changed(CLAP_DOC, "schema_version", "0.3"),
     "hf_share above 1": _changed(CLAP_DOC, "features.hf_share_8k", 1.5),
