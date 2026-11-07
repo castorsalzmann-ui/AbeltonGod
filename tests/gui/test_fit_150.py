@@ -172,6 +172,12 @@ def _child(out: Path) -> None:
                        "width": drivers(w, 0), "height": drivers(w, 1)}
         if key == "main":
             result["planner"] = _planner_on_screen(app, w, screen)
+            # #498: the library page with its "Kit erstellen" section open.
+            w.categories.setCurrentRow(w.library_row)
+            w.library.kit_section.set_expanded(True)
+            app.processEvents()
+            result["main-kit"] = {"min": own(w), "screen": (screen.width(), screen.height()),
+                                  "width": drivers(w, 0), "height": drivers(w, 1)}
         w.close()
     out.write_text(json.dumps(result), encoding="utf-8")
 
@@ -204,6 +210,16 @@ def test_window_minimum_fits_1920x1080_at_150_percent(sizes150, key, capsys):
         for axis in ("width", "height"):
             print(f"[#442]   {axis}: " + " | ".join(got[axis]))
     assert w <= sw and h <= sh, f"{key}: smallest {w} x {h} on a {sw} x {sh} screen"
+
+
+def test_library_with_open_kit_section_fits_1920x1080_at_150_percent(sizes150, capsys):
+    """#498: opening "Kit erstellen" on the library page keeps the main window on the screen."""
+    got = sizes150["main-kit"]
+    (w, h), (sw, sh) = got["min"], SCREEN
+    with capsys.disabled():
+        print(f"\n[#498] main with kit section on {sys.platform}: min {w} x {h}; height: "
+              + " | ".join(got["height"]))
+    assert w <= sw and h <= sh, f"main-kit: smallest {w} x {h} on a {sw} x {sh} screen"
 
 
 def test_planner_page_works_without_scrolling_on_1280x720(sizes150, capsys):

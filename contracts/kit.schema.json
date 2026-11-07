@@ -1,0 +1,69 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/castorsalzmann-ui/AbeltonGod/contracts/kit.schema.json",
+  "title": "Kit manifest",
+  "description": "v0.1 (#498, D-032). The file kit.json in an exported kit folder <output dir>/Samples/Kits/<folder>/: which copied sample sits in which slot. Files only; nothing in it is sent to Ableton. Rules JSON Schema cannot express (file naming, sidecar copies, no overwrite, what a failed export leaves) are part of this contract: docs/INTERFACES.md 'Kit manifest'.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "name", "created_at", "slots"],
+  "properties": {
+    "schema_version": { "const": "0.1" },
+    "name": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9._-]{1,80}$",
+      "description": "Kit name as the user gave it, made file-system safe (ASCII letters, digits, '.', '_', '-'; at most 80 characters). The folder is this name, or this name with _002, _003 ... when a kit of that name already exists."
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9](\\.[0-9]{1,6})?(Z|[+-]([01][0-9]|2[0-3]):[0-5][0-9])$",
+      "description": "When the kit was exported. RFC 3339 with upper-case T and an explicit offset; the GUI writes UTC with Z."
+    },
+    "slots": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kick"],
+      "properties": {
+        "kick": { "allOf": [{ "$ref": "#/$defs/item" }, { "properties": { "category": { "enum": ["kick"] } } }] },
+        "clap_snare": { "allOf": [{ "$ref": "#/$defs/item" }, { "properties": { "category": { "enum": ["clap", "snare"] } } }] },
+        "closed_hat": { "allOf": [{ "$ref": "#/$defs/item" }, { "properties": { "category": { "enum": ["hat"] } } }] },
+        "open_hat": { "allOf": [{ "$ref": "#/$defs/item" }, { "properties": { "category": { "enum": ["hat"] } } }] },
+        "rim": { "allOf": [{ "$ref": "#/$defs/item" }, { "properties": { "category": { "enum": ["rim"] } } }] },
+        "perc": { "allOf": [{ "$ref": "#/$defs/item" }, { "properties": { "category": { "enum": ["perc"] } } }] },
+        "bass": { "allOf": [{ "$ref": "#/$defs/item" }, { "properties": { "category": { "enum": ["bass"] } } }] }
+      },
+      "description": "One entry per filled slot. Only kick is required (so a kit always has at least one slot); every other slot is optional and left out when empty, never null."
+    }
+  },
+  "$defs": {
+    "item": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["file", "sha256", "source", "category"],
+      "properties": {
+        "file": {
+          "type": "string",
+          "pattern": "^[0-9]{2}_[A-Za-z0-9._-]{1,200}\\.wav$",
+          "description": "File name of the copy inside the kit folder: two-digit slot number, '_', slot tag, '_', the source stem (e.g. 01_kick_kick-rumble.wav). Its sidecar is the same name with .json."
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$",
+          "description": "SHA-256 of the copy's bytes (equal to the source's bytes at export), lower-case hex."
+        },
+        "source": {
+          "type": "string",
+          "minLength": 5,
+          "maxLength": 1024,
+          "pattern": "^(?![A-Za-z]:)(?!/)(?!(.*/)?\\.\\.?(/|$))(?!.*//)[^\\\\\\u0000-\\u001f]*\\.[wW][aA][vV]$",
+          "description": "Path of the source WAV relative to the output dir at export time, same rules as the choice log's sample.path. Informative only: sha256 is the identity."
+        },
+        "category": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_-]{0,31}$",
+          "description": "The source sidecar's category, copied as is; each slot allows only its own categories."
+        }
+      }
+    }
+  }
+}

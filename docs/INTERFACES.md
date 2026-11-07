@@ -20,6 +20,7 @@ Machine-readable contracts live in `contracts/`. This file explains them. Changi
 | `contracts/tool-list-tracks.schema.json`, `contracts/tool-import-sample.schema.json` | Claude (tool arguments) → orchestrator | v1 (#81) — input schemas only; not wired yet |
 | `contracts/arrangement-plan.schema.json` | Planner window ↔ plan generator → Live builder | v0.1 (#146, D-024) — format only; no editor, generator or Live writes yet; not a Claude tool input |
 | `contracts/choice-log.schema.json` | GUI library page (later: listening-test conversion) → choice log file → later readers | v0.1 (#110, D-032) — one JSONL line per verdict; writer and reader `src/gui_core/choices.py` (library page, #110 step 2); stays on the user's machine; not a Claude tool input |
+| `contracts/kit.schema.json` | GUI library page ("Kit erstellen") → `kit.json` in a kit folder → later readers (a Drum Rack builder, once its capabilities are tested) | v0.1 (#498, D-032) — files only; writer `src/gui_core/kit.py`; nothing goes to Live; not a Claude tool input |
 
 ## Kick parameters
 
@@ -368,3 +369,41 @@ v0.1 (#110, D-032). The user's verdicts on sample files ("Favorit", "Passt nicht
 **What "learning" can mean here** (no generative model, D-005; Claude keeps nothing between sessions): a later tool reads the log and the sidecars it points to and, for example, shows which presets and parameter ranges the user's favourites and rejects fall into, or proposes narrowing a preset's range. That is counting and fitting ranges over stored data, run locally on request. No model is trained and nothing leaves the machine.
 
 **Instances.** `tests/fixtures/choice_log/valid.jsonl` (positive), `lt1.jsonl` (positive), `order.jsonl` (positive; three entries for one hash where string order and instant order disagree, and two equal instants), `invalid.json` (patches on line 1 of `valid.jsonl`, each with the one error it must raise). `tests/test_contracts_choice_log.py` runs them plus seeded random entries and one mutation per main rule.
+
+## Kit manifest (`kit.schema.json`)
+
+v0.1 (#498, D-032). A drum kit put together on the library page ("Kit erstellen"): one sample per slot, copied into its own folder with a `kit.json` that says which copy sits in which slot. Writer: `src/gui_core/kit.py` (the library page uses it). **Files only:** nothing is written to Live, no Drum Rack is built (the Drum Rack capabilities are `unknown`, see `docs/research/2026-11-02_drum-kit-assembly-and-mixer-feasibility.md`). Not a Claude tool input.
+
+**Where it lives.** `<output dir>/Samples/Kits/<name>/`, where `<name>` is the kit name made file-system safe (ASCII letters, digits, `.`, `_`, `-`, at most 80 characters, never a Windows device name). If a file or folder of that name exists, the kit goes to `<name>_002`, `<name>_003` … (up to `_999`). An existing kit folder is never written into or replaced.
+
+**Folder content.** Per filled slot one WAV copy `NN_<tag>_<source stem>.wav` (`NN` = slot number below, `tag` = slot tag, the source stem cut so that Live's analysis file `<copy>.wav.asd` stays within 259 characters, Windows MAX_PATH) and its sidecar copy `NN_<tag>_<source stem>.json` (the source's `<stem>.json`, byte for byte), plus `kit.json`. The copies are byte-equal to the sources at export time, so verdicts in the choice log (matched by SHA-256) follow them, and the library lists them like any other WAV. The library does not offer files under `Samples/Kits/` as kit candidates.
+
+| No. | Slot key | Allowed `category` | Tag | Required |
+| --- | --- | --- | --- | --- |
+| 01 | `kick` | `kick` | `kick` | yes (so a kit always has at least one slot) |
+| 02 | `clap_snare` | `clap`, `snare` | the file's category | no |
+| 03 | `closed_hat` | `hat` | `hat-closed` | no |
+| 04 | `open_hat` | `hat` | `hat-open` | no |
+| 05 | `rim` | `rim` | `rim` | no |
+| 06 | `perc` | `perc` | `perc` | no |
+| 07 | `bass` | `bass` | `bass` | no |
+
+An empty optional slot is left out of `slots` (never `null`); its number stays free, so slot numbers in file names do not shift (lead decision on PR #502: a user without e.g. a rim or perc file can still export).
+
+The same file may fill both hat slots (two copies). Whether a hat is closed or open is not in the hat contract (no boolean, `decay_ms` only), so the slot says it.
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `schema_version` | `"0.1"` | |
+| `name` | string | The safe kit name (not the `_002` folder suffix). |
+| `created_at` | RFC 3339 string | Export time, explicit offset; the GUI writes UTC with `Z`. |
+| `slots.<key>.file` | string | Copy's file name in the kit folder (`^[0-9]{2}_…\.wav$`); its sidecar is the same name with `.json`. |
+| `slots.<key>.sha256` | hex string | SHA-256 of the copy (equal to the source at export). |
+| `slots.<key>.source` | string | Source WAV relative to the output dir, `/` separators, same rules as the choice log's `sample.path`. Informative only. |
+| `slots.<key>.category` | string | The source sidecar's category; each slot allows only its own categories (table above). |
+
+**No half kit.** The writer builds the kit in a fresh `Samples/Kits/.kit-tmp-<random>` folder, checks every copy's SHA-256 against the hash taken when the kit was planned (a source changed or deleted in between aborts), validates `kit.json` against the schema before writing it, and only then renames the folder to its final name. On any failure (disk full, permission, Ctrl+C) it removes the temporary folder and the `Samples` / `Kits` folders it created itself. A power cut or a killed process can leave a `.kit-tmp-*` folder, never a folder with a kit name. On POSIX a rename may replace an *empty* folder created by someone else in the instant between the free-name check and the rename; Windows refuses that rename (the next number is used).
+
+**Prefill.** The slots are proposed from the choice log: per slot, in slot order, the newest current favourite (current verdict by parsed instant, equal instants: the later line; never by string) of an allowed category that no earlier slot took; the closed-hat slot prefers presets without "open", the open-hat slot presets with "open". The user can change every slot.
+
+**Instances.** `tests/test_contracts_kit.py` (base instance, one mutation per rule, seeded random manifests built from this text); `tests/gui_core/test_kit.py` (export validated against the schema, byte-equal copies and sidecars, `_002`, disk full, prefill order).
