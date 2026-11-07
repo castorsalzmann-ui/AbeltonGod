@@ -194,7 +194,7 @@ Engine (#475 step 2): `audio_engine.perc.render_perc(params) -> (audio, resolved
 - All numbers are proposals. Only the noise_crash 1000 Hz with a 4-8 bar fade and the 8/16/32-bar build lengths rest on a source (magazine tutorials, note F8/F9).
 - Not in v0.1: Shepard risers, sampled cymbals, key / note names for the tone, per-layer filters, a planner adapter (orchestrator, own issue).
 
-No tool schema (`generate_fx`) exists.
+Engine (#482): `audio_engine.fx.render_fx(params) -> (audio (n, 2), resolved)`, engine `abeltongod-audio-engine-fx` 0.1.0; CLI `--category fx` (text fields `kind`, `filter_mode`, `noise_color`, `tone_wave`, `echo_note` via `--set`); 8 presets in `presets/fx/` (`riser-8bar`, `riser-16bar`, `riser-32bar`, `downlifter`, `sweep`, `impact`, `noise-crash`, `reverse-crash`), all at 135 BPM: set `bpm` to the track's tempo. Engine choices the contract leaves open or orders differently are listed in the `fx.py` module docstring (end fade before the peak scaling; partial fade 0.40-0.45 x sr; metal = mean of the six squares); contract text alignment is #496. No GUI page yet (needs #492). No tool schema (`generate_fx`) exists.
 
 ## Guard policy
 

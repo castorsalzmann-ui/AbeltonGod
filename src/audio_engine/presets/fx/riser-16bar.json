@@ -1,0 +1,8 @@
+{
+  "schema_version": "0.1",
+  "preset": "riser-16bar",
+  "seed": 1,
+  "bpm": 135,
+  "kind": "riser",
+  "length_beats": 64
+}

@@ -1,15 +1,17 @@
-"""FX library folder (#482, contract step): Samples/FX/Transitions, configurable; nothing is
-written for fx until the engine registers the category."""
+"""FX library folder (#482): Samples/FX/Transitions, configurable; the engine places fx there."""
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
+from jsonschema import Draft202012Validator
 
-from audio_engine.categories import CategoryUnavailable
 from library import place_sample
 from library.layout import DEFAULT_LAYOUT, LibraryLayout, LibraryPathError
+
+ROOT = Path(__file__).resolve().parents[2]
 
 
 def test_fx_folder_is_samples_fx_transitions() -> None:
@@ -24,9 +26,19 @@ def test_fx_folder_is_samples_fx_transitions() -> None:
         LibraryLayout(fx="Samples/AUX")
 
 
-def test_fx_placement_is_refused_before_any_folder_exists(tmp_path: Path) -> None:
-    project = tmp_path / "Project"
-    project.mkdir()
-    with pytest.raises(CategoryUnavailable, match="fx"):
-        place_sample("fx", {"schema_version": "0.1", "seed": 1, "bpm": 135}, project)
-    assert list(project.iterdir()) == []
+def test_place_sample_fx_writes_a_valid_sidecar_into_transitions(tmp_path: Path) -> None:
+    params = {"schema_version": "0.1", "seed": 3, "bpm": 140, "kind": "reverse_crash",
+              "length_beats": 1}
+    wav = place_sample("fx", params, tmp_path)
+    assert wav.relative_to(tmp_path).parts[:-1] == ("Samples", "FX", "Transitions")
+    assert wav.name.startswith("fx") and wav.suffix == ".wav"
+    meta = json.loads(wav.with_suffix(".json").read_text(encoding="utf-8"))
+    schema = json.loads((ROOT / "contracts/sample-metadata.schema.json").read_text("utf-8"))
+    Draft202012Validator(schema).validate(meta)
+    assert meta["category"] == "fx"
+    assert meta["engine"] == {"name": "abeltongod-audio-engine-fx", "version": "0.1.0"}
+    # 1 beat at 140 BPM, 48 kHz = 20571.43 -> 20571 frames; reverse_crash: boundary = N
+    assert meta["features"]["anchor"] == "end"
+    assert meta["features"]["boundary_frame"] == 20571
+    assert meta["parameters"]["tail_beats"] == 0  # the resolved form is stored
+    assert len(wav.read_bytes()) == 44 + 20571 * 2 * 3
