@@ -43,6 +43,7 @@ from .drag import PATH_ROLE, DragList
 from .goa_panel import GoaPanel
 from .library_panel import LibraryPanel
 from .live_panel import LivePanel
+from .planner_panel import PlannerPanel
 from .waveform_widget import WaveformWidget
 from .windows import (
     WINDOW_KEYS,
@@ -54,7 +55,8 @@ from .windows import (
 )
 
 # Pages after the sample categories and the library (left list order).
-TOOL_PAGES = (("goa", "Goa-Arrangement"), ("live", "Live-Import"), ("chat", "Copilot"))
+TOOL_PAGES = (("goa", "Goa-Arrangement"), ("planner", "Arrangement-Planer"),
+              ("live", "Live-Import"), ("chat", "Copilot"))
 
 
 class _Bridge(QObject):
@@ -155,7 +157,10 @@ class MainWindow(QMainWindow):
         self.chat = ChatPanel(chat_session)
         self.tool_rows = {}
         self.tool_scrolls: dict[str, QScrollArea] = {}
-        for key, widget in (("goa", self.goa), ("live", self.live), ("chat", self.chat)):
+        self.planner = PlannerPanel(self.hub.settings.output_root(), opener)
+        self.planner.attach_hub(self.hub)  # plans go to <Ausgabeordner>/Plans
+        for key, widget in (("goa", self.goa), ("planner", self.planner), ("live", self.live),
+                            ("chat", self.chat)):
             # A scroll area per tool page: their content does not set the window's minimum
             # (fits 1920 x 1080 at 150 %, #442 P1).
             box = QScrollArea()
