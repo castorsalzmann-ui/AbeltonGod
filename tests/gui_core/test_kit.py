@@ -102,19 +102,32 @@ def test_export_writes_a_valid_kit_with_byte_equal_copies_and_verbatim_sidecars(
     assert [p.name for p in kits(out).iterdir()] == ["Peak-Time"]  # no temp folder left
 
 
-def test_bass_is_optional_and_left_out_when_empty(out):
-    picks = {**picks_of(out), "bass": None}
+@pytest.mark.parametrize("slot", ["clap_snare", "closed_hat", "open_hat", "rim", "perc", "bass"])
+def test_every_slot_but_kick_is_optional_and_left_out_when_empty(out, slot):
+    picks = {**picks_of(out), slot: None}
     folder = kit.export_kit(kit.plan_kit(out, "k", picks), now=NOW)
     doc = json.loads((folder / "kit.json").read_text(encoding="utf-8"))
-    assert "bass" not in doc["slots"] and not VALIDATOR.is_valid({**doc, "slots": {
-        **doc["slots"], "bass": None}})
+    assert slot not in doc["slots"] and not VALIDATOR.is_valid({**doc, "slots": {
+        **doc["slots"], slot: None}})
     assert list(VALIDATOR.iter_errors(doc)) == []
+    # The other slots keep their numbers (no shift when one is empty).
+    assert {k: v["file"] for k, v in doc["slots"].items()} == {
+        k: v for k, v in EXPECTED_NAMES.items() if k != slot}
+    assert not (folder / EXPECTED_NAMES[slot]).exists()
 
 
-@pytest.mark.parametrize("slot", ["kick", "clap_snare", "closed_hat", "open_hat", "rim", "perc"])
-def test_a_missing_drum_slot_is_refused_before_anything_is_written(out, slot):
-    picks = {**picks_of(out), slot: None}
-    with pytest.raises(kit.KitError, match="keine Datei"):
+def test_a_kick_only_kit_is_exported(out):
+    folder = kit.export_kit(kit.plan_kit(out, "solo", picks_of(out, ["kick"])), now=NOW)
+    doc = json.loads((folder / "kit.json").read_text(encoding="utf-8"))
+    assert list(VALIDATOR.iter_errors(doc)) == [] and list(doc["slots"]) == ["kick"]
+    assert sorted(p.name for p in folder.iterdir()) == [
+        "01_kick_kick-rumble.json", "01_kick_kick-rumble.wav", "kit.json"]
+
+
+@pytest.mark.parametrize("others", [True, False])
+def test_a_missing_kick_is_refused_before_anything_is_written(out, others):
+    picks = {**picks_of(out), "kick": None} if others else {"kick": None}
+    with pytest.raises(kit.KitError, match="Kick: keine Datei"):
         kit.plan_kit(out, "k", picks)
     assert not kits(out).exists()
 
@@ -248,7 +261,7 @@ def test_seeded_random_kits_are_valid_and_byte_equal(tmp_path):
         out = tmp_path / f"o{round_}"
         picks = {}
         for slot in kit.SLOTS:
-            if not slot.required and rng.random() < 0.5:
+            if slot.key != "kick" and rng.random() < 0.5:
                 continue
             cat = rng.choice(slot.categories)
             stem = "".join(rng.choice("abcXYZ09-_. ü") for _ in range(rng.randint(1, 60)))

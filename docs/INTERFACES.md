@@ -380,13 +380,15 @@ v0.1 (#498, D-032). A drum kit put together on the library page ("Kit erstellen"
 
 | No. | Slot key | Allowed `category` | Tag | Required |
 | --- | --- | --- | --- | --- |
-| 01 | `kick` | `kick` | `kick` | yes |
-| 02 | `clap_snare` | `clap`, `snare` | the file's category | yes |
-| 03 | `closed_hat` | `hat` | `hat-closed` | yes |
-| 04 | `open_hat` | `hat` | `hat-open` | yes |
-| 05 | `rim` | `rim` | `rim` | yes |
-| 06 | `perc` | `perc` | `perc` | yes |
-| 07 | `bass` | `bass` | `bass` | no (key left out, never `null`) |
+| 01 | `kick` | `kick` | `kick` | yes (so a kit always has at least one slot) |
+| 02 | `clap_snare` | `clap`, `snare` | the file's category | no |
+| 03 | `closed_hat` | `hat` | `hat-closed` | no |
+| 04 | `open_hat` | `hat` | `hat-open` | no |
+| 05 | `rim` | `rim` | `rim` | no |
+| 06 | `perc` | `perc` | `perc` | no |
+| 07 | `bass` | `bass` | `bass` | no |
+
+An empty optional slot is left out of `slots` (never `null`); its number stays free, so slot numbers in file names do not shift (lead decision on PR #502: a user without e.g. a rim or perc file can still export).
 
 The same file may fill both hat slots (two copies). Whether a hat is closed or open is not in the hat contract (no boolean, `decay_ms` only), so the slot says it.
 

@@ -89,14 +89,17 @@ def test_favourites_prefill_and_export_writes_the_kit(qapp, out):
     assert p.kit_boxes["kick"].currentText().startswith("★ ")
     p.kit_export_button.click()
     assert p.kit_info.text() == "Kein Kit erstellt: Bitte einen Kit-Namen eingeben."
-    p.kit_name.setText("Mein Kit")
-    p.kit_export_button.click()
-    assert "Kein Kit erstellt" in p.kit_info.text() and "Clap / Snare" in p.kit_info.text()
     assert not (s / "Kits").exists()
+    p.kit_name.setText("Mein Kit")
+    p.kit_export_button.click()  # kick + two hats: the other slots are optional
+    first = s / "Kits" / "Mein-Kit"
+    assert "Kit gespeichert" in p.kit_info.text() and str(first) in p.kit_info.text()
+    doc = json.loads((first / "kit.json").read_text(encoding="utf-8"))
+    assert sorted(doc["slots"]) == ["closed_hat", "kick", "open_hat"]
     for key in ("clap_snare", "rim", "perc"):
         p.kit_boxes[key].setCurrentIndex(1)
     folder = p.export_kit()
-    assert folder == s / "Kits" / "Mein-Kit" and "Kit gespeichert" in p.kit_info.text()
+    assert folder == s / "Kits" / "Mein-Kit_002" and "Kit gespeichert" in p.kit_info.text()
     doc = json.loads((folder / "kit.json").read_text(encoding="utf-8"))
     assert sorted(doc["slots"]) == sorted(["kick", "clap_snare", "closed_hat", "open_hat", "rim",
                                            "perc"])
@@ -108,7 +111,30 @@ def test_favourites_prefill_and_export_writes_the_kit(qapp, out):
     assert all("Kits" not in str(p.kit_boxes["kick"].itemData(i))
                for i in range(p.kit_boxes["kick"].count()))
     assert p.kit_picks()["kick"] == s / "kick" / "kick-2.wav"  # picks kept after refresh
-    assert p.export_kit() == s / "Kits" / "Mein-Kit_002"
+    assert p.export_kit() == s / "Kits" / "Mein-Kit_003"
+
+
+def test_export_is_enabled_exactly_when_a_kick_is_picked(qapp, out):
+    p = LibraryPanel(ChoiceLog())
+    p.set_folder(out)
+    assert p.kit_boxes["kick"].currentData() is None
+    assert not p.kit_export_button.isEnabled()
+    for key, box in p.kit_boxes.items():  # every other slot filled: still no kick
+        if key != "kick":
+            box.setCurrentIndex(1)
+    assert not p.kit_export_button.isEnabled()
+    p.kit_boxes["kick"].setCurrentIndex(1)
+    assert p.kit_export_button.isEnabled()
+    for key, box in p.kit_boxes.items():  # kick alone is enough
+        if key != "kick":
+            box.setCurrentIndex(0)
+    assert p.kit_export_button.isEnabled()
+    p.kit_name.setText("Solo")
+    p.kit_export_button.click()
+    doc = json.loads((out / "Samples" / "Kits" / "Solo" / "kit.json").read_text(encoding="utf-8"))
+    assert list(doc["slots"]) == ["kick"]
+    p.kit_boxes["kick"].setCurrentIndex(0)
+    assert not p.kit_export_button.isEnabled()
 
 
 def test_disk_full_shows_a_message_and_leaves_nothing(qapp, out, monkeypatch):

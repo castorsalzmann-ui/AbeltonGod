@@ -22,7 +22,8 @@ SLOT_CATEGORIES = {
     "kick": ["kick"], "clap_snare": ["clap", "snare"], "closed_hat": ["hat"],
     "open_hat": ["hat"], "rim": ["rim"], "perc": ["perc"], "bass": ["bass"],
 }
-REQUIRED = ["kick", "clap_snare", "closed_hat", "open_hat", "rim", "perc"]
+REQUIRED = ["kick"]
+OPTIONAL = ["clap_snare", "closed_hat", "open_hat", "rim", "perc", "bass"]
 
 
 def item(n: int, cat: str) -> dict:
@@ -56,8 +57,19 @@ def test_schema_is_draft_2020_12_and_base_is_valid():
     assert list(VALIDATOR.iter_errors(BASE)) == []
 
 
-def test_bass_may_be_left_out_and_snare_fits_the_clap_slot():
-    assert VALIDATOR.is_valid(with_("slots/bass", remove=True))
+@pytest.mark.parametrize("slot", OPTIONAL)
+def test_every_slot_but_kick_may_be_left_out(slot):
+    assert VALIDATOR.is_valid(with_(f"slots/{slot}", remove=True))
+    assert not VALIDATOR.is_valid(with_(f"slots/{slot}", None))  # left out, never null
+
+
+def test_a_kick_only_kit_is_valid_and_an_empty_one_is_not():
+    assert VALIDATOR.is_valid(with_("slots", {"kick": item(1, "kick")}))
+    assert not VALIDATOR.is_valid(with_("slots", {}))
+    assert not VALIDATOR.is_valid(with_("slots", {"rim": item(5, "rim")}))
+
+
+def test_snare_fits_the_clap_slot():
     assert VALIDATOR.is_valid(with_("slots/clap_snare/category", "snare"))
     assert VALIDATOR.is_valid(with_("created_at", "2026-11-07T13:00:00.5+01:00"))
 
@@ -100,7 +112,7 @@ def test_seeded_random_manifests_from_the_prose_are_valid():
     for _ in range(300):
         slots = {}
         for n, (key, cats) in enumerate(SLOT_CATEGORIES.items(), 1):
-            if key == "bass" and rng.random() < 0.5:
+            if key != "kick" and rng.random() < 0.5:
                 continue
             cat = rng.choice(cats)
             stem = "".join(rng.choice(safe) for _ in range(rng.randint(1, 120)))

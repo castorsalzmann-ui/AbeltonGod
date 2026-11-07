@@ -271,14 +271,21 @@ class LibraryPanel(QWidget):
         row.addWidget(self.kit_prefill_button)
         row.addWidget(self.kit_export_button)
         body.addLayout(row)
-        self.kit_info = QLabel("Kopiert die Dateien mit Sidecars und kit.json nach "
-                               "Samples/Kits/<Name>; nichts geht an Live.")
+        self.kit_info = QLabel("Kick ist Pflicht, die anderen Slots sind optional. Kopiert die "
+                               "Dateien mit Sidecars und kit.json nach Samples/Kits/<Name>; "
+                               "nichts geht an Live.")
         self.kit_info.setObjectName("muted")
         self.kit_info.setWordWrap(True)
         body.addWidget(self.kit_info)
         self.kit_prefill_button.clicked.connect(self.prefill_kit)
         self.kit_export_button.clicked.connect(self.export_kit)
+        self.kit_boxes["kick"].currentIndexChanged.connect(self._update_kit_button)
+        self._update_kit_button()
         return self.kit_section
+
+    def _update_kit_button(self, _index=None) -> None:
+        """Only the kick is required (the other slots are optional)."""
+        self.kit_export_button.setEnabled(self.kit_boxes["kick"].currentData() is not None)
 
     def kit_picks(self) -> dict[str, Path | None]:
         return {k: (Path(b.currentData()) if b.currentData() else None)
@@ -306,6 +313,7 @@ class LibraryPanel(QWidget):
             box.blockSignals(False)
         if not any(self.kit_picks().values()):
             self.prefill_kit()
+        self._update_kit_button()
 
     def prefill_kit(self) -> None:
         picks = kitcore.prefill(self.entries, self.choices.read().entries, self.folder,

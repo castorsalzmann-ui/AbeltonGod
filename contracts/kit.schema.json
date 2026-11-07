@@ -22,7 +22,7 @@
     "slots": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["kick", "clap_snare", "closed_hat", "open_hat", "rim", "perc"],
+      "required": ["kick"],
       "properties": {
         "kick": { "allOf": [{ "$ref": "#/$defs/item" }, { "properties": { "category": { "enum": ["kick"] } } }] },
         "clap_snare": { "allOf": [{ "$ref": "#/$defs/item" }, { "properties": { "category": { "enum": ["clap", "snare"] } } }] },
@@ -32,7 +32,7 @@
         "perc": { "allOf": [{ "$ref": "#/$defs/item" }, { "properties": { "category": { "enum": ["perc"] } } }] },
         "bass": { "allOf": [{ "$ref": "#/$defs/item" }, { "properties": { "category": { "enum": ["bass"] } } }] }
       },
-      "description": "One entry per slot. The six drum slots are required; bass is optional (left out when empty, never null)."
+      "description": "One entry per filled slot. Only kick is required (so a kit always has at least one slot); every other slot is optional and left out when empty, never null."
     }
   },
   "$defs": {

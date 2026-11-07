@@ -4,9 +4,9 @@ not tested).
 
 Format: ``contracts/kit.schema.json`` v0.1 and docs/INTERFACES.md "Kit manifest".
 
-* :func:`plan_kit` checks the picks (every required slot filled, each file a readable library
-  WAV of the slot's category below the output folder), hashes the sources and chooses the copy
-  names. It writes nothing.
+* :func:`plan_kit` checks the picks (the kick slot filled, the others optional; each file a
+  readable library WAV of the slot's category below the output folder), hashes the sources and
+  chooses the copy names. It writes nothing.
 * :func:`export_kit` builds the kit in a fresh temporary folder next to the kits, checks every
   copy's bytes against the planned SHA-256, writes ``kit.json`` (validated first) and only then
   renames the folder to ``<name>``, ``<name>_002`` ... A kit folder is never overwritten. On any
@@ -54,18 +54,18 @@ class Slot:
     label: str  # German, for the GUI
     categories: tuple[str, ...]
     tag: str  # in the copy's name; "" = the file's category
-    required: bool = True
+    required: bool = False  # only the kick is required (lead decision on PR #502)
     prefers: str = ""  # prefill: preset containing this word first ("!open" = not containing)
 
 
 SLOTS: tuple[Slot, ...] = (
-    Slot("kick", "Kick", ("kick",), "kick"),
+    Slot("kick", "Kick", ("kick",), "kick", required=True),
     Slot("clap_snare", "Clap / Snare", ("clap", "snare"), ""),
     Slot("closed_hat", "Hat geschlossen", ("hat",), "hat-closed", prefers="!open"),
     Slot("open_hat", "Hat offen", ("hat",), "hat-open", prefers="open"),
     Slot("rim", "Rim", ("rim",), "rim"),
     Slot("perc", "Perc", ("perc",), "perc"),
-    Slot("bass", "Bass (optional)", ("bass",), "bass", required=False),
+    Slot("bass", "Bass", ("bass",), "bass"),
 )
 SLOT_BY_KEY = {s.key: s for s in SLOTS}
 
