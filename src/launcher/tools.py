@@ -1,6 +1,6 @@
 """Dispatch table: tool name -> the tool's own ``main(argv)``.
 
-Nothing here re-implements a tool. The six sound categories share ``audio_engine.cli`` (the
+Nothing here re-implements a tool. The sound categories share ``audio_engine.cli`` (the
 same entry point as ``python -m audio_engine.kick``) and get ``--category <name>`` prepended;
 the Live scripts under ``scripts/`` are not a package, so they are loaded by path (from the
 bundle in the exe, from the checkout otherwise), the same way ``kick_to_live`` loads
@@ -48,6 +48,10 @@ TOOLS: tuple[Tool, ...] = (
          out_mode="dir", menu_args=("--preset", "rim")),
     Tool("bass", "Bass-WAV erzeugen", "audio_engine.cli", prefix=("--category", "bass"),
          out_mode="dir", menu_args=("--preset", "default")),
+    Tool("laser", "Laser-WAV erzeugen (Stereo)", "audio_engine.cli",
+         prefix=("--category", "laser"), out_mode="dir", menu_args=("--preset", "blaster")),
+    Tool("perc", "Percussion-WAV erzeugen (Conga, Clave, Shaker ...)", "audio_engine.cli",
+         prefix=("--category", "perc"), out_mode="dir", menu_args=("--preset", "conga")),
     Tool("goa-arrangement", "Kompletter Goa-Track als MIDI + README",
          "audio_engine.goa_arrangement", out_mode="new"),
     Tool("goa-melody", "Goa-Melodien (Lead/Arp/Pad/Pluck) als MIDI + README",
