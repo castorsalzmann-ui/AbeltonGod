@@ -30,6 +30,7 @@ from audio_engine.bass_variants import make_variants as bass_variants
 from audio_engine.clap_variants import make_variants
 from audio_engine.hat_variants import make_variants as hat_variants
 from audio_engine.laser_variants import make_variants as laser_variants
+from audio_engine.perc_variants import make_variants as perc_variants
 from audio_engine.presets import load_preset, preset_names
 from audio_engine.rim_variants import make_variants as rim_variants
 from audio_engine.snare_variants import make_variants as snare_variants
@@ -64,6 +65,9 @@ class CategoryAdapter:
     files_per_variant: int = FILES_PER_KICK  # WAV + sidecar
     place: Callable[..., Any] = place_sample  # (category, params, project_dir, name=, description=)
     preset_category: str | None = None  # preset folder, default: ``name``
+    # Text choices of the contract that only a preset sets (#487): `adjust` carries numbers,
+    # so these keys are not adjustable; the tool text names which preset gives which value.
+    preset_only: tuple[str, ...] = ()
 
     @property
     def id_prefix(self) -> str:
@@ -89,7 +93,12 @@ ADAPTERS: Mapping[str, CategoryAdapter] = {
     # #491: the laser voice has a renderer (audio_engine.categories) and presets. Its v0.2
     # fields (salvo, filter, delay, reverb) sit in the contract's allOf branch, not under
     # properties, so `adjust` cannot set them; a preset that carries them (blaster-*) can.
-    "laser": CategoryAdapter("laser", "laser-params.schema.json", laser_variants, noun="laser"),
+    "laser": CategoryAdapter("laser", "laser-params.schema.json", laser_variants, noun="laser",
+                             preset_only=("family",)),
+    # #487: perc (conga, tom, shaker, cowbell, clave). The model is a text choice, so a preset
+    # picks it; toms only through the presets named for hard groove (D-032).
+    "perc": CategoryAdapter("perc", "perc-params.schema.json", perc_variants, noun="perc",
+                            preset_only=("model",)),
 }
 CLAP_CONTRACT = ADAPTERS["clap"].contract
 CATEGORIES = tuple(ADAPTERS)
@@ -102,7 +111,34 @@ def _adapters(adapters: Mapping[str, CategoryAdapter] | None) -> Mapping[str, Ca
 def adjustable_keys(adapter: CategoryAdapter | None = None) -> dict[str, dict[str, Any]]:
     """The category contract's fields that `adjust` may set, with their schema (default clap)."""
     adapter = adapter or ADAPTERS["clap"]
-    return {k: v for k, v in adapter.schema()["properties"].items() if k not in NOT_ADJUSTABLE}
+    return {k: v for k, v in adapter.schema()["properties"].items()
+            if k not in NOT_ADJUSTABLE and k not in adapter.preset_only}
+
+
+def preset_choices(adapter: CategoryAdapter) -> dict[str, dict[str, list[str]]]:
+    """For each ``preset_only`` key: value -> the presets that set it (a preset without the
+    key gets the contract default; '' = the engine defaults gets it too)."""
+    props = adapter.schema()["properties"]
+    out: dict[str, dict[str, list[str]]] = {}
+    for key in adapter.preset_only:
+        default = props[key].get("default")
+        table: dict[str, list[str]] = {str(v): [] for v in props[key].get("enum", [])}
+        for name in sorted(adapter.presets):
+            value = str(adapter.load_preset(name).get(key, default))
+            table.setdefault(value, []).append(name)
+        if default is not None:
+            table.setdefault(str(default), []).append("''")
+        out[key] = table
+    return out
+
+
+def _preset_only_help(adapter: CategoryAdapter) -> str:
+    parts = []
+    for key, table in preset_choices(adapter).items():
+        rows = "; ".join(f"{v}: {', '.join(names) if names else 'no preset'}"
+                         for v, names in table.items())
+        parts.append(f" {key} is chosen by the preset only (adjust cannot set it): {rows}.")
+    return "".join(parts)
 
 
 def _key_help(adapter: CategoryAdapter) -> str:
@@ -129,7 +165,7 @@ def _segment(a: CategoryAdapter) -> str:
         f"variants: how many {a.noun}s, {props['variants']['minimum']}.."
         f"{props['variants']['maximum']} (1 = only the given parameters; more = variations "
         f"around them). adjust: parameters to change from the preset, one {{key, value}} each, "
-        f"[] = none; keys: {_key_help(a)}."
+        f"[] = none; keys: {_key_help(a)}.{_preset_only_help(a)}"
     )
 
 
@@ -226,6 +262,10 @@ def check_adjust(adjust: Any, adapter: CategoryAdapter | None = None,
         if key in NOT_ADJUSTABLE:
             problems.append(f"adjust[{i}]: {key!r} is its own argument of the tool, not an "
                             "adjust key")
+            continue
+        if adapter is not None and key in adapter.preset_only:
+            problems.append(f"adjust[{i}]: {key} is chosen by the preset, not through adjust; "
+                            f"presets: {', '.join(sorted(adapter.presets))}")
             continue
         spec = keys.get(key) if isinstance(key, str) else None
         if spec is None:

@@ -60,6 +60,16 @@
      "old": "            orch = self._running  # only a running request: a late press must not stop the next\n",
      "new": "            orch = self._orch\n",
      "tests": ["tests/gui_core/test_gui_copilot.py"],
-     "note": "a late press after the reply would cancel the next request"}
+     "note": "a late press after the reply would cancel the next request"},
+    {"id": "P1_PRESET_ONLY_KEY_ADJUSTABLE", "file": "src/orchestrator/sample_tools.py",
+     "old": "            if k not in NOT_ADJUSTABLE and k not in adapter.preset_only}\n",
+     "new": "            if k not in NOT_ADJUSTABLE}\n",
+     "tests": ["tests/orchestrator/test_sample_dispatch.py"],
+     "note": "#487: perc model / laser family offered as adjust keys again"},
+    {"id": "P2_PERC_WRONG_ENGINE", "file": "src/orchestrator/sample_tools.py",
+     "old": "    \"perc\": CategoryAdapter(\"perc\", \"perc-params.schema.json\", perc_variants, noun=\"perc\",\n",
+     "new": "    \"perc\": CategoryAdapter(\"perc\", \"perc-params.schema.json\", rim_variants, noun=\"perc\",\n",
+     "tests": ["tests/orchestrator/test_sample_dispatch.py"],
+     "note": "#487: the perc row would render with another engine"}
   ]
 }
