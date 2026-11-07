@@ -381,6 +381,49 @@ def test_contract_text_fixes_the_agreed_definitions() -> None:
         assert needle in desc, needle
 
 
+def test_engine_decisions_of_496_are_in_the_contract_text() -> None:
+    """#496: the choices the fx engine made (PR #499) are stated in the contract."""
+    text = FX["$comment"]
+    for needle in (
+        # end fade before the peak scaling
+        "-> pump -> 5 ms linear fade-out at the end of the file (same shape as point 6) -> "
+        "peak scaling", "The fade comes BEFORE the peak scaling",
+        "multiplied by linspace(1, 0, F), the last of them is 0",
+        # partial fade 0.40 - 0.45 x sr
+        "clip((0.45 * sample_rate - k * f(t)) / (0.05 * sample_rate), 0, 1)",
+        "weight 1 below 0.40 * sample_rate", "the sine gets the same weight",
+        # metal amplitude, noise gain, echo crossover, phase, pump grid
+        "the MEAN of these six squares (their sum / 6)",
+        "applied to the noise AFTER the filter of point 3",
+        "echo_v2 reads stereo_width as its crossover amount",
+        "running sum of f / sample_rate",
+        "at frames N - k * spb (the boundary, one past the last frame, is a beat start)",
+        "the pump itself is not reversed",
+    ):
+        assert needle in text, needle
+    assert "defined by the engine PR, a contract-change then" not in text  # open point closed
+
+
+def test_derived_defaults_are_machine_readable_and_match_the_text() -> None:
+    """#501: `x-derived-default` names the source field; every description that says
+    "Omitted = X (derived default)" has the annotation X, and no other field has one."""
+    import re
+
+    annotated = {n: p["x-derived-default"] for n, p in FX["properties"].items()
+                 if "x-derived-default" in p}
+    assert annotated == {name: "length_beats" for name in DERIVED}
+    worded = {}
+    for name, prop in FX["properties"].items():
+        m = re.search(r"Omitted = ([a-z_]+) \(derived default\)", prop.get("description", ""))
+        if m:
+            worded[name] = m.group(1)
+    assert worded == annotated
+    for source in annotated.values():
+        assert source in FX["properties"]
+    assert "x-derived-default" in FX["description"]
+    FX_V.validate({**BASE, "ramp_beats": 2})  # the annotation changes no instance's validity
+
+
 def test_metal_partials_are_the_hat_metal_bank() -> None:
     partials = "205.3, 304.4, 369.6, 522.7, 540 and 800 Hz"
     assert partials in load("hat-params.schema.json")["$comment"]
