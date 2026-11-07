@@ -93,7 +93,8 @@ def test_every_category_gets_its_folder_and_a_name_with_its_category(tmp_path):
     folders = {"kick": "Samples/Drums/Kicks", "clap": "Samples/Drums/Claps",
                "hat": "Samples/Drums/Hats", "snare": "Samples/Drums/Snares",
                "rim": "Samples/Drums/Rims", "bass": "Samples/Bass",
-               "laser": "Samples/FX/Lasers", "perc": "Samples/Drums/Percs"}
+               "laser": "Samples/FX/Lasers", "perc": "Samples/Drums/Percs",
+               "fx": "Samples/FX/Transitions"}
     assert set(folders) == set(CATEGORY_KEYS)
     out = tmp_path / "out"
     for cat in ("snare", "bass", *sorted(set(CATEGORY_KEYS) - {"snare", "bass"})):

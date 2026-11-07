@@ -246,7 +246,7 @@ def qapp():
 
 
 @pytest.mark.parametrize("category", ["kick", "hat", "snare", "clap", "rim", "bass", "laser",
-                                      "perc"])
+                                      "perc", "fx"])
 def test_category_page_fits_a_column_of_34_m_without_horizontal_scroll(qapp, category, capsys):
     from gui.category_panel import CategoryPanel
     from gui_core.form import CategoryFormModel

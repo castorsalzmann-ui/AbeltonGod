@@ -19,6 +19,12 @@ from .variants import DECIMALS
 
 SALT = b"abeltongod-fx-variant/v1:"
 SPREAD_OCTAVES = 0.1
+# (field, mode, half width), the same shape as the other *_variants.SPREAD tables; read by the
+# GUI's Hauptregler scoring. Both cutoffs move by one shared factor (make_variant).
+SPREAD: tuple[tuple[str, str, float], ...] = (
+    ("cutoff_start_hz", "oct", SPREAD_OCTAVES),
+    ("cutoff_end_hz", "oct", SPREAD_OCTAVES),
+)
 
 
 def derived_seed(base_seed: int, index: int) -> int:

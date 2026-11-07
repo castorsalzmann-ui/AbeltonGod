@@ -133,6 +133,29 @@ PRESET_TEXTS_DE: dict[tuple[str, str], str] = {
                         "Anstieg).",
     ("perc", "shaker-long"): "Shaker mit doppeltem Abfall, langsamerem Anstieg, 3 Halbtöne "
                              "tiefer.",
+    # fx (#482): all written at 135 BPM; the tempo must match the track
+    ("fx", "riser-8bar"): "Rausch-Riser über 8 Takte: Bandpass steigt, Pegel steigt "
+                          "(Standardwerte der Art). Gespeichert mit 135 BPM: Tempo auf den "
+                          "Track einstellen.",
+    ("fx", "riser-16bar"): "Rausch-Riser über 16 Takte, die Standardwerte der Art "
+                           "ausgeschrieben. Gespeichert mit 135 BPM: Tempo auf den Track "
+                           "einstellen.",
+    ("fx", "riser-32bar"): "Rausch-Riser über 32 Takte: Bandpass steigt, Pegel steigt "
+                           "(Standardwerte der Art). Gespeichert mit 135 BPM: Tempo auf den "
+                           "Track einstellen.",
+    ("fx", "downlifter"): "Rausch-Downlifter über 2 Takte: Bandpass fällt, Pegel fällt "
+                          "(Standardwerte der Art). Gespeichert mit 135 BPM: Tempo auf den "
+                          "Track einstellen.",
+    ("fx", "sweep"): "Resonanter Tiefpass-Rausch-Sweep über 4 Takte (Standardwerte der Art). "
+                     "Gespeichert mit 135 BPM: Tempo auf den Track einstellen.",
+    ("fx", "impact"): "Kurzer Rauschstoß mit fallendem Sinus und langem Hall (Standardwerte "
+                      "der Art). Gespeichert mit 135 BPM: Tempo auf den Track einstellen.",
+    ("fx", "noise-crash"): "Hochpass-Rauschen, das ab dem Drop über 4 Takte ausblendet "
+                           "(Standardwerte der Art). Gespeichert mit 135 BPM: Tempo auf den "
+                           "Track einstellen.",
+    ("fx", "reverse-crash"): "Metallische Teiltöne und Rauschen werden über einen Takt lauter "
+                             "und enden genau auf dem Taktstrich (Standardwerte der Art). "
+                             "Gespeichert mit 135 BPM: Tempo auf den Track einstellen.",
 }
 
 

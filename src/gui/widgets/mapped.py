@@ -90,6 +90,9 @@ class MappedSlider(QAbstractSlider):
             value = self._limit_hi if pos >= hi_pos else min(value, self._limit_hi)
         if self.vmap.integer:
             value = int(round(value))
+        if self.vmap.grid:  # a limit off the grid (cut_beats < length_beats): nearest step inside
+            value = self.vmap.snap(value, max(self._limit_lo, self.vmap.minimum),
+                                   min(self._limit_hi, self.vmap.maximum))
         self.set_value(value)
         self.userChanged.emit(self._value)
 

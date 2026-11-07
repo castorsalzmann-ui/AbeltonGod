@@ -13,14 +13,15 @@ from launcher.tools import BY_NAME, TOOLS, Tool
 
 # Written out here, not derived from the table under test.
 EXPECTED_TOOLS = {
-    "kick", "hat", "snare", "clap", "rim", "bass", "laser", "perc", "goa-arrangement",
+    "kick", "hat", "snare", "clap", "rim", "bass", "laser", "perc", "fx", "goa-arrangement",
     "goa-melody",
     "goa-patterns", "arrangement-midi", "live-import", "kick-to-live", "bridge-check",
     "arrangement-check", "install-abletonosc", "als-inspect", "plan", "chat",
 }
 
 
-@pytest.mark.parametrize("name,preset", [("laser", "blaster"), ("perc", "conga")])
+@pytest.mark.parametrize("name,preset", [("laser", "blaster"), ("perc", "conga"),
+                                         ("fx", "reverse-crash")])
 def test_laser_and_perc_render_like_python_m(tmp_path: Path, name, preset):
     """Same bytes through the launcher as through ``audio_engine.cli`` directly (#494)."""
     import hashlib
@@ -54,7 +55,7 @@ def test_every_tool_resolves_to_a_real_main(tool: Tool):
     ("kick", []), ("hat", ["--category", "hat"]), ("snare", ["--category", "snare"]),
     ("clap", ["--category", "clap"]), ("rim", ["--category", "rim"]),
     ("bass", ["--category", "bass"]), ("laser", ["--category", "laser"]),
-    ("perc", ["--category", "perc"]),
+    ("perc", ["--category", "perc"]), ("fx", ["--category", "fx"]),
 ])
 def test_sound_tools_go_to_audio_engine_cli_with_category(monkeypatch, name, prefix):
     seen = []

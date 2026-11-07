@@ -302,8 +302,17 @@ class NumberControl(ParamControl):
         outside = value != number
         if self.vmap.integer:
             value = int(round(value))  # an int the user typed into a float field stays an int
+        off_grid = False
+        if self.vmap.grid and not (self.vmap.zero_off and value == 0):
+            snapped = self.vmap.snap(value, max(lo, self.vmap.minimum),
+                                     min(hi, self.vmap.maximum))
+            off_grid, value = snapped != value, snapped
         if outside:
             self.set_edit_note(f"{raw} liegt außerhalb des erlaubten Bereichs, gesetzt auf "
+                               f"{self.vmap.format(value)}.")
+        elif off_grid:
+            self.set_edit_note(f"{raw} liegt nicht auf dem Raster von "
+                               f"{self.vmap.format(self.vmap.grid)}, gesetzt auf "
                                f"{self.vmap.format(value)}.")
         elif value != number:
             self.set_edit_note(f"{raw} ist keine ganze Zahl, gesetzt auf "

@@ -127,11 +127,11 @@ jobs:
               assert "Details stehen in" in text, text
       - name: Smoke CLI exe - same output as python -m (SHA-256)
         run: python scripts/exe_smoke.py dist/AbeltonGod/AbeltonGod-cli.exe determinism
-      - name: Smoke CLI exe - laser and perc WAV, same SHA-256 as python -m (#494)
+      - name: Smoke CLI exe - laser, perc and fx WAV, same SHA-256 as python -m (#494, #482)
         shell: python
         run: |
           import hashlib, pathlib, subprocess, sys, tempfile
-          for cat, preset in (("laser", "blaster"), ("perc", "conga")):
+          for cat, preset in (("laser", "blaster"), ("perc", "conga"), ("fx", "reverse-crash")):
               args = ["--preset", preset, "--seed", "7"]
               tmp = pathlib.Path(tempfile.mkdtemp())
               cmds = {"exe": [r"dist\AbeltonGod\AbeltonGod-cli.exe", cat, *args],
