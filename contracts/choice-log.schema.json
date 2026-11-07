@@ -1,0 +1,122 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/castorsalzmann-ui/AbeltonGod/contracts/choice-log.schema.json",
+  "title": "Choice log entry",
+  "description": "v0.1 (#110, D-032). One line of the user's choice log: a verdict on one sample file. The log is the file choices.jsonl in the user config dir (next to settings.json), one JSON object per line, UTF-8, append-only. It stays on the user's machine; nothing in it is sent anywhere (D-032). Rules JSON Schema cannot express (line format, how readers treat bad lines, matching by sha256) are part of this contract: docs/INTERFACES.md 'Choice log'.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "time", "verdict", "sample", "sidecar", "source"],
+  "properties": {
+    "schema_version": { "const": "0.1" },
+    "time": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9](\\.[0-9]{1,6})?(Z|[+-]([01][0-9]|2[0-3]):[0-5][0-9])$",
+      "description": "When the verdict was given. RFC 3339 with upper-case T and an explicit offset (Z or +hh:mm); no leap second. Writers in the GUI write UTC with Z."
+    },
+    "verdict": {
+      "enum": ["favourite", "reject", "neutral"],
+      "description": "GUI: 'Favorit' = favourite, 'Passt nicht' = reject, neutral = a note without a judgement or a withdrawn verdict. The newest entry for a sha256 is the current verdict. Listening test: favourite = chosen over test.compared_with."
+    },
+    "sample": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256", "category"],
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 5,
+          "maxLength": 1024,
+          "pattern": "^(?![A-Za-z]:)(?!/)(?!(.*/)?\\.\\.?(/|$))(?!.*//)[^\\\\\\u0000-\\u001f]*\\.[wW][aA][vV]$",
+          "description": "Path of the WAV relative to the output dir (settings output_dir) at the time of writing, '/' as separator, no drive, no leading '/', no '.' or '..' segment, no empty segment, no backslash. Listening test: relative to the test package root (e.g. 'lt1/P1_B.wav'). Informative only: sha256 is the file's identity."
+        },
+        "sha256": {
+          "type": ["string", "null"],
+          "pattern": "^[0-9a-f]{64}$",
+          "description": "SHA-256 of the WAV bytes, lower-case hex. Required (not null) for source 'gui'. null only for a listening-test file whose bytes are no longer available."
+        },
+        "category": {
+          "type": ["string", "null"],
+          "pattern": "^[a-z][a-z0-9_-]{0,31}$",
+          "description": "The sidecar's category, copied as is (kick, clap, ...; a later category such as perc needs no change here). Without a sidecar: the category known from elsewhere (a kick listening test: kick), else null."
+        }
+      }
+    },
+    "sidecar": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "required": ["engine", "preset", "seed"],
+      "properties": {
+        "engine": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["name", "version"],
+          "properties": {
+            "name": { "type": "string", "minLength": 1, "maxLength": 128 },
+            "version": { "type": "string", "minLength": 1, "maxLength": 64 }
+          },
+          "description": "The sidecar's engine.name and engine.version."
+        },
+        "preset": {
+          "type": ["string", "null"],
+          "maxLength": 128,
+          "description": "The sidecar's parameters.preset; null when the sidecar has none."
+        },
+        "seed": {
+          "type": ["integer", "null"],
+          "minimum": 0,
+          "maximum": 4294967295,
+          "description": "The sidecar's parameters.seed (the params contracts' range 0..4294967295; writers emit a JSON integer); null when the sidecar has none."
+        },
+        "parameters": {
+          "type": "object",
+          "description": "Optional verbatim copy of the sidecar's parameters object (the exact <category>-params object the file was rendered with). Not re-validated here: it is valid against the category's own params contract of the time. Writers copy it whenever the sidecar has one; it is what still says what the file was after an edited render's WAV and sidecar are gone."
+        }
+      },
+      "description": "Copied from the sample's sidecar (<name>.json) when the verdict was given. With parameters, the entry still says what the file was after the WAV and sidecar are moved or deleted; engine + preset + seed alone do so only for an unedited preset render. null when there is no readable sidecar (older tool WAVs, listening-test mixes)."
+    },
+    "note": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 2000,
+      "description": "Optional free words of the user, verbatim. Leave the key out instead of writing an empty note."
+    },
+    "source": {
+      "enum": ["gui", "listening-test"],
+      "description": "Where the verdict came from: the GUI library page, or a listening test answer sheet converted by the lead."
+    },
+    "test": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "item"],
+      "properties": {
+        "id": { "type": "string", "pattern": "^[A-Za-z0-9_-]{1,32}$", "description": "Test name, e.g. 'LT1'." },
+        "item": { "type": "string", "pattern": "^[A-Za-z0-9_-]{1,32}$", "description": "Question in the test, e.g. 'P1' or 'closing'." },
+        "compared_with": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["path", "sha256"],
+          "properties": {
+            "path": { "$ref": "#/properties/sample/properties/path" },
+            "sha256": { "$ref": "#/properties/sample/properties/sha256" }
+          },
+          "description": "The other file of an A/B pair. Absent for a question that names one file only."
+        }
+      },
+      "description": "Required for source 'listening-test', not allowed for source 'gui'."
+    }
+  },
+  "allOf": [
+    {
+      "if": { "type": "object", "properties": { "source": { "const": "gui" } }, "required": ["source"] },
+      "then": {
+        "properties": { "sample": { "properties": { "sha256": { "type": "string" } } } },
+        "not": { "required": ["test"] }
+      }
+    },
+    {
+      "if": { "type": "object", "properties": { "source": { "const": "listening-test" } }, "required": ["source"] },
+      "then": { "required": ["test"] }
+    }
+  ]
+}
