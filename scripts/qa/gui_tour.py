@@ -20,7 +20,8 @@ the sound, the look on a real Windows screen, or Live (nothing talks to Ableton)
 
 The library check uses the main window's library page (``LibraryPanel`` over the output folder),
 the same list the user sees. The last step marks one library file as "Favorit" (choice log,
-#110; in memory, the tour has no settings file). Known gaps are named in :data:`KNOWN_GAPS`
+#110; in memory, the tour has no settings file), then a kit is exported from the library
+(#498). Known gaps are named in :data:`KNOWN_GAPS`
 with the text the failure must show; a gap step is xfail only for that reason, and red once it
 passes.
 """
@@ -527,6 +528,49 @@ def choose_in_library(window) -> Step:
     return Step(name, not problems, "; ".join(problems), time.perf_counter() - t)
 
 
+def export_kit_from_library(window) -> Step:
+    """Kit export (#498): open "Kit erstellen", fill every empty slot with its first candidate,
+    export; the kit folder must hold kit.json (valid against contracts/kit.schema.json) and one
+    byte-equal WAV copy plus a byte-equal sidecar per slot."""
+    import json
+
+    from gui_core import kit as kitcore
+
+    t = time.perf_counter()
+    name = "kit:library"
+    lib = window.library
+    window.categories.setCurrentRow(window.library_row)
+    lib.kit_section.set_expanded(True)
+    wait_for(lambda: True, 0)
+    for box in lib.kit_boxes.values():
+        if box.currentData() is None and box.count() > 1:
+            box.setCurrentIndex(1)
+    picks = lib.kit_picks()
+    lib.kit_name.setText("Tour Kit")
+    lib.kit_export_button.click()
+    folder = lib.folder.joinpath(*kitcore.KITS_FOLDER) / "Tour-Kit"
+    problems = []
+    try:
+        doc = json.loads((folder / kitcore.MANIFEST).read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        window.categories.setCurrentRow(0)
+        return Step(name, False, f"no kit.json ({type(exc).__name__}); {lib.kit_info.text()}",
+                    time.perf_counter() - t)
+    problems += kitcore.problems(doc)
+    for key, item in doc.get("slots", {}).items():
+        src, copy = picks.get(key), folder / item["file"]
+        if src is None or copy.read_bytes() != src.read_bytes():
+            problems.append(f"{key}: copy differs from {src}")
+        elif copy.with_suffix(".json").read_bytes() != src.with_suffix(".json").read_bytes():
+            problems.append(f"{key}: sidecar differs")
+    want = {k for k, v in picks.items() if v is not None}
+    if set(doc.get("slots", {})) != want:
+        problems.append(f"slots {sorted(doc.get('slots', {}))}, picked {sorted(want)}")
+    lib.kit_section.set_expanded(False)
+    window.categories.setCurrentRow(0)
+    return Step(name, not problems, "; ".join(problems[:3]), time.perf_counter() - t)
+
+
 def _wavs(folder: Path) -> list[Path]:
     return sorted(folder.rglob("*.wav")) if folder.is_dir() else []
 
@@ -573,6 +617,7 @@ def run_tour(home: Path, shots: Path | None = None, tag: str = "100",
             report.steps.append(tools_close_with_main(window))
             if renders:
                 report.steps.append(choose_in_library(window))
+                report.steps.append(export_kit_from_library(window))
         finally:
             window.close()
             window.deleteLater()

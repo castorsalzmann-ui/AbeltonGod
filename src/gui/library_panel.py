@@ -3,7 +3,11 @@ reading and filtering are gui_core.library; this widget only shows them.
 
 Choice log (#110): "Favorit" / "Passt nicht" (with an optional note) append one entry for the
 selected WAV to the choice log (gui_core.choices); rows show the current verdict, "nur
-Favoriten" keeps the current favourites, and a small list shows the newest log entries."""
+Favoriten" keeps the current favourites, and a small list shows the newest log entries.
+
+Kit export (#498): the closed section "Kit erstellen" picks one WAV per slot (prefilled from the
+favourites, newest first) and copies them with their sidecars and a kit.json into
+<Ausgabeordner>/Samples/Kits/<Name>/ (gui_core.kit). Files only, nothing goes to Live."""
 
 from __future__ import annotations
 
@@ -13,16 +17,19 @@ from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
+    QGridLayout,
     QHBoxLayout,
     QLabel,
     QLineEdit,
     QListWidget,
     QListWidgetItem,
     QPushButton,
+    QScrollArea,
     QVBoxLayout,
     QWidget,
 )
 
+from gui_core import kit as kitcore
 from gui_core.categories import CATEGORIES
 from gui_core.choices import (
     LABELS,
@@ -36,6 +43,7 @@ from gui_core.choices import (
 from gui_core.library import MAX_FILES, UNREADABLE, LibraryEntry, filter_entries, scan
 
 from .drag import PATH_ROLE, DragList
+from .widgets import Collapsible
 
 MARKS = {"favourite": "★ ", "reject": "✗ "}
 LOG_ROWS = 50  # newest log entries shown
@@ -107,6 +115,7 @@ class LibraryPanel(QWidget):
         self.log_view.setTextElideMode(Qt.TextElideMode.ElideRight)
         self.log_view.setMaximumHeight(5 * self.fontMetrics().height() + 12)
         lay.addWidget(self.log_view)
+        lay.addWidget(self._build_kit())
 
         refresh.clicked.connect(self.refresh)
         self.category_box.currentIndexChanged.connect(self._show)
@@ -116,6 +125,7 @@ class LibraryPanel(QWidget):
         self.favourite_button.clicked.connect(lambda: self.judge("favourite"))
         self.reject_button.clicked.connect(lambda: self.judge("reject"))
         self._load_choices()
+        self._fill_kit()
         self._update_buttons()
 
     def set_folder(self, folder: Path) -> None:
@@ -127,6 +137,7 @@ class LibraryPanel(QWidget):
         self.entries, self.truncated = res.entries, res.truncated
         self._load_choices()
         self._show()
+        self._fill_kit()
 
     def verdict_of(self, wav: Path) -> str | None:
         """Current verdict of a listed WAV, or None when the log has none for its bytes."""
@@ -202,6 +213,7 @@ class LibraryPanel(QWidget):
         self.note.clear()
         self._load_choices(f"{LABELS[verdict]}: {wav.name} gespeichert.")
         self._show()
+        self._fill_kit()
         return True
 
     def _load_choices(self, done: str = "") -> None:
@@ -220,3 +232,109 @@ class LibraryPanel(QWidget):
         if res.skipped:
             parts.append(f"{res.skipped} fehlerhafte Zeilen übersprungen")
         self.choice_info.setText(". ".join(parts) + ".")
+
+    # --- kit export (#498) -----------------------------------------------------------------
+
+    def _build_kit(self) -> Collapsible:
+        self.kit_section = Collapsible("Kit erstellen")
+        inner = QWidget()
+        grid = QGridLayout(inner)
+        grid.setContentsMargins(0, 0, 0, 0)
+        self.kit_boxes: dict[str, QComboBox] = {}
+        for row, slot in enumerate(kitcore.SLOTS):
+            box = QComboBox()
+            box.setAccessibleName(f"Kit {slot.label}")
+            box.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
+            box.setMinimumContentsLength(12)
+            grid.addWidget(QLabel(slot.label), row, 0)
+            grid.addWidget(box, row, 1)
+            self.kit_boxes[slot.key] = box
+        grid.setColumnStretch(1, 1)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        scroll.setWidget(inner)
+        # The slot list scrolls instead of growing the page (fits 1920 x 1080 at 150 %, #442).
+        scroll.setMaximumHeight(9 * self.fontMetrics().height() + 12)
+        body = QVBoxLayout(self.kit_section.body)
+        body.setContentsMargins(0, 0, 0, 0)
+        body.addWidget(scroll)
+        row = QHBoxLayout()
+        self.kit_name = QLineEdit()
+        self.kit_name.setPlaceholderText("Kit-Name")
+        self.kit_name.setAccessibleName("Kit-Name")
+        self.kit_name.setMaxLength(80)
+        self.kit_prefill_button = QPushButton("Aus Favoriten")
+        self.kit_export_button = QPushButton("Kit exportieren")
+        row.addWidget(self.kit_name, 1)
+        row.addWidget(self.kit_prefill_button)
+        row.addWidget(self.kit_export_button)
+        body.addLayout(row)
+        self.kit_info = QLabel("Kick ist Pflicht, die anderen Slots sind optional. Kopiert die "
+                               "Dateien mit Sidecars und kit.json nach Samples/Kits/<Name>; "
+                               "nichts geht an Live.")
+        self.kit_info.setObjectName("muted")
+        self.kit_info.setWordWrap(True)
+        body.addWidget(self.kit_info)
+        self.kit_prefill_button.clicked.connect(self.prefill_kit)
+        self.kit_export_button.clicked.connect(self.export_kit)
+        self.kit_boxes["kick"].currentIndexChanged.connect(self._update_kit_button)
+        self._update_kit_button()
+        return self.kit_section
+
+    def _update_kit_button(self, _index=None) -> None:
+        """Only the kick is required (the other slots are optional)."""
+        self.kit_export_button.setEnabled(self.kit_boxes["kick"].currentData() is not None)
+
+    def kit_picks(self) -> dict[str, Path | None]:
+        return {k: (Path(b.currentData()) if b.currentData() else None)
+                for k, b in self.kit_boxes.items()}
+
+    def _sha_of(self, wav: Path) -> str | None:
+        return known_sha256(Path(wav), self._sha_cache)
+
+    def _fill_kit(self) -> None:
+        """Re-list the candidates per slot, keeping the current picks; when nothing is picked
+        yet, prefill from the favourites."""
+        keep = self.kit_picks()
+        fav = {sha for sha, e in self.verdicts.items() if e["verdict"] == "favourite"}
+        for slot in kitcore.SLOTS:
+            box = self.kit_boxes[slot.key]
+            box.blockSignals(True)
+            box.clear()
+            box.addItem("(keine)", None)
+            for e in kitcore.candidates(slot, self.entries, self.folder):
+                mark = "★ " if fav and self._sha_of(e.wav_path) in fav else ""
+                box.addItem(f"{mark}{e.name}", str(e.wav_path))
+            want = keep[slot.key]
+            i = box.findData(str(want)) if want is not None else -1
+            box.setCurrentIndex(max(i, 0))
+            box.blockSignals(False)
+        if not any(self.kit_picks().values()):
+            self.prefill_kit()
+        self._update_kit_button()
+
+    def prefill_kit(self) -> None:
+        picks = kitcore.prefill(self.entries, self.choices.read().entries, self.folder,
+                                self._sha_of)
+        for key, wav in picks.items():
+            box = self.kit_boxes[key]
+            box.setCurrentIndex(max(box.findData(str(wav)), 0) if wav is not None else 0)
+
+    def export_kit(self) -> Path | None:
+        """Export the picked kit. Returns the new kit folder, or None with the reason in
+        ``kit_info`` (nothing is left behind on failure)."""
+        try:
+            plan = kitcore.plan_kit(self.folder, self.kit_name.text(), self.kit_picks())
+            folder = kitcore.export_kit(plan)
+        except kitcore.KitError as exc:
+            self.kit_info.setText(f"Kein Kit erstellt: {exc}")
+            return None
+        except OSError as exc:
+            self.kit_info.setText(f"Kein Kit erstellt ({type(exc).__name__}: {exc.strerror or exc})"
+                                  "; nichts wurde hinterlassen.")
+            return None
+        self.refresh()
+        self.kit_info.setText(f"Kit gespeichert: {folder} ({len(plan.items)} Dateien).")
+        return folder
