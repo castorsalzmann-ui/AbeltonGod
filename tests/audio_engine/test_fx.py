@@ -264,6 +264,22 @@ def test_hp_lp_and_lp_modes_shape_the_noise() -> None:
 # --- tone ---------------------------------------------------------------------------------------
 
 
+def test_hp_lp_low_pass_has_fixed_q_0_7071_not_filter_q() -> None:
+    """Point 3: in hp_lp only the hp takes filter_q; the lp at cutoff * lp_ratio has Q 0.7071.
+    With filter_q 8, an lp at Q 8 would put a +18 dB peak on 2000 Hz; at Q 0.7071 the band at
+    the lp corner is about 3 dB below the band between the corners (1100-1300 Hz)."""
+    x = _r(bpm=60, length_beats=8, filter_mode="hp_lp", filter_q=8, cutoff_start_hz=500,
+           cutoff_end_hz=500, lp_ratio=4)[:, 0]
+    spec = np.abs(np.fft.rfft(x)) ** 2
+    f = np.fft.rfftfreq(len(x), 1 / SR)
+
+    def band(lo, hi):
+        return 10 * math.log10(float(np.mean(spec[(f >= lo) & (f < hi)])))
+
+    corner = band(1950, 2050) - band(1100, 1300)
+    assert -6 < corner < 0, corner
+
+
 def _check_tone_glide(render) -> None:
     """Sine 150 -> 40 Hz over 1 beat at 120 BPM (0.5 s); after the glide 40 Hz exactly, at
     t = 0.25 s 150 * (40/150)^0.5 = 77.46 Hz (zero crossings of the tone alone)."""

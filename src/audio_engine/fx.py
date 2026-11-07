@@ -39,11 +39,22 @@ Signal path (all float64):
    the fade; with that order a reverse crash (loudest at its end) would miss the "peak within
    one LSB" rule of point 9, so the fade comes first (contract text change: #496).
 
-Cross-platform bytes (point 10): every per-sample transcendental (cutoff and glide curves,
-dB -> gain, tan of the filter coefficient, sin / cos of the tone) is computed by the polynomial
-helpers below from +, -, *, / and exact ``frexp`` / ``ldexp`` only, so the result does not
-depend on the platform's ``exp`` / ``tan`` (cause of the laser echo mismatch, PR #429). The
-filter recursion is plain Python float arithmetic. Reverb and echo are the laser blocks.
+Cross-platform bytes (point 10): the per-sample transcendentals of this module (cutoff and
+glide curves, dB -> gain, tan of the filter coefficient, sin / cos of the tone) are computed by
+the polynomial helpers below from +, -, *, / and exact ``frexp`` / ``ldexp`` only, so they do
+not depend on the platform's ``exp`` / ``tan`` (the kind of mismatch the laser echo had, PR
+#429); the pump's fourth power is two multiplications. The filter recursion is plain Python
+float arithmetic; ``np.sqrt`` (pink shaping, noise correlation) is correctly rounded by IEEE
+754. Remaining library calls, NOT made platform-independent here: ``np.tanh`` inside the
+kick's drive stage (``kick._drive``, only when ``drive`` > 0), the platform ``exp`` / ``pow``
+inside the laser blocks (``laser_fx.echo_v2`` damping and grid, ``laser_fx.reverb_wet`` line
+gains; per file, not per sample, except the echo's grid), the FFTs (pink noise, drive
+oversampling, echo) and NumPy's normal sampler. All are covered by the golden hashes that CI
+checks on Ubuntu and Windows.
+
+Cost: the filter loop is ~0.7 us per sample and channel. The additive tone layer costs in
+proportion to the partial count 0.45 * sr / tone_hz: a 72 s saw or metal tone at 20 Hz takes
+~40-110 s (review of PR #499; follow-up #503).
 """
 
 from __future__ import annotations
@@ -498,7 +509,9 @@ def pump_gain(p: dict[str, Any], n: int) -> np.ndarray:
     i = np.arange(n, dtype=np.float64)
     beats = (i - n) / samples_per_beat(p) if anchor(p) == "end" else i / samples_per_beat(p)
     phi = beats - np.floor(beats)
-    return 1.0 - float(p["pump_depth"]) * (1.0 - phi) ** 4
+    q = 1.0 - phi
+    q2 = q * q  # (1 - phi)^4 by two multiplications: ``** 4`` would call the platform pow
+    return 1.0 - float(p["pump_depth"]) * (q2 * q2)
 
 
 def render_resolved(p: dict[str, Any]) -> np.ndarray:
