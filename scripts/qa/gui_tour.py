@@ -1,6 +1,7 @@
 """GUI tour (#437): walk every page of the main window and every tool window offscreen, render
 one sample per category plus Goa, Acid and Blaster, and check that each result shows up in the
-main window's library. Optional screenshots of every page at 100 % and 150 %.
+main window's library; export one arrangement plan from the planner page and check it with the
+contract checker. Optional screenshots of every page at 100 % and 150 %.
 
 Usage (screenshots never go into the repo; pick a folder outside it)::
 
@@ -294,6 +295,33 @@ def reference_kick(window) -> Step:
     return Step(name, True, cand.name, time.perf_counter() - t)
 
 
+def export_planner(window) -> Step:
+    """Arrangement-Planer page (#139): export the default plan; the file must lie in
+    ``<Ausgabeordner>/Plans`` and pass the contract checker ``plan_problems``."""
+    import json
+
+    from orchestrator.arrangement_plan import plan_problems
+
+    t = time.perf_counter()
+    name = "export:planner"
+    window.categories.setCurrentRow(window.tool_rows["planner"])
+    page = window.planner
+    if not page.export_button.isEnabled():
+        return Step(name, False, f"Export gesperrt: {page.status.text()}",
+                    time.perf_counter() - t)
+    page.export_button.click()
+    path = page.last_export
+    if path is None:
+        return Step(name, False, f"no file: {page.status.text()}", time.perf_counter() - t)
+    expected = window._library_folder() / "Plans"
+    if path.parent != expected:
+        return Step(name, False, f"{path} not in {expected}", time.perf_counter() - t)
+    problems = plan_problems(json.loads(path.read_text(encoding="utf-8")))
+    if problems:
+        return Step(name, False, f"{path.name}: {problems[:2]}", time.perf_counter() - t)
+    return Step(name, True, path.name, time.perf_counter() - t)
+
+
 def _all_in_library(window, name: str, wavs: list[Path], t: float, what: str) -> Step:
     if not wavs:
         return Step(name, False, f"{what}: no WAV written", time.perf_counter() - t)
@@ -441,6 +469,7 @@ def run_tour(home: Path, shots: Path | None = None, tag: str = "100",
             if renders:
                 report.steps += [render_category(window, k) for k in CATEGORY_KEYS]
                 report.steps.append(render_goa_page(window))
+                report.steps.append(export_planner(window))
                 report.steps.append(reference_kick(window))
             wins = {}
             for key in TOOL_KEYS:

@@ -13,7 +13,7 @@ buttons, number fields ...) passes nothing on. Print the current list with
 `python scripts/qa/gui_controls.py` (`NEW` = missing here, `GONE` = row without a control).
 
 **Reading an ID.** `area · class · label`. Areas: `main` (left list, window buttons, render
-column), the category pages `kick` … `laser`, `library`, `goa-page`, `live`, `chat`, `reference`, and the
+column), the category pages `kick` … `laser`, `library`, `goa-page`, `planner`, `live`, `chat`, `reference`, and the
 windows `goa`, `acid`, `blaster`. `Container/Class` means a control generated inside a kit
 container, one row per kind (`*`), because their number follows the contract fields. Inputs
 without a caption are named by the attribute that holds them (`AcidWindow.seed_edit`).
@@ -173,6 +173,21 @@ differ only in the area. Handler and effect per kind:
 | `goa-page · StepEdit · Phrasenlänge (Takte)` | `OptionForm._edited` | Phrase length in bars |
 | `goa-page · StepEdit · Seed` | `OptionForm._edited` | Seed (typed, Up/Down) |
 | `goa-page · Toggle · Keine Samples rendern` | `OptionForm._edited` | Flag: MIDI only, no sample WAVs |
+
+### Main window: Arrangement-Planer page
+
+| ID | Handler | Effect |
+| --- | --- | --- |
+| `planner · PlannerCanvas · Energiekurve` | `PlannerPanel.refresh` (via `edited`) | Energy curve: click adds a drawn node, drag moves it, click on a default node takes it over, Shift+click adds a step, right click / Delete removes; the planner (`generate_plan`, `derive_timeline`) runs again and the element lanes follow |
+| `planner · QPushButton · Gezeichnete Punkte löschen` | `PlannerPanel.clear_drawn` | Removes every drawn node (back to the planner's default curve) |
+| `planner · QPushButton · Plan exportieren` | `PlannerPanel.export` | Writes the plan (arrangement-plan v0.1, checked with `plan_problems`) to `<Ausgabeordner>/Plans`, never overwrites; enabled only with a valid plan |
+| `planner · QPushButton · Plan-Ordner öffnen` | `PlannerPanel.open_folder` | Opens `<Ausgabeordner>/Plans` (exists after the first export) |
+| `planner · StepEdit · BPM` | `PlannerPanel._bpm_edited` | Tempo of the plan (20-999) |
+| `planner · StepEdit · Länge` | `PlannerPanel._length_edited` | Track length in minutes or bars; a length the planner refuses shows the nearest ones |
+| `planner · Stepper · *` | `PlannerPanel._setting` (`valueChanged`) | Change grid (1-64 bars) |
+| `planner · Stepper/QPushButton · *` | `Stepper.step` | - / + of the change grid |
+| `planner · WrapSegmented · *` | `PlannerPanel._genre_chosen` / `_unit_chosen` / `_setting` | Genre, length unit and the ten enum style settings of the planner |
+| `planner · WrapSegmented/QPushButton · *` | `WrapSegmented` -> `chosen` | One button per choice |
 
 ### Main window: Live-Import page
 
