@@ -21,12 +21,18 @@ Signal path (all float64):
    0.7071. The noise gain ``noise_level * 10^(L(t) / 20)`` (point 4) is applied after the
    filter.
 3. Tone (point 5), mono: phase in cycles is the running sum of ``f / sr`` (phase 0 at t = 0).
-   ``saw`` / ``square`` / ``metal`` are additive with every partial weighted 1 below
-   ``0.40 * sr`` and faded linearly to 0 at ``0.45 * sr`` (:data:`PARTIAL_FADE_START`; the
-   contract leaves this fade to the engine PR). ``metal`` = the six hat metal_bank squares at
-   ``f_i * f(t) / 205.3``, summed and divided by 6.
-4. Dry end (point 6): the dry signal is multiplied by a 5 ms linear ramp that ends at frame
-   ``round((length_beats - cut_beats) * spb)`` and is 0 from there.
+   ``saw`` / ``square`` / ``metal`` are additive (:func:`_additive`, ``sin(k x)`` by the
+   Chebyshev recurrence, evaluated in blocks of :data:`ADDITIVE_BLOCK` samples with the same
+   bytes as one pass, #503); partial ``k`` is weighted per sample by
+   ``clip((0.45 sr - k f(t)) / (0.05 sr), 0, 1)``, i.e. 1 below ``0.40 * sr``
+   (:data:`PARTIAL_FADE_START`) and a linear fade to 0 at ``0.45 * sr``, as the contract
+   states; ``sine`` is multiplied by the same weight of ``f(t)``. ``metal`` = the six hat
+   metal_bank squares at ``f_i * f(t) / 205.3``, summed and divided by 6.
+4. Dry end (point 6): the dry signal is multiplied by a linear fade (:func:`_linear_fade`) of
+   ``F = max(2, round(5 ms * sr))`` samples, ``linspace(1, 0, F)``, whose last sample (0) is
+   the frame before ``round((length_beats - cut_beats) * spb)``; the gain is 0 from that frame
+   on. If fewer than F frames lie before it, only the tail of the ramp is used (a partial
+   fade that starts below 1 at frame 0).
 5. Chain (point 7): drive (the kick's anti-aliased saturation per channel, after scaling to
    peak 1) -> ``laser_fx.echo_v2`` (delay ``note_ms(echo_note, bpm)``; ``stereo_width`` is
    passed as in laser, where it is the echo crossover) -> plus ``reverb_mix *
@@ -34,10 +40,11 @@ Signal path (all float64):
    run through this chain, and reversed back.
 6. Pump (point 8) on the beat grid anchored at frame 0 (anchor start) or at frame N (anchor
    end): ``1 - pump_depth * (1 - phi)^4``.
-7. 5 ms linear fade-out at the file end, THEN the peak scaling to ``peak_ceiling_dbfs`` for the
-   quantised file (the kick's :func:`kick._normalise`). The contract lists the scaling before
-   the fade; with that order a reverse crash (loudest at its end) would miss the "peak within
-   one LSB" rule of point 9, so the fade comes first (contract text change: #496).
+7. The same linear fade ending at the file end (its last frame is 0; partial if the file has
+   fewer than F frames), THEN the peak scaling to ``peak_ceiling_dbfs`` for the quantised file
+   (the kick's :func:`kick._normalise`). This is the contract's order (point 7, #496/#507):
+   scaling after the fade keeps a reverse crash, loudest at its end, within one LSB of the
+   ceiling (point 9).
 
 Cross-platform bytes (point 10): the per-sample transcendentals of this module (cutoff and
 glide curves, dB -> gain, tan of the filter coefficient, sin / cos of the tone) are computed by
