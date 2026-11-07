@@ -58,19 +58,29 @@ def turn_text(text: str = "Fertig.") -> dict:
 
 
 def make_chat(tmp_path: Path, turns: list[dict], fake=None, *, guard: Guard | None = None,
-              approver: Any = None, out: Path | None = None) -> tuple[ChatSession, FakeModel]:
+              approver: Any = None, out: Path | None = None, project: str = "",
+              bridge_timeout_s: float = REPLY_TIMEOUT_S) -> tuple[ChatSession, FakeModel]:
     """A session on ``turns`` with the output folder ``tmp_path/out``. ``refused_roots=()``:
-    the test folder lies inside the checkout, which the default check refuses."""
+    the test folder lies inside the checkout, which the default check refuses. ``project``:
+    the shared Live project folder (#500). A short ``bridge_timeout_s`` only for a test whose
+    subject is the timeout (#180)."""
     registry = CapabilityRegistry.from_file()  # the real registry: only `tested` caps pass
     options: dict[str, Any] = {"registry": registry, "action_log": tmp_path / "actions.jsonl",
-                               "refused_roots": ()}
+                               "refused_roots": (), "bridge_timeout_s": bridge_timeout_s}
     if fake is not None:
-        options["bridge_factory"] = bridge_factory(fake, registry)
+        options["bridge_factory"] = bridge_factory(fake, registry, bridge_timeout_s)
     model = FakeModel(turns)
     session = ChatSession(tmp_path / ".env", model=model, guard=guard or guard_for(tmp_path),
                           output_dir=out or tmp_path / "out", approver=approver,
-                          session_options=options)
+                          project_dir=project, session_options=options)
     return session, model
+
+
+def make_project(tmp_path: Path, name: str = "Proj") -> Path:
+    project = tmp_path / name
+    project.mkdir(parents=True)
+    (project / "Test.als").write_bytes(b"not a real set")
+    return project
 
 
 def wavs(folder: Path) -> list[Path]:

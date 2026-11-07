@@ -45,7 +45,7 @@ import threading
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
 
 from audio_engine.params import INTEGER_FIELDS, resolve_kick_params
 from audio_engine.variants import make_variants
@@ -163,6 +163,26 @@ class SampleEntry:
     category: str = "kick"  # generate_sample adds other categories (#258)
 
 
+class ImportPlacement(Protocol):
+    """Where Live reads an imported file from (#500). Given by the caller (the GUI: the shared
+    project folder, ``gui_core.live`` copy plan); without one Live reads the WAV in place.
+
+    ``plan(wav)`` writes nothing and returns an object with ``source``, ``target`` (the file
+    Live gets) and ``copy`` (True: ``copy`` must still write WAV + sidecar there; False: the
+    file is importable where ``target`` says, identical pair reused); it raises with a reason
+    when there is no valid place. ``copy(p)`` never overwrites and leaves nothing behind when
+    it fails. ``remove(p)`` deletes the pair ``copy`` wrote."""
+
+    def plan(self, wav: str) -> Any: ...
+
+    def copy(self, placement: Any) -> None: ...
+
+    def remove(self, placement: Any) -> None: ...
+
+
+COPY_FILES = 2  # WAV + sidecar copied into the project folder
+
+
 @dataclass(frozen=True)
 class ImportPlan:
     entry: SampleEntry
@@ -171,6 +191,7 @@ class ImportPlan:
     num_scenes: int
     state: SlotState  # what the user was shown; ClipImporter.run compares it again
     track_name: str
+    placement: Any = None  # ImportPlacement.plan result; None = Live reads the WAV in place
 
 
 class KickSession:
@@ -186,6 +207,7 @@ class KickSession:
         bridge_timeout_s: float = DEFAULT_TIMEOUT_S,
         refused_roots: tuple[Path, ...] | None = None,
         project_check: ProjectCheck | None = None,
+        placement: ImportPlacement | None = None,
     ) -> None:
         """``project_check``: the shared check of #149 (default ``library.check_project_dir``;
         tests pass a double). Without one the session refuses to start
@@ -205,6 +227,7 @@ class KickSession:
         self._bridge_factory = bridge_factory or self._default_bridge
         self.action_log = Path(action_log)
         self.bridge_timeout_s = float(bridge_timeout_s)
+        self.placement = placement  # #500: copy into the user's project folder first
         self._table: dict[str, SampleEntry] = {}
         self._next_ids: dict[str, int] = {}  # per sample_id prefix
         self._lock = threading.Lock()
@@ -299,9 +322,11 @@ class KickSession:
                  files_for=kick_files),
             Tool("list_tracks", list_schema["description"], list_schema, self._list_tracks,
                  approval=Approval.ROUTINE, capabilities=LIST_TRACKS_CAPS),
+            # With a placement the import may first copy WAV + sidecar into the project.
             Tool("import_sample", import_schema["description"], import_schema, self._import,
                  approval=Approval.CONFIRM, max_live_writes=1, capabilities=IMPORT_CAPS,
-                 prepare=self._plan_import),
+                 prepare=self._plan_import,
+                 max_files_written=COPY_FILES if self.placement is not None else 0),
         ]
 
     # generate_kick ----------------------------------------------------------------------------
@@ -426,8 +451,20 @@ class KickSession:
                             files_written=0, live_writes=0, details={"live": "unchanged"})
         return entry, path
 
+    def _placement_for(self, entry: SampleEntry, path: str) -> Any:
+        """The placement plan for ``path`` (writes nothing), or None without a placement."""
+        if self.placement is None:
+            return None
+        try:
+            return self.placement.plan(path)
+        except Exception as exc:  # noqa: BLE001 - no valid place: refused, Live unchanged
+            raise ToolError(f"{entry.sample_id}: no place for the file in the project folder: "
+                            f"{exc}", files_written=0, live_writes=0,
+                            details={"live": "unchanged"}) from exc
+
     def _plan_import(self, arguments: dict[str, Any]) -> Plan:
-        entry, _ = self._checked_file(arguments["sample_id"])
+        entry, path = self._checked_file(arguments["sample_id"])
+        placement = self._placement_for(entry, path)
         track = _whole_int(arguments["track_index"])
         slot_arg = arguments.get("slot_index")
         slot = _whole_int(slot_arg) if slot_arg is not None else None
@@ -467,7 +504,11 @@ class KickSession:
         summary = {"sample_id": entry.sample_id, "file": entry.file, "track_index": track,
                    "track_number": track + 1, "track_name": names[track], "slot_index": slot,
                    "scene_number": slot + 1, "scene_count": scenes}
-        return Plan(summary, ImportPlan(entry, track, slot, scenes, state, names[track]))
+        if placement is not None:
+            summary["live_file"] = str(placement.target)
+            summary["copy_from"] = str(placement.source) if placement.copy else None
+        return Plan(summary, ImportPlan(entry, track, slot, scenes, state, names[track],
+                                        placement))
 
     def _import(self, arguments: dict[str, Any], plan: Plan) -> ToolOutput:
         data = plan.data
@@ -477,24 +518,51 @@ class KickSession:
         if entry != data.entry:
             raise ToolError(f"{entry.sample_id} changed since the plan; refused",
                             files_written=0, live_writes=0, details={"live": "unchanged"})
+        placement, copied = None, 0
+        if data.placement is not None:
+            # Plan again right before the write: the user confirmed exactly this target.
+            placement = self._placement_for(entry, path)
+            if (str(placement.target), bool(placement.copy)) != (
+                    str(data.placement.target), bool(data.placement.copy)):
+                raise ToolError(f"the place in the project folder changed since the plan "
+                                f"(now {placement.target}); refused", files_written=0,
+                                live_writes=0, details={"live": "unchanged"})
         bridge = self._connect()
+        if placement is not None and placement.copy:
+            try:
+                self.placement.copy(placement)  # never overwrites; cleans up on failure
+            except Exception as exc:  # noqa: BLE001 - nothing was sent to Live
+                bridge.close()
+                raise ToolError(f"copy into the project folder failed: {type(exc).__name__}: "
+                                f"{exc}", files_written=0, live_writes=0,
+                                details={"live": "unchanged"}) from exc
+            copied = COPY_FILES
+        live_path = str(placement.target) if placement is not None else path
         importer = None
         try:
             importer = ClipImporter(bridge, ActionLog(self.action_log),
                                     timeout_s=self.bridge_timeout_s,
                                     source="orchestrator.import_sample")
-            outcome = importer.run(path=path, track_index=data.track_index,
+            outcome = importer.run(path=live_path, track_index=data.track_index,
                                    slot_index=data.slot_index, num_slots=data.num_scenes,
                                    expected_before=data.state)
         except Exception as exc:  # noqa: BLE001 - ImportAborted, BridgeError, OSError, a bug:
             # the model must always learn whether Live may have changed
             last = importer.last_outcome if importer is not None else None
             sent = last is not None and bool(last.steps)
+            details: dict[str, Any] = {"live": "unknown: look in Live before anything else"
+                                       if sent else "unchanged"}
+            if copied:
+                # Live may point at the copy once anything was sent: keep it then; remove it
+                # only when nothing reached Live (the Live page's rule, #500).
+                if sent:
+                    details["copy"] = f"kept: {placement.target}"
+                else:
+                    self.placement.remove(placement)
+                    details["copy"] = "removed"
             raise ToolError(
                 f"import not done: {type(exc).__name__}: {exc}",
-                files_written=0, live_writes=1 if sent else 0,
-                details={"live": "unknown: look in Live before anything else" if sent
-                         else "unchanged"},
+                files_written=copied, live_writes=1 if sent else 0, details=details,
             ) from exc
         finally:
             bridge.close()
@@ -505,7 +573,9 @@ class KickSession:
             "track_name_before": outcome.target_name_before,
             "track_name_after": outcome.target_name_after,
             "file_path_read": outcome.file_path_read,
-        }}, files_written=0, live_writes=1)
+            "live_file": live_path,
+            "copied_into_project": bool(copied),
+        }}, files_written=copied, live_writes=1)
 
 
 __all__ = [
@@ -514,6 +584,7 @@ __all__ = [
     "IMPORT_CAPS",
     "LIST_TRACKS_CAPS",
     "TOOL_CONTRACTS",
+    "ImportPlacement",
     "ImportPlan",
     "KickSession",
     "SampleEntry",
