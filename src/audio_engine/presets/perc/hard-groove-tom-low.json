@@ -1,0 +1,11 @@
+{
+  "schema_version": "0.1",
+  "preset": "hard-groove-tom-low",
+  "seed": 1,
+  "model": "tom",
+  "tune_semitones": -5,
+  "decay_scale": 1.3,
+  "tick_level": 0.15,
+  "bend_ms": 7,
+  "drive": 0.2
+}

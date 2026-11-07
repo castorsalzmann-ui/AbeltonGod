@@ -1,0 +1,9 @@
+{
+  "schema_version": "0.1",
+  "preset": "shaker-long",
+  "seed": 1,
+  "model": "shaker",
+  "decay_scale": 2,
+  "attack_scale": 1.5,
+  "tune_semitones": -3
+}

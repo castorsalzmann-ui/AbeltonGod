@@ -1,0 +1,7 @@
+{
+  "schema_version": "0.1",
+  "preset": "cowbell",
+  "seed": 1,
+  "model": "cowbell",
+  "tick_level": 0.1
+}

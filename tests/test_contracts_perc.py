@@ -306,16 +306,10 @@ def test_perc_engine_name_is_refused_for_other_categories(category: str) -> None
         META_V.validate(doc)
 
 
-def test_perc_is_a_contract_category_without_a_renderer_yet() -> None:
-    """Step 1 of #475: the contract names perc; the engine refuses it until step 2."""
-    from audio_engine.categories import (
-        CONTRACT_CATEGORIES,
-        CategoryUnavailable,
-        get_category,
-        registered_categories,
-    )
+def test_perc_contract_category_is_registered_with_the_contract_engine_name() -> None:
+    """Step 2 of #475: the engine renders perc under the engine name this contract fixes."""
+    from audio_engine.categories import CONTRACT_CATEGORIES, get_category, registered_categories
 
     assert "perc" in CONTRACT_CATEGORIES
-    assert "perc" not in registered_categories()
-    with pytest.raises(CategoryUnavailable, match="no renderer"):
-        get_category("perc")
+    assert "perc" in registered_categories()
+    assert get_category("perc").engine_name == "abeltongod-audio-engine-perc"

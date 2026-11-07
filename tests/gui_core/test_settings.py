@@ -128,7 +128,8 @@ def test_free_stem_never_reuses_a_taken_name(tmp_path):
     assert st.free_stem(tmp_path, "a") == "a_3"
 
 
-@pytest.mark.parametrize("category", ["kick", "clap", "hat", "snare", "rim", "bass", "laser"])
+@pytest.mark.parametrize("category", ["kick", "clap", "hat", "snare", "rim", "bass", "laser",
+                                      "perc"])
 def test_form_start_values_from_the_settings(category):
     plain = CategoryFormModel(category)
     before = plain.build_request()

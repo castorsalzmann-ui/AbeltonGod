@@ -121,6 +121,23 @@ LASER_DESCRIPTIONS = {
 }
 
 
+PERC_DESCRIPTIONS = {
+    "conga": "The contract defaults written out (model conga, C4 base, glide 1.25, tick 0.2).",
+    "conga-dry": "Conga without tick, shorter decay (placeholder values).",
+    "bongo": "Conga model one octave up, shorter decay, artifact conga glide and tick "
+    "(placeholder values).",
+    "shaker": "Model shaker at its base values (band-passed noise, 12 ms attack).",
+    "shaker-long": "Shaker with twice the decay, slower attack, 3 semitones lower.",
+    "cowbell": "Model cowbell at its base values (squares 540 + 800 Hz, band-pass 2.6 kHz), "
+    "soft tick.",
+    "clave": "Model clave at its base values (2400 Hz sine), soft tick, high-pass 400 Hz.",
+    "hard-groove-tom": "Tom for hard groove only (D-032): C3 base, artifact tom tick and "
+    "glide time.",
+    "hard-groove-tom-low": "Tom for hard groove only (D-032): 5 semitones lower, longer decay, "
+    "light drive.",
+}
+
+
 class UnknownPresetError(KeyError):
     """No preset with this name. The message lists the valid names."""
 
@@ -143,6 +160,8 @@ def _folder(category: str) -> Path:
         return PRESETS_DIR / "bass"
     if category == "laser":
         return PRESETS_DIR / "laser"
+    if category == "perc":
+        return PRESETS_DIR / "perc"
     raise ValueError(f"no presets for category {category!r}")
 
 
@@ -165,6 +184,6 @@ def describe(name: str, category: str = "kick") -> str:
     table = {
         "clap": CLAP_DESCRIPTIONS, "hat": HAT_DESCRIPTIONS, "snare": SNARE_DESCRIPTIONS,
         "rim": RIM_DESCRIPTIONS, "bass": BASS_DESCRIPTIONS,
-        "laser": LASER_DESCRIPTIONS,
+        "laser": LASER_DESCRIPTIONS, "perc": PERC_DESCRIPTIONS,
     }.get(category, DESCRIPTIONS)
     return table.get(name, "")

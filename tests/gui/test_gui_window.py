@@ -71,7 +71,7 @@ def test_window_builds_with_categories(window):
     assert window.windowTitle() == "AbeltonGod"
     items = [window.categories.item(i) for i in range(window.categories.count())]
     assert [i.text() for i in items] == [
-        "Kick", "Hi-Hat", "Snare", "Clap", "Rim", "Bass", "Laser", "Bibliothek",
+        "Kick", "Hi-Hat", "Snare", "Clap", "Rim", "Bass", "Laser", "Perc", "Bibliothek",
         "Goa-Arrangement", "Arrangement-Planer", "Live-Import", "Copilot", "Referenz",
     ]
     for it in items:
