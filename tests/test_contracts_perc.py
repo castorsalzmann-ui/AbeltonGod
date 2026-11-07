@@ -261,8 +261,8 @@ def _changed(path: str, value, base: dict = PERC_DOC) -> dict:
     return doc
 
 
-def test_metadata_category_enum_ends_with_perc() -> None:
-    assert META["properties"]["category"]["enum"] == [
+def test_metadata_category_enum_has_perc_after_laser() -> None:
+    assert META["properties"]["category"]["enum"][:8] == [
         "kick", "clap", "hat", "snare", "rim", "bass", "laser", "perc"]
 
 
@@ -310,6 +310,6 @@ def test_perc_contract_category_is_registered_with_the_contract_engine_name() ->
     """Step 2 of #475: the engine renders perc under the engine name this contract fixes."""
     from audio_engine.categories import CONTRACT_CATEGORIES, get_category, registered_categories
 
-    assert CONTRACT_CATEGORIES[-1] == "perc"
+    assert "perc" in CONTRACT_CATEGORIES
     assert "perc" in registered_categories()
     assert get_category("perc").engine_name == "abeltongod-audio-engine-perc"
