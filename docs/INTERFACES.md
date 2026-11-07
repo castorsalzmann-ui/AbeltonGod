@@ -18,6 +18,7 @@ Machine-readable contracts live in `contracts/`. This file explains them. Changi
 | `contracts/guard-policy.schema.json` → `config/guard-policy.json` | User config → resource guard | v1 — default values are untuned starting points |
 | `contracts/tool-list-tracks.schema.json`, `contracts/tool-import-sample.schema.json` | Claude (tool arguments) → orchestrator | v1 (#81) — input schemas only; not wired yet |
 | `contracts/arrangement-plan.schema.json` | Planner window ↔ plan generator → Live builder | v0.1 (#146, D-024) — format only; no editor, generator or Live writes yet; not a Claude tool input |
+| `contracts/choice-log.schema.json` | GUI library page (later: listening-test conversion) → choice log file → later readers | v0.1 (#110, D-032) — one JSONL line per verdict; format only, no writer or reader yet; stays on the user's machine; not a Claude tool input |
 
 ## Kick parameters
 
@@ -311,3 +312,32 @@ Length settings apply when the user places a section; a template keeps its own l
 **Not in v0.1** (each a later additive contract change): user-placed fills; derived `events[]` (riser, impact, downlifter, fill, pre-drop gap) and per-phrase element states, both generator output; sub-bar node positions; a per-type number ("Drop 2"), which the UI derives from the order; the `build_kick` option "kick out for the last N bars" (D3 of the musical-transfer note).
 
 **Templates.** T1 Kurz (192 bars), T2 Techno and T3 Trance (256 bars each; 160 and 224 in the note before the outro rule above) are JSON files in `tests/fixtures/arrangement_plan/` with the default nodes of the note's section 4 and the outro walk. They are valid plans.
+
+## Choice log (`choice-log.schema.json`)
+
+v0.1 (#110, D-032). The user's verdicts on sample files ("Favorit", "Passt nicht", a note), kept as data that later sessions and tools can read. Format only; the GUI writer and reader come with #110 step 2.
+
+**Where it lives.** One file `choices.jsonl` in the user config dir, the same dir as `settings.json` (`src/gui_core/settings.py` `default_config_dir()`: `$ABELTONGOD_CONFIG_DIR`, else Windows `%APPDATA%\AbeltonGod`, else `$XDG_CONFIG_HOME/abeltongod` or `~/.config/abeltongod`). Not in the output tree and not in git, so moving or deleting samples never deletes verdicts. **Nothing in it is sent anywhere** (D-032): no upload, no automatic Claude context. Whether and which entries may go to Claude is the open questionnaire decision B6; a later opt-in needs its own decision.
+
+**Line format.** UTF-8, one JSON object per line, each line ending in `\n`, no blank lines; every line is one entry valid against the schema. Append-only: a writer adds whole lines and never rewrites or deletes earlier ones (a changed mind is a new entry; `neutral` withdraws a verdict). Readers skip a line that is not valid JSON or not valid against the schema, count the skipped lines and show the count; they never stop at a bad line and never repair the file.
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `schema_version` | `"0.1"` | |
+| `time` | RFC 3339 string | With an explicit offset (`Z` or `+hh:mm`), upper-case `T`, no leap second. The GUI writes UTC with `Z`. |
+| `verdict` | `favourite` / `reject` / `neutral` | GUI: "Favorit" / "Passt nicht" / note only or withdrawn. Listening test: `favourite` = chosen over `test.compared_with`. |
+| `sample.path` | string | WAV path relative to the output dir at the time of writing (listening test: relative to the test package), `/` separators, no drive, no leading `/`, no `.` or `..` segment, no empty segment, no backslash, ends in `.wav` (any case). Informative only. |
+| `sample.sha256` | hex string or null | The file's identity. Required for `source: gui`; `null` only for a listening-test file whose bytes are no longer available. |
+| `sample.category` | string or null | The sidecar's `category` copied as is (pattern, not an enum, so a new category such as `perc` needs no change here). |
+| `sidecar` | object or null | `engine {name, version}`, `preset`, `seed` (0–4294967295, a JSON integer) copied from the sidecar when the verdict was given (each `preset`/`seed` null when the sidecar has none), plus optional `parameters`: a verbatim copy of the sidecar's `parameters` object, not re-validated here. Writers copy `parameters` whenever the sidecar has it: engine + preset + seed describe only an unedited preset render, while `parameters` still says what an edited render was after its WAV and sidecar are gone. `null` without a readable sidecar. |
+| `note` | string, 1–2000 chars, optional | The user's words, verbatim. Left out rather than empty. |
+| `source` | `gui` / `listening-test` | |
+| `test` | `{id, item, compared_with?}` | Required for `listening-test`, not allowed for `gui`. `compared_with {path, sha256}` is the other file of an A/B pair. |
+
+**Matching and the current verdict.** Readers match an entry to a file by `sha256`, never by path (the output dir and file names can change). The newest entry by `time` for a `sha256` is the current verdict (equal times: the later line). Readers compare the parsed instants, never the strings: the GUI writes `Z`, LT1 entries carry `+01:00`, and `10:30+01:00` is earlier than `09:45Z`; entries without a hash (old listening tests) are history only. Re-rendering the same parameters and seed gives the same bytes (D-013), so a verdict follows a reproduced file.
+
+**Listening test 1.** The user's answers of 2026-10-29 (#103) convert to seven valid entries: `tests/fixtures/choice_log/lt1.jsonl` (one per pair for the chosen file, plus the closing question; step 0 names no file and has no entry). The LT1 WAVs are not in the repo, so their `sha256` is `null`; the `+01:00` offset assumes the user's local time (CET) and is not confirmed. Writing them into a real `choices.jsonl` is the user's call (B6).
+
+**What "learning" can mean here** (no generative model, D-005; Claude keeps nothing between sessions): a later tool reads the log and the sidecars it points to and, for example, shows which presets and parameter ranges the user's favourites and rejects fall into, or proposes narrowing a preset's range. That is counting and fitting ranges over stored data, run locally on request. No model is trained and nothing leaves the machine.
+
+**Instances.** `tests/fixtures/choice_log/valid.jsonl` (positive), `lt1.jsonl` (positive), `order.jsonl` (positive; three entries for one hash where string order and instant order disagree, and two equal instants), `invalid.json` (patches on line 1 of `valid.jsonl`, each with the one error it must raise). `tests/test_contracts_choice_log.py` runs them plus seeded random entries and one mutation per main rule.
