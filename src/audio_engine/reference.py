@@ -12,8 +12,11 @@ WAVE_FORMAT_EXTENSIBLE with the PCM sub-format), 16 or 24 bit, mono or stereo, 4
 cancels in the sum is not measured). Anything else raises :class:`ReferenceAudioError` with a
 German message for the GUI.
 
-Measures (:func:`measure`), all on the mono signal from its **onset**, the first sample whose
-magnitude reaches 10 % of the peak (kick-gen2 learnings, section 2 method and pitfall 2):
+Measures (:func:`measure`), all on the mono signal with its mean (DC) subtracted, from its
+**onset**, the first sample whose magnitude reaches 10 % of the peak (kick-gen2 learnings,
+section 2 method and pitfall 2). The mean subtraction removes a constant offset exactly; a
+file whose wanted content has a mean far from 0 (not high-passed) gets that mean removed too,
+and an offset that changes inside the file is not removed:
 
 - ``fundamental_hz``, ``decay_20db_ms``, ``decay_40db_ms``: :func:`audio_engine.analysis.analyse`
   of the signal from the onset (so the times count from the onset). Their limits apply: the
@@ -164,8 +167,8 @@ def decode_reference_wav(data: bytes) -> ReferenceAudio:
             if len(body) < csize:
                 raise ReferenceAudioError(
                     "Die WAV-Datei ist abgeschnitten (data-Block unvollständig).")
-            frames = body
-            break
+            if frames is None:  # the first data chunk counts; keep walking for a later fmt
+                frames = body
         pos += 8 + csize + (csize & 1)  # chunks are padded to an even size
     if fmt is None or len(fmt) < 16:
         raise ReferenceAudioError("Die WAV-Datei hat keinen gültigen fmt-Block.")
@@ -207,7 +210,7 @@ def decode_reference_wav(data: bytes) -> ReferenceAudio:
         value = b[:, 0] | (b[:, 1] << 8) | (b[:, 2] << 16)
         ints = np.where(value >= 1 << 23, value - (1 << 24), value)
     x = ints.reshape(n, channels).astype(np.float64).mean(axis=1) / float(2 ** (bits - 1))
-    peak = float(np.max(np.abs(x))) if n else 0.0
+    peak = float(np.max(np.abs(x - np.mean(x)))) if n else 0.0  # pure DC is silence too
     if peak <= 10 ** (SILENCE_DBFS / 20.0):
         raise ReferenceAudioError(
             f"Die Datei ist still (Spitze unter {SILENCE_DBFS:g} dBFS"
@@ -230,7 +233,12 @@ def measure(audio: np.ndarray, sr: int) -> dict[str, float | None]:
     """The measures of :data:`MEASURES` for a mono signal (see the module docstring)."""
     if audio.ndim != 1:
         raise ValueError("measure() expects mono audio (1-D array).")
-    x = audio[onset_index(audio):]
+    # Remove DC first (review of #485, finding 1): a constant offset in a user file moves the
+    # zero crossings and holds the envelope above -40 dB (1 % DC: fundamental and -40 dB decay
+    # became None). Engine renders already have mean 0 (kick.py step 8), so candidates are
+    # unchanged by this; for them it subtracts at most float rounding.
+    x = audio - np.mean(audio) if len(audio) else audio
+    x = x[onset_index(x):]
     peak = float(np.max(np.abs(x))) if len(x) else 0.0
     if peak > 0.0:
         x = x / peak

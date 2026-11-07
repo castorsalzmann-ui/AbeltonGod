@@ -191,10 +191,34 @@ def test_body_pitch_is_none_when_the_signal_ends_before_the_window():
 
 
 def test_measures_count_from_the_onset_not_from_sample_0():
-    x = kick_like()
+    x = render_resolved(_preset_candidate("punchy").params)  # mean 0, like a real kick
     padded = np.concatenate([np.zeros(4800), x])  # 100 ms of silence in front
-    assert R.measure(padded, SR) == R.measure(x, SR)
-    assert R.measure(x * 0.25, SR) == R.measure(x, SR)  # level does not count
+    assert R.measure(padded, SR) == pytest.approx(R.measure(x, SR), rel=1e-6)
+    assert R.measure(x * 0.25, SR) == pytest.approx(R.measure(x, SR), rel=1e-9)
+
+
+@pytest.mark.parametrize("dc", [0.01, 0.05, -0.05])
+@pytest.mark.parametrize("name", ["punchy", "dense", "rumble-ready"])
+def test_a_dc_offset_in_the_file_does_not_change_the_answer(tmp_path, name, dc):
+    """Review of #485, finding 1: user files can carry DC. Before the fix 1 % DC moved the
+    distance of a preset's own render from 0 to 1.73 and 5 % picked another family."""
+    cand = _preset_candidate(name)
+    x = render_resolved(cand.params) * 0.9
+    clean = R.match_reference_file(write(tmp_path, encode_wav(x, SR, 24), "clean.wav"))
+    shifted = R.match_reference_file(write(tmp_path, encode_wav(x + dc, SR, 24), "dc.wav"))
+    assert shifted.nearest.name == clean.nearest.name == cand.name
+    assert shifted.total == pytest.approx(clean.total, abs=0.02), shifted.distances
+
+
+def test_pure_dc_is_silent(tmp_path):
+    assert "still" in _err(tmp_path, wav_bytes([np.full(SR // 2, 0.3)]))
+
+
+def test_fmt_chunk_after_the_data_chunk_is_read(tmp_path):
+    x = kick_like()
+    data = _riff([(b"data", _pcm16(x)), (b"fmt ", _fmt(1, 1, SR, 16))])
+    assert np.array_equal(R.read_reference_wav(write(tmp_path, data)).samples,
+                          np.round(x * 32767) / 32768)
 
 
 # --- search -------------------------------------------------------------------------------------
