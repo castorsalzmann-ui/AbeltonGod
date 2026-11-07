@@ -40,6 +40,21 @@
      "old": "        if parent.name.casefold() == \"backup\":\n",
      "new": "        if False:\n",
      "tests": ["tests/gui_core/test_gui_copilot_project.py", "tests/gui_core/test_gui_copilot.py"],
-     "note": "review nit of #493: a missing Backup folder on the way would be created"}
+     "note": "review nit of #493: a missing Backup folder on the way would be created"},
+    {"id": "R3_RECHECK_IGNORES_COPY_DECISION", "file": "src/orchestrator/kick_tools.py",
+     "old": "            if (str(placement.target), bool(placement.copy)) != (\n                    str(data.placement.target), bool(data.placement.copy)):\n",
+     "new": "            if str(placement.target) != str(data.placement.target):\n",
+     "tests": ["tests/gui_core/test_gui_copilot_project.py"],
+     "note": "#506 (reviewer mutant R3 of #504): only the target is compared, not copy vs reuse"},
+    {"id": "N2_REMOVED_COPY_COUNTED", "file": "src/orchestrator/kick_tools.py",
+     "old": "                    copied = 0  # #506: the removed copy is not counted as written\n",
+     "new": "                    pass\n",
+     "tests": ["tests/gui_core/test_gui_copilot_project.py"],
+     "note": "#506: the guard would count a copy that was removed again"},
+    {"id": "H1_HAT_MODEL_ADJUSTABLE_AGAIN", "file": "src/orchestrator/sample_tools.py",
+     "old": "    \"hat\": CategoryAdapter(\"hat\", \"hat-params.schema.json\", hat_variants, noun=\"hat\",\n                           preset_only=(\"model\",)),\n",
+     "new": "    \"hat\": CategoryAdapter(\"hat\", \"hat-params.schema.json\", hat_variants, noun=\"hat\"),\n",
+     "tests": ["tests/orchestrator/test_sample_dispatch.py"],
+     "note": "#506: hat model listed as an adjust key that can only be refused"}
   ]
 }

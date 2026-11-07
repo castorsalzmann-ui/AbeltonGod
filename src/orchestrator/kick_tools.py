@@ -560,6 +560,7 @@ class KickSession:
                 else:
                     self.placement.remove(placement)
                     details["copy"] = "removed"
+                    copied = 0  # #506: the removed copy is not counted as written
             raise ToolError(
                 f"import not done: {type(exc).__name__}: {exc}",
                 files_written=copied, live_writes=1 if sent else 0, details=details,

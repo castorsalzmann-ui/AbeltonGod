@@ -6,6 +6,7 @@ with call recording) proves that the table, not a clap-only path, decides what r
 
 from __future__ import annotations
 
+import dataclasses
 import hashlib
 import json
 from pathlib import Path
@@ -67,12 +68,15 @@ class Fake:
 
 
 CLAP_ONLY = {"clap": ADAPTERS["clap"]}  # the table of PR #266/#287, before the hat row (#294)
-CLAP_HAT = {k: ADAPTERS[k] for k in ("clap", "hat")}  # the table of PR #302, before snare (#317)
+# The hat row before #506 (model still listed as an adjust key): the old tables below use it,
+# so their pins stay the "before" of every later row.
+HAT_V1 = dataclasses.replace(ADAPTERS["hat"], preset_only=())
+CLAP_HAT = {"clap": ADAPTERS["clap"], "hat": HAT_V1}  # the table of PR #302, before snare (#317)
 
 # the table before the rim and bass rows (#355)
-CLAP_HAT_SNARE = {k: ADAPTERS[k] for k in ("clap", "hat", "snare")}
+CLAP_HAT_SNARE = {**CLAP_HAT, "snare": ADAPTERS["snare"]}
 # the table before the laser row (#491)
-CLAP_TO_BASS = {k: ADAPTERS[k] for k in ("clap", "hat", "snare", "rim", "bass")}
+CLAP_TO_BASS = {**CLAP_HAT_SNARE, "rim": ADAPTERS["rim"], "bass": ADAPTERS["bass"]}
 
 
 def table(*extra):
@@ -596,7 +600,7 @@ def test_random_in_range_adjust_values_are_accepted_and_out_of_range_refused(cat
 # Re-pinned on purpose with #487: `family` became preset-only (not an adjust key; the text
 # names which preset gives which family). Before: 1cd6d880…5205e8.
 LASER_SCHEMA_SHA256 = "c3f42976a2f91d4dcbca8c8ae5c90fa73f568bb8e6a7855b8be5491f65cf6c7a"
-CLAP_TO_LASER = {k: ADAPTERS[k] for k in ("clap", "hat", "snare", "rim", "bass", "laser")}
+CLAP_TO_LASER = {**CLAP_TO_BASS, "laser": ADAPTERS["laser"]}
 LASER = {"category": "laser", "preset": "pew", "prompt": "", "seed": 3, "variants": 2,
          "adjust": [{"key": "decay_ms", "value": 300}]}
 LASER_PRESETS = ["blaster", "blaster-burst5", "blaster-double", "blaster-echo", "blaster-reverb",
@@ -689,8 +693,11 @@ PERC_MODELS = {"bongo": "conga", "clave": "clave", "conga": "conga", "conga-dry"
                "shaker": "shaker", "shaker-long": "shaker"}
 
 
+CLAP_TO_PERC = {**CLAP_TO_LASER, "perc": ADAPTERS["perc"]}  # the table before #506
+
+
 def test_perc_row_changes_enum_and_texts_but_not_the_shape_or_the_budget():
-    before, after = tool_input_schema(CLAP_TO_LASER), tool_input_schema()
+    before, after = tool_input_schema(CLAP_TO_LASER), tool_input_schema(CLAP_TO_PERC)
     assert digest(before) == LASER_SCHEMA_SHA256
     assert digest(after) == PERC_SCHEMA_SHA256 != digest(before)
     assert after["properties"]["category"]["enum"][-1] == "perc"
@@ -782,3 +789,27 @@ def test_random_in_range_adjust_values_are_accepted_for_perc_and_laser(category)
         assert problems == [], (adjust, problems)
         for item in adjust:
             assert values[item["key"]] == item["value"]
+
+
+# --- hat model preset-only (#506) ------------------------------------------------------------
+
+# Written down from a run on this branch. Before (the seven-row table with the old hat row,
+# CLAP_TO_PERC): PERC_SCHEMA_SHA256. Only the hat text changes: `model` leaves the adjust keys
+# and the text says which preset gives which model (no hat preset carries `model`, so every
+# preset and '' give the contract default metal_bank; `noise` has no preset).
+HAT_PRESET_ONLY_SCHEMA_SHA256 = "45ed5e010c510d76a8584c34076d6caeabdf82ae9a2e9a6fd2e637d01be3ca85"
+
+
+def test_hat_model_is_preset_only_and_the_rest_of_the_schema_is_unchanged():
+    before, after = tool_input_schema(CLAP_TO_PERC), tool_input_schema()
+    assert digest(before) == PERC_SCHEMA_SHA256
+    assert digest(after) == HAT_PRESET_ONLY_SCHEMA_SHA256 != digest(before)
+    assert strip(after) == strip(before) and optional_fields(after) == 0
+    assert ("model is chosen by the preset only (adjust cannot set it): metal_bank: "
+            "closed-loose, closed-std, closed-tight, open-long, open-short, ''; noise: no "
+            "preset.") in after["description"]
+    assert "model (one of metal_bank/noise" in before["description"]  # the old adjust key
+    assert "model (one of metal_bank/noise" not in after["description"]
+    assert build_request({**HAT, "adjust": [{"key": "model", "value": 2}]})[1] == [
+        "adjust[0]: model is chosen by the preset, not through adjust; presets: closed-loose, "
+        "closed-std, closed-tight, open-long, open-short"]
