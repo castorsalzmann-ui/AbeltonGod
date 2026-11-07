@@ -288,6 +288,30 @@ def test_bend_has_no_effect_outside_tom_and_conga(model: str) -> None:
     assert _r(model="tom", bend_ratio=1.0).tobytes() != _r(model="tom", bend_ratio=2.0).tobytes()
 
 
+def _bp_gain(f: float, fc: float, q: float) -> float:
+    """Magnitude of a 2nd-order band-pass with 0 dB peak (analog prototype)."""
+    return 1.0 / math.sqrt(1.0 + q * q * (f / fc - fc / f) ** 2)
+
+
+def _check_cowbell_bandpass() -> None:
+    """The cowbell band-pass sits at 2600 * 2^(tune / 12) Hz, Q 1.4: the level of the lower
+    square's 5th harmonic against its fundamental (raw ratio 1/5) changes by the analog
+    band-pass gain ratio, within 1 dB (measured: 16.27 .. 16.59 dB for 16.25 dB)."""
+    for tune in (-12.0, -5.0, 0.0, 7.0, 12.0):
+        k = 2 ** (tune / 12)
+        f0, fc = 540.0 * k, 2600.0 * k
+        a = _r(model="cowbell", tune_semitones=tune, decay_scale=4, **NO_TICK)
+        l1 = _peak(a, 0.95 * f0, 1.05 * f0, 0, 400)[1]
+        l5 = _peak(a, 0.97 * 5 * f0, 1.03 * 5 * f0, 0, 400)[1]
+        got = 20 * math.log10(l5 / l1 * 5)
+        expected = 20 * math.log10(_bp_gain(5 * f0, fc, 1.4) / _bp_gain(f0, fc, 1.4))
+        assert abs(got - expected) < 1.0, (tune, got, expected)
+
+
+def test_cowbell_bandpass_follows_tune() -> None:
+    _check_cowbell_bandpass()
+
+
 def test_tick_has_no_effect_at_shaker() -> None:
     a = _r(model="shaker", tick_level=0.0)
     assert a.tobytes() == _r(model="shaker", tick_level=1.0, tick_hz=6000).tobytes()
@@ -295,8 +319,10 @@ def test_tick_has_no_effect_at_shaker() -> None:
 
 def test_shaker_band_follows_tune() -> None:
     """Peak of the smoothed power spectrum (16 seeds) lies near the band centre
-    4500 * 2^(tune / 12), within 20 % (measured: +5 % at -12, +1 % at 0, +14.5 % at +12; the
-    cause of the upward shift at +12 is not established), and moves up with tune."""
+    4500 * 2^(tune / 12), within 20 % (measured: +5 % at -12, +1 % at 0, +14.5 % at +12), and
+    moves up with tune. Cause of the +14.5 %, measured by the #488 reviewer: spectrum noise of
+    the 16-seed estimate on a broad band; the exact response of the filter chain peaks at
+    +2.1 % at +12."""
     f = np.fft.rfftfreq(1 << 15, 1 / SR)
     peaks = []
     for tune in (-12.0, 0.0, 12.0):
@@ -412,8 +438,10 @@ def _check_tick() -> None:
     """Tick RMS over its 30 ms window, averaged over 32 fixed seeds, relative to
     tick_level * 0.1203 (unit-RMS noise times an exp decay of 60 dB in 6 ms:
     sqrt(tau / (2 * 30 ms)), tau = 6 ms / ln 1000) lies in [0.82, 0.98] (measured: 0.895 at
-    both levels, per-seed spread 17 %; the cause of the -10.5 % is not established, a
-    candidate is the band-pass settling in the first samples where the envelope is largest);
+    both levels, per-seed spread 17 %). Cause of the -10.5 %, measured by the #488 reviewer:
+    the band-pass starts from rest, so its first samples, where the 6 ms envelope is largest,
+    carry less than unit power (0.906 with the filter started cold vs 1.001 warm, over 400
+    seeds); the band is kept around the cold value the engine renders;
     it scales linearly with tick_level (1 %); nothing of it after 40 ms; the peak of its
     smoothed spectrum is at tick_hz within 25 % (measured: 1125 / 2496 / 6281 Hz for
     1000 / 2500 / 6000)."""
@@ -535,6 +563,21 @@ def test_mutant_cowbell_ratio_2_percent_off_fails(monkeypatch) -> None:
     monkeypatch.setattr(P, "COWBELL_RATIO", P.COWBELL_RATIO * 1.02)
     with pytest.raises(AssertionError):
         _check_pitch()
+
+
+def test_mutant_cowbell_bandpass_not_tuned_fails(monkeypatch) -> None:
+    monkeypatch.setattr(P, "tune_factor", lambda p: 1.0)  # band-pass stays at 2600 Hz ...
+    real = P.f0_hz
+    monkeypatch.setattr(P, "f0_hz", lambda p: real({**p, "tune_semitones": 0.0})
+                        * 2 ** (p["tune_semitones"] / 12))  # ... while the pitch still moves
+    with pytest.raises(AssertionError):
+        _check_cowbell_bandpass()
+
+
+def test_mutant_cowbell_bandpass_centre_moved_fails(monkeypatch) -> None:
+    monkeypatch.setattr(P, "COWBELL_BP_HZ", P.COWBELL_BP_HZ * 1.25)
+    with pytest.raises(AssertionError):
+        _check_cowbell_bandpass()
 
 
 def test_mutant_glide_time_constant_off_fails(monkeypatch) -> None:
