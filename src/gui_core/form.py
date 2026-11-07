@@ -169,9 +169,77 @@ def _spec(name: str, d: dict[str, Any], gate: str | None) -> FieldSpec:
 
 
 def schema_path(category: str):
-    if category not in CATEGORY_KEYS:
+    """The params contract of a GUI category, or of a contract category without a GUI page yet
+    (fx, #492): any ``contracts/<category>-params.schema.json`` that exists."""
+    path = CONTRACTS_DIR / f"{category}-params.schema.json"
+    if category not in CATEGORY_KEYS and not (category.isidentifier() and path.is_file()):
         raise KeyError(f"unknown category {category!r}")
-    return CONTRACTS_DIR / f"{category}-params.schema.json"
+    return path
+
+
+# --- defaults that depend on other fields (#492) ----------------------------------------------
+
+@dataclass(frozen=True)
+class SelectorBranch:
+    """``if <field> == const then properties`` in the contract's ``allOf`` (an enum selector such
+    as fx ``kind``; ``schema_version`` branches are the version gates above, not selectors)."""
+
+    field: str
+    const: Any
+    when_absent: bool  # the branch also applies when the field is not sent (no ``required``)
+    properties: dict[str, Any]
+
+
+def selector_branches(schema: dict[str, Any]) -> list[SelectorBranch]:
+    out: list[SelectorBranch] = []
+    for branch in schema.get("allOf", ()):
+        cond = branch.get("if", {})
+        props = cond.get("properties", {})
+        then = branch.get("then", {}).get("properties")
+        if len(props) != 1 or not then:
+            continue
+        (field, rule), = props.items()
+        if field == "schema_version" or "const" not in rule:
+            continue
+        out.append(SelectorBranch(field, rule["const"], field not in cond.get("required", ()),
+                                  then))
+    return out
+
+
+_DERIVED = re.compile(r"Omitted = ([a-z_][a-z_0-9]*) \(derived default\)")
+
+
+def derived_defaults(schema: dict[str, Any]) -> dict[str, str]:
+    """``{field: source}`` for fields whose contract text says "Omitted = <source> (derived
+    default)" (fx ``ramp_beats`` -> ``length_beats``). A branch default wins over this."""
+    out: dict[str, str] = {}
+    for name, d in schema.get("properties", {}).items():
+        m = _DERIVED.search(str(d.get("description", "")))
+        if m and m.group(1) in schema["properties"] and m.group(1) != name:
+            out[name] = m.group(1)
+    return out
+
+
+def resolve_defaults(schema: dict[str, Any], sent: dict[str, Any]) -> dict[str, Any]:
+    """The default the engine would use for every field not in ``sent``, read from the contract:
+    the matching selector branch's ``default``, else the derived source's value, else the
+    top-level ``default``. ``sent``: the values the form sends."""
+    props = schema.get("properties", {})
+    out = {n: d["default"] for n, d in props.items() if "default" in d and n not in sent}
+    for b in selector_branches(schema):
+        value = sent.get(b.field)
+        # JSON Schema: an absent field makes ``if`` true unless the branch requires it
+        if value == b.const or (value is None and b.when_absent):
+            for n, d in b.properties.items():
+                if "default" in d and n not in sent:
+                    out[n] = d["default"]
+    for name, source in derived_defaults(schema).items():
+        if name in sent or name in out:
+            continue
+        value = sent.get(source, out.get(source))
+        if value is not None:
+            out[name] = value
+    return out
 
 
 def field_specs(category: str) -> list[FieldSpec]:
@@ -242,7 +310,22 @@ class CategoryFormModel:
         self._versions = list(self._schema["properties"]["schema_version"].get("enum", []))
         self.preset = ""
         self._preset_values: dict[str, Any] = {}
-        self.set_preset(preset or DEFAULT_PRESETS[category])
+        # Defaults that follow other fields (#492): only a contract with selector branches or
+        # derived defaults has any; for the others every default is the top-level one.
+        self._dynamic = bool(selector_branches(self._schema) or derived_defaults(self._schema))
+        self._defaults: dict[str, Any] = {}
+        if preset is None and category not in DEFAULT_PRESETS:
+            self._start_without_preset()  # a contract category without presets yet (fx)
+        else:
+            self.set_preset(preset or DEFAULT_PRESETS[category])
+
+    def _start_without_preset(self) -> None:
+        self.active = {"seed", "variants"} & set(self._by_name)
+        self._defaults = self._resolved_defaults()
+        for spec in self.specs:
+            self.text[spec.name] = self._placeholder(spec)
+        if "variants" in self._by_name:
+            self.text["variants"] = "1"
 
     # --- presets -----------------------------------------------------------------------
     def preset_names(self) -> list[str]:
@@ -263,14 +346,53 @@ class CategoryFormModel:
             if spec.name in values:
                 self.text[spec.name] = _text_of(spec, values[spec.name])
                 self.active.add(spec.name)
-            else:
+        self._defaults = self._resolved_defaults()
+        for spec in self.specs:
+            if spec.name not in values:
                 self.text[spec.name] = self._placeholder(spec)
         self.text["variants"] = "1"
 
+    # --- defaults ----------------------------------------------------------------------
+    def _sent_values(self) -> dict[str, Any]:
+        out = {}
+        for n in self.active:
+            value, problem = self.parse(n)
+            if problem is None:
+                out[n] = value
+        return out
+
+    def _resolved_defaults(self) -> dict[str, Any]:
+        if not self._dynamic:
+            return {}
+        return resolve_defaults(self._schema, self._sent_values())
+
+    def default_of(self, name: str) -> Any:
+        """The value the engine uses for ``name`` when it is not sent, as far as the contract
+        says (selector branch, derived default, top-level default); ``None`` if it says none."""
+        if self._dynamic:
+            return self._defaults.get(name, self._by_name[name].default)
+        return self._by_name[name].default
+
+    def _refresh_defaults(self) -> None:
+        """After an edit: fields that are not sent and still show their old default get the new
+        one (a kind change). A field whose default did not change keeps its text."""
+        if not self._dynamic:
+            return
+        old, self._defaults = self._defaults, self._resolved_defaults()
+        for spec in self.specs:
+            n = spec.name
+            if n in self.active or old.get(n) == self._defaults.get(n):
+                continue
+            if self.text.get(n) == self._placeholder_for(spec, old.get(n, spec.default)):
+                self.text[n] = self._placeholder(spec)
+
+    def _placeholder(self, spec: FieldSpec) -> str:
+        return self._placeholder_for(spec, self.default_of(spec.name))
+
     @staticmethod
-    def _placeholder(spec: FieldSpec) -> str:
-        if spec.default is not None:
-            return _text_of(spec, spec.default)
+    def _placeholder_for(spec: FieldSpec, default: Any) -> str:
+        if default is not None:
+            return _text_of(spec, default)
         if spec.kind in ("enum", "bool"):
             return spec.choice_texts[0]
         return _text_of(spec, spec.minimum)
@@ -282,6 +404,7 @@ class CategoryFormModel:
     def set_text(self, name: str, text: str) -> None:
         self._by_name[name]  # KeyError for an unknown field
         self.text[name] = text
+        self._refresh_defaults()
 
     def reset_field(self, name: str) -> None:
         """Back to the preset: its value (and sent) if the preset has the field, else off."""
@@ -290,14 +413,18 @@ class CategoryFormModel:
             self.text[name] = _text_of(spec, self._preset_values[name])
             self.active.add(name)
         elif name not in ALWAYS_ACTIVE:
-            self.text[name] = self._placeholder(spec)
             self.active.discard(name)
+            self._refresh_defaults()
+            self.text[name] = self._placeholder(spec)
+            return
+        self._refresh_defaults()
 
     def set_active(self, name: str, on: bool) -> None:
         if name in ALWAYS_ACTIVE:
             return
         self._by_name[name]
         (self.active.add if on else self.active.discard)(name)
+        self._refresh_defaults()
 
     # --- checks ------------------------------------------------------------------------
     def parse(self, name: str) -> tuple[Any, str | None]:
@@ -412,7 +539,8 @@ class CategoryFormModel:
         else:
             fallback = self._versions[0] if self._versions else "0.1"
             req["schema_version"] = self._preset_values.get("schema_version", fallback)
-        req["preset"] = self.preset
+        if self.preset:  # a contract category without presets yet (fx) sends none
+            req["preset"] = self.preset
         # Key order as the CLI builds it (preset file order, new fields, variants last), so the
         # sidecar's "parameters" object is byte-identical too.
         ordered = {k: req.pop(k) for k in list(self._preset_values) if k in req and k != "variants"}
