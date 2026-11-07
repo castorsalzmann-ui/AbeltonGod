@@ -356,3 +356,12 @@ The researchers for 04b clusters 1 (Agent SDK behaviour) and 2 (tool-schema gene
 **Reason.** The user wants a complete, musically sensible blaster instrument with controls for exact settings.
 
 **Consequences.** Engine work (audio-engineer, extends #425) before the GUI work; GUI v2 starts after the widget kit PR (#423) and the contract v0.2 are merged. The base preset `blaster` starts from base variant 1 (lower start 1900 -> 110 Hz, low-pass 3 kHz) until the user names another.
+
+## D-032 · 2026-11-07 · accepted — Sprint W2: parking-lot features (user, 2026-11-07 07:57: "nächsten sprint planen und sachen aus dem parkplatz tacklen. Selbes prinzip")
+
+- New sample category `perc` (models conga, tom, shaker, cowbell, clave), contract first (`contract-change`), then engine, presets and GUI. Toms stay a model inside `perc`, not a default anywhere except presets explicitly named for hard groove (stated dislike, musical note H3).
+- Choice log (#110) as a local JSONL file with its own contract; filled from the GUI library (favourite / reject / note). Stays on the user's machine; nothing is sent to Claude automatically (questionnaire B6 still open; a later sprint may add an opt-in).
+- Reference steering (#58) starts as analysis + nearest-preset suggestion in the GUI; no synthesis that claims to match a reference.
+- Arrangement planner gets a GUI page over the merged planner code; export only to files.
+- FX transitions (riser, downlifter, impact, sweep) get a research note first.
+- Plan: `docs/sprints/2026-11-07_parking-lot-sprint.md`. Same working rules as sprint W1 (review, CI gate on `main`, at most 4–5 agents for the usage budget).
