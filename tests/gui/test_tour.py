@@ -86,12 +86,18 @@ def test_the_tour_visits_exactly_the_expected_steps(tour):
     names = [s.name for s in tour.steps]
     split = len(tour_mod.CATEGORY_KEYS) + 2  # category renders, Goa page render, planner export
     expected = (PAGE_STEPS + RENDER_STEPS[:split] + ["reference:kick"] + WINDOW_STEPS
-                + RENDER_STEPS[split:] + ["close:tools-with-main", "choice:library"])
+                + RENDER_STEPS[split:] + ["close:tools-with-main", "choice:library",
+                                          "kit:library"])
     assert names == expected
 
 
 def test_a_library_file_can_be_marked_as_favourite(tour):
     expect_step(tour.step("choice:library"))
+
+
+def test_a_kit_can_be_exported_from_the_library(tour):
+    """#498: the step checks kit.json against the contract and the copies byte for byte."""
+    expect_step(tour.step("kit:library"))
 
 
 def test_reference_page_measures_the_kick_render_and_fills_the_kick_form(tour):
