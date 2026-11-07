@@ -28,6 +28,7 @@ from PySide6.QtWidgets import (
 from bridge.capabilities import CapabilityRegistry
 from gui_core.categories import CATEGORIES, LIBRARY_LABEL
 from gui_core.chat import ChatSession
+from gui_core.choices import ChoiceLog
 from gui_core.form import CategoryFormModel
 from gui_core.goa_render import GoaService
 from gui_core.live import LiveConfig
@@ -146,7 +147,7 @@ class MainWindow(QMainWindow):
             panel.changed.connect(self._update_state)
             self.panels[c.key] = panel
             self.stack.addWidget(panel)
-        self.library = LibraryPanel()
+        self.library = LibraryPanel(ChoiceLog.beside_settings(self.hub.store.path))
         self.library.selected.connect(self._load_preview)
         self.stack.addWidget(self.library)
         self.library_row = len(CATEGORIES)

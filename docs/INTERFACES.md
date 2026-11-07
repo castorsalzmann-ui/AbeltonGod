@@ -18,7 +18,7 @@ Machine-readable contracts live in `contracts/`. This file explains them. Changi
 | `contracts/guard-policy.schema.json` → `config/guard-policy.json` | User config → resource guard | v1 — default values are untuned starting points |
 | `contracts/tool-list-tracks.schema.json`, `contracts/tool-import-sample.schema.json` | Claude (tool arguments) → orchestrator | v1 (#81) — input schemas only; not wired yet |
 | `contracts/arrangement-plan.schema.json` | Planner window ↔ plan generator → Live builder | v0.1 (#146, D-024) — format only; no editor, generator or Live writes yet; not a Claude tool input |
-| `contracts/choice-log.schema.json` | GUI library page (later: listening-test conversion) → choice log file → later readers | v0.1 (#110, D-032) — one JSONL line per verdict; format only, no writer or reader yet; stays on the user's machine; not a Claude tool input |
+| `contracts/choice-log.schema.json` | GUI library page (later: listening-test conversion) → choice log file → later readers | v0.1 (#110, D-032) — one JSONL line per verdict; writer and reader `src/gui_core/choices.py` (library page, #110 step 2); stays on the user's machine; not a Claude tool input |
 
 ## Kick parameters
 
@@ -315,7 +315,7 @@ Length settings apply when the user places a section; a template keeps its own l
 
 ## Choice log (`choice-log.schema.json`)
 
-v0.1 (#110, D-032). The user's verdicts on sample files ("Favorit", "Passt nicht", a note), kept as data that later sessions and tools can read. Format only; the GUI writer and reader come with #110 step 2.
+v0.1 (#110, D-032). The user's verdicts on sample files ("Favorit", "Passt nicht", a note), kept as data that later sessions and tools can read. Writer and reader: `src/gui_core/choices.py` (one implementation; the library page uses it). A main window without a settings file (tests, the GUI tour) keeps the log in memory only.
 
 **Where it lives.** One file `choices.jsonl` in the user config dir, the same dir as `settings.json` (`src/gui_core/settings.py` `default_config_dir()`: `$ABELTONGOD_CONFIG_DIR`, else Windows `%APPDATA%\AbeltonGod`, else `$XDG_CONFIG_HOME/abeltongod` or `~/.config/abeltongod`). Not in the output tree and not in git, so moving or deleting samples never deletes verdicts. **Nothing in it is sent anywhere** (D-032): no upload, no automatic Claude context. Whether and which entries may go to Claude is the open questionnaire decision B6; a later opt-in needs its own decision.
 

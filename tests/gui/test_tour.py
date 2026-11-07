@@ -85,8 +85,12 @@ def tour(tmp_path_factory):
 def test_the_tour_visits_exactly_the_expected_steps(tour):
     names = [s.name for s in tour.steps]
     expected = (PAGE_STEPS + RENDER_STEPS[:9] + ["reference:kick"] + WINDOW_STEPS
-                + RENDER_STEPS[9:] + ["close:tools-with-main"])
+                + RENDER_STEPS[9:] + ["close:tools-with-main", "choice:library"])
     assert names == expected
+
+
+def test_a_library_file_can_be_marked_as_favourite(tour):
+    expect_step(tour.step("choice:library"))
 
 
 def test_reference_page_measures_the_kick_render_and_fills_the_kick_form(tour):
