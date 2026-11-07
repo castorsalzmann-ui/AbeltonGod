@@ -225,9 +225,24 @@ def test_bad_rate_is_rejected(rate):
         integrated_lufs(np.zeros(SR), rate)
 
 
-def test_bad_hop_is_rejected():
+@pytest.mark.parametrize("dtype", [np.int16, np.int32, np.uint8, np.bool_])
+def test_integer_audio_is_rejected(dtype):
+    pcm = (sine_segments([(-23.0, 1.0)]) * 32767).astype(dtype)
+    for fn in (integrated_lufs, momentary_lufs, short_term_lufs, k_weight):
+        with pytest.raises(ValueError, match="float"):
+            fn(pcm, SR)
+
+
+def test_float32_audio_is_measured():
+    x = sine_segments([(-23.0, 5.0)])
+    assert integrated_lufs(x.astype(np.float32), SR) == pytest.approx(integrated_lufs(x, SR),
+                                                                         abs=1e-4)
+
+
+@pytest.mark.parametrize("hop", [0.0, -0.1, float("nan"), float("inf"), "0.1", None, True])
+def test_bad_hop_is_rejected(hop):
     with pytest.raises(ValueError):
-        momentary_lufs(np.zeros(SR), SR, hop_s=0.0)
+        momentary_lufs(np.zeros(SR), SR, hop_s=hop)
 
 
 # --- seeded property tests ----------------------------------------------------------------------

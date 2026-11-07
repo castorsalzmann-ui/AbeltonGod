@@ -2,8 +2,10 @@
 
 Measurement only; nothing in the engine calls it yet. No new dependency.
 
-Input: ``audio`` of shape ``(n,)`` (mono) or ``(n, c)`` with ``1 <= c <= 5`` channels in the
-BS.1770 order L, R, C, Ls, Rs. Channel weights G = 1, 1, 1, 1.41, 1.41 (BS.1770-4 Table 3).
+Input: float ``audio`` with full scale [-1, 1] (integer arrays are rejected: PCM counts would be
+measured as raw numbers, far too loud), of shape ``(n,)`` (mono) or ``(n, c)`` with
+``1 <= c <= 5`` channels in the BS.1770 order L, R, C, Ls, Rs. Channel weights
+G = 1, 1, 1, 1.41, 1.41 (BS.1770-4 Table 3).
 A mono file is one channel with weight 1 (no "dual mono" +3 dB), so a sine gives 3.01 dB less
 on a mono file than the same sine on both channels of a stereo file. LFE is not supported.
 
@@ -32,7 +34,9 @@ Windows (sample counts are rounded to the nearest integer at the given rate):
 at sample 0, windows advance by ``hop_s`` and only windows that lie fully inside the file are
 measured (a file shorter than the window gives an empty array). A window, block or file with
 zero energy measures ``-inf``; ``integrated_lufs`` is ``-inf`` when no block passes the
-absolute gate (silence, or a file shorter than 400 ms).
+absolute gate (silence, or a file shorter than 400 ms). Only full blocks are used; for a
+duration that is not a multiple of 0.1 s pyloudnorm can count one more (partial) block at
+the end, so the two can differ slightly there (review of PR #489).
 
 Not implemented: true-peak (BS.1770-4 Annex 2, oversampled peak). Skipped on purpose; use
 sample peak with that limitation in mind. Loudness range (LRA, Tech 3342) is not implemented.
@@ -164,7 +168,8 @@ def _windowed(audio, sample_rate, window_s: float, hop_s: float) -> np.ndarray:
 
 def _window_power(audio, sr: int, window_s: float, hop_s: float) -> np.ndarray:
     """Channel-weighted mean square of the K-weighted signal per window."""
-    if not (math.isfinite(hop_s) and hop_s > 0):
+    if (isinstance(hop_s, bool) or not isinstance(hop_s, (int, float, np.integer, np.floating))
+            or not (math.isfinite(hop_s) and hop_s > 0)):
         raise ValueError(f"hop_s must be a positive number, got {hop_s!r}")
     x = _as_channels(audio)
     y = k_weight(x, sr)
@@ -187,7 +192,12 @@ def _to_lufs(power):
 
 
 def _as_channels(audio) -> np.ndarray:
-    x = np.asarray(audio, dtype=np.float64)
+    raw = np.asarray(audio)
+    if raw.dtype.kind not in "f":
+        raise ValueError(
+            f"audio must be a float array with full scale [-1, 1], got dtype {raw.dtype}"
+        )
+    x = raw.astype(np.float64, copy=False)
     if x.ndim == 1:
         x = x[:, None]
     if x.ndim != 2 or not 1 <= x.shape[1] <= len(CHANNEL_WEIGHTS):
