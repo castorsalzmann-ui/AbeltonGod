@@ -15,6 +15,7 @@ import copy
 import json
 import random
 import string
+from datetime import datetime
 from pathlib import Path
 
 import pytest
@@ -142,6 +143,50 @@ def test_lt1_entries_match_the_users_answers():
         assert entry["time"] == "2026-10-29T11:19:00+01:00"
 
 
+# --- current verdict: parsed instants, not strings ---------------------------------------------
+
+ORDER = read_jsonl("order.jsonl")
+
+
+def instant(text: str) -> datetime:
+    return datetime.fromisoformat(text.replace("Z", "+00:00"))
+
+
+def current_verdict(entries: list[dict]) -> str:
+    """The contract's rule: newest parsed instant wins, equal instants -> the later line."""
+    best = max(range(len(entries)), key=lambda i: (instant(entries[i]["time"]), i))
+    return entries[best]["verdict"]
+
+
+def test_order_fixture_is_valid():
+    for entry in ORDER:
+        assert errors(entry) == set()
+    assert len({e["sample"]["sha256"] for e in ORDER}) == 1
+
+
+def test_current_verdict_compares_instants_not_strings():
+    # Line 1 is 10:30+01:00 = 09:30Z, line 2 is 09:45Z: by instant line 2 is newest.
+    assert current_verdict(ORDER) == "favourite"
+    # The case is discriminating: comparing the strings would pick line 1.
+    assert max(ORDER, key=lambda e: e["time"])["verdict"] == "reject"
+
+
+def test_current_verdict_equal_instants_take_the_later_line():
+    # Without line 2, lines 1 and 3 are the same instant (09:30Z); line 3 is later in the file.
+    assert current_verdict([ORDER[0], ORDER[2]]) == "neutral"
+    assert max([ORDER[0], ORDER[2]], key=lambda e: e["time"])["verdict"] == "reject"
+
+
+def test_parameters_copy_is_verbatim_sidecar_parameters():
+    """The positive 'parameters' instance is the kick-v01 fixture sidecar's parameters."""
+    sidecar = json.loads((ROOT / "tests" / "fixtures" / "sidecars" / "kick-v01.json")
+                         .read_text(encoding="utf-8"))
+    with_params = [e for e in VALID if e["sidecar"] and "parameters" in e["sidecar"]]
+    assert len(with_params) == 1
+    assert with_params[0]["sidecar"]["parameters"] == sidecar["parameters"]
+    assert with_params[0]["sidecar"]["seed"] == sidecar["parameters"]["seed"]
+
+
 # --- cross-contract and seeded property tests ------------------------------------------------
 
 def test_every_sidecar_category_fits_the_category_field():
@@ -194,9 +239,12 @@ def random_entry(rng: random.Random) -> dict:
             "engine": {"name": "abeltongod-audio-engine-" + random_segment(rng),
                        "version": f"{rng.randint(0, 9)}.{rng.randint(0, 99)}.{rng.randint(0, 99)}"},
             "preset": rng.choice([None, "punchy", random_segment(rng)]),
-            "seed": rng.choice([None, 0, rng.randint(0, 2**32 - 1), 2**53])},
+            "seed": rng.choice([None, 0, rng.randint(0, 2**32 - 1), 2**32 - 1])},
         "source": source,
     }
+    if entry["sidecar"] is not None and rng.random() < 0.5:
+        entry["sidecar"]["parameters"] = {"seed": rng.randint(0, 2**32 - 1),
+                                          "drive": rng.random(), "preset": None}
     if rng.random() < 0.5:
         entry["note"] = "".join(rng.choice(SEGMENT_CHARS + "\n\t\"\\")
                                 for _ in range(rng.randint(1, 2000)))
@@ -213,6 +261,7 @@ MUTATIONS = {
     "drive letter": lambda e: e["sample"].__setitem__("path", "D:/" + e["sample"]["path"]),
     "leading slash": lambda e: e["sample"].__setitem__("path", "/" + e["sample"]["path"]),
     "parent segment": lambda e: e["sample"].__setitem__("path", "a/../" + e["sample"]["path"]),
+    "dot segment": lambda e: e["sample"].__setitem__("path", "./" + e["sample"]["path"]),
     "backslash": lambda e: e["sample"].__setitem__("path", e["sample"]["path"].replace(
         e["sample"]["path"][0], "\\", 1)),
     "not wav": lambda e: e["sample"].__setitem__("path", e["sample"]["path"][:-4] + ".aif"),

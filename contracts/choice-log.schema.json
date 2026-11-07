@@ -27,8 +27,8 @@
           "type": "string",
           "minLength": 5,
           "maxLength": 1024,
-          "pattern": "^(?![A-Za-z]:)(?!/)(?!(.*/)?\\.\\.(/|$))(?!.*//)[^\\\\\\u0000-\\u001f]*\\.[wW][aA][vV]$",
-          "description": "Path of the WAV relative to the output dir (settings output_dir) at the time of writing, '/' as separator, no drive, no leading '/', no '..' segment, no backslash. Listening test: relative to the test package root (e.g. 'lt1/P1_B.wav'). Informative only: sha256 is the file's identity."
+          "pattern": "^(?![A-Za-z]:)(?!/)(?!(.*/)?\\.\\.?(/|$))(?!.*//)[^\\\\\\u0000-\\u001f]*\\.[wW][aA][vV]$",
+          "description": "Path of the WAV relative to the output dir (settings output_dir) at the time of writing, '/' as separator, no drive, no leading '/', no '.' or '..' segment, no empty segment, no backslash. Listening test: relative to the test package root (e.g. 'lt1/P1_B.wav'). Informative only: sha256 is the file's identity."
         },
         "sha256": {
           "type": ["string", "null"],
@@ -65,10 +65,15 @@
         "seed": {
           "type": ["integer", "null"],
           "minimum": 0,
-          "description": "The sidecar's parameters.seed; null when the sidecar has none."
+          "maximum": 4294967295,
+          "description": "The sidecar's parameters.seed (the params contracts' range 0..4294967295; writers emit a JSON integer); null when the sidecar has none."
+        },
+        "parameters": {
+          "type": "object",
+          "description": "Optional verbatim copy of the sidecar's parameters object (the exact <category>-params object the file was rendered with). Not re-validated here: it is valid against the category's own params contract of the time. Writers copy it whenever the sidecar has one; it is what still says what the file was after an edited render's WAV and sidecar are gone."
         }
       },
-      "description": "Copied from the sample's sidecar (<name>.json) when the verdict was given, so the entry still says what the file was after the WAV is moved or deleted. null when there is no readable sidecar (older tool WAVs, listening-test mixes)."
+      "description": "Copied from the sample's sidecar (<name>.json) when the verdict was given. With parameters, the entry still says what the file was after the WAV and sidecar are moved or deleted; engine + preset + seed alone do so only for an unedited preset render. null when there is no readable sidecar (older tool WAVs, listening-test mixes)."
     },
     "note": {
       "type": "string",
