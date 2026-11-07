@@ -29,6 +29,7 @@ from typing import Any
 from audio_engine.bass_variants import make_variants as bass_variants
 from audio_engine.clap_variants import make_variants
 from audio_engine.hat_variants import make_variants as hat_variants
+from audio_engine.laser_variants import make_variants as laser_variants
 from audio_engine.presets import load_preset, preset_names
 from audio_engine.rim_variants import make_variants as rim_variants
 from audio_engine.snare_variants import make_variants as snare_variants
@@ -85,6 +86,10 @@ ADAPTERS: Mapping[str, CategoryAdapter] = {
     "snare": CategoryAdapter("snare", "snare-params.schema.json", snare_variants, noun="snare"),
     "rim": CategoryAdapter("rim", "rim-params.schema.json", rim_variants, noun="rim"),
     "bass": CategoryAdapter("bass", "bass-params.schema.json", bass_variants, noun="bass"),
+    # #491: the laser voice has a renderer (audio_engine.categories) and presets. Its v0.2
+    # fields (salvo, filter, delay, reverb) sit in the contract's allOf branch, not under
+    # properties, so `adjust` cannot set them; a preset that carries them (blaster-*) can.
+    "laser": CategoryAdapter("laser", "laser-params.schema.json", laser_variants, noun="laser"),
 }
 CLAP_CONTRACT = ADAPTERS["clap"].contract
 CATEGORIES = tuple(ADAPTERS)

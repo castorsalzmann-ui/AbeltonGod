@@ -217,7 +217,13 @@ differ only in the area. Handler and effect per kind:
 | ID | Handler | Effect |
 | --- | --- | --- |
 | `chat · QLineEdit · ChatPanel.input` | `ChatPanel.send` (Enter), `_update_state` | Question to the copilot |
-| `chat · QPushButton · Senden` | `ChatPanel.send` | Sends through the guard; no tools, no Live writes (text in the page says so) |
+| `chat · QPushButton · Senden` | `ChatPanel.send` | Sends through the guard with the terminal chat's tools on the output folder (#491): `generate_kick`, `generate_sample`, `list_tracks`, `import_sample`, `plan_arrangement`; new files appear as links in the transcript (click: shown in the library) |
+| `chat · QPushButton · Abbrechen` | `ChatPanel.cancel` | Enabled while a request runs: stops it at the next guard step and answers an open Live question with no |
+
+The Live confirmation dialog of the Copilot page appears only while a request waits for it, so
+the inventory does not walk it: buttons "Ja, ins Live-Set schreiben" and "Nein" (default and
+Esc), closing as no after the orchestrator's confirmation window (20 s). Checked by
+`tests/gui/test_chat_page.py`.
 
 ### Main window: Referenz page (#480)
 

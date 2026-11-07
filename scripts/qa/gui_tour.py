@@ -1,7 +1,8 @@
 """GUI tour (#437): walk every page of the main window and every tool window offscreen, render
 one sample per category plus Goa, Acid and Blaster, and check that each result shows up in the
 main window's library; export one arrangement plan from the planner page and check it with the
-contract checker. Optional screenshots of every page at 100 % and 150 %.
+contract checker; ask the Copilot page (fake model, no Claude call) for one clap and find it in
+the library (#491). Optional screenshots of every page at 100 % and 150 %.
 
 Usage (screenshots never go into the repo; pick a folder outside it)::
 
@@ -325,6 +326,46 @@ def export_planner(window) -> Step:
     return Step(name, True, path.name, time.perf_counter() - t)
 
 
+CHAT_CLAP = {"category": "clap", "preset": "short", "prompt": "", "seed": 7, "variants": 1,
+             "adjust": []}
+
+
+def chat_generate(window, home: Path) -> Step:
+    """Copilot page (#491) on a fake model (no Claude call): one ``generate_sample`` call
+    through the real orchestrator and guard; the clap must be in the library and listed as a
+    link in the transcript. Live is not touched (the fake model asks for no import)."""
+    from guard import Guard
+    from gui_core.chat import ChatSession
+    from orchestrator.fake_model import FakeModel
+
+    t = time.perf_counter()
+    name = "chat:generate"
+    page = window.chat
+    model = FakeModel([
+        {"tool_calls": [{"id": "g1", "name": "generate_sample", "arguments": CHAT_CLAP}],
+         "usage": {"output_tokens": 50, "cost_usd": 0.01}},
+        {"text": "Ein Clap liegt in der Bibliothek.",
+         "usage": {"output_tokens": 20, "cost_usd": 0.01}}])
+    # refused_roots=(): the tour's home may be a test temp folder inside the checkout.
+    page.set_session(ChatSession(home / ".env", model=model,
+                                 guard=Guard(log_path=home / "AbeltonGod" / "usage.jsonl"),
+                                 session_options={"refused_roots": ()}))
+    window.categories.setCurrentRow(window.tool_rows["chat"])
+    page.input.setText("Mach einen kurzen Clap")
+    page.send()
+    if not wait_for(lambda: not page.busy):
+        return Step(name, False, f"no answer after {WAIT_S:.0f} s", time.perf_counter() - t)
+    reply = page.last_reply
+    if reply is None or not reply.success:
+        return Step(name, False, f"request failed: {reply.text if reply else '-'}",
+                    time.perf_counter() - t)
+    missing = [p.name for p in reply.files if str(p) not in page.transcript.toPlainText()]
+    if missing:
+        return Step(name, False, f"not in the transcript: {missing}", time.perf_counter() - t)
+    return _all_in_library(window, name, list(reply.files), t,
+                           ", ".join(p.name for p in reply.files))
+
+
 def _all_in_library(window, name: str, wavs: list[Path], t: float, what: str) -> Step:
     if not wavs:
         return Step(name, False, f"{what}: no WAV written", time.perf_counter() - t)
@@ -516,6 +557,7 @@ def run_tour(home: Path, shots: Path | None = None, tag: str = "100",
                 report.steps.append(render_goa_page(window))
                 report.steps.append(export_planner(window))
                 report.steps.append(reference_kick(window))
+                report.steps.append(chat_generate(window, home))
             wins = {}
             for key in TOOL_KEYS:
                 step, wins[key] = open_tool(window, key, shots, tag)

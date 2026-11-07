@@ -71,6 +71,8 @@ CLAP_HAT = {k: ADAPTERS[k] for k in ("clap", "hat")}  # the table of PR #302, be
 
 # the table before the rim and bass rows (#355)
 CLAP_HAT_SNARE = {k: ADAPTERS[k] for k in ("clap", "hat", "snare")}
+# the table before the laser row (#491)
+CLAP_TO_BASS = {k: ADAPTERS[k] for k in ("clap", "hat", "snare", "rim", "bass")}
 
 
 def table(*extra):
@@ -229,8 +231,8 @@ HAT = {"category": "hat", "preset": "closed-std", "prompt": "", "seed": 3, "vari
        "adjust": [{"key": "decay_ms", "value": 60}]}
 
 
-def test_default_table_is_clap_hat_snare_rim_bass():
-    assert list(ADAPTERS) == ["clap", "hat", "snare", "rim", "bass"]
+def test_default_table_is_clap_hat_snare_rim_bass_laser():
+    assert list(ADAPTERS) == ["clap", "hat", "snare", "rim", "bass", "laser"]
     assert ADAPTERS["hat"].contract == "hat-params.schema.json"
 
 
@@ -335,7 +337,7 @@ def test_kick_and_tom_stay_refused_with_the_default_table(tmp_path, make_guard):
         assert run(make_guard(), box, {**HAT, "category": category}, approver).is_error
     assert approver.asked == []
     assert build_request({**HAT, "category": "kick"})[1] == [
-        "category 'kick' is not available yet; available: clap, hat, snare, rim, bass"]
+        "category 'kick' is not available yet; available: clap, hat, snare, rim, bass, laser"]
     assert not list(Path(session.project_dir).rglob("*.wav"))
 
 
@@ -436,7 +438,7 @@ BASS_PRESETS = ["bright", "default", "goa-roll-long", "goa-roll-medium", "goa-ro
 
 def test_rim_and_bass_rows_change_enum_and_texts_but_not_the_shape_or_the_budget(
         v01_clap_presets):
-    before, after = tool_input_schema(CLAP_HAT_SNARE), tool_input_schema()
+    before, after = tool_input_schema(CLAP_HAT_SNARE), tool_input_schema(CLAP_TO_BASS)
     assert digest(before) == SNARE_SCHEMA_SHA256  # the old pin still holds for the old table
     assert digest(after) == RIM_BASS_SCHEMA_SHA256 != digest(before)
     assert after["properties"]["category"]["enum"] == ["clap", "hat", "snare", "rim", "bass"]
@@ -446,11 +448,11 @@ def test_rim_and_bass_rows_change_enum_and_texts_but_not_the_shape_or_the_budget
         assert preset in after["description"]
     for key in ("f2_ratio", "click_ms", "lp_env_amount", "sub_octave_level"):
         assert key in after["description"]
-    assert SampleTools(_NoSession()).tools()[0].max_files_written == 16
+    assert SampleTools(_NoSession(), CLAP_TO_BASS).tools()[0].max_files_written == 16
 
 
 def test_rim_and_bass_table_with_the_xtreme_names_keeps_the_shape():
-    now = tool_input_schema()
+    now = tool_input_schema(CLAP_TO_BASS)
     assert digest(now) == RIM_BASS_SCHEMA_WITH_XTREME_SHA256
     assert strip(now) == strip(tool_input_schema(CLAP_ONLY))
     assert optional_fields(now) == 0
@@ -584,3 +586,85 @@ def test_random_in_range_adjust_values_are_accepted_and_out_of_range_refused(cat
                                              "seed": 1, "variants": 1,
                                              "adjust": [{"key": key, "value": value}]})
                 assert problems and key in problems[0], (key, value)
+
+
+# --- laser (#491) ----------------------------------------------------------------------------
+
+# Written down from a run on this branch (sha256 of json.dumps(schema, sort_keys=True)); the
+# five-row table above (CLAP_TO_BASS) is the "before" and keeps its own pins.
+LASER_SCHEMA_SHA256 = "1cd6d88074a53d096733bbac7f5ce935a04aa3127c3f4b350e65f84c7f5205e8"
+LASER = {"category": "laser", "preset": "pew", "prompt": "", "seed": 3, "variants": 2,
+         "adjust": [{"key": "decay_ms", "value": 300}]}
+LASER_PRESETS = ["blaster", "blaster-burst5", "blaster-double", "blaster-echo", "blaster-reverb",
+                 "blaster-triple-lrl", "glitch", "ion", "pew", "pew-wide-echo", "plasma",
+                 "plasma-driven", "rift", "subboom"]
+
+
+def test_laser_row_changes_enum_and_texts_but_not_the_shape_or_the_budget():
+    before, after = tool_input_schema(CLAP_TO_BASS), tool_input_schema()
+    assert digest(before) == RIM_BASS_SCHEMA_WITH_XTREME_SHA256  # old pin, old table
+    assert digest(after) == LASER_SCHEMA_SHA256 != digest(before)
+    assert after["properties"]["category"]["enum"] == [
+        "clap", "hat", "snare", "rim", "bass", "laser"]
+    assert strip(after) == strip(before)
+    assert optional_fields(after) == 0
+    for preset in LASER_PRESETS:
+        assert preset in after["description"]
+    assert "pitch_start_hz" in after["description"]
+    assert SampleTools(_NoSession()).tools()[0].max_files_written == 16
+    a = ADAPTERS["laser"]
+    assert a.contract == "laser-params.schema.json" and sorted(a.presets) == LASER_PRESETS
+    assert a.make_variants.__module__ == "audio_engine.laser_variants"
+
+
+@pytest.mark.parametrize("preset,version", [("pew", "0.1"), ("blaster-echo", "0.2")])
+def test_laser_generates_through_the_adapter(tmp_path, make_guard, preset, version):
+    session, _, box = box_for(tmp_path, ADAPTERS)
+    result = run(make_guard(), box, {**LASER, "preset": preset})
+    assert result.is_error is False, result.content
+    assert result.content["category"] == "laser"
+    assert [s["sample_id"] for s in result.content["samples"]] == ["laser-1", "laser-2"]
+    wavs = sorted(Path(session.project_dir).rglob("*.wav"))
+    assert len(wavs) == 2 and all("Lasers" in w.parts for w in wavs), wavs
+    meta = json.loads(wavs[0].with_suffix(".json").read_text(encoding="utf-8"))
+    assert meta["category"] == "laser" and meta["parameters"]["preset"] == preset
+    assert meta["parameters"]["schema_version"] == version
+    assert meta["parameters"]["decay_ms"] == 300
+    assert session.entry("laser-2").category == "laser"
+
+
+def test_laser_is_deterministic_for_equal_arguments(tmp_path, make_guard):
+    runs = []
+    for sub in ("a", "b"):
+        (tmp_path / sub).mkdir()
+        session, _, box = box_for(tmp_path / sub, ADAPTERS)
+        assert run(make_guard(), box, LASER).is_error is False
+        runs.append([w.read_bytes() for w in sorted(Path(session.project_dir).rglob("*.wav"))])
+    assert runs[0] == runs[1]
+
+
+def test_laser_refusals_write_nothing(tmp_path, make_guard):
+    session, _, box = box_for(tmp_path, ADAPTERS)
+    bad = [
+        {**LASER, "preset": "rolling"},  # a bass preset
+        {**LASER, "prompt": "pew"},
+        {**LASER, "adjust": [{"key": "decay_ms", "value": 10}]},
+        {**LASER, "adjust": [{"key": "family", "value": 1}]},  # a string enum, set by preset
+        {**LASER, "adjust": [{"key": "salvo_count", "value": 3}]},  # v0.2 field: preset only
+        {**LASER, "adjust": [{"key": "note", "value": 40}]},  # a bass key
+        {**LASER, "variants": 9},
+    ]
+    for args in bad:
+        assert run(make_guard(), box, args).is_error, args
+    assert not list(Path(session.project_dir).rglob("*.wav"))
+    assert not list(Path(session.project_dir).rglob("*.json"))
+    assert session.sample_ids() == ()
+
+
+def test_laser_max_variants_fit_the_request_file_budget(tmp_path, make_guard):
+    session, _, box = box_for(tmp_path, ADAPTERS)
+    assert run(make_guard(max_files_written=10), box, {**LASER, "variants": 6}).is_error
+    assert not list(Path(session.project_dir).rglob("*.wav"))
+    r = run(make_guard(max_files_written=16), box, {**LASER, "variants": 8})
+    assert r.is_error is False, r.content
+    assert len(list(Path(session.project_dir).rglob("*.wav"))) == 8
