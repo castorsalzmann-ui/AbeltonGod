@@ -113,6 +113,37 @@ def test_random_editing_never_builds_drawn_nodes_the_planner_refuses(base):
             assert plan_problems(m.state.plan) == []
 
 
+def test_a_step_pair_on_the_new_end_bar_is_left_out_like_nodes_past_the_end():
+    """Review of #481 (repro): a pair drawn at bar 200 becomes an edge pair when the track is
+    shortened to 200 bars; its second node is not sent and counted as ignored."""
+    m = PlannerModel()
+    m.unit, m.length_text = "bars", "208"
+    m.compute()
+    m.add_node(200, 0.3)
+    m.add_node(200, 0.2)
+    m.add_node(204, 0.5)
+    m.length_text = "200"
+    s = m.compute()
+    assert s.total_bars == 200 and s.ok, s.errors
+    assert s.ignored_drawn == 2  # the node at 204 and the second node at 200
+    assert [n for n in s.plan["energy_nodes"] if n["drawn"]] == [
+        {"pos": 200, "value": 0.3, "drawn": True}]
+    assert s.plan == generate_plan(_req(target_minutes=None, target_bars=200),
+                                   drawn_nodes=[{"pos": 200, "value": 0.3}]).plan
+    m.length_text = "208"  # back: the kept nodes count again
+    assert m.compute().ignored_drawn == 0
+
+
+@pytest.mark.parametrize("reason", ["not a list", "needs integer pos and value",
+                                    "pos outside 0..208", "value outside 0..1",
+                                    "pos decreases", "third node at one pos",
+                                    "pair at the track edge"])
+def test_every_drawn_node_reason_of_the_planner_is_german(reason):
+    text = planner.error_text({"code": "drawn_node_invalid",
+                               "detail": {"index": 1, "reason": reason}})
+    assert reason not in text and "Punkt löschen oder verschieben" in text, text
+
+
 def test_planner_refusals_of_drawn_nodes_have_german_texts():
     """The layout always leaves the outro 64 bars (the walk from a full drop), so the
     ``outro_slot_too_short`` refusal cannot be reached from this page; its text is checked
@@ -122,7 +153,7 @@ def test_planner_refusals_of_drawn_nodes_have_german_texts():
     assert "64 Takte" in text and "32" in text and "Outro" in text
     text = planner.error_text({"code": "drawn_node_invalid",
                                "detail": {"index": 2, "reason": "pos decreases"}})
-    assert text.startswith("Gezeichneter Punkt 2 ungültig")
+    assert text.startswith("Gezeichneter Punkt 2 ungültig: liegt vor dem vorigen Punkt")
 
 
 @pytest.mark.parametrize("key", sorted(SETTING_ALLOWED))

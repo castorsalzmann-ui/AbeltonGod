@@ -47,6 +47,10 @@ MOUSE_HELP = ("Klick: Punkt setzen und ziehen · Standardpunkt anklicken: übern
               "Shift+Klick auf Punkt: Stufe · Rechtsklick/Entf: löschen")
 
 
+def points(n: int) -> str:
+    return f"{n} gezeichneter Punkt" if n == 1 else f"{n} gezeichnete Punkte"
+
+
 class PlannerPanel(QWidget):
     def __init__(self, output_root: Path | None = None,
                  opener: Callable[[Path], bool] | None = None) -> None:
@@ -63,7 +67,8 @@ class PlannerPanel(QWidget):
 
         outer = QVBoxLayout(self)
         outer.setContentsMargins(8, 4, 8, 8)
-        intro = muted("Energie-Linie auf dem 8-Takt-Raster planen. Ergebnis ist nur eine "
+        intro = muted("Energie-Linie über die Abschnitte zeichnen (Punkte auf ganzen Takten). "
+                      "Ergebnis ist nur eine "
                       "Plan-Datei (arrangement-plan v0.1); nichts wird an Live gesendet.")
         outer.addWidget(intro)
 
@@ -251,10 +256,10 @@ class PlannerPanel(QWidget):
             minutes = plan["total_bars"] * 4 / plan["bpm"]
             drawn = len(self.model.drawn) - state.ignored_drawn
             text = (f"{plan['total_bars']} Takte, {minutes:.2f} min bei {plan['bpm']:g} BPM; "
-                    f"{len(plan['sections'])} Abschnitte, {drawn} gezeichnete Punkte.")
+                    f"{len(plan['sections'])} Abschnitte, {points(drawn)}.")
             if state.ignored_drawn:
-                text += (f" {state.ignored_drawn} gezeichnete Punkte liegen hinter dem Ende "
-                         "und werden nicht verwendet.")
+                text += (f" {points(state.ignored_drawn)} hinter dem Ende (oder zweite Stufe "
+                         "am Ende) nicht verwendet.")
             self.set_status(text)
         else:
             self.set_status("Kein Plan: " + " ".join(state.errors), error=True)

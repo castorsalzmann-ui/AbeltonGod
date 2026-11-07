@@ -123,6 +123,17 @@ def _nearest(detail: dict) -> str:
     return " oder ".join(parts) + " Takte" if parts else "keine"
 
 
+# German for the ``reason`` texts of the planner's ``drawn_node_invalid`` (``_check_drawn``).
+DRAWN_REASONS = {
+    "not a list": "keine Liste",
+    "needs integer pos and value": "braucht einen ganzen Takt und einen Wert",
+    "value outside 0..1": "Wert außerhalb 0..1",
+    "pos decreases": "liegt vor dem vorigen Punkt",
+    "third node at one pos": "dritter Punkt auf einem Takt",
+    "pair at the track edge": "Stufe am Anfang oder Ende des Tracks",
+}
+
+
 def error_text(error: dict) -> str:
     """One German sentence per planner error code; unknown codes show code and detail."""
     code, d = error.get("code"), error.get("detail") or {}
@@ -139,7 +150,12 @@ def error_text(error: dict) -> str:
                 f"Abschnitte teilen. Nächste mögliche Längen: {_nearest(d)} (oder Intro / "
                 "Breakdown kürzer stellen).")
     if code == "drawn_node_invalid":
-        return f"Gezeichneter Punkt {d.get('index')} ungültig: {d.get('reason')}."
+        reason = str(d.get("reason"))
+        german = DRAWN_REASONS.get(reason)
+        if german is None and reason.startswith("pos outside"):
+            german = "liegt außerhalb des Tracks"
+        return (f"Gezeichneter Punkt {d.get('index')} ungültig: {german or reason}. Punkt "
+                "löschen oder verschieben.")
     if code == "outro_slot_too_short":
         return (f"Die gezeichnete Energie lässt das Outro so hoch beginnen, dass es "
                 f"{d.get('required')} Takte bräuchte; es hat {d.get('slot')}. Punkt am "
@@ -222,7 +238,11 @@ class PlannerModel:
             self.state = state
             return state
         state.sections, state.total_bars = list(layout.sections), layout.total_bars
-        active = [dict(n) for n in self.drawn if n["pos"] <= layout.total_bars]
+        total = layout.total_bars
+        # Nodes behind the end are not sent, nor the second node of a step pair that lands on
+        # the end bar after shortening (the planner allows no pair at the track edge).
+        active = [dict(n) for n in self.drawn if n["pos"] < total]
+        active += [dict(n) for n in self.drawn if n["pos"] == total][:1]
         state.ignored_drawn = len(self.drawn) - len(active)
         result = generate_plan(req, drawn_nodes=active)
         state.notes = [note_text(a) for a in result.adjustments + result.warnings]

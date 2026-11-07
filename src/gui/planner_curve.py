@@ -187,7 +187,7 @@ class PlannerCanvas(QWidget):
         if event.key() in (Qt.Key.Key_Delete, Qt.Key.Key_Backspace) and self.selected is not None \
                 and self.selected < len(self.model.drawn):
             self.model.remove_node(self.selected)
-            self.selected = None
+            self.selected = self.drag = None  # a drag in progress ends with its node
             self._changed()
             event.accept()
             return

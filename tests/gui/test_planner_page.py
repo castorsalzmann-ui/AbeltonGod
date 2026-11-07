@@ -98,6 +98,32 @@ def test_dragging_moves_the_node_and_right_click_removes_it(window):
     assert page.model.state.plan == generate_plan(DEFAULT_REQ).plan
 
 
+def test_delete_while_dragging_ends_the_drag(window):
+    """Review of #481: Delete with the button still held removes the node; the next move
+    must not touch a removed index."""
+    page, canvas = window.planner, window.planner.canvas
+    QTest.mousePress(canvas, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier,
+                     at(canvas, 100, 0.8))
+    assert canvas.drag == 0
+    QTest.keyClick(canvas, Qt.Key.Key_Delete)
+    assert page.model.drawn == [] and canvas.drag is None
+    QTest.mouseMove(canvas, at(canvas, 110, 0.4))  # IndexError before the fix
+    QTest.mouseRelease(canvas, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier,
+                       at(canvas, 110, 0.4))
+    assert page.model.drawn == []
+    assert page.model.state.plan == generate_plan(DEFAULT_REQ).plan
+
+
+def test_status_counts_drawn_points_in_german(window):
+    page, canvas = window.planner, window.planner.canvas
+    QTest.mouseClick(canvas, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier,
+                     at(canvas, 100, 0.8))
+    assert "1 gezeichneter Punkt." in page.status.text()
+    QTest.mouseClick(canvas, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier,
+                     at(canvas, 150, 0.5))
+    assert "2 gezeichnete Punkte." in page.status.text()
+
+
 def test_a_click_on_a_default_node_takes_it_over_as_drawn(window):
     page, canvas = window.planner, window.planner.canvas
     drop = next(s for s in page.model.state.plan["sections"] if s["type"] == "drop")
