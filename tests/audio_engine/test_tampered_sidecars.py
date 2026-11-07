@@ -124,8 +124,8 @@ def _tamper(meta: dict, case: str):
             m["schema_version"] = "0.0"
         case "schema_version as number":
             m["schema_version"] = 0.1
-        case "category perc":
-            m["category"] = "perc"
+        case "category tom":  # a perc model, never a category (D-032)
+            m["category"] = "tom"
         case "file without .wav":
             m["file"] = "t70.json"
         case "features unknown field":
@@ -150,7 +150,7 @@ CURATED = (
     "engine is a list", "engine is null", "engine without version", "engine version is a number",
     "engine unknown field", "parameters is a string", "parameters is null",
     "unknown top-level field", "schema_version 0.2", "schema_version 0.0",
-    "schema_version as number", "category perc", "file without .wav", "features unknown field",
+    "schema_version as number", "category tom", "file without .wav", "features unknown field",
     "features without length_ms", "sha256 not hex", "bpm as string", "root is a list",
     "root is a string",
 )
