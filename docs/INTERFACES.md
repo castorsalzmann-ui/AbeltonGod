@@ -6,13 +6,14 @@ Machine-readable contracts live in `contracts/`. This file explains them. Changi
 | --- | --- | --- |
 | `contracts/kick-params.schema.json` | Orchestrator / CLI → audio engine | v0.3 (#104, follow-ups #131); the engine renders 0.2 and 0.3 (PR #130) |
 | `contracts/tool-generate-kick.schema.json` | Orchestrator (tool definition) → Claude | strict-subset variant of kick-params 0.3 for the `generate_kick` tool, for when it is sent strict (#131; the choice is #148's, see "Strict tool variant"); the engine still validates against `kick-params.schema.json` |
-| `contracts/sample-metadata.schema.json` | Audio engine → library, orchestrator | v0.2 (#229): kick keeps 0.1; categories `kick`, `clap`, `hat` (#249), `snare` (#272), `rim` (#296), `bass` (#320); non-pitched features; engine identity per category. v0.1 kick sidecars stay valid |
+| `contracts/sample-metadata.schema.json` | Audio engine → library, orchestrator | v0.2 (#229): kick keeps 0.1; categories `kick`, `clap`, `hat` (#249), `snare` (#272), `rim` (#296), `bass` (#320), `laser` (#416), `perc` (#475); non-pitched features; engine identity per category. v0.1 kick sidecars stay valid |
 | `contracts/clap-params.schema.json` | Orchestrator / CLI → audio engine | v0.2 (#280): v0.1 plus optional extreme-sound fields behind `schema_version` `0.2`; v0.1 documents stay valid; ranges are measured and may be adjusted by the engine PR |
 | `contracts/hat-params.schema.json` | Orchestrator / CLI → audio engine | v0.1 proposal (#249); no engine yet; ranges are proposals the engine PR measures and may adjust |
 | `contracts/snare-params.schema.json` | Orchestrator / CLI → audio engine | v0.1 proposal (#272); no engine yet; ranges are placeholders the engine PR measures and may adjust |
 | `contracts/rim-params.schema.json` | Orchestrator / CLI → audio engine | v0.1 proposal (#296); no engine yet; ranges are hypotheses from one weak source plus placeholders the engine PR measures and may adjust |
 | `contracts/bass-params.schema.json` | Orchestrator / CLI → audio engine | v0.1 proposal (#320); no engine yet; ranges are placeholders (one tutorial is the only source) the engine PR measures and may adjust |
 | `contracts/laser-params.schema.json` | Blaster GUI / CLI / orchestrator → audio engine | v0.1 proposal (#416, D-030), v0.2 salvo / filter / delay / reverb (#425, D-031); stereo category `(n, 2)`; engine `abeltongod-audio-engine-laser` (#421); `sample-metadata` has category `laser` |
+| `contracts/perc-params.schema.json` | Orchestrator / CLI / GUI → audio engine | v0.1 proposal (#475, D-032); models `conga`, `tom`, `shaker`, `cowbell`, `clave`; no engine yet; base values are artifact prior art or placeholders the engine PR measures and may adjust; `sample-metadata` has category `perc` |
 | `contracts/capabilities.json` (+ `capabilities.schema.json`) | Bridge → orchestrator | v1 — statuses updated in Phase 02 (#42: entry `track.mute.get` added, no format change) and Phase 03 (#50: `clip_slot.create_audio_clip` → `tested`, no format change; #143: `song.create_audio_track` → `tested`, own `tested` entries `track.has_audio_input.get`, `clip_slot.has_clip.get`, `clip.file_path.get`, `song.num_scenes.get` (no borrowed gate any more), no format change; one undo may revert track + clip together; #140: 12 Arrangement-check entries added as `unknown`, no format change) |
 | `contracts/guard-policy.schema.json` → `config/guard-policy.json` | User config → resource guard | v1 — default values are untuned starting points |
 | `contracts/tool-list-tracks.schema.json`, `contracts/tool-import-sample.schema.json` | Claude (tool arguments) → orchestrator | v1 (#81) — input schemas only; not wired yet |
@@ -145,6 +146,27 @@ No tool schema (`generate_bass`) exists.
 - Chain: salvo -> echo -> drive -> filter -> reverb -> fade -> ceiling. Tails are part of the file length (nothing extends it); a tail still running at the end is cut by a 5 ms fade (50 ms with reverb), the last sample is 0, the peak ceiling holds over the whole mix. Shots starting within 10 ms of the end (or beyond) are dropped. No cross-field rule: every in-range combination is valid.
 
 No tool schema (`generate_laser`) exists.
+
+## Percussion parameters
+
+`perc-params.schema.json` v0.1 (#475, D-032) is a proposal for one mono percussion one-shot in **one shared parameter space** for five models: `conga` (default), `tom`, `shaker`, `cowbell`, `clave`. A model selects the voice structure and its base values; it never changes which fields exist. Toms are a model only, never a default (D-032: only presets explicitly named for hard groove use them).
+
+| Model | Voice | base pitch | base t60 | base attack |
+| --- | --- | --- | --- | --- |
+| `tom` | sine with exponential glide (`bend_ratio`, `bend_ms`) + tick | 130.81 Hz (C3) | 300 ms | 0.6 ms |
+| `conga` | same structure as tom | 261.63 Hz (C4) | 200 ms | 0.6 ms |
+| `cowbell` | two band-limited squares at f0 and f0 x 800/540, band-pass 2600 Hz x tune, Q 1.4 + tick | 540 Hz | 120 ms | 1 ms |
+| `clave` | one sine + tick | 2400 Hz | 30 ms | 0.5 ms |
+| `shaker` | seeded noise, band-pass at f0 (Q 1.5), high-pass 3000 Hz x tune | 4500 Hz | 80 ms | 12 ms |
+
+- Fields relative to the base values, so one default fits every model: `tune_semitones` (-12 .. 12, 0), `decay_scale` (0.25 .. 4, 1; t60 = base x scale), `attack_scale` (0.25 .. 4, 1). Absolute fields: `bend_ratio` (1 .. 2, 1.25) and `bend_ms` (1 .. 30, 5) for tom/conga only; `tick_level` (0 .. 1, 0.2, 0 = off) and `tick_hz` (1000 .. 6000, 2500), no effect at shaker; `hp_hz` (20 .. 1000, 20 = off, as laser v0.2); `length_ms` (20 .. 2000, omitted = engine-chosen, as hat); plus the shared `seed`, `variants`, `bpm`, `sample_rate`, `bit_depth`, `drive`, `polarity`, `offset_ms`, `peak_ceiling_dbfs`, `preset`.
+- Numbers with a source are prior art from one browser artifact (bandit-wheel synthesis note, section 5); the rest are placeholders. No outside source gives numeric targets for techno percussion.
+- No cross-field rule: every in-range combination is valid; the highest frequency (shaker band-pass, 9000 Hz) is below 0.45 x 44100. Out-of-range values are rejected, never clamped.
+- Determinism: the seed feeds the tick and the shaker noise (own sub-streams); tom, conga, cowbell and clave at `tick_level` 0 are seed-independent.
+- Sidecars: category `perc`, `schema_version` `0.2`, `engine.name` `abeltongod-audio-engine-perc` with its own version (D-025), `parameters.schema_version` `0.1`; features are the existing non-pitched ones. Library folder `Samples/Drums/Percs` (`LibraryLayout.percs`).
+- Not in v0.1: bongo (conga + 12 semitones), tambourine, FM bell / metal, ride, a second membrane mode, key / note-name resolution, stereo.
+
+No tool schema (`generate_perc`) exists.
 
 ## Guard policy
 
