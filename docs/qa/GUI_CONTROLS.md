@@ -159,6 +159,11 @@ differ only in the area. Handler and effect per kind:
 | `library · QComboBox · LibraryPanel.category_box` | `LibraryPanel._show` | Filter by category (or 'Unlesbar') |
 | `library · QLineEdit · LibraryPanel.search` | `LibraryPanel._show` | Search in name, preset, seed, key parameters |
 | `library · QPushButton · Aktualisieren` | `LibraryPanel.refresh` | Re-scans the output folder |
+| `library · QCheckBox · nur Favoriten` | `LibraryPanel._show` | Keeps only files whose current verdict in the choice log is "Favorit" (#110) |
+| `library · QLineEdit · LibraryPanel.note` | read by `LibraryPanel.judge` | Optional note stored with the next verdict, then cleared (#110) |
+| `library · QPushButton · Favorit` | `LibraryPanel.judge("favourite")` | Appends a `favourite` entry for the selected WAV to `choices.jsonl` next to `settings.json` (in memory without a settings file); local only, D-032 (#110) |
+| `library · QPushButton · Passt nicht` | `LibraryPanel.judge("reject")` | Appends a `reject` entry for the selected WAV, same log (#110) |
+| `library · QListWidget · choices_log` | filled by `LibraryPanel._load_choices` | The newest 50 choice-log entries, newest first; skipped bad lines are counted in the line above (#110) |
 
 ### Main window: Goa-Arrangement page
 

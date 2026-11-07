@@ -18,14 +18,17 @@ backend. It proves that each control path runs and where the files land; it says
 the sound, the look on a real Windows screen, or Live (nothing talks to Ableton).
 
 The library check uses the main window's library page (``LibraryPanel`` over the output folder),
-the same list the user sees. Known gaps are named in :data:`KNOWN_GAPS` with the text the
-failure must show; a gap step is xfail only for that reason, and red once it passes.
+the same list the user sees. The last step marks one library file as "Favorit" (choice log,
+#110; in memory, the tour has no settings file). Known gaps are named in :data:`KNOWN_GAPS`
+with the text the failure must show; a gap step is xfail only for that reason, and red once it
+passes.
 """
 
 from __future__ import annotations
 
 import argparse
 import contextlib
+import hashlib
 import os
 import subprocess
 import sys
@@ -441,6 +444,48 @@ def tools_close_with_main(window) -> Step:
                 f"open before: {keys}, still open: {still}")
 
 
+def choose_in_library(window) -> Step:
+    """Library choice log (#110): mark the first listed WAV as favourite with a note; the log
+    must hold the entry, the row must show the mark and "nur Favoriten" must keep only it.
+    The tour's main window has no settings file, so the log stays in memory."""
+    from gui.drag import PATH_ROLE
+
+    t = time.perf_counter()
+    name = "choice:library"
+    lib = window.library
+    window.categories.setCurrentRow(window.library_row)
+    wait_for(lambda: True, 0)
+    if lib.choices.path is not None:
+        return Step(name, False, f"log would be written to {lib.choices.path}",
+                    time.perf_counter() - t)
+    if lib.list.count() == 0:
+        return Step(name, False, "library is empty", time.perf_counter() - t)
+    lib.list.setCurrentRow(0)
+    wav = lib.current_path()
+    lib.note.setText("Tour")
+    lib.favourite_button.click()
+    res = lib.choices.read()
+    last = res.entries[-1] if res.entries else {}
+    problems = []
+    if last.get("verdict") != "favourite" or last.get("note") != "Tour":
+        problems.append(f"log entry {last!r}")
+    if not lib.list.currentItem() or not lib.list.currentItem().text().startswith("★ "):
+        problems.append("row has no favourite mark")
+    # A verdict belongs to the bytes (sha256): byte-identical copies elsewhere in the output
+    # folder (the Goa page and the Goa window render the same files) are favourites too.
+    digest = hashlib.sha256(wav.read_bytes()).digest()
+    same = sorted(e.wav_path for e in lib.entries
+                  if hashlib.sha256(e.wav_path.read_bytes()).digest() == digest)
+    lib.only_favourites.setChecked(True)
+    kept = sorted(Path(lib.list.item(i).data(PATH_ROLE)) for i in range(lib.list.count()))
+    lib.only_favourites.setChecked(False)
+    if kept != same:
+        problems.append(f"'nur Favoriten' shows {[p.name for p in kept]}, expected "
+                        f"{[p.name for p in same]}")
+    window.categories.setCurrentRow(0)
+    return Step(name, not problems, "; ".join(problems), time.perf_counter() - t)
+
+
 def _wavs(folder: Path) -> list[Path]:
     return sorted(folder.rglob("*.wav")) if folder.is_dir() else []
 
@@ -484,6 +529,8 @@ def run_tour(home: Path, shots: Path | None = None, tag: str = "100",
                     report.steps.append(render_blaster_shot(window, wins["blaster"]))
                     report.steps.append(export_blaster_bank(window, wins["blaster"]))
             report.steps.append(tools_close_with_main(window))
+            if renders:
+                report.steps.append(choose_in_library(window))
         finally:
             window.close()
             window.deleteLater()
