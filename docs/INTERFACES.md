@@ -6,7 +6,7 @@ Machine-readable contracts live in `contracts/`. This file explains them. Changi
 | --- | --- | --- |
 | `contracts/kick-params.schema.json` | Orchestrator / CLI → audio engine | v0.3 (#104, follow-ups #131); the engine renders 0.2 and 0.3 (PR #130) |
 | `contracts/tool-generate-kick.schema.json` | Orchestrator (tool definition) → Claude | strict-subset variant of kick-params 0.3 for the `generate_kick` tool, for when it is sent strict (#131; the choice is #148's, see "Strict tool variant"); the engine still validates against `kick-params.schema.json` |
-| `contracts/sample-metadata.schema.json` | Audio engine → library, orchestrator | v0.2 (#229): kick keeps 0.1; categories `kick`, `clap`, `hat` (#249), `snare` (#272), `rim` (#296), `bass` (#320), `laser` (#416), `perc` (#475); non-pitched features; engine identity per category. v0.1 kick sidecars stay valid |
+| `contracts/sample-metadata.schema.json` | Audio engine → library, orchestrator | v0.2 (#229): kick keeps 0.1; categories `kick`, `clap`, `hat` (#249), `snare` (#272), `rim` (#296), `bass` (#320), `laser` (#416), `perc` (#475), `fx` (#482, with the fx-only features `boundary_frame` and `anchor`); non-pitched features; engine identity per category. v0.1 kick sidecars stay valid |
 | `contracts/clap-params.schema.json` | Orchestrator / CLI → audio engine | v0.2 (#280): v0.1 plus optional extreme-sound fields behind `schema_version` `0.2`; v0.1 documents stay valid; ranges are measured and may be adjusted by the engine PR |
 | `contracts/hat-params.schema.json` | Orchestrator / CLI → audio engine | v0.1 proposal (#249); no engine yet; ranges are proposals the engine PR measures and may adjust |
 | `contracts/snare-params.schema.json` | Orchestrator / CLI → audio engine | v0.1 proposal (#272); no engine yet; ranges are placeholders the engine PR measures and may adjust |
@@ -14,6 +14,7 @@ Machine-readable contracts live in `contracts/`. This file explains them. Changi
 | `contracts/bass-params.schema.json` | Orchestrator / CLI → audio engine | v0.1 proposal (#320); no engine yet; ranges are placeholders (one tutorial is the only source) the engine PR measures and may adjust |
 | `contracts/laser-params.schema.json` | Blaster GUI / CLI / orchestrator → audio engine | v0.1 proposal (#416, D-030), v0.2 salvo / filter / delay / reverb (#425, D-031); stereo category `(n, 2)`; engine `abeltongod-audio-engine-laser` (#421); `sample-metadata` has category `laser` |
 | `contracts/perc-params.schema.json` | Orchestrator / CLI / GUI → audio engine | v0.1 proposal (#475, D-032); models `conga`, `tom`, `shaker`, `cowbell`, `clave`; no engine yet; base values are artifact prior art or placeholders the engine PR measures and may adjust; `sample-metadata` has category `perc` |
+| `contracts/fx-params.schema.json` | Orchestrator / CLI / GUI / planner adapter → audio engine | v0.1 proposal (#482, D-032); stereo; kinds `riser`, `downlifter`, `sweep`, `impact`, `noise_crash`, `reverse_crash`; lengths in beats, `bpm` required; per-kind defaults inside the schema (`allOf` branches); no engine yet; `sample-metadata` has category `fx` |
 | `contracts/capabilities.json` (+ `capabilities.schema.json`) | Bridge → orchestrator | v1 — statuses updated in Phase 02 (#42: entry `track.mute.get` added, no format change) and Phase 03 (#50: `clip_slot.create_audio_clip` → `tested`, no format change; #143: `song.create_audio_track` → `tested`, own `tested` entries `track.has_audio_input.get`, `clip_slot.has_clip.get`, `clip.file_path.get`, `song.num_scenes.get` (no borrowed gate any more), no format change; one undo may revert track + clip together; #140: 12 Arrangement-check entries added as `unknown`, no format change) |
 | `contracts/guard-policy.schema.json` → `config/guard-policy.json` | User config → resource guard | v1 — default values are untuned starting points |
 | `contracts/tool-list-tracks.schema.json`, `contracts/tool-import-sample.schema.json` | Claude (tool arguments) → orchestrator | v1 (#81) — input schemas only; not wired yet |
@@ -167,6 +168,32 @@ No tool schema (`generate_laser`) exists.
 - Not in v0.1: bongo (conga + 12 semitones), tambourine, FM bell / metal, ride, a second membrane mode, key / note-name resolution, stereo.
 
 No tool schema (`generate_perc`) exists.
+
+## FX transition parameters
+
+`fx-params.schema.json` v0.1 (#482, D-032; input: `docs/research/2026-11-07_fx-transitions.md` section 5) is a proposal for one **stereo** FX transition `(n, 2)` in one shared parameter space for six kinds. Required: `schema_version`, `seed`, `bpm`; every length is in beats.
+
+**Where per-kind defaults live (decision, #482).** In the contract file itself, nowhere else. A field whose default depends on `kind` has no top-level `default`; each kind's value is the `default` annotation in that kind's `allOf` branch. The riser branch has no `required: ["kind"]`, so it also applies when `kind` is omitted (riser is the default kind). Two fields have a derived default: `ramp_beats` and `tone_glide_beats` omitted = the resolved `length_beats`. The engine resolves in this order: top-level defaults, the kind branch, the derived ones. The sidecar records the fully resolved object, so a re-render never depends on the defaults. Presets are named overrides on top, not a second source of defaults. Why not the alternatives: an engine-side table documented here would be a second copy that can drift from the code; a presets file would make "no preset" undefined. The engines already read `default` from their schema (laser, clap, hat), so this keeps one mechanism. No field has both a top-level and a branch default (a test checks this): under the resolution order the branch value would never take effect. The GUI form (`src/gui_core/form.py`) reads only top-level defaults today; a kind-aware reader is required before fx gets a GUI page (#492).
+
+| kind | anchor | `length_beats` | `tail_beats` | filter, cutoff start → end (Hz) | level start → end (dB) | tone | `reverb_mix` |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `riser` | start | 64 | 4 | `bp` Q 1.2, 300 → 9000, curve 1.5 | -36 → 0 | off | 0.3 |
+| `sweep` | start | 16 | 2 | `lp` Q 4, 200 → 12000 | -6 → 0 | off | 0.2 |
+| `downlifter` | start | 8 | 4 | `bp` Q 1.2, 8000 → 200, curve 0.7 | 0 → -36 | off (saw 400 → 60 when turned on) | 0.35 |
+| `impact` | start | 8 | 8 | `hp` Q 0.7071, 30 static | 0 → -60 over `ramp_beats` 0.25 | sine 150 → 40, glide 0.5, decay 6 beats, level 1 | 0.4 |
+| `noise_crash` | start | 16 | 4 | `hp` Q 0.7071, 1000 static (note F8) | 0 → -60 | off | 0.3 |
+| `reverse_crash` | end | 4 | 0 (enforced) | `hp` Q 0.7071, 3000 static | -60 → 0 (file time) | `metal` (hat metal_bank partials) at 205.3, level 0.5 | 0.3 |
+
+- Frames: file N = `round((length_beats + tail_beats) * 60 * sample_rate / bpm)`; `boundary_frame` = `round(length_beats * 60 * sample_rate / bpm)` for every kind, the index of the first frame at the bar line. Anchor start: the first frame of the tail. `reverse_crash` (no tail): `boundary_frame` = N, one past its last frame N - 1, so its frame 0 goes at bar line minus `length_beats`. Lengths are on a 0.25-beat grid (`multipleOf`).
+- Filter: **one time-varying 2nd-order state-variable filter** (TPT), cutoff updated every sample, noise layer only. It is not a blend of fixed filters. Measured in #482: `laser_fx.low_pass`'s blended bank on a 3-per-octave grid shows two spectral peaks in 184 of 280 frames at band-pass Q 12; a moving filter shows them in 0. Modes `bp` (0 dB peak), `lp`, `hp`, `hp_lp` (lp corner `cutoff * lp_ratio`).
+- Cross-field rules (the engine rejects these with an error text; JSON Schema cannot compare fields): A `(length_beats + tail_beats) * 60000 / bpm <= 72000` (32 bars plus the longest tail at 120 BPM); B `noise_level` and `tone_level` not both 0; C `cut_beats < length_beats`. `reverse_crash` with `tail_beats` ≠ 0 is rejected by the schema itself.
+- Chain: dry layers → drive → echo (`laser_fx.echo_v2` semantics, `echo_note` at `bpm`) → + reverb (`laser_fx.reverb_wet`, `reverb_decay_ms` up to 8000) → pump → peak scaling to `peak_ceiling_dbfs` (default -1.0) for the quantised file → 5 ms fade-out. `reverse_crash` renders the chain up to the reverb forward, then reverses it; its curves are given in file time.
+- Shared names keep the laser-params v0.2 / kick-params meaning (contract `$comment` point 12). `echo_note` is new: laser's `echo_sync` has `off`, here `echo_mix` 0 is off.
+- Sidecars: category `fx`, `schema_version` `0.2`, `engine.name` `abeltongod-audio-engine-fx` (D-025), `parameters.schema_version` `0.1` with `seed` and `bpm`. `features` must contain `boundary_frame` (integer) and `anchor` (`start` / `end`); other categories may not carry these two. Library folder `Samples/FX/Transitions` (`LibraryLayout.fx`).
+- All numbers are proposals. Only the noise_crash 1000 Hz with a 4-8 bar fade and the 8/16/32-bar build lengths rest on a source (magazine tutorials, note F8/F9).
+- Not in v0.1: Shepard risers, sampled cymbals, key / note names for the tone, per-layer filters, a planner adapter (orchestrator, own issue).
+
+No tool schema (`generate_fx`) exists.
 
 ## Guard policy
 

@@ -2,14 +2,14 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/castorsalzmann-ui/AbeltonGod/contracts/sample-metadata.schema.json",
   "title": "Sample sidecar metadata",
-  "description": "Draft v0.2 (#229, hat added by #249, snare by #272, rim by #296, bass by #320, laser by #416, perc by #475). Written next to every generated WAV as <name>.json. Must be sufficient to re-render the identical file. schema_version 0.1 = kick sidecars as before (still valid, kick keeps 0.1); 0.2 is required for clap, hat, snare, rim, bass, laser and perc sidecars and not allowed for kick. Engine identity is per category (D-025): kick sidecars carry engine.name 'abeltongod-audio-engine' and its version; clap sidecars carry engine.name 'abeltongod-audio-engine-clap' and the clap engine's own version; hat sidecars carry engine.name 'abeltongod-audio-engine-hat' the hat engine's own version; snare sidecars carry engine.name 'abeltongod-audio-engine-snare' and the snare engine's own version; rim sidecars carry engine.name 'abeltongod-audio-engine-rim' and the rim engine's own version; bass sidecars carry engine.name 'abeltongod-audio-engine-bass' and the bass engine's own version; laser sidecars carry engine.name 'abeltongod-audio-engine-laser' and the laser engine's own version; perc sidecars carry engine.name 'abeltongod-audio-engine-perc' and the perc engine's own version. A re-render compares only the name/version pair of its own category, so a byte change in one category never invalidates the sidecars of another (D-013 holds inside each category).",
+  "description": "Draft v0.2 (#229, hat added by #249, snare by #272, rim by #296, bass by #320, laser by #416, perc by #475, fx by #482). Written next to every generated WAV as <name>.json. Must be sufficient to re-render the identical file. schema_version 0.1 = kick sidecars as before (still valid, kick keeps 0.1); 0.2 is required for clap, hat, snare, rim, bass, laser, perc and fx sidecars and not allowed for kick. Engine identity is per category (D-025): kick sidecars carry engine.name 'abeltongod-audio-engine' and its version; clap sidecars carry engine.name 'abeltongod-audio-engine-clap' and the clap engine's own version; hat sidecars carry engine.name 'abeltongod-audio-engine-hat' the hat engine's own version; snare sidecars carry engine.name 'abeltongod-audio-engine-snare' and the snare engine's own version; rim sidecars carry engine.name 'abeltongod-audio-engine-rim' and the rim engine's own version; bass sidecars carry engine.name 'abeltongod-audio-engine-bass' and the bass engine's own version; laser sidecars carry engine.name 'abeltongod-audio-engine-laser' and the laser engine's own version; perc sidecars carry engine.name 'abeltongod-audio-engine-perc' and the perc engine's own version; fx sidecars carry engine.name 'abeltongod-audio-engine-fx' and the fx engine's own version, and their features also carry boundary_frame and anchor. A re-render compares only the name/version pair of its own category, so a byte change in one category never invalidates the sidecars of another (D-013 holds inside each category).",
   "type": "object",
   "additionalProperties": false,
   "required": ["schema_version", "file", "category", "engine", "parameters", "features", "created_at"],
   "properties": {
     "schema_version": { "enum": ["0.1", "0.2"] },
     "file": { "type": "string", "pattern": "\\.wav$" },
-    "category": { "enum": ["kick", "clap", "hat", "snare", "rim", "bass", "laser", "perc"] },
+    "category": { "enum": ["kick", "clap", "hat", "snare", "rim", "bass", "laser", "perc", "fx"] },
     "description": { "type": "string", "maxLength": 500 },
     "engine": {
       "type": "object",
@@ -20,7 +20,7 @@
         "version": { "type": "string" }
       }
     },
-    "parameters": { "type": "object", "description": "Exact <category>-params object used (kick-params for kick, clap-params for clap, hat-params for hat, snare-params for snare, rim-params for rim, bass-params for bass, laser-params for laser, perc-params for perc), including the variant's derived seed." },
+    "parameters": { "type": "object", "description": "Exact <category>-params object used (kick-params for kick, clap-params for clap, hat-params for hat, snare-params for snare, rim-params for rim, bass-params for bass, laser-params for laser, perc-params for perc, fx-params for fx; fx records the fully resolved object including the per-kind defaults), including the variant's derived seed." },
     "features": {
       "type": "object",
       "additionalProperties": false,
@@ -35,7 +35,9 @@
         "spectral_centroid_hz": { "type": ["number", "null"], "minimum": 0, "description": "v0.2, non-pitched samples (clap, later hat). Spectral centroid of the whole file, Hz." },
         "hf_share_8k": { "type": ["number", "null"], "minimum": 0, "maximum": 1, "description": "v0.2. Share of the spectral energy above 8 kHz, 0 ... 1." },
         "t60_ms": { "type": ["number", "null"], "minimum": 0, "description": "v0.2. Time from the peak until the envelope has fallen 60 dB, ms, measured on the signal after a 30 Hz high-pass; null if it does not within the file." },
-        "rise_time_ms": { "type": ["number", "null"], "minimum": 0, "description": "v0.2. Onset rise time, 10 % to 90 % of the peak envelope, ms." }
+        "rise_time_ms": { "type": ["number", "null"], "minimum": 0, "description": "v0.2. Onset rise time, 10 % to 90 % of the peak envelope, ms." },
+        "boundary_frame": { "type": "integer", "minimum": 0, "description": "v0.2, fx only (required there, #482). Frame index of the musical boundary, round(length_beats * 60 * sample_rate / bpm) for every kind: the first frame at the bar line. Anchor start (a riser's drop): the first frame of the tail. Anchor end (reverse_crash, no tail): the frame count N, one past the last frame N - 1. A placer aligns this frame index with the event's bar line." },
+        "anchor": { "enum": ["start", "end"], "description": "v0.2, fx only (required there, #482). start = the file's first sample sits on the event beat; end = the file ends on it (reverse_crash)." }
       }
     },
     "bpm": { "type": ["number", "null"] },
@@ -141,6 +143,28 @@
             "required": ["schema_version", "seed"],
             "properties": { "schema_version": { "const": "0.1" } }
           }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "category": { "const": "fx" } }, "required": ["category"] },
+      "then": {
+        "properties": {
+          "schema_version": { "const": "0.2" },
+          "engine": { "properties": { "name": { "const": "abeltongod-audio-engine-fx" } } },
+          "parameters": {
+            "required": ["schema_version", "seed", "bpm"],
+            "properties": { "schema_version": { "const": "0.1" } }
+          },
+          "features": { "required": ["boundary_frame", "anchor"] }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "category": { "not": { "const": "fx" } } }, "required": ["category"] },
+      "then": {
+        "properties": {
+          "features": { "properties": { "boundary_frame": false, "anchor": false } }
         }
       }
     }
