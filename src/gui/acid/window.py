@@ -44,7 +44,7 @@ from gui_core.paths import default_output_dir
 from gui_core.preview import PlaybackBackend
 from gui_core.settings import DEFAULT_BIT_DEPTH, DEFAULT_SAMPLE_RATE, free_stem
 
-from ..windows import ResultActions
+from ..windows import OnTopBox, OnTopWindow, ResultActions
 from . import skin
 from .widgets import AcidRoot, EtchedPanel, FooterBand, HeaderBand, StepGridWidget
 
@@ -63,7 +63,7 @@ def _ask_open_file(parent: QWidget, start: Path) -> Path | None:
     return Path(name) if name else None
 
 
-class AcidWindow(QWidget):
+class AcidWindow(OnTopWindow, QWidget):
     def __init__(
         self,
         out_dir: Path | None = None,
@@ -223,6 +223,8 @@ class AcidWindow(QWidget):
         self.preview_note = QLabel(f"Vorschau: {PREVIEW_LABEL}")
         self.preview_note.setObjectName("muted")
         row2.addWidget(self.preview_note)
+        self.on_top_box = OnTopBox()  # #517: next to Live on one monitor
+        row2.addWidget(self.on_top_box, 0, Qt.AlignmentFlag.AlignTop)
         al.addLayout(row2)
         col.addWidget(act_panel)
         # --- footer / status

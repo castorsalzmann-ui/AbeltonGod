@@ -147,7 +147,8 @@ def test_library_page_lists_filters_and_previews(qapp, window):
         window.render_button.click()
         assert wait_for(qapp, lambda: not window.running)
     window.categories.setCurrentRow(window.library_row)  # Bibliothek
-    assert window.on_library and window.stack.currentWidget() is window.library
+    # the library page sits in a vertical scroll area since #517
+    assert window.on_library and window.stack.currentWidget().widget() is window.library
     assert not window.render_button.isEnabled()
     window.start_render()  # also refused when called directly
     assert window.handle is None

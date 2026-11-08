@@ -2,7 +2,8 @@
 one sample per category plus Goa, Acid and Blaster, and check that each result shows up in the
 main window's library; export one arrangement plan from the planner page and check it with the
 contract checker; ask the Copilot page (fake model, no Claude call) for one clap and find it in
-the library (#491). Optional screenshots of every page at 100 % and 150 %.
+the library (#491). Every page once more with the main window at half the screen width (#517,
+compact layout). Optional screenshots of every page at 100 % and 150 %, full and half width.
 
 Usage (screenshots never go into the repo; pick a folder outside it)::
 
@@ -215,6 +216,41 @@ def visit_pages(window, shots: Path | None, tag: str) -> list[Step]:
                 ok, detail = False, f"screenshot not written: {path}"
         steps.append(Step(f"page:{_slug(label)}", ok, detail, time.perf_counter() - t))
     window.categories.setCurrentRow(0)
+    return steps
+
+
+def visit_pages_half(window, shots: Path | None, tag: str) -> list[Step]:
+    """#517: the main window at half the emulated screen (Windows snap next to Live), every
+    page once, in the compact layout; screenshots ``<tag>_half_<row>_<page>.png``. Whether
+    every control fits there is checked in tests/gui/test_fit_150.py, not here."""
+    old = window.size()
+    # Half of the emulated monitor in logical px (also when the tour runs in a test process
+    # on Qt's default 800 x 800 offscreen screen).
+    scale = float(os.environ.get("QT_SCALE_FACTOR") or 1)
+    want = (round(SCREEN_PX[0] / 2 / scale), round(SCREEN_PX[1] / scale))
+    window.resize(*want)
+    wait_for(lambda: True, 0)
+    steps = []
+    for row, label in page_rows(window):
+        t = time.perf_counter()
+        window.categories.setCurrentRow(row)
+        wait_for(lambda: True, 0)
+        problems = []
+        if window.stack.currentIndex() != row or not window.stack.currentWidget().isVisible():
+            problems.append(f"stack shows row {window.stack.currentIndex()}")
+        if (window.width(), window.height()) != want:
+            problems.append(f"window {window.width()} x {window.height()}, wanted {want}")
+        if not window.compact:
+            problems.append("wide layout at half the screen")
+        if shots is not None:
+            path = shots / f"{tag}_half_{row:02d}_{_slug(label)}.png"
+            if not window.grab().save(str(path)):
+                problems.append(f"screenshot not written: {path}")
+        steps.append(Step(f"half:{_slug(label)}", not problems, "; ".join(problems),
+                          time.perf_counter() - t))
+    window.categories.setCurrentRow(0)
+    window.resize(old)
+    wait_for(lambda: True, 0)
     return steps
 
 
@@ -596,6 +632,7 @@ def run_tour(home: Path, shots: Path | None = None, tag: str = "100",
         window = make_window(home / "AbeltonGod" / "output")
         try:
             report.steps += visit_pages(window, shots, tag)
+            report.steps += visit_pages_half(window, shots, tag)
             if renders:
                 report.steps += [render_category(window, k) for k in CATEGORY_KEYS]
                 report.steps.append(render_goa_page(window))

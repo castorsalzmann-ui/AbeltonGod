@@ -41,7 +41,7 @@ from PySide6.QtWidgets import (
 
 from gui.drag import PATH_ROLE, DragList
 from gui.widgets import Collapsible, FlowLayout, NumberControl, PresetChips, Segmented
-from gui.windows import ResultActions
+from gui.windows import OnTopBox, OnTopWindow, ResultActions
 from gui_core import blaster_params as bp
 from gui_core.blaster import (
     BANK_MAX,
@@ -119,7 +119,7 @@ class FormatWriter:
         return self.inner.write({**params, **self.overrides}, seed, folder, stem, description)
 
 
-class BlasterWindow(QWidget):
+class BlasterWindow(OnTopWindow, QWidget):
     def __init__(
         self,
         out_dir: Path | None = None,
@@ -243,6 +243,8 @@ class BlasterWindow(QWidget):
                                    "Aus: kein Timer, keine Bewegung.")
         self.anim_check.toggled.connect(self._on_animation)
         head.addWidget(self.anim_check)
+        self.on_top_box = OnTopBox()  # #517: next to Live on one monitor
+        head.addWidget(self.on_top_box)
         cl.addLayout(head)
 
         top = QHBoxLayout()

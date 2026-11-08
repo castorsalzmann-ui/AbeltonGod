@@ -41,6 +41,7 @@ from gui_core.planner import (
 from .planner_curve import PlannerCanvas, event_summary
 from .tool_style import STYLE
 from .widgets import StepEdit, Stepper, heading, muted
+from .widgets.adaptive import AdaptiveBox
 from .widgets.choice import FlowLayout, WrapSegmented
 
 MOUSE_HELP = ("Klick: Punkt setzen und ziehen · Standardpunkt anklicken: übernehmen · "
@@ -72,10 +73,9 @@ class PlannerPanel(QWidget):
                       "Plan-Datei (arrangement-plan v0.1); nichts wird an Live gesendet.")
         outer.addWidget(intro)
 
-        top = QHBoxLayout()
+        top = AdaptiveBox()  # settings beside the curve, or above it when narrow (#517)
         outer.addLayout(top)
         left = QWidget()
-        left.setFixedWidth(em * 25)
         top.addWidget(left, 0, Qt.AlignmentFlag.AlignTop)
         form = QVBoxLayout(left)
         form.setContentsMargins(0, 0, 0, 0)
@@ -105,6 +105,9 @@ class PlannerPanel(QWidget):
             for spec in (s for s in SETTING_SPECS if s.group == group):
                 form.addWidget(self._row(spec.label, self._setting_editor(spec), spec.help))
         form.addStretch(1)
+        # 25 M, or what the rows need if that is more (the BPM stepper was 3 px short, #517).
+        self.ensurePolished()
+        left.setFixedWidth(max(em * 25, left.minimumSizeHint().width()))
 
         right = QVBoxLayout()
         top.addLayout(right, 1)
