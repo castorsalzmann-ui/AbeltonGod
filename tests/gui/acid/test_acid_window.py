@@ -113,16 +113,18 @@ def test_dragging_pitch_sets_notes_within_the_scale(win):
     assert win.model.steps[0].note == 81  # top: the root three octaves up (A5)
     # press + move + release: the last position wins and every value is a palette note
     QTest.mousePress(win.grid, Qt.MouseButton.LeftButton, pos=QPoint(x, int(rect.bottom())))
+    from PySide6.QtGui import QCursor  # diagnosis for a Windows CI failure (#517 PR)
+    trace = [("press", win.model.steps[0].note, win.grid._drag_step,
+              QApplication.mouseButtons())]
     for frac in (0.8, 0.55, 0.3):
         y = int(rect.bottom() - frac * rect.height())
         QTest.mouseMove(win.grid, QPoint(x, y))
+        spot = win.grid.mapTo(win, QPoint(x, y))
+        trace.append((frac, win.model.steps[0].note, QCursor.pos(), win.childAt(spot),
+                      QApplication.mouseButtons(), QApplication.focusWidget()))
         assert win.model.steps[0].note in win.model.palette(3)
     QTest.mouseRelease(win.grid, Qt.MouseButton.LeftButton, pos=QPoint(x, int(rect.top())))
-    from PySide6.QtGui import QCursor  # diagnosis for a Windows CI failure (#517 PR)
-    spot = win.grid.mapToGlobal(QPoint(x, int(rect.top())))
-    where = (f"window {win.geometry()}, grid point {spot}, cursor {QCursor.pos()}, at point "
-             f"{QApplication.topLevelAt(spot)}, widget {QApplication.widgetAt(spot)}, windows "
-             f"{[w for w in QApplication.topLevelWidgets() if w.isVisible()]}")
+    where = f"window {win.geometry()}, rect {rect}, trace {trace}"
     assert 45 < win.model.steps[0].note < 81, where
     assert win.model.to_line()["steps"][0]["note"] == win.model.steps[0].note
 

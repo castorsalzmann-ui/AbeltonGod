@@ -160,8 +160,9 @@ class PlannerPanel(QWidget):
         lay.setContentsMargins(0, 0, 0, 0)
         em = self.fontMetrics().horizontalAdvance("M")
         caption = QLabel(label)
-        caption.setFixedWidth(em * 9)
         caption.setWordWrap(True)
+        # 9 M, or the longest word if wider (Windows CI: "Breakdowns" 120 > 108 px, #517)
+        caption.setFixedWidth(max(em * 9, caption.minimumSizeHint().width()))
         if help_text:
             caption.setToolTip(help_text)
             edit.setToolTip(help_text)
