@@ -365,3 +365,11 @@ The researchers for 04b clusters 1 (Agent SDK behaviour) and 2 (tool-schema gene
 - Arrangement planner gets a GUI page over the merged planner code; export only to files.
 - FX transitions (riser, downlifter, impact, sweep) get a research note first.
 - Plan: `docs/sprints/2026-11-07_parking-lot-sprint.md`. Same working rules as sprint W1 (review, CI gate on `main`, at most 4–5 agents for the usage budget).
+
+## D-033 · 2026-11-08 · accepted — Goa plugin makes only leads and melodies; arranging belongs to the arrangement planner (user, 2026-11-08 21:09: "Goa plugin sollte nur die leads und melodien von goa musik erzeugen und nicht extra arrangement. Das ist das normale arrangement im arrangementfenster als aufgabe"; amends D-026, D-027)
+
+**Decision.** (1) The Goa plugin (GUI page and Goa window) generates only melodic MIDI: lead, arp, pad, pluck/acid line (`goa_melody`). It no longer offers a full-song arrangement. (2) Arranging (sections, form, energy, which elements play when, the full song in Live's arrangement view) is one task with one owner: the arrangement planner (#139, D-024). The form/rhythm options of `goa_arrangement` (intro, breakdowns, outro, DJ intro/outro, bass roll) are input for the planner, not a second arranger. (3) `goa_arrangement` code stays in the repo for now (CLI, reversible) but is removed from the GUI; whether its multitrack export moves into the planner is decided when the planner gets an export to Live (needs `tested` MIDI capabilities, #284). (4) Unchanged: no Max for Live, nothing written to Live that is not `tested`, deterministic output, no listening claims.
+
+**Reason.** The user wants one place for arranging; two arrangers in the GUI (Goa-Arrangement and Arrangement-Planer) were confusing.
+
+**Consequences.** GUI: page "Goa-Arrangement" becomes "Goa-Melodie" (melody only); Goa window shows melody only; GUI tour, `docs/qa/GUI_CONTROLS.md`, USER_GUIDE and README updated. Follow-up issue for the planner to take over the Goa form options.
