@@ -413,8 +413,10 @@ def smoke_tools(res: Results, work: Path) -> dict:
             from audio_engine.presets import preset_names
 
             preset = preset_names(cat)[0]
+            # fx needs bpm in adjust whatever the preset carries (#515); 135 = a test tempo
+            adjust = [{"key": "bpm", "value": 135}] if cat == "fx" else []
             args = {"category": cat, "preset": preset, "prompt": "", "seed": 7, "variants": 2,
-                    "adjust": []}
+                    "adjust": adjust}
             with guard.request("p") as req:
                 out = box.run(req, ToolCall(f"g-{cat}", "generate_sample", args), None)
             ok = out.is_error is False

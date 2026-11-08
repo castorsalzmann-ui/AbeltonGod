@@ -235,8 +235,8 @@ HAT = {"category": "hat", "preset": "closed-std", "prompt": "", "seed": 3, "vari
        "adjust": [{"key": "decay_ms", "value": 60}]}
 
 
-def test_default_table_is_clap_hat_snare_rim_bass_laser_perc():
-    assert list(ADAPTERS) == ["clap", "hat", "snare", "rim", "bass", "laser", "perc"]
+def test_default_table_is_clap_hat_snare_rim_bass_laser_perc_fx():
+    assert list(ADAPTERS) == ["clap", "hat", "snare", "rim", "bass", "laser", "perc", "fx"]
     assert ADAPTERS["hat"].contract == "hat-params.schema.json"
 
 
@@ -342,7 +342,7 @@ def test_kick_and_tom_stay_refused_with_the_default_table(tmp_path, make_guard):
     assert approver.asked == []
     assert build_request({**HAT, "category": "kick"})[1] == [
         "category 'kick' is not available yet; available: clap, hat, snare, rim, bass, laser, "
-        "perc"]
+        "perc, fx"]
     assert not list(Path(session.project_dir).rglob("*.wav"))
 
 
@@ -798,10 +798,12 @@ def test_random_in_range_adjust_values_are_accepted_for_perc_and_laser(category)
 # and the text says which preset gives which model (no hat preset carries `model`, so every
 # preset and '' give the contract default metal_bank; `noise` has no preset).
 HAT_PRESET_ONLY_SCHEMA_SHA256 = "45ed5e010c510d76a8584c34076d6caeabdf82ae9a2e9a6fd2e637d01be3ca85"
+# the default table after #506, before the fx row (#515; tests/orchestrator/test_sample_fx.py)
+CLAP_TO_PERC_506 = {k: a for k, a in ADAPTERS.items() if k != "fx"}
 
 
 def test_hat_model_is_preset_only_and_the_rest_of_the_schema_is_unchanged():
-    before, after = tool_input_schema(CLAP_TO_PERC), tool_input_schema()
+    before, after = tool_input_schema(CLAP_TO_PERC), tool_input_schema(CLAP_TO_PERC_506)
     assert digest(before) == PERC_SCHEMA_SHA256
     assert digest(after) == HAT_PRESET_ONLY_SCHEMA_SHA256 != digest(before)
     assert strip(after) == strip(before) and optional_fields(after) == 0
