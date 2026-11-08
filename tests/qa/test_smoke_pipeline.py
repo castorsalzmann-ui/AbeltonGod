@@ -108,15 +108,98 @@ def test_reader_matches_stdlib_wave(tmp_path):
 
 def test_end_to_end_one_preset_per_category(tmp_path):
     out = tmp_path / "summary.json"
-    assert smoke.main(["--presets-per-category", "1", "--categories", "kick", "clap", "hat",
+    cats = ["kick", "clap", "hat", "perc", "fx", "laser"]  # perc, fx, laser added for #347
+    assert smoke.main(["--presets-per-category", "1", "--categories", *cats,
                        "--keep", str(tmp_path / "w"),
                        "--json", str(out)]) == 0
     import json
 
     summary = json.loads(out.read_text("utf-8"))
     assert summary["failed"] == 0 and summary["checks"] > 100
-    assert {c for c, v in summary["categories"].items() if v["registered"]} >= {
-        "kick", "clap", "hat"}
+    assert {c for c, v in summary["categories"].items() if v["registered"]} == set(cats)
+    assert all(summary["categories"][c]["wavs"] == 2 for c in cats)
+    assert summary["kit"]["exported"] is True
+    assert summary["kit"]["folders"] == ["Smoke-Kit", "Smoke-Kit_002"]
+
+
+# --- #347: fx length is length_beats + tail_beats ---------------------------------------------
+
+@pytest.mark.parametrize("tail_beats, ok", [(0.15, True), (0.25, False)])
+def test_fx_length_is_checked_against_the_beats(tmp_path, tail_beats, ok):
+    def fx(meta):  # 0.2 s at 120 BPM = 0.4 beats
+        meta.update(category="fx", parameters={"bpm": 120, "length_beats": 0.25,
+                                               "tail_beats": tail_beats})
+
+    bad = failed(run_check(tmp_path, fx))
+    assert ("length is length_beats + tail_beats" in bad) is (not ok), bad
+    assert bad - {"length is length_beats + tail_beats"} == set()
+
+
+def test_fx_may_be_longer_than_one_shots_but_not_endless(tmp_path):
+    res = run_check(tmp_path, seconds=8.0)
+    assert "length" in failed(res)  # one-shot limit 6 s
+    p = tmp_path / "a.wav"
+    res = smoke.Results()
+    smoke.check_audio(res, "t", p, meta_for(p.read_bytes(), seconds=8.0),
+                      smoke.MAX_SECONDS_BY_CATEGORY["fx"])
+    assert "length" not in failed(res)
+    assert smoke.MAX_SECONDS_BY_CATEGORY["fx"] == 72.0  # fx-params rule A: at most 72000 ms
+
+
+# --- #347: kit export ---------------------------------------------------------------------------
+
+def _kit_failures(res: smoke.Results) -> set[str]:
+    return {n for n, ok, _ in res.rows if not ok}
+
+
+def test_kit_export_clean_run_passes(tmp_path):
+    res = smoke.Results()
+    info = smoke.smoke_kit(res, tmp_path)
+    assert _kit_failures(res) == set(), res.rows
+    assert info["exported"] is True
+    # 5 slots x 6 checks per kit, 2 kits, plus 5 per-kit/global checks
+    assert len(res.rows) >= 60, len(res.rows)
+
+
+@pytest.mark.parametrize("fault, expected", [
+    ("sidecar", "sidecar copied verbatim"),
+    ("source", "source path relative to the output folder"),
+    ("extra", "nothing else in the kit folder"),
+])
+def test_kit_export_faults_are_flagged(tmp_path, monkeypatch, fault, expected):
+    from gui_core import kit
+
+    if fault == "sidecar":  # the sidecar copy is not hashed by export_kit itself
+        real_copy = kit._copy_file
+
+        def copy(src, dst):
+            got = real_copy(src, dst)
+            if dst.suffix == ".json":
+                dst.write_bytes(dst.read_bytes().replace(b'"', b"'", 1))
+            return got
+
+        monkeypatch.setattr(kit, "_copy_file", copy)
+    elif fault == "source":
+        real_manifest = kit.manifest
+
+        def manifest(plan, created_at):
+            doc = real_manifest(plan, created_at)
+            doc["slots"]["kick"]["source"] = "Samples/elsewhere.wav"
+            return doc
+
+        monkeypatch.setattr(kit, "manifest", manifest)
+    else:
+        real_write = kit._write_new
+
+        def write(path, data):
+            real_write(path, data)
+            (path.parent / "stray.txt").write_bytes(b"x")
+
+        monkeypatch.setattr(kit, "_write_new", write)
+    res = smoke.Results()
+    smoke.smoke_kit(res, tmp_path)
+    bad = _kit_failures(res)
+    assert any(n.endswith(expected) for n in bad), res.rows
 
 
 # --- #364: negative tests and --expect-fail ---------------------------------------------------
@@ -198,6 +281,7 @@ def _fake_run(monkeypatch, rows):
 
     monkeypatch.setattr(smoke, "smoke_categories", categories)
     monkeypatch.setattr(smoke, "smoke_library", lambda res, work: None)
+    monkeypatch.setattr(smoke, "smoke_kit", lambda res, work: {})
     monkeypatch.setattr(smoke, "smoke_tools", lambda res, work: {})
 
 
