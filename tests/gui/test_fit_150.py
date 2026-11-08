@@ -237,7 +237,8 @@ def _half_child(out: Path) -> None:
     screen = app.primaryScreen().availableGeometry().size()
     hint = w.minimumSizeHint().expandedTo(w.minimumSize())
     result = {"screen": (screen.width(), screen.height()), "min": (hint.width(), hint.height()),
-              "pages": {}}
+              "pages": {}, "layouts": {w.categories.item(r).text(): v
+                                       for r, v in w.layout_widths.items()}}
     w.resize(screen.width(), screen.height())
     app.processEvents()
 
@@ -246,7 +247,7 @@ def _half_child(out: Path) -> None:
         page = w.stack.currentWidget()
         bar = page.horizontalScrollBar().maximum() if isinstance(page, QScrollArea) else 0
         return {"window": (w.width(), w.height()), "compact": w.compact, "hscroll": bar,
-                "cut": _cut_off(w)}
+                "cut": _cut_off(w), "widest": _widest(w.centralWidget())}
 
     for row in range(w.categories.count()):
         item = w.categories.item(row)
@@ -301,7 +302,7 @@ def test_main_window_fits_half_the_screen(half_screen, capsys):
     (w, h), (sw, sh) = got["min"], logical
     with capsys.disabled():
         print(f"\n[#517] main at half screen {key} % on {sys.platform}: min {w} x {h} on "
-              f"{sw} x {sh}")
+              f"{sw} x {sh}; (wide, compact) min width per page: {got['layouts']}")
     assert tuple(got["screen"]) == logical  # the emulation itself
     assert w <= sw and h <= sh, f"main: smallest {w} x {h} on a {sw} x {sh} half screen"
     for label, page in got["pages"].items():
@@ -316,7 +317,8 @@ def test_every_page_is_usable_at_half_the_screen(half_screen, capsys):
     with capsys.disabled():
         for label, page in got["pages"].items():
             print(f"[#517] {key} % {label}: compact {page['compact']}, hscroll "
-                  f"{page['hscroll']}, cut {page['cut'][:4]}")
+                  f"{page['hscroll']}, cut {page['cut'][:4]}; widest: "
+                  + " | ".join(page["widest"]))
     for label, page in got["pages"].items():
         if page["hscroll"] or page["cut"]:
             bad[label] = (page["hscroll"], page["cut"][:6])

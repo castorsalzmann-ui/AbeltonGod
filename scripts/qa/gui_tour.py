@@ -221,8 +221,9 @@ def visit_pages(window, shots: Path | None, tag: str) -> list[Step]:
 
 def visit_pages_half(window, shots: Path | None, tag: str) -> list[Step]:
     """#517: the main window at half the emulated screen (Windows snap next to Live), every
-    page once, in the compact layout; screenshots ``<tag>_half_<row>_<page>.png``. Whether
-    every control fits there is checked in tests/gui/test_fit_150.py, not here."""
+    page once (compact layout unless the wide one fits there); screenshots
+    ``<tag>_half_<row>_<page>.png``. Whether every control fits there is checked in
+    tests/gui/test_fit_150.py, not here."""
     old = window.size()
     # Half of the emulated monitor in logical px (also when the tour runs in a test process
     # on Qt's default 800 x 800 offscreen screen).
@@ -240,8 +241,6 @@ def visit_pages_half(window, shots: Path | None, tag: str) -> list[Step]:
             problems.append(f"stack shows row {window.stack.currentIndex()}")
         if (window.width(), window.height()) != want:
             problems.append(f"window {window.width()} x {window.height()}, wanted {want}")
-        if not window.compact:
-            problems.append("wide layout at half the screen")
         if shots is not None:
             path = shots / f"{tag}_half_{row:02d}_{_slug(label)}.png"
             if not window.grab().save(str(path)):

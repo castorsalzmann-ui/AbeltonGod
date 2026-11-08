@@ -61,7 +61,9 @@ class FlowLayout(QLayout):
         area = rect.adjusted(m.left(), m.top(), -m.right(), -m.bottom())
         x, y, line_h = area.x(), area.y(), 0
         for item in self._items:
-            hint = item.sizeHint()
+            # never below the item's minimum (Windows CI: a knob's size hint was 2 px below
+            # it, so its caption was cut, #517)
+            hint = item.sizeHint().expandedTo(item.minimumSize())
             if x + hint.width() > area.right() + 1 and line_h > 0:
                 x = area.x()
                 y += line_h + self._space

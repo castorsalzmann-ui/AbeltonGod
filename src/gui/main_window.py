@@ -233,7 +233,9 @@ class MainWindow(OnTopWindow, QMainWindow):
         self.panels: dict[str, CategoryPanel] = {}
         for c in CATEGORIES:
             panel = CategoryPanel(self.models[c.key])
-            panel.setMinimumWidth(m * 34)  # category pages fit 34 M (knobs wrap, #442)
+            # category pages: content 34 M (knobs wrap, #442) plus the page's scroll bar
+            panel.setMinimumWidth(m * 34 + panel.verticalScrollBar().sizeHint().width()
+                                  + 2 * panel.frameWidth())
             panel.changed.connect(self._update_state)
             self.panels[c.key] = panel
             self.stack.addWidget(panel)
@@ -365,13 +367,17 @@ class MainWindow(OnTopWindow, QMainWindow):
         shown = self.stack.currentIndex()
         right_shown = not self.right_scroll.isHidden()
         widths = {False: 0, True: 0}
+        self.layout_widths: dict[int, tuple[int, int]] = {}  # row -> (wide, compact); for tests
         for row in range(self.stack.count()):
             self.stack.setCurrentIndex(row)
             self.right_scroll.setVisible(row <= self.library_row)
+            got = []
             for compact in (False, True):
                 self.set_compact(compact)
                 lay.invalidate()
-                widths[compact] = max(widths[compact], lay.minimumSize().width())
+                got.append(lay.minimumSize().width())
+                widths[compact] = max(widths[compact], got[-1])
+            self.layout_widths[row] = (got[0], got[1])
         self.set_compact(False)
         self.stack.setCurrentIndex(shown)
         self.right_scroll.setVisible(right_shown)
