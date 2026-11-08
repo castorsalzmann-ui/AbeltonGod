@@ -118,7 +118,12 @@ def test_dragging_pitch_sets_notes_within_the_scale(win):
         QTest.mouseMove(win.grid, QPoint(x, y))
         assert win.model.steps[0].note in win.model.palette(3)
     QTest.mouseRelease(win.grid, Qt.MouseButton.LeftButton, pos=QPoint(x, int(rect.top())))
-    assert 45 < win.model.steps[0].note < 81
+    from PySide6.QtGui import QCursor  # diagnosis for a Windows CI failure (#517 PR)
+    spot = win.grid.mapToGlobal(QPoint(x, int(rect.top())))
+    where = (f"window {win.geometry()}, grid point {spot}, cursor {QCursor.pos()}, at point "
+             f"{QApplication.topLevelAt(spot)}, widget {QApplication.widgetAt(spot)}, windows "
+             f"{[w for w in QApplication.topLevelWidgets() if w.isVisible()]}")
+    assert 45 < win.model.steps[0].note < 81, where
     assert win.model.to_line()["steps"][0]["note"] == win.model.steps[0].note
 
 

@@ -210,8 +210,10 @@ differ only in the area. Handler and effect per kind:
 | `goa-page · QLineEdit · Register (Oktaven)` | `OptionForm._edited` (`textEdited`) | Free text option |
 | `goa-page · QPushButton · Ordner öffnen` | `GoaPanel.open_folder` | Opens the run folder (or the last finished one) |
 | `goa-page · QPushButton · Rendern` | `GoaPanel.start_render` | Runs goa_arrangement / goa_melody in a worker; MIDI + README + sample WAVs with sidecars (#414, fixed by #451) |
-| `goa-page · Segmented · *` | `GoaPanel.set_mode` / `OptionForm` edits | Mode (Arrangement / Melodie) and enum options of the Goa generator |
-| `goa-page · Segmented/QPushButton · *` | `Segmented` -> `chosen` | One button per mode / enum choice |
+| `goa-page · Segmented · *` | `OptionForm` edits | Enum options of the Goa generator with a few short choices |
+| `goa-page · Segmented/QPushButton · *` | `Segmented` -> `chosen` | One button per enum choice |
+| `goa-page · WrapSegmented · *` | `GoaPanel.set_mode` | Mode (Arrangement / Melodie); wraps on a narrow page (was `Segmented`, 696 px wide on Windows, #517) |
+| `goa-page · WrapSegmented/QPushButton · *` | `WrapSegmented` -> `chosen` | One button per mode |
 | `goa-page · StepEdit · Phrasenlänge (Takte)` | `OptionForm._edited` | Phrase length in bars |
 | `goa-page · StepEdit · Seed` | `OptionForm._edited` | Seed (typed, Up/Down) |
 | `goa-page · Toggle · Keine Samples rendern` | `OptionForm._edited` | Flag: MIDI only, no sample WAVs |
@@ -294,8 +296,10 @@ ends; its countdown shows what is left of that window. Checked by
 | `goa · QPushButton · In Bibliothek zeigen` | `ResultActions.show_in_library` | Shows the main library with the first sample WAV selected |
 | `goa · QPushButton · Ordner öffnen` | `GoaPanel.open_folder` | Opens the run folder |
 | `goa · QPushButton · Rendern` | `GoaPanel.start_render` | Runs the Goa generator in a worker; the WAVs appear in the main library |
-| `goa · Segmented · *` | `GoaPanel.set_mode` / `OptionForm` edits | Mode and enum options |
+| `goa · Segmented · *` | `OptionForm` edits | Enum options with a few short choices |
 | `goa · Segmented/QPushButton · *` | `Segmented` -> `chosen` | One button per choice |
+| `goa · WrapSegmented · *` | `GoaPanel.set_mode` | Mode (Arrangement / Melodie), wrapping (#517) |
+| `goa · WrapSegmented/QPushButton · *` | `WrapSegmented` -> `chosen` | One button per mode |
 | `goa · StepEdit · Phrasenlänge (Takte)` | `OptionForm._edited` | Phrase length in bars |
 | `goa · StepEdit · Seed` | `OptionForm._edited` | Seed |
 | `goa · Toggle · Keine Samples rendern` | `OptionForm._edited` | Flag: MIDI only |

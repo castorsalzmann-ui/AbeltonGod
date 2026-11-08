@@ -44,6 +44,7 @@ from .widgets import (
     muted,
 )
 from .widgets.adaptive import AdaptiveBox
+from .widgets.choice import WrapSegmented
 from .windows import ResultActions
 
 BODY_HOOK = "goa_body"  # objectName of the page body: a hook for later skins/extra panels
@@ -112,7 +113,10 @@ class OptionForm(QScrollArea):
         label = QLabel(spec.label)
         label.setToolTip(spec.help)
         label.setFixedWidth(em * 15)
-        label.setFixedHeight(int(self.fontMetrics().height() * 1.9))  # first line of the editor
+        # A long label wraps (Windows CI: "Bass-Rhythmus (Roll)" needed 240 px of 180, #517);
+        # at least the editor's first line high.
+        label.setWordWrap(True)
+        label.setMinimumHeight(int(self.fontMetrics().height() * 1.9))
         top = Qt.AlignmentFlag.AlignTop
         row.addWidget(dot, 0, top)
         row.addWidget(label, 0, top)
@@ -260,7 +264,8 @@ class GoaPanel(QWidget):
         outer = AdaptiveBox(self)
         left = QVBoxLayout()
         left.addWidget(heading("Erzeuger"))
-        self.mode_seg = Segmented([MODE_LABELS[m] for m in MODES], accent=True)
+        # Wraps: the two long mode names in one row made the page 696 px wide on Windows (#517)
+        self.mode_seg = WrapSegmented([MODE_LABELS[m] for m in MODES])
         self.mode_seg.set_index(0)
         self.mode_seg.chosen.connect(lambda i: self.set_mode(MODES[i]))
         left.addWidget(self.mode_seg)
