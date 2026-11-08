@@ -129,6 +129,11 @@ class OptionForm(QScrollArea):
         hint.setVisible(isinstance(edit, StepEdit | QLineEdit))
         self.hints[spec.dest] = hint
         if is_number:
+            # The unit beside a number field is one short line ("ganze Zahl", "Takte"): it
+            # counts in the form's minimum width, so a narrow window stacks form and preview
+            # instead of squeezing it to a few px (#530 review: 7 px in the Goa window).
+            hint.setWordWrap(False)
+            hint.setMinimumWidth(hint.fontMetrics().horizontalAdvance(hint.text()) + 2)
             row.addWidget(hint, 1)
             outer.addLayout(row)
         else:

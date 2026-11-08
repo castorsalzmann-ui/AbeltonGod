@@ -20,7 +20,7 @@ if os.environ.get("ABELTONGOD_REQUIRE_GUI") == "1":  # CI: a missing Qt must fai
 else:
     pytest.importorskip("PySide6.QtWidgets", exc_type=ImportError)
 
-from PySide6.QtWidgets import QApplication  # noqa: E402
+from PySide6.QtWidgets import QApplication, QLabel  # noqa: E402
 
 from gui.app import create_app  # noqa: E402
 from gui.drag import PATH_ROLE  # noqa: E402
@@ -127,6 +127,32 @@ def test_acid_wav_follows_the_shared_sample_rate_and_bit_depth(main):
     wav = acid.export_wav()
     with wave.open(str(wav)) as w:
         assert (w.getframerate(), w.getsampwidth()) == (44100, 2)
+
+
+def test_goa_window_at_its_start_size_squeezes_no_label(main):
+    """#530 review: without the mode switch the Goa form became narrow enough that form and
+    preview went side by side in the 760 x 560 window and the unit labels got 7 px ("g / Z").
+    Every visible label must be at least as wide as its longest word, and every section of
+    the preview at least one text line wide (room for its rotated name)."""
+    win = main.windows.open("goa")
+    assert win is not None, main.windows.last_error
+    QApplication.processEvents()
+    assert (win.width(), win.height()) == (760, 560)  # the factory's start size
+    panel = win.body
+    squeezed = []
+    for label in panel.findChildren(QLabel):
+        if not label.isVisibleTo(panel) or not label.text().strip():
+            continue
+        fm = label.fontMetrics()
+        word = max(label.text().split(), key=fm.horizontalAdvance)
+        if label.width() < fm.horizontalAdvance(word):
+            squeezed.append(f"{label.text()!r}: {label.width()} px, needs "
+                            f"{fm.horizontalAdvance(word)}")
+    assert squeezed == []
+    tl = panel.timeline
+    line = tl.fontMetrics().height()
+    thin = [(s.name, round(x1 - x0)) for s, x0, x1 in tl.section_spans() if x1 - x0 < line]
+    assert tl.section_spans() and thin == []
 
 
 def test_goa_window_renders_melody_midi_only(main, tmp_path):
