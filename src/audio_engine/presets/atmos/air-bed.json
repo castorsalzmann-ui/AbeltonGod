@@ -1,0 +1,7 @@
+{
+  "schema_version": "0.1",
+  "preset": "air-bed",
+  "seed": 1,
+  "bpm": 135,
+  "kind": "noise_bed"
+}

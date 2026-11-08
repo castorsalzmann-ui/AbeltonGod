@@ -235,6 +235,8 @@ def short_params(cat: str, seed: int = 5) -> dict:
     if cat == "fx":  # fx-params requires bpm (lengths in beats); a short file (#482)
         return {"schema_version": "0.1", "seed": seed, "bpm": 136,
                 "kind": "impact", "length_beats": 1, "tail_beats": 1}
+    if cat == "atmos":  # atmos-params requires bpm; one bar at 200 BPM = 1.2 s (#529)
+        return {"schema_version": "0.1", "seed": seed, "bpm": 200, "bars": 1}
     return {"schema_version": "0.1", "seed": seed}
 
 

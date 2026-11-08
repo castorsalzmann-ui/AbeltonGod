@@ -157,6 +157,28 @@ FX_DESCRIPTIONS = {
 }
 
 
+_ATMOS_BPM = (" Written at 135 BPM: set bpm to the track's tempo, or the loop is not a whole "
+              "number of bars there.")
+ATMOS_DESCRIPTIONS = {
+    "air-bed": "Noise bed with the kind defaults: tilted noise, high- and low-pass, slow "
+    "low-pass movement, 8 bars." + _ATMOS_BPM,
+    "dark-bed": "Noise bed with a lower low-pass and a reverb damped from 400 Hz (the "
+    "'dark' variant of the research note), 8 bars." + _ATMOS_BPM,
+    "pumping-bed": "Noise bed with a level dip on every beat and a seeded slow movement, "
+    "4 bars." + _ATMOS_BPM,
+    "drone-root-fifth": "Drone with the kind defaults: C2 root, fifth and octave, detuned "
+    "pairs and slow level drift, 8 bars." + _ATMOS_BPM,
+    "drone-octaves-e1": "Drone on E1 in three octaves with wider detuned pairs, 16 bars."
+    + _ATMOS_BPM,
+    "resonant-bed": "Noise through resonators at the partials of C2, fifth and octave (kind "
+    "defaults), 8 bars." + _ATMOS_BPM,
+    "granular-drone": "Grains of the internal C2 drone, scattered in time and pan (kind "
+    "defaults), 8 bars." + _ATMOS_BPM,
+    "granular-metal": "Short grains of the metallic square bank on C3 with seeded pitch "
+    "offsets, 8 bars." + _ATMOS_BPM,
+}
+
+
 class UnknownPresetError(KeyError):
     """No preset with this name. The message lists the valid names."""
 
@@ -183,6 +205,8 @@ def _folder(category: str) -> Path:
         return PRESETS_DIR / "perc"
     if category == "fx":
         return PRESETS_DIR / "fx"
+    if category == "atmos":
+        return PRESETS_DIR / "atmos"
     raise ValueError(f"no presets for category {category!r}")
 
 
@@ -206,5 +230,6 @@ def describe(name: str, category: str = "kick") -> str:
         "clap": CLAP_DESCRIPTIONS, "hat": HAT_DESCRIPTIONS, "snare": SNARE_DESCRIPTIONS,
         "rim": RIM_DESCRIPTIONS, "bass": BASS_DESCRIPTIONS,
         "laser": LASER_DESCRIPTIONS, "perc": PERC_DESCRIPTIONS, "fx": FX_DESCRIPTIONS,
+        "atmos": ATMOS_DESCRIPTIONS,
     }.get(category, DESCRIPTIONS)
     return table.get(name, "")

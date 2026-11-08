@@ -1,0 +1,7 @@
+{
+  "schema_version": "0.1",
+  "preset": "resonant-bed",
+  "seed": 6,
+  "bpm": 135,
+  "kind": "resonant"
+}

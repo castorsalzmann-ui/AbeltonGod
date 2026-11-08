@@ -3,8 +3,8 @@
 ``sample-metadata.schema.json`` v0.2 names two categories, ``kick`` and ``clap``. Each category
 carries its own engine name and version, so a byte change in one never invalidates the sidecars
 of another. Only categories that have a renderer are *registered* here: kick, clap
-(#231), hat (#270), snare (#308), rim (#321), bass (#328), laser (#416), perc (#475) and fx
-(#482). A
+(#231), hat (#270), snare (#308), rim (#321), bass (#328), laser (#416), perc (#475), fx
+(#482) and atmos (#529). A
 category the contract names but that is not registered raises :class:`CategoryUnavailable` before
 any parameter of that category is looked at.
 """
@@ -21,6 +21,7 @@ from . import (
     ENGINE_NAME,
     ENGINE_VERSION,
     analysis,
+    atmos,
     bass,
     clap,
     fx,
@@ -176,6 +177,18 @@ _REGISTRY: dict[str, Category] = {
         analyse=laser.analyse_laser,
         # boundary_frame and anchor come from the resolved parameters (sample-metadata, #482)
         analyse_resolved=fx.analyse_fx,
+    ),
+    "atmos": Category(
+        name="atmos",
+        engine_name=atmos.ATMOS_NAME,
+        engine_version=atmos.ATMOS_VERSION,
+        metadata_schema_version="0.2",
+        default_stem="atmos",
+        resolve=atmos.resolve_atmos_params,
+        render=lambda params: atmos.render_atmos(params),
+        analyse=laser.analyse_laser,
+        # loop_samples, seamless, preroll_loops ... come from the resolved parameters (#529)
+        analyse_resolved=atmos.analyse_atmos,
     ),
 }
 

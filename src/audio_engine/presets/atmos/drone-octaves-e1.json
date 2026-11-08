@@ -1,0 +1,12 @@
+{
+  "schema_version": "0.1",
+  "preset": "drone-octaves-e1",
+  "seed": 5,
+  "bpm": 135,
+  "kind": "drone",
+  "bars": 16,
+  "note": 28,
+  "intervals": [0, 12, 24],
+  "partials": 16,
+  "detune_bins": 2
+}

@@ -1,0 +1,12 @@
+{
+  "schema_version": "0.1",
+  "preset": "dark-bed",
+  "seed": 2,
+  "bpm": 135,
+  "kind": "noise_bed",
+  "lp_hz": 3000,
+  "filter_hz": 1200,
+  "reverb_mix": 0.4,
+  "reverb_decay_ms": 6000,
+  "reverb_damp_hz": 400
+}
