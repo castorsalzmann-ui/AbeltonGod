@@ -254,7 +254,18 @@ def test_a_source_deleted_after_planning_aborts_the_export(out):
 
 # --- random kits over the input range --------------------------------------------------------
 
+REF_BASE_CHARS = 100  # base folder length the random-kit test is pinned to (#512)
+
+
 def test_seeded_random_kits_are_valid_and_byte_equal(tmp_path):
+    # The Windows limit (259) counts the whole path, so the outcome used to depend on where the
+    # checkout's tmp folder lives: under a ~100-character base the "x" * 120 kit raised KitError
+    # (#512). The limit is shifted by how much longer (or shorter) the base is than
+    # REF_BASE_CHARS, so every machine runs exactly the case of a REF_BASE_CHARS base with the
+    # 259 limit: same rounds, same copy names. The copies must stay inside that limit. (Name
+    # cutting near the limit is checked in test_too_long_paths_are_refused_before_writing.)
+    base_chars = len(str(tmp_path).encode("utf-16-le")) // 2
+    limit = 259 + base_chars - REF_BASE_CHARS
     rng = random.Random(498)
     names = ["Kit", "über drums", "CON", "a.b-c_d", "...", "x" * 120, "Tëst 01", "NUL.txt"]
     for round_ in range(25):
@@ -270,7 +281,7 @@ def test_seeded_random_kits_are_valid_and_byte_equal(tmp_path):
             src = make_sample(folder, f"s{slot.key}{stem}".rstrip(". "), cat, "p", NOW, payload)
             picks[slot.key] = src
         name = rng.choice(names)
-        folder = kit.export_kit(kit.plan_kit(out, name, picks), now=NOW)
+        folder = kit.export_kit(kit.plan_kit(out, name, picks, max_path_chars=limit), now=NOW)
         doc = json.loads((folder / "kit.json").read_text(encoding="utf-8"))
         assert list(VALIDATOR.iter_errors(doc)) == [], (round_, name)
         assert set(doc["slots"]) == set(picks)
@@ -279,7 +290,9 @@ def test_seeded_random_kits_are_valid_and_byte_equal(tmp_path):
             assert copy.read_bytes() == src.read_bytes(), (round_, key)
             assert copy.with_suffix(".json").read_bytes() == \
                 src.with_suffix(".json").read_bytes()
-            assert len(str(copy)) + 4 <= 259 or len(str(out)) > 150
+            # Live's analysis file <copy>.wav.asd must fit too; no escape clause any more
+            copy_chars = len(str(copy).encode("utf-16-le")) // 2 + len(".asd")
+            assert copy_chars <= limit, (round_, key, copy_chars, limit)
 
 
 # --- prefill from favourites -----------------------------------------------------------------
