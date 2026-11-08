@@ -45,7 +45,9 @@ from orchestrator.tools import Toolbox
 # Written down from a run on this branch (sha256 of json.dumps(schema, sort_keys=True)). The
 # table without the fx row (CLAP_TO_PERC_506) is the "before" and keeps its pin
 # HAT_PRESET_ONLY_SCHEMA_SHA256 in test_sample_dispatch.py.
-FX_SCHEMA_SHA256 = "4c037dad64c7d0e8f43b91ca69547d293c497f3c2bc46371a157e43ab1157e3f"
+# Re-pinned after the review of #516 (bpm only from adjust, "ask the user" text); the first
+# pin of this PR was 4c037dad…1157e3f.
+FX_SCHEMA_SHA256 = "7ff418776438c13a2a5b5546bf0e8ac887afefa81f044d3694f729e2ae46737e"
 FX_PRESETS = ["downlifter", "impact", "noise-crash", "reverse-crash", "riser-16bar",
               "riser-32bar", "riser-8bar", "sweep"]
 USAGE = {"output_tokens": 10, "input_tokens": 100, "cost_usd": 0.01}
@@ -93,6 +95,9 @@ def test_fx_row_is_in_the_copilot_tool_and_keeps_the_shape():
     # tempo: bpm is required and named as the project's tempo; lengths are beats
     assert "bpm (60..200, required)" in text
     assert "always put the Live project's tempo into adjust as bpm" in text
+    assert "if you do not know the tempo, ask the user before calling" in text
+    assert "A call without bpm in adjust is refused, whatever the preset." in text
+    assert "135" not in text  # the presets' tempo is not offered as a fallback
     assert "length_beats (1..128 in steps of 0.25, default set by the kind)" in text
     assert "ramp_beats (0.0625..128, default = length_beats)" in text
     assert ("kind is chosen by the preset only (adjust cannot set it): riser: riser-16bar, "
@@ -166,12 +171,16 @@ def test_the_tempo_from_adjust_sets_the_file_length(tmp_path, make_guard, bpm, f
     assert frames_and_channels(wav)[0] == frames  # 1.5 beats at bpm, 48 kHz
 
 
-def test_a_preset_without_bpm_in_adjust_keeps_the_preset_tempo(tmp_path, make_guard):
+@pytest.mark.parametrize("preset", FX_PRESETS)
+def test_a_preset_without_bpm_in_adjust_is_refused(tmp_path, make_guard, preset):
+    """Lead decision on #515: every fx preset carries bpm 135, which is not the project's
+    tempo; without bpm in adjust nothing is rendered, whatever the preset."""
     session, box = box_for(tmp_path)
-    args = {**IMPACT, "adjust": IMPACT["adjust"][1:]}  # no bpm: impact.json says 135
-    assert run(make_guard(), box, args).is_error is False
-    wav = next(Path(session.project_dir).rglob("*.wav"))
-    assert frames_and_channels(wav)[0] == 32000  # 1.5 * 60 * 48000 / 135
+    args = {**IMPACT, "preset": preset, "adjust": IMPACT["adjust"][1:]}  # no bpm
+    r = run(make_guard(), box, args)
+    assert r.is_error
+    assert "bpm is required for fx" in r.content["message"]
+    _assert_nothing(session)
 
 
 # --- refusals --------------------------------------------------------------------------------
@@ -208,24 +217,33 @@ def test_local_refusal_texts_name_the_contract_rule():
     def problems(*adjust, preset="riser-8bar"):
         return build_request({**RISER_140, "preset": preset, "adjust": list(adjust)})[1]
 
-    assert problems(preset="") == [
-        "bpm is required for fx: add {key: 'bpm', value: ...} to adjust (lengths are in beats; "
-        "use the Live project's tempo)"]
+    def with_bpm(*adjust):  # bpm last, so the adjust[i] indices of the other items stay
+        return problems(*adjust, {"key": "bpm", "value": 140})
+
+    required = ("bpm is required for fx: add {key: 'bpm', value: ...} to adjust (lengths are "
+                "in beats; use the Live project's tempo, ask the user if it is not known; a "
+                "preset's tempo does not count)")
+    assert problems(preset="") == [required]
+    assert problems() == [required]  # riser-8bar carries bpm 135: it does not count
     assert problems({"key": "bpm", "value": 201}) == [
         "adjust[0]: bpm must be from 60 to 200, got 201"]
-    assert problems({"key": "length_beats", "value": 31.9}) == [
+    assert with_bpm({"key": "length_beats", "value": 31.9}) == [
         "adjust[0]: length_beats must be from 1 to 128 in steps of 0.25, got 31.9"]
-    assert problems({"key": "tail_beats", "value": 0.25}, {"key": "cut_beats", "value": 7.75}) \
+    assert with_bpm({"key": "tail_beats", "value": 0.25}, {"key": "cut_beats", "value": 7.75}) \
         == []
-    assert problems({"key": "kind", "value": 2}) == [
+    assert with_bpm({"key": "kind", "value": 2}) == [
         "adjust[0]: kind is chosen by the preset, not through adjust; presets: "
         + ", ".join(FX_PRESETS)]
-    assert problems({"key": "echo_note", "value": 2}) == [
+    assert with_bpm({"key": "echo_note", "value": 2}) == [
         "adjust[0]: echo_note follows the preset or the kind's defaults, not adjust; presets: "
         + ", ".join(FX_PRESETS)]
-    # an unknown preset is named once, not also as a missing bpm
+    # all problems in one refusal: the unknown preset and the missing bpm
     assert problems(preset="nope") == [
-        "unknown preset 'nope'; presets: " + ", ".join(FX_PRESETS) + " (or '' for the defaults)"]
+        "unknown preset 'nope'; presets: " + ", ".join(FX_PRESETS) + " (or '' for the defaults)",
+        required]
+    # a bpm given but out of range is named once (as out of range), not also as missing
+    assert problems({"key": "bpm", "value": 201}, preset="nope")[1:] == [
+        "adjust[0]: bpm must be from 60 to 200, got 201"]
 
 
 @pytest.mark.parametrize("adjust,rule", [

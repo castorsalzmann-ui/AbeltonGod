@@ -17,8 +17,9 @@ sidecar 0.2, category ``clap``) into the clap folder of the project the chat was
 ids are ``<category>-N`` in the same session table as the kick ids, so ``import_sample`` takes
 them unchanged. Approval ``routine``; the kick tool is not touched.
 
-fx (#515) is tempo-bound: its lengths are beats, ``bpm`` must come from the preset or
-``adjust`` (refused otherwise), and ``multipleOf`` steps of the contract are checked locally.
+fx (#515) is tempo-bound: its lengths are beats, ``bpm`` must come from ``adjust`` whatever
+the preset carries (refused otherwise), and ``multipleOf`` steps of the contract are checked
+locally.
 """
 
 from __future__ import annotations
@@ -76,8 +77,9 @@ class CategoryAdapter:
     # (#515, fx filter_mode / tone_wave ...): not adjustable, and not listed per preset because
     # most presets leave them to the kind.
     fixed_text: tuple[str, ...] = ()
-    # Fields the request must carry after preset + adjust (#515: fx `bpm`, every length is in
-    # beats); missing = refused before any file, with the text below.
+    # Fields that must come from `adjust` itself, whatever the preset carries (#515 lead
+    # decision: fx `bpm`, every length is in beats and a preset's 135 is not the project's
+    # tempo); missing = refused before any file.
     required: tuple[str, ...] = ()
     note: str = ""  # extra tool text for this category (fx: tempo rule)
     no_default: str = "none"  # tool text for a field without a top-level default
@@ -115,16 +117,18 @@ ADAPTERS: Mapping[str, CategoryAdapter] = {
     "perc": CategoryAdapter("perc", "perc-params.schema.json", perc_variants, noun="perc",
                             preset_only=("model",)),
     # #515: fx (riser, downlifter, impact, sweep, noise / reverse crash). Tempo-bound: every
-    # length is in beats, so bpm must be known (preset or adjust) and the text asks for the
-    # project's tempo. The kind is a text choice, so a preset picks it ('' = riser).
+    # length is in beats, so bpm must come from adjust (a preset's tempo never counts) and the
+    # text asks for the project's tempo. The kind is a text choice, so a preset picks it
+    # ('' = riser).
     "fx": CategoryAdapter(
         "fx", "fx-params.schema.json", fx_variants, noun="fx sample", preset_only=("kind",),
         fixed_text=("filter_mode", "noise_color", "tone_wave", "echo_note"),
         required=("bpm",), no_default="set by the kind",
         note=("FX are tempo-bound: length_beats, tail_beats, cut_beats, ramp_beats and "
               "tone_glide_beats are beats at bpm, so always put the Live project's tempo into "
-              "adjust as bpm (the presets carry 135; preset '' without bpm is refused). The "
-              "file is (length_beats + tail_beats) * 60 / bpm seconds long, at most 72 s, "
+              "adjust as bpm; if you do not know the tempo, ask the user before calling. A "
+              "call without bpm in adjust is refused, whatever the preset. The file is "
+              "(length_beats + tail_beats) * 60 / bpm seconds long, at most 72 s, "
               "stereo; 4 beats = 1 bar. reverse_crash ends on its event beat, every other kind "
               "starts on it.")),
 }
@@ -388,9 +392,13 @@ def build_request(arguments: Mapping[str, Any],
     adjusted, adjust_problems = check_adjust(arguments.get("adjust"), adapter)
     problems += adjust_problems
     base.update(adjusted)
-    for key in adapter.required:
-        if key not in base and not any(p.startswith("unknown preset") for p in problems):
-            why = " (lengths are in beats; use the Live project's tempo)" if key == "bpm" else ""
+    raw = arguments.get("adjust")
+    given = ({item.get("key") for item in raw if isinstance(item, Mapping)}
+             if isinstance(raw, list) else set())
+    for key in adapter.required:  # from adjust itself; a preset value never counts (#515)
+        if key not in given:  # given but invalid: check_adjust already named it
+            why = (" (lengths are in beats; use the Live project's tempo, ask the user if it "
+                   "is not known; a preset's tempo does not count)" if key == "bpm" else "")
             problems.append(f"{key} is required for {adapter.name}: add {{key: {key!r}, "
                             f"value: ...}} to adjust{why}")
     if seed is not None:
