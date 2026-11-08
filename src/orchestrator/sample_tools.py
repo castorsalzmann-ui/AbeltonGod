@@ -16,6 +16,9 @@ refused before approval and before any file. Files go through ``library.place_sa
 sidecar 0.2, category ``clap``) into the clap folder of the project the chat was started with;
 ids are ``<category>-N`` in the same session table as the kick ids, so ``import_sample`` takes
 them unchanged. Approval ``routine``; the kick tool is not touched.
+
+fx (#515) is tempo-bound: its lengths are beats, ``bpm`` must come from the preset or
+``adjust`` (refused otherwise), and ``multipleOf`` steps of the contract are checked locally.
 """
 
 from __future__ import annotations
@@ -28,6 +31,7 @@ from typing import Any
 
 from audio_engine.bass_variants import make_variants as bass_variants
 from audio_engine.clap_variants import make_variants
+from audio_engine.fx_variants import make_variants as fx_variants
 from audio_engine.hat_variants import make_variants as hat_variants
 from audio_engine.laser_variants import make_variants as laser_variants
 from audio_engine.perc_variants import make_variants as perc_variants
@@ -68,6 +72,15 @@ class CategoryAdapter:
     # Text choices of the contract that only a preset sets (#487): `adjust` carries numbers,
     # so these keys are not adjustable; the tool text names which preset gives which value.
     preset_only: tuple[str, ...] = ()
+    # Text choices whose value comes from the preset or from the contract's per-kind defaults
+    # (#515, fx filter_mode / tone_wave ...): not adjustable, and not listed per preset because
+    # most presets leave them to the kind.
+    fixed_text: tuple[str, ...] = ()
+    # Fields the request must carry after preset + adjust (#515: fx `bpm`, every length is in
+    # beats); missing = refused before any file, with the text below.
+    required: tuple[str, ...] = ()
+    note: str = ""  # extra tool text for this category (fx: tempo rule)
+    no_default: str = "none"  # tool text for a field without a top-level default
 
     @property
     def id_prefix(self) -> str:
@@ -101,6 +114,19 @@ ADAPTERS: Mapping[str, CategoryAdapter] = {
     # picks it; toms only through the presets named for hard groove (D-032).
     "perc": CategoryAdapter("perc", "perc-params.schema.json", perc_variants, noun="perc",
                             preset_only=("model",)),
+    # #515: fx (riser, downlifter, impact, sweep, noise / reverse crash). Tempo-bound: every
+    # length is in beats, so bpm must be known (preset or adjust) and the text asks for the
+    # project's tempo. The kind is a text choice, so a preset picks it ('' = riser).
+    "fx": CategoryAdapter(
+        "fx", "fx-params.schema.json", fx_variants, noun="fx sample", preset_only=("kind",),
+        fixed_text=("filter_mode", "noise_color", "tone_wave", "echo_note"),
+        required=("bpm",), no_default="set by the kind",
+        note=("FX are tempo-bound: length_beats, tail_beats, cut_beats, ramp_beats and "
+              "tone_glide_beats are beats at bpm, so always put the Live project's tempo into "
+              "adjust as bpm (the presets carry 135; preset '' without bpm is refused). The "
+              "file is (length_beats + tail_beats) * 60 / bpm seconds long, at most 72 s, "
+              "stereo; 4 beats = 1 bar. reverse_crash ends on its event beat, every other kind "
+              "starts on it.")),
 }
 CLAP_CONTRACT = ADAPTERS["clap"].contract
 CATEGORIES = tuple(ADAPTERS)
@@ -113,8 +139,9 @@ def _adapters(adapters: Mapping[str, CategoryAdapter] | None) -> Mapping[str, Ca
 def adjustable_keys(adapter: CategoryAdapter | None = None) -> dict[str, dict[str, Any]]:
     """The category contract's fields that `adjust` may set, with their schema (default clap)."""
     adapter = adapter or ADAPTERS["clap"]
-    return {k: v for k, v in adapter.schema()["properties"].items()
+    keys = {k: v for k, v in adapter.schema()["properties"].items()
             if k not in NOT_ADJUSTABLE and k not in adapter.preset_only}
+    return {k: v for k, v in keys.items() if k not in adapter.fixed_text}
 
 
 def preset_choices(adapter: CategoryAdapter) -> dict[str, dict[str, list[str]]]:
@@ -152,9 +179,24 @@ def _key_help(adapter: CategoryAdapter) -> str:
             rng = _range_text(spec)
         else:
             rng = f"{spec['minimum']}..{spec['maximum']}"
+            if "multipleOf" in spec:  # only fx lengths so far (#515)
+                rng += f" in steps of {spec['multipleOf']}"
+        if key in adapter.required:
+            default = "required"
+        elif "x-derived-default" in spec:
+            default = f"default = {spec['x-derived-default']}"
+        else:
+            default = f"default {spec.get('default', adapter.no_default)}"
         parts.append(f"{key} ({'integer ' if spec.get('type') == 'integer' else ''}{rng}, "
-                     f"default {spec.get('default', 'none')})")
+                     f"{default})")
     return "; ".join(parts)
+
+
+def _fixed_text_help(adapter: CategoryAdapter) -> str:
+    if not adapter.fixed_text:
+        return ""
+    return (f" {', '.join(adapter.fixed_text)} follow the preset or the kind's defaults "
+            "(adjust cannot set them).")
 
 
 def _segment(a: CategoryAdapter) -> str:
@@ -167,7 +209,8 @@ def _segment(a: CategoryAdapter) -> str:
         f"variants: how many {a.noun}s, {props['variants']['minimum']}.."
         f"{props['variants']['maximum']} (1 = only the given parameters; more = variations "
         f"around them). adjust: parameters to change from the preset, one {{key, value}} each, "
-        f"[] = none; keys: {_key_help(a)}.{_preset_only_help(a)}"
+        f"[] = none; keys: {_key_help(a)}.{_preset_only_help(a)}{_fixed_text_help(a)}"
+        + (f" {a.note}" if a.note else "")
     )
 
 
@@ -243,8 +286,9 @@ def _range_text(spec: dict[str, Any]) -> str:
         return f"{text} or from {rng['minimum']} to {rng['maximum']}" if rng else text
     if "enum" in spec:
         return "one of " + ", ".join(str(v) for v in spec["enum"])
+    steps = f" in steps of {spec['multipleOf']}" if "multipleOf" in spec else ""
     return f"{'an integer ' if spec.get('type') == 'integer' else ''}from " \
-           f"{spec['minimum']} to {spec['maximum']}"
+           f"{spec['minimum']} to {spec['maximum']}{steps}"
 
 
 def check_adjust(adjust: Any, adapter: CategoryAdapter | None = None,
@@ -268,6 +312,10 @@ def check_adjust(adjust: Any, adapter: CategoryAdapter | None = None,
         if adapter is not None and key in adapter.preset_only:
             problems.append(f"adjust[{i}]: {key} is chosen by the preset, not through adjust; "
                             f"presets: {', '.join(sorted(adapter.presets))}")
+            continue
+        if adapter is not None and key in adapter.fixed_text:
+            problems.append(f"adjust[{i}]: {key} follows the preset or the kind's defaults, "
+                            f"not adjust; presets: {', '.join(sorted(adapter.presets))}")
             continue
         spec = keys.get(key) if isinstance(key, str) else None
         if spec is None:
@@ -294,6 +342,8 @@ def check_adjust(adjust: Any, adapter: CategoryAdapter | None = None,
         else:
             ok = (value in spec["enum"]) if "enum" in spec else (
                 spec["minimum"] <= value <= spec["maximum"])
+            if ok and "multipleOf" in spec:  # fx lengths: quarter beats (#515); exact in binary
+                ok = float(value / spec["multipleOf"]).is_integer()
         if not ok:
             problems.append(f"adjust[{i}]: {key} must be {_range_text(spec)}, got {value!r}")
             continue
@@ -338,6 +388,11 @@ def build_request(arguments: Mapping[str, Any],
     adjusted, adjust_problems = check_adjust(arguments.get("adjust"), adapter)
     problems += adjust_problems
     base.update(adjusted)
+    for key in adapter.required:
+        if key not in base and not any(p.startswith("unknown preset") for p in problems):
+            why = " (lengths are in beats; use the Live project's tempo)" if key == "bpm" else ""
+            problems.append(f"{key} is required for {adapter.name}: add {{key: {key!r}, "
+                            f"value: ...}} to adjust{why}")
     if seed is not None:
         base["seed"] = seed
     else:
