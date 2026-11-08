@@ -1,14 +1,23 @@
-"""Main window: category list, kick panel, results with preview. No logic of its own."""
+"""Main window: category list, kick panel, results with preview. No logic of its own.
+
+Two layouts (#517, one monitor next to Live). *Wide*: page list on the left, the page, the
+render column on the right. *Compact*, whenever the window is narrower than the wide layout
+needs (e.g. half a 1920 x 1080 screen at 150 %): a page chooser and the window buttons on top,
+the page, the render column below it. The window's minimum is the compact one; the switch
+happens on resize (:meth:`MainWindow.set_compact`)."""
 
 from __future__ import annotations
 
 from collections.abc import Callable
 from pathlib import Path
 
-from PySide6.QtCore import QObject, QSize, Qt, QTimer, QUrl, Signal
+from PySide6.QtCore import QEvent, QObject, QSize, Qt, QTimer, QUrl, Signal
 from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (
+    QBoxLayout,
+    QComboBox,
     QFileDialog,
+    QGridLayout,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -49,6 +58,8 @@ from .waveform_widget import WaveformWidget
 from .windows import (
     WINDOW_KEYS,
     AppHub,
+    OnTopBox,
+    OnTopWindow,
     SettingsDialog,
     WindowManager,
     restore_state,
@@ -58,6 +69,69 @@ from .windows import (
 # Pages after the sample categories and the library (left list order).
 TOOL_PAGES = (("goa", "Goa-Arrangement"), ("planner", "Arrangement-Planer"),
               ("live", "Live-Import"), ("chat", "Copilot"), ("reference", "Referenz"))
+
+
+class _Root(QWidget):
+    """Central widget. Its minimum width is the compact layout's (``compact_width``, measured
+    once), so the window can be made narrower than the wide layout; ``on_resize`` picks the
+    layout before the children are placed again."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.compact_width = 0
+        self.on_resize: Callable[[int], None] | None = None
+
+    def minimumSizeHint(self) -> QSize:  # noqa: N802 - Qt name
+        hint = super().minimumSizeHint()
+        if self.compact_width:  # the same on every page: changing the page never resizes
+            hint.setWidth(self.compact_width)
+        return hint
+
+    def resizeEvent(self, event) -> None:  # noqa: N802 - Qt name
+        if self.on_resize is not None:
+            self.on_resize(event.size().width())
+        super().resizeEvent(event)
+
+
+class _VScroll(QScrollArea):
+    """A frameless holder that scrolls only vertically: the content's minimum height no longer
+    sets the window's (it scrolls instead), its minimum width still does (nothing is cut off at
+    the side)."""
+
+    def __init__(self, widget: QWidget) -> None:
+        super().__init__()
+        self.setWidgetResizable(True)
+        self.setFrameShape(QScrollArea.Shape.NoFrame)
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.setWidget(widget)
+
+    def minimumSizeHint(self) -> QSize:  # noqa: N802 - Qt name
+        hint = super().minimumSizeHint()
+        w = self.widget()
+        need = max(w.minimumSizeHint().width(), w.minimumWidth())
+        bar = self.verticalScrollBar().sizeHint().width()
+        hint.setWidth(max(hint.width(), need + bar + 2 * self.frameWidth()))
+        return hint
+
+    def event(self, e) -> bool:
+        if e.type() == QEvent.Type.LayoutRequest:  # the content's minimum may have changed
+            self.updateGeometry()
+        return super().event(e)
+
+
+class _Stack(QStackedWidget):
+    """Page stack whose minimum is the shown page's, not the widest page's: a narrow category
+    page keeps the wide layout although the Goa page is wider (#517)."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.currentChanged.connect(lambda _i: self.updateGeometry())
+
+    def minimumSizeHint(self) -> QSize:  # noqa: N802 - Qt name
+        page = self.currentWidget()
+        if page is None:
+            return super().minimumSizeHint()
+        return page.minimumSizeHint().expandedTo(page.minimumSize())
 
 
 class _Bridge(QObject):
@@ -71,7 +145,7 @@ def open_in_file_manager(path: Path) -> bool:
     return QDesktopServices.openUrl(QUrl.fromLocalFile(str(path)))
 
 
-class MainWindow(QMainWindow):
+class MainWindow(OnTopWindow, QMainWindow):
     def __init__(
         self,
         out_dir: Path | None = None,
@@ -110,10 +184,13 @@ class MainWindow(QMainWindow):
         self._bridge.done.connect(self._on_done)
         self.result_paths: list[Path] = []
 
-        root = QWidget()
+        root = _Root()
         root.setObjectName("root")
         self.setCentralWidget(root)
-        outer = QHBoxLayout(root)
+        self.root = root
+        outer = QBoxLayout(QBoxLayout.Direction.LeftToRight, root)
+        self.outer = outer
+        self.compact = False
 
         self.categories = QListWidget()
         self.categories.setObjectName("categories")
@@ -131,25 +208,41 @@ class MainWindow(QMainWindow):
             self.categories.addItem(item)
         m = self.fontMetrics().horizontalAdvance("M")  # layout in font units: follows the DPI
         self.categories.setFixedWidth(m * 20)
+        # Compact layout: the same rows (one model) in a drop-down above the page.
+        self.page_box = QComboBox()
+        self.page_box.setObjectName("page_box")
+        self.page_box.setAccessibleName("Seite")
+        self.page_box.setModel(self.categories.model())
+        self.page_box.setSizeAdjustPolicy(
+            QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
+        self.page_box.setMinimumContentsLength(12)  # its width follows the window, not a label
+        self.page_box.setVisible(False)
+        self.page_box.activated.connect(self.categories.setCurrentRow)
+        self.categories.currentRowChanged.connect(self._sync_page_box)
         left = QVBoxLayout()
+        left.addWidget(self.page_box)
         left.addWidget(self.categories, 1)
         left.addWidget(self._build_window_buttons())
         outer.addLayout(left)
 
         split = QSplitter()
+        self.split = split
         split.setChildrenCollapsible(False)
         outer.addWidget(split, 1)
-        self.stack = QStackedWidget()
-        self.stack.setMinimumWidth(m * 34)  # category pages fit 34 M (knobs wrap, #442)
+        self.stack = _Stack()  # its minimum: the shown page's (no explicit one, #517)
         self.panels: dict[str, CategoryPanel] = {}
         for c in CATEGORIES:
             panel = CategoryPanel(self.models[c.key])
+            # category pages: content 34 M (knobs wrap, #442) plus the page's scroll bar
+            panel.setMinimumWidth(m * 34 + panel.verticalScrollBar().sizeHint().width()
+                                  + 2 * panel.frameWidth())
             panel.changed.connect(self._update_state)
             self.panels[c.key] = panel
             self.stack.addWidget(panel)
         self.library = LibraryPanel(ChoiceLog.beside_settings(self.hub.store.path))
         self.library.selected.connect(self._load_preview)
-        self.stack.addWidget(self.library)
+        self.library_scroll = _VScroll(self.library)  # its height scrolls (compact layout)
+        self.stack.addWidget(self.library_scroll)
         self.library_row = len(CATEGORIES)
         self.goa = GoaPanel(self.hub.settings.goa_dir(), goa_service, opener)
         self.goa.attach_hub(self.hub)
@@ -165,20 +258,20 @@ class MainWindow(QMainWindow):
         self.planner.attach_hub(self.hub)  # plans go to <Ausgabeordner>/Plans
         for key, widget in (("goa", self.goa), ("planner", self.planner), ("live", self.live),
                             ("chat", self.chat), ("reference", self.reference)):
-            # A scroll area per tool page: their content does not set the window's minimum
-            # (fits 1920 x 1080 at 150 %, #442 P1).
-            box = QScrollArea()
-            box.setWidgetResizable(True)
-            box.setFrameShape(QScrollArea.Shape.NoFrame)
-            box.setWidget(widget)
+            # A scroll area per tool page: their height does not set the window's minimum
+            # (fits 1920 x 1080 at 150 %, #442 P1); their width does, so no control is cut
+            # off at the side (#517).
+            box = _VScroll(widget)
             self.tool_scrolls[key] = box
             self.tool_rows[key] = self.stack.count()
             self.stack.addWidget(box)
         split.addWidget(self.stack)
         right = self._build_right()
-        right.setMinimumWidth(m * 38)
+        self._right_width = m * 38  # the render column in the wide layout
+        right.setMinimumWidth(self._right_width)
         self.right = right
-        split.addWidget(right)
+        self.right_scroll = _VScroll(right)
+        split.addWidget(self.right_scroll)
         split.setStretchFactor(0, 3)
         split.setStretchFactor(1, 2)
 
@@ -189,6 +282,8 @@ class MainWindow(QMainWindow):
         self.categories.currentRowChanged.connect(self.show_page)
         self.categories.setCurrentRow(0)
         self._update_state()
+        self._measure_layouts()
+        root.on_resize = self._fit_layout
         self.resize(m * 112, self.fontMetrics().height() * 42)
         restore_state(self, self.hub.settings.windows.get("main"))
         self.hub.show_requested.connect(self.show_in_library)
@@ -202,9 +297,9 @@ class MainWindow(QMainWindow):
         box = QWidget()
         lay = QVBoxLayout(box)
         lay.setContentsMargins(0, 0, 0, 0)
-        heading = QLabel("Weitere Fenster")
-        heading.setObjectName("heading")
-        lay.addWidget(heading)
+        self.window_heading = QLabel("Weitere Fenster")
+        self.window_heading.setObjectName("heading")
+        lay.addWidget(self.window_heading)
         self.window_buttons: dict[str, QPushButton] = {}
         slots = {"goa": self.open_goa_window, "acid": self.open_acid_window,
                  "blaster": self.open_blaster_window}
@@ -213,19 +308,87 @@ class MainWindow(QMainWindow):
             button.setObjectName(f"open_{key}")
             button.clicked.connect(slots[key])
             self.window_buttons[key] = button
-            lay.addWidget(button)
         self.settings_button = QPushButton("Einstellungen …")
         self.settings_button.setObjectName("open_settings")
         self.settings_button.setToolTip("Ausgabe- und Projektordner, Samplerate, Bittiefe: "
                                         "gelten für dieses und alle anderen Fenster.")
         self.settings_button.clicked.connect(self.open_settings)
-        lay.addWidget(self.settings_button)
+        self.button_grid = QGridLayout()  # one column (wide), two columns (compact)
+        self.button_grid.setContentsMargins(0, 0, 0, 0)
+        lay.addLayout(self.button_grid)
+        self._place_window_buttons(1)
+        self.on_top_box = OnTopBox()  # #517: next to Live on one monitor
+        lay.addWidget(self.on_top_box)
         self.window_note = QLabel()
         self.window_note.setObjectName("muted")
         self.window_note.setWordWrap(True)
         self.window_note.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Minimum)
         lay.addWidget(self.window_note)
         return box
+
+    def _place_window_buttons(self, columns: int) -> None:
+        buttons = [*self.window_buttons.values(), self.settings_button]
+        for b in buttons:
+            self.button_grid.removeWidget(b)
+        for i, b in enumerate(buttons):
+            self.button_grid.addWidget(b, i // columns, i % columns)
+
+    # --- wide / compact layout (#517) ------------------------------------------------------
+    def _sync_page_box(self, row: int) -> None:
+        if self.page_box.currentIndex() != row:
+            self.page_box.setCurrentIndex(row)
+
+    def set_compact(self, on: bool) -> None:
+        """Compact: page chooser and window buttons on top, page and render column stacked.
+        Wide: page list left, page and render column side by side."""
+        on = bool(on)
+        if on == self.compact:
+            return
+        self.compact = on
+        self.outer.setDirection(QBoxLayout.Direction.TopToBottom if on
+                                else QBoxLayout.Direction.LeftToRight)
+        self.categories.setVisible(not on)
+        self.page_box.setVisible(on)
+        self.window_heading.setVisible(not on)
+        self._place_window_buttons(2 if on else 1)
+        self.right.setMinimumWidth(0 if on else self._right_width)
+        self.split.setOrientation(Qt.Orientation.Vertical if on else Qt.Orientation.Horizontal)
+        if on:  # the page gets most of the height, the results the rest
+            h = max(self.split.height(), 2)
+            self.split.setSizes([h * 3 // 5, h - h * 3 // 5])
+        self.root.updateGeometry()
+
+    def _measure_layouts(self) -> None:
+        """Measure both layouts once, over every page: below the widest page's wide minimum
+        the window is compact (one threshold, so changing the page never flips the layout);
+        the widest page's compact minimum is the window's minimum width."""
+        self.ensurePolished()
+        lay = self.root.layout()
+        shown = self.stack.currentIndex()
+        right_shown = not self.right_scroll.isHidden()
+        widths = {False: 0, True: 0}
+        self.layout_widths: dict[int, tuple[int, int]] = {}  # row -> (wide, compact); for tests
+        for row in range(self.stack.count()):
+            self.stack.setCurrentIndex(row)
+            self.right_scroll.setVisible(row <= self.library_row)
+            got = []
+            for compact in (False, True):
+                self.set_compact(compact)
+                lay.invalidate()
+                got.append(lay.minimumSize().width())
+                widths[compact] = max(widths[compact], got[-1])
+            self.layout_widths[row] = (got[0], got[1])
+        self.set_compact(False)
+        self.stack.setCurrentIndex(shown)
+        self.right_scroll.setVisible(right_shown)
+        lay.invalidate()
+        self._wide_width, self.root.compact_width = widths[False], widths[True]
+
+    def _fit_layout(self, width: int) -> None:
+        was = self.compact
+        self.set_compact(width < self._wide_width)
+        if self.compact != was:
+            self.root.layout().activate()  # place the children for the new layout now
 
     # --- shared settings and hand-off from the tool windows (#439) -------------------------
     def open_settings(self) -> SettingsDialog:
@@ -431,7 +594,7 @@ class MainWindow(QMainWindow):
                 self.live.reload_library()
         else:
             self.form_key = CATEGORIES[row].key
-        self.right.setVisible(not self.on_tool)  # the tool pages bring their own controls
+        self.right_scroll.setVisible(not self.on_tool)  # the tool pages bring their own controls
         self.stack.setCurrentIndex(row)
         self._update_state()
 

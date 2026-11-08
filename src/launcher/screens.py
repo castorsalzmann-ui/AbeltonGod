@@ -1,7 +1,8 @@
 """Screenshots of the GUI on a real screen (``AbeltonGod-cli.exe --gui-screens DIR``, #463).
 
-Opens the main window, shows every page and then the Goa, Acid and Blaster windows, and saves
-two PNGs per view into ``DIR``:
+Opens the main window, shows every page (at its start size, then at half the width of a 1920 x
+1080 monitor, #517) and then the Goa, Acid and Blaster windows, and saves two PNGs per view
+into ``DIR``:
 
 * ``<scale>_<n>_<name>.png``: the screen area of the window including the title bar and frame
   (``QScreen.grabWindow(0, ...)``, i.e. what the desktop shows there);
@@ -93,6 +94,19 @@ def _shoot_all(tmp: Path, folder: Path, scale: str, tag: str) -> list[str]:
         name = _slug(win.categories.item(row).text())
         n += 1
         _shoot(app, win, folder, f"{tag}_{n:02d}_main-{name}", lines)
+    # #517: the main window at half the width of a 1920 x 1080 monitor at this scale (Windows
+    # snap next to Live), cut to the runner's screen if that is smaller.
+    area, s = screen.availableGeometry(), float(scale)
+    half = (min(int(960 / s), area.width()), min(int(1080 / s), area.height()))
+    win.resize(*half)
+    _settle(app)
+    lines.append(f"half width: asked {half[0]}x{half[1]} logical, window {win.width()}x"
+                 f"{win.height()}, compact layout {getattr(win, 'compact', None)}")
+    for row in range(win.categories.count()):
+        win.categories.setCurrentRow(row)
+        name = _slug(win.categories.item(row).text())
+        n += 1
+        _shoot(app, win, folder, f"{tag}_{n:02d}_half-{name}", lines)
     for key, _ in WINDOW_KEYS:
         tool = win.windows.open(key)
         n += 1

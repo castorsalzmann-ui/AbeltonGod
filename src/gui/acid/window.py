@@ -44,7 +44,7 @@ from gui_core.paths import default_output_dir
 from gui_core.preview import PlaybackBackend
 from gui_core.settings import DEFAULT_BIT_DEPTH, DEFAULT_SAMPLE_RATE, free_stem
 
-from ..windows import ResultActions
+from ..windows import OnTopBox, OnTopWindow, ResultActions
 from . import skin
 from .widgets import AcidRoot, EtchedPanel, FooterBand, HeaderBand, StepGridWidget
 
@@ -63,7 +63,7 @@ def _ask_open_file(parent: QWidget, start: Path) -> Path | None:
     return Path(name) if name else None
 
 
-class AcidWindow(QWidget):
+class AcidWindow(OnTopWindow, QWidget):
     def __init__(
         self,
         out_dir: Path | None = None,
@@ -209,8 +209,12 @@ class AcidWindow(QWidget):
         self.preview_button = QPushButton("Vorschau")
         self.stop_button = QPushButton("Stopp")
         self.anim_box = QCheckBox("Animation")
+        # #517: next to Live on one monitor. In this row, not the second: with it there the
+        # step grid's pitch area was 74 px high on Windows CI and the drag test failed.
+        self.on_top_box = OnTopBox()
         for w in (self.load_button, self.save_button, self.export_button,
-                  self.open_button, self.preview_button, self.stop_button, self.anim_box):
+                  self.open_button, self.preview_button, self.stop_button, self.anim_box,
+                  self.on_top_box):
             row.addWidget(w)
         al.addLayout(row)
         # Second row: WAV export, the hand-off and the preview note (the note had a line of its

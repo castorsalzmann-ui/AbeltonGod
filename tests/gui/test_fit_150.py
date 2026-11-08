@@ -1,6 +1,7 @@
 """#442: every window fits an emulated 1920 x 1080 monitor at 150 % display scaling, i.e. a
 logical screen of 1280 x 720 px (no title bar or task bar counted), and every category page
-fits a narrow column without a horizontal scroll bar.
+fits a narrow column without a horizontal scroll bar. #517: the main window also fits half that
+screen (Windows snap, next to Live), at 100 % and 150 %, with every page usable there.
 
 The window check runs in a child process: Qt's scale factor is fixed when the application
 starts. Teardown of the in-process widgets: autouse fixture of tests/gui/conftest.py.
@@ -182,21 +183,148 @@ def _child(out: Path) -> None:
     out.write_text(json.dumps(result), encoding="utf-8")
 
 
-@pytest.fixture(scope="module")
-def sizes150(tmp_path_factory):
-    folder = tmp_path_factory.mktemp("fit150")
+def _cut_off(window) -> list[str]:
+    """Visible widgets of ``window``'s central widget that reach past its left or right edge,
+    or that are narrower than their own minimum (squeezed, i.e. partly hidden). Internals of
+    item views and plain scroll areas (cells, headers, bars) are left out; widgets with an
+    ``Ignored`` width policy (wrapping labels) have no minimum to keep."""
+    from PySide6.QtCore import QPoint, QRect
+    from PySide6.QtWidgets import QAbstractScrollArea, QScrollArea, QSizePolicy, QWidget
+
+    root, found = window.centralWidget(), []
+    for c in root.findChildren(QWidget):
+        if c.isWindow() or not c.isVisibleTo(window):
+            continue
+        p = c.parentWidget()
+        while p is not None and p is not root:
+            if isinstance(p, QAbstractScrollArea) and not isinstance(p, QScrollArea):
+                break
+            p = p.parentWidget()
+        if p is not None and p is not root:
+            continue
+        r = QRect(c.mapTo(window, QPoint(0, 0)), c.size())
+        if r.left() < 0 or r.right() >= window.width():
+            found.append(f"outside: {_name(c)} x {r.left()}..{r.right()}")
+        if c.sizePolicy().horizontalPolicy() != QSizePolicy.Policy.Ignored:
+            need = max(c.minimumSizeHint().width(), c.minimumWidth())
+            if c.width() < need:
+                found.append(f"squeezed: {_name(c)} {c.width()} < {need}")
+    return found
+
+
+def _half_child(out: Path) -> None:
+    """#517: the main window as big as the emulated (half) screen, every enabled page shown in
+    turn; writes {screen, min, pages: {label: {...}}} to ``out``."""
+    from PySide6.QtCore import Qt
+    from PySide6.QtWidgets import QScrollArea
+
+    from gui.app import create_app
+    from gui.main_window import MainWindow
+
+    class Silent:
+        available = True
+
+        def play(self, p):
+            pass
+
+        def stop(self):
+            pass
+
+    app = create_app([])
+    w = MainWindow(out_dir=out.parent / "out", backend=Silent(), opener=lambda p: True)
+    w.show()
+    app.processEvents()
+    screen = app.primaryScreen().availableGeometry().size()
+    hint = w.minimumSizeHint().expandedTo(w.minimumSize())
+    result = {"screen": (screen.width(), screen.height()), "min": (hint.width(), hint.height()),
+              "pages": {}, "layouts": {w.categories.item(r).text(): v
+                                       for r, v in w.layout_widths.items()}}
+    w.resize(screen.width(), screen.height())
+    app.processEvents()
+
+    def page_state() -> dict:
+        app.processEvents()
+        page = w.stack.currentWidget()
+        bar = page.horizontalScrollBar().maximum() if isinstance(page, QScrollArea) else 0
+        return {"window": (w.width(), w.height()), "compact": w.compact, "hscroll": bar,
+                "cut": _cut_off(w), "widest": _widest(w.centralWidget())}
+
+    for row in range(w.categories.count()):
+        item = w.categories.item(row)
+        if not item.flags() & Qt.ItemFlag.ItemIsEnabled:
+            continue
+        w.categories.setCurrentRow(row)
+        result["pages"][item.text()] = page_state()
+    w.categories.setCurrentRow(w.library_row)  # #498: with "Kit erstellen" open
+    w.library.kit_section.set_expanded(True)
+    result["pages"]["Bibliothek + Kit"] = page_state()
+    w.close()
+    out.write_text(json.dumps(result), encoding="utf-8")
+
+
+def _run_child(folder: Path, width: int, height: int, scale: str, mode: str = "") -> dict:
     (folder / "screen.json").write_text(json.dumps({"screens": [{
-        "name": "fit", "x": 0, "y": 0, "width": 1920, "height": 1080,
+        "name": "fit", "x": 0, "y": 0, "width": width, "height": height,
         "logicalDpi": 96, "logicalBaseDpi": 96, "dpr": 1}]}), encoding="utf-8")
     env = dict(os.environ)
     # Qt splits the platform string at ":", so the config file is named relative to the cwd.
-    env.update(QT_QPA_PLATFORM="offscreen:configfile=screen.json", QT_SCALE_FACTOR="1.5",
+    env.update(QT_QPA_PLATFORM="offscreen:configfile=screen.json", QT_SCALE_FACTOR=scale,
                PYTHONPATH=os.pathsep.join([str(SRC), env.get("PYTHONPATH", "")]))
     out = folder / "sizes.json"
-    proc = subprocess.run([sys.executable, str(Path(__file__).resolve()), str(out)], cwd=folder,
-                          env=env, capture_output=True, text=True, timeout=300)
+    args = [sys.executable, str(Path(__file__).resolve()), str(out), *([mode] if mode else [])]
+    proc = subprocess.run(args, cwd=folder, env=env, capture_output=True, text=True,
+                          timeout=300)
     assert proc.returncode == 0, proc.stdout + proc.stderr
     return json.loads(out.read_text(encoding="utf-8"))
+
+
+@pytest.fixture(scope="module")
+def sizes150(tmp_path_factory):
+    return _run_child(tmp_path_factory.mktemp("fit150"), 1920, 1080, "1.5")
+
+
+# #517: half of a 1920 x 1080 screen (Windows snap). At 100 % the issue's 960 x 1000 logical px
+# (task bar off); at 150 % the physical 960 x 1080 half, i.e. 640 x 720 logical px.
+HALF_SCREENS = {"100": (960, 1000, "1", (960, 1000)), "150": (960, 1080, "1.5", (640, 720))}
+
+
+@pytest.fixture(scope="module", params=sorted(HALF_SCREENS))
+def half_screen(request, tmp_path_factory):
+    width, height, scale, logical = HALF_SCREENS[request.param]
+    got = _run_child(tmp_path_factory.mktemp(f"half{request.param}"), width, height, scale,
+                     "half")
+    return request.param, logical, got
+
+
+def test_main_window_fits_half_the_screen(half_screen, capsys):
+    """#517: the smallest main window fits half the screen, and the window takes that size."""
+    key, logical, got = half_screen
+    (w, h), (sw, sh) = got["min"], logical
+    with capsys.disabled():
+        print(f"\n[#517] main at half screen {key} % on {sys.platform}: min {w} x {h} on "
+              f"{sw} x {sh}; (wide, compact) min width per page: {got['layouts']}")
+    assert tuple(got["screen"]) == logical  # the emulation itself
+    assert w <= sw and h <= sh, f"main: smallest {w} x {h} on a {sw} x {sh} half screen"
+    for label, page in got["pages"].items():
+        assert tuple(page["window"]) == logical, (label, page["window"])
+
+
+def test_every_page_is_usable_at_half_the_screen(half_screen, capsys):
+    """#517: on every page at half the screen width nothing reaches past the window's edge,
+    nothing is squeezed below its minimum and no page scrolls sideways (they scroll down)."""
+    key, logical, got = half_screen
+    bad = {}
+    with capsys.disabled():
+        for label, page in got["pages"].items():
+            print(f"[#517] {key} % {label}: compact {page['compact']}, hscroll "
+                  f"{page['hscroll']}, cut {page['cut'][:4]}; widest: "
+                  + " | ".join(page["widest"]))
+    for label, page in got["pages"].items():
+        if page["hscroll"] or page["cut"]:
+            bad[label] = (page["hscroll"], page["cut"][:6])
+    assert not bad, bad
+    if key == "150":  # 640 px logical is below the wide layout on any platform font
+        assert all(p["compact"] for p in got["pages"].values())
 
 
 @pytest.mark.parametrize("key", [_param(k) for k in WINDOWS])
@@ -302,4 +430,7 @@ def test_seed_range_text_sits_under_the_field(qapp):
 
 
 if __name__ == "__main__":
-    _child(Path(sys.argv[1]))
+    if sys.argv[2:] == ["half"]:
+        _half_child(Path(sys.argv[1]))
+    else:
+        _child(Path(sys.argv[1]))

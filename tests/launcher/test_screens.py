@@ -26,6 +26,8 @@ def test_gui_screens_writes_every_view(tmp_path, monkeypatch):
         assert any(n.endswith(f"_{key}.png") for n in names), names
     mains = [n for n in names if "_main-" in n and not n.endswith("-inner.png")]
     assert len(mains) >= 10, mains
+    halves = [n for n in names if "_half-" in n and not n.endswith("-inner.png")]
+    assert len(halves) == len(mains), halves  # #517: every page again at half width
     assert (tmp_path / "s" / "100_index.txt").is_file()
     # the temp paths screens.run sets must not leak into later code in this process
     assert os.environ["ABELTONGOD_OUTPUT_DIR"] == str(tmp_path / "mine")
