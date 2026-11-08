@@ -2,6 +2,14 @@
 
 _Last updated: 2026-11-05 (Endstand-Zeile unten) (Stand-Block unten, ältere Einträge teils historisch) · Written only by the lead session on `main` after a merge. Parallel tracks: `docs/ROADMAP.md` → Pipeline._
 
+## Stand 2026-11-09, früh (Lead): Nutzerwünsche vom 8.11. abends
+
+- **Gemergt:** #516 (Copilot erzeugt FX; `bpm` muss aus `adjust` kommen, Preset-135 zählt nie; #515), #523 (Ein-Monitor: „Immer im Vordergrund“ in allen 4 Fenstern, kompaktes Hauptfenster ab halber Breite bei 100 % und 150 %, Fit-Test je Seite; #517), #524 (Recherche Referenz-Steuerung v2: Merkmale je Kategorie, Fit-Methode, erste Scheibe Kick + Bass; #522), #525 (Recherche Atmos/Drones; #518), #528 (Vertrag atmos-params v0.1; #526), #530 (Goa-Seite und -Fenster nur Melodie, D-033; #520).
+- **Entscheidungen:** D-033 (Goa nur Leads/Melodien, Arrangieren im Planer), D-034 (neue Kategorie `atmos`).
+- **In Arbeit:** #529 (Atmos-Engine, Schritt 0 Sidecar-Vertrag).
+- **Offen:** #521 (Planer übernimmt Goa-Formoptionen), #519 (Copilot liest Live-Tempo), #527 (Flake Live-Import-Test, Ursache offen), Referenz-v2-Bau (Issues aus #524 noch nicht angelegt), #484, #422.
+- **Nicht geprüft:** nichts gehört, nichts in Live, kein Lauf auf dem PC des Nutzers; „Immer im Vordergrund“ über Live und echtes Ziehen in Live nur am Nutzer-PC prüfbar. Checkliste Punkte 17–18 in `docs/USER_GUIDE.md`.
+
 ## Stand 2026-11-07, nachmittags (Lead): Sprint W2 „Parkplatz“ (D-032)
 
 - **Plan:** `docs/sprints/2026-11-07_parking-lot-sprint.md`. Jeder PR unabhängig reviewt (≤ 2 Runden), CI Ubuntu + Windows grün, Gate = CI auf `main` vor dem nächsten Merge.
