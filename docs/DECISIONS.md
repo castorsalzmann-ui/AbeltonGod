@@ -373,3 +373,11 @@ The researchers for 04b clusters 1 (Agent SDK behaviour) and 2 (tool-schema gene
 **Reason.** The user wants one place for arranging; two arrangers in the GUI (Goa-Arrangement and Arrangement-Planer) were confusing.
 
 **Consequences.** GUI: page "Goa-Arrangement" becomes "Goa-Melodie" (melody only); Goa window shows melody only; GUI tour, `docs/qa/GUI_CONTROLS.md`, USER_GUIDE and README updated. Follow-up issue for the planner to take over the Goa form options.
+
+## D-034 · 2026-11-08 · accepted — New category `atmos` (atmospheres and drones) (user, 2026-11-08 20:51: "Synth stimmen brauche ich erstmal nicht. Atmos und drones wären noch interessant"; reopens D-028 item 3 for this one category)
+
+**Decision.** (1) `atmos` becomes a sample category with kinds `noise_bed`, `drone`, `resonant`, `granular` (proposal in `docs/research/2026-11-08_parking-atmos-drones.md`, #518). Files are tempo-bound loops (bars at a bpm) that loop seamlessly by construction, or one-shots. Same params + seed = same bytes. (2) Split from the Goa plugin (D-027, D-033): an `atmos` drone is rendered audio (one held note or chord); the Goa pad stays MIDI for Live's instruments. (3) Synth voices (lead/pad/pluck as audio) stay out (user, same message). (4) Clip warp/loop settings in Live are not written by AbeltonGod until the capabilities are `tested` (experiments X1–X3 on the user's machine, optional). (5) Unchanged: no generative model, no listening claims.
+
+**Reason.** The user asked for atmospheres and drones; the research note shows a deterministic, testable way.
+
+**Consequences.** Order: `contract-change` PR `atmos-params` v0.1 (with the review points of #525 fixed: moving-filter Q and centre fields, warm-up length from the filter's decay, damping floor vs. "dark" variant) → engine → presets, GUI page via the category registry, CLI, copilot adapter (tempo from `adjust`, as for fx).
