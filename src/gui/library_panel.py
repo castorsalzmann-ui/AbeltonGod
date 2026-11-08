@@ -44,6 +44,7 @@ from gui_core.library import MAX_FILES, UNREADABLE, LibraryEntry, filter_entries
 
 from .drag import PATH_ROLE, DragList
 from .widgets import Collapsible
+from .widgets.adaptive import AdaptiveBox
 
 MARKS = {"favourite": "★ ", "reject": "✗ "}
 LOG_ROWS = 50  # newest log entries shown
@@ -64,7 +65,6 @@ class LibraryPanel(QWidget):
         head = QLabel("Bibliothek")
         head.setObjectName("heading")
         lay.addWidget(head)
-        row = QHBoxLayout()
         self.category_box = QComboBox()
         self.category_box.addItem("Alle Kategorien", None)
         for c in CATEGORIES:
@@ -75,10 +75,17 @@ class LibraryPanel(QWidget):
         self.search.setClearButtonEnabled(True)
         self.only_favourites = QCheckBox("nur Favoriten")
         refresh = QPushButton("Aktualisieren")
-        row.addWidget(self.category_box)
-        row.addWidget(self.search, 1)
-        row.addWidget(self.only_favourites)
-        row.addWidget(refresh)
+        # One row, or two when the page is narrow (#517: half the screen width).
+        row = AdaptiveBox()
+        find = QHBoxLayout()
+        find.addWidget(self.category_box)
+        find.addWidget(self.search, 1)
+        row.addLayout(find, 1)
+        rest = QHBoxLayout()
+        rest.addWidget(self.only_favourites)
+        rest.addWidget(refresh)
+        rest.addStretch(1)
+        row.addLayout(rest)
         lay.addLayout(row)
         self.info = QLabel()
         self.info.setObjectName("muted")

@@ -22,7 +22,8 @@ What the settings mean (decided in #439):
   banks and Acid WAVs. Changing it (also back to ``None``) puts the forms to it; other settings
   changes never touch the forms.
 * ``windows`` -- last position and size per window key (``main``, ``goa``, ``acid``,
-  ``blaster``); the Goa window also keeps ``always_on_top`` and ``animation``.
+  ``blaster``) and its ``always_on_top`` switch (every window since #517); the Goa window also
+  keeps ``animation``.
 """
 
 from __future__ import annotations
@@ -72,7 +73,7 @@ class WindowState:
     y: int
     width: int
     height: int
-    always_on_top: bool | None = None  # Goa window only
+    always_on_top: bool | None = None  # any window (#517); None = never saved
     animation: bool | None = None  # Goa window only
 
     def to_json(self) -> dict[str, Any]:

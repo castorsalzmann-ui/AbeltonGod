@@ -37,7 +37,9 @@ without category / three output layouts. Already filed before: #413, #414, #439.
 | --- | --- | --- |
 | `main · DragList · results` | `MainWindow._result_selected` | Results of this session; selecting loads the waveform; rows drag out as WAV files |
 | `main · QLineEdit · MainWindow.folder_edit` | read on Render / page switch | Output folder for category renders, library and Live page (not for the Goa page, #441) |
-| `main · QListWidget · categories` | `MainWindow.show_page` (`currentRowChanged`) | Left list: switches the page; library and Live pages re-read the output folder when shown |
+| `main · QListWidget · categories` | `MainWindow.show_page` (`currentRowChanged`) | Left list: switches the page; library and Live pages re-read the output folder when shown. Hidden in the compact layout (#517) |
+| `main · QComboBox · Seite` | `categories.setCurrentRow` (`activated`) | Compact layout only (window narrower than the wide layout, e.g. half the screen, #517): the same pages as the left list (one model), above the page |
+| `main · OnTopBox · Immer im Vordergrund` | `OnTopBox._apply` | Keeps the main window above other windows, also above Live (stay-on-top window flag); saved with the window's place (#517) |
 | `main · QPushButton · Abbrechen` | `MainWindow.cancel_render` | Cancels the running render (finished files stay) |
 | `main · QPushButton · Abspielen` | `MainWindow.play` | Plays the selected file (winsound on Windows; elsewhere an honest 'no audio output' message) |
 | `main · QPushButton · Acid-Linie` | `MainWindow.open_acid_window` | Opens the Acid window with the current output folder (not updated later, #439) |
@@ -167,6 +169,7 @@ differ only in the area. Handler and effect per kind:
 | ID | Handler | Effect |
 | --- | --- | --- |
 | `library · DragList · library` | `LibraryPanel._picked` -> `MainWindow._load_preview` | WAV list with sidecar data; selecting previews; rows drag out as WAV files. Lists WAVs only (no MIDI, #439) |
+| `library · LibraryPanel · MainWindow.library` | `MainWindow._load_preview` (`selected`) | The page itself (in a vertical scroll area since #517, so the walk sees it): a selected WAV loads into the render column's waveform |
 | `library · QComboBox · LibraryPanel.category_box` | `LibraryPanel._show` | Filter by category (or 'Unlesbar') |
 | `library · QLineEdit · LibraryPanel.search` | `LibraryPanel._show` | Search in name, preset, seed, key parameters |
 | `library · QPushButton · Aktualisieren` | `LibraryPanel.refresh` | Re-scans the output folder |
@@ -207,8 +210,10 @@ differ only in the area. Handler and effect per kind:
 | `goa-page · QLineEdit · Register (Oktaven)` | `OptionForm._edited` (`textEdited`) | Free text option |
 | `goa-page · QPushButton · Ordner öffnen` | `GoaPanel.open_folder` | Opens the run folder (or the last finished one) |
 | `goa-page · QPushButton · Rendern` | `GoaPanel.start_render` | Runs goa_arrangement / goa_melody in a worker; MIDI + README + sample WAVs with sidecars (#414, fixed by #451) |
-| `goa-page · Segmented · *` | `GoaPanel.set_mode` / `OptionForm` edits | Mode (Arrangement / Melodie) and enum options of the Goa generator |
-| `goa-page · Segmented/QPushButton · *` | `Segmented` -> `chosen` | One button per mode / enum choice |
+| `goa-page · Segmented · *` | `OptionForm` edits | Enum options of the Goa generator with a few short choices |
+| `goa-page · Segmented/QPushButton · *` | `Segmented` -> `chosen` | One button per enum choice |
+| `goa-page · WrapSegmented · *` | `GoaPanel.set_mode` | Mode (Arrangement / Melodie); wraps on a narrow page (was `Segmented`, 696 px wide on Windows, #517) |
+| `goa-page · WrapSegmented/QPushButton · *` | `WrapSegmented` -> `chosen` | One button per mode |
 | `goa-page · StepEdit · Phrasenlänge (Takte)` | `OptionForm._edited` | Phrase length in bars |
 | `goa-page · StepEdit · Seed` | `OptionForm._edited` | Seed (typed, Up/Down) |
 | `goa-page · Toggle · Keine Samples rendern` | `OptionForm._edited` | Flag: MIDI only, no sample WAVs |
@@ -273,7 +278,7 @@ ends; its countdown shows what is left of that window. Checked by
 | ID | Handler | Effect |
 | --- | --- | --- |
 | `goa · ChromeButton · Animation (Neon-Puls)` | `CompactGoaWindow.set_animation` | Neon pulse on/off (saved in the skin settings) |
-| `goa · ChromeButton · Immer im Vordergrund` | `CompactGoaWindow.set_always_on_top` | Stay on top on/off (saved) |
+| `goa · ChromeButton · Immer im Vordergrund` | `CompactGoaWindow.set_always_on_top` | Stay on top on/off (saved; on by default). Main window, Acid and Blaster have the same switch as a check box (#517) |
 | `goa · ChromeButton · Minimieren` | `QWidget.showMinimized` | Minimise |
 | `goa · ChromeButton · Schliessen` | `QWidget.close` | Close (saves position/size) |
 | `goa · ActiveDot · Gefüllt: der Wert wird mitgeschickt. Leer: Stand` | `OptionForm._toggled` | As on the Goa page (the window body is the same `GoaPanel`, #440 fixed in #450) |
@@ -291,8 +296,10 @@ ends; its countdown shows what is left of that window. Checked by
 | `goa · QPushButton · In Bibliothek zeigen` | `ResultActions.show_in_library` | Shows the main library with the first sample WAV selected |
 | `goa · QPushButton · Ordner öffnen` | `GoaPanel.open_folder` | Opens the run folder |
 | `goa · QPushButton · Rendern` | `GoaPanel.start_render` | Runs the Goa generator in a worker; the WAVs appear in the main library |
-| `goa · Segmented · *` | `GoaPanel.set_mode` / `OptionForm` edits | Mode and enum options |
+| `goa · Segmented · *` | `OptionForm` edits | Enum options with a few short choices |
 | `goa · Segmented/QPushButton · *` | `Segmented` -> `chosen` | One button per choice |
+| `goa · WrapSegmented · *` | `GoaPanel.set_mode` | Mode (Arrangement / Melodie), wrapping (#517) |
+| `goa · WrapSegmented/QPushButton · *` | `WrapSegmented` -> `chosen` | One button per mode |
 | `goa · StepEdit · Phrasenlänge (Takte)` | `OptionForm._edited` | Phrase length in bars |
 | `goa · StepEdit · Seed` | `OptionForm._edited` | Seed |
 | `goa · Toggle · Keine Samples rendern` | `OptionForm._edited` | Flag: MIDI only |
@@ -302,6 +309,7 @@ ends; its countdown shows what is left of that window. Checked by
 | ID | Handler | Effect |
 | --- | --- | --- |
 | `acid · QCheckBox · Animation` | `AcidWindow.set_animation` | Header/footer/grid animation on/off |
+| `acid · OnTopBox · Immer im Vordergrund` | `OnTopBox._apply` | Keeps the Acid window above other windows (also Live); saved with its place (#517) |
 | `acid · QComboBox · AcidWindow.root_box` | `AcidWindow._scale_changed` (`activated`) | Root note; re-maps the line |
 | `acid · QComboBox · AcidWindow.scale_box` | `AcidWindow._scale_changed` (`activated`) | Scale; re-maps the line |
 | `acid · QLineEdit · AcidWindow.accent_edit` | read by `AcidWindow.generate` | Generator accent % |
@@ -342,6 +350,7 @@ ends; its countdown shows what is left of that window. Checked by
 | `blaster · QCheckBox · Dauerfeuer beim Halten` | state, read in `BlasterWindow._on_gun_triggered` | Hold the trigger = repeat at the fire rate (allowed without own receiver) |
 | `blaster · QCheckBox · Live-Vorschau (gekürzt)` | `BlasterWindow._on_live_toggled` | Shortened preview after each change |
 | `blaster · QCheckBox · Rückstoß-Animation` | `BlasterWindow._on_animation` | Recoil animation on/off |
+| `blaster · OnTopBox · Immer im Vordergrund` | `OnTopBox._apply` | Keeps the Blaster window above other windows (also Live); saved with its place (#517) |
 | `blaster · QLineEdit · BlasterWindow.seed_edit` | `BlasterWindow._on_seed_edited` | Seed of the next shot |
 | `blaster · QPushButton · A > B` | `BlasterWindow.copy_to_other_slot` | Copies the settings into the other A/B slot |
 | `blaster · QPushButton · Alles würfeln` | `BlasterWindow._on_random_all` | Randomises all unlocked groups (Ctrl+R) |

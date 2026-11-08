@@ -91,7 +91,7 @@ def test_acid_wav_lands_in_the_library_and_is_shown_from_the_acid_window(main, t
     assert "Sidecar" in acid.actions.note.text()
     main.categories.setCurrentRow(0)
     acid.actions.show_button.click()
-    assert main.stack.currentWidget() is main.library
+    assert main.stack.currentWidget() is main.library_scroll  # holds the page (#517)
     assert selected_library_path(main) == wav
     again = acid.export_wav()  # never overwrites
     assert again is not None and again != wav and again.name.endswith("_2.wav")
@@ -141,7 +141,7 @@ def test_goa_window_render_lands_in_the_library(main, tmp_path):
     samples = panel.result.sample_paths
     assert samples and panel.actions.path == samples[0]
     panel.actions.show_button.click()
-    assert main.stack.currentWidget() is main.library
+    assert main.stack.currentWidget() is main.library_scroll  # holds the page (#517)
     assert selected_library_path(main) == samples[0]
     assert set(samples) <= set(library_paths(main))
     # The Live hand-off is offered exactly when the sample has a readable sidecar (none before
@@ -296,7 +296,7 @@ def test_settings_and_window_places_survive_a_restart(qapp, tmp_path):
                                                                                  "proj")
     assert (saved.sample_rate, saved.bit_depth) == (44100, 16)
     assert saved.windows["acid"] == WindowState(acid_geo.x(), acid_geo.y(), acid_geo.width(),
-                                                acid_geo.height())
+                                                acid_geo.height(), always_on_top=False)
     assert saved.windows["main"].width == main_geo.width()
 
     w2 = MainWindow(backend=FakeBackend(), settings_store=SettingsStore(path=cfg))
@@ -372,7 +372,7 @@ def test_closing_a_tool_window_saves_its_place(qapp, tmp_path):
     acid.close()  # the user closes Acid; the main window stays open
     QApplication.processEvents()
     assert load_settings(cfg).windows["acid"] == WindowState(geo.x(), geo.y(), geo.width(),
-                                                             geo.height())
+                                                             geo.height(), always_on_top=False)
     again = w.windows.open("acid")  # reopened in the same session: same place
     assert (again.geometry().width(), again.geometry().height()) == (geo.width(), geo.height())
     w.close()

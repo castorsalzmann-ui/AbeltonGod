@@ -217,7 +217,8 @@ class NumberControl(ParamControl):
             self.note.setAlignment(Qt.AlignmentFlag.AlignHCenter)
             lay.addWidget(self.note)  # a wrapped line under the knob (clamped entry)
             lay.addStretch(1)  # extra height goes below, the dial stays at the top
-            self.setFixedWidth(em * 9)
+            # 9 M, or what dot + label need (Windows CI: 110 > 108, the label was cut, #517)
+            self.setFixedWidth(max(em * 9, lay.minimumSize().width()))
         else:
             self.slider = TrackSlider(self.vmap, accent=accent)
             self.readout.setFixedWidth(em * 8)

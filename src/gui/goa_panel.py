@@ -43,6 +43,8 @@ from .widgets import (
     heading,
     muted,
 )
+from .widgets.adaptive import AdaptiveBox
+from .widgets.choice import WrapSegmented
 from .windows import ResultActions
 
 BODY_HOOK = "goa_body"  # objectName of the page body: a hook for later skins/extra panels
@@ -111,7 +113,10 @@ class OptionForm(QScrollArea):
         label = QLabel(spec.label)
         label.setToolTip(spec.help)
         label.setFixedWidth(em * 15)
-        label.setFixedHeight(int(self.fontMetrics().height() * 1.9))  # first line of the editor
+        # A long label wraps (Windows CI: "Bass-Rhythmus (Roll)" needed 240 px of 180, #517);
+        # at least the editor's first line high.
+        label.setWordWrap(True)
+        label.setMinimumHeight(int(self.fontMetrics().height() * 1.9))
         top = Qt.AlignmentFlag.AlignTop
         row.addWidget(dot, 0, top)
         row.addWidget(label, 0, top)
@@ -143,7 +148,9 @@ class OptionForm(QScrollArea):
             chips.setAccessibleName(spec.label)
             return chips
         if spec.kind == "enum":
-            if len(spec.choices) <= 4 and max(len(c) for c in spec.choices) <= 8:
+            # A segmented row cannot wrap: only for a few short choices (the four arp patterns
+            # made the form 41 M wide, too wide at half the screen width, #517).
+            if len(spec.choices) <= 4 and sum(len(c) for c in spec.choices) <= 12:
                 seg = Segmented(list(spec.choices))
                 seg.chosen.connect(
                     lambda i, d=spec.dest, s=spec: self._edited(d, s.choices[i]))
@@ -252,10 +259,13 @@ class GoaPanel(QWidget):
         self._signals.done.connect(self._on_done)
         self.result: GoaResult | None = None
 
-        outer = QHBoxLayout(self)
+        # Form and result side by side while they fit, else the result below the form (#517:
+        # the main window at half the screen width; the Goa window at its start size).
+        outer = AdaptiveBox(self)
         left = QVBoxLayout()
         left.addWidget(heading("Erzeuger"))
-        self.mode_seg = Segmented([MODE_LABELS[m] for m in MODES], accent=True)
+        # Wraps: the two long mode names in one row made the page 696 px wide on Windows (#517)
+        self.mode_seg = WrapSegmented([MODE_LABELS[m] for m in MODES])
         self.mode_seg.set_index(0)
         self.mode_seg.chosen.connect(lambda i: self.set_mode(MODES[i]))
         left.addWidget(self.mode_seg)
@@ -267,8 +277,14 @@ class GoaPanel(QWidget):
         left.addWidget(self.form_stack, 1)
         left_box = QWidget()
         left_box.setLayout(left)
-        left_box.setMinimumWidth(self.fontMetrics().horizontalAdvance("M") * 50)
-        outer.addWidget(left_box, 3)
+        # The form scrolls inside: its width (the widest row plus the scroll bar) and, for the
+        # stacked layout, a height of its own (else it shrinks to a few px).
+        self.ensurePolished()
+        self.form_stack.setMinimumWidth(max(
+            f.widget().minimumSizeHint().width() + f.verticalScrollBar().sizeHint().width()
+            + 2 * f.frameWidth() for f in self.forms.values()))
+        self.form_stack.setMinimumHeight(self.fontMetrics().height() * 18)
+        outer.addWidget(left_box, 1)
 
         right = QVBoxLayout()
         row = QHBoxLayout()
@@ -324,7 +340,7 @@ class GoaPanel(QWidget):
         right.addWidget(self.note)
         self.actions = ResultActions()
         right.addWidget(self.actions)
-        outer.addLayout(right, 4)
+        outer.addLayout(right, 1)
         self.hub = None
         self.refresh()
 

@@ -41,6 +41,7 @@ from gui_core.tasks import start_task
 
 from .tool_style import STYLE
 from .widgets import Stepper, ToggleRow, heading
+from .widgets.adaptive import AdaptiveBox
 
 BODY_HOOK = "live_body"
 NEW_TRACK_TEXT = "Neue Audiospur am Ende"
@@ -90,15 +91,19 @@ class LivePanel(QWidget):
         lay.addWidget(intro)
 
         form = QFormLayout()
-        row = QHBoxLayout()
+        # Narrow page (#517): fields under their labels, the WAV buttons under the list.
+        form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
+        row = AdaptiveBox()
         self.wav_box = QComboBox()
         self.wav_box.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
         self.wav_box.setMinimumContentsLength(24)
         row.addWidget(self.wav_box, 1)
         self.reload_button = QPushButton("Bibliothek lesen")
         self.pick_button = QPushButton("Andere Datei …")
-        row.addWidget(self.reload_button)
-        row.addWidget(self.pick_button)
+        wav_buttons = QHBoxLayout()
+        wav_buttons.addWidget(self.reload_button)
+        wav_buttons.addWidget(self.pick_button)
+        row.addLayout(wav_buttons)
         form.addRow("WAV", row)
         prow = QHBoxLayout()
         self.project_edit = QLineEdit()

@@ -50,6 +50,7 @@ from live_helpers import config_for, make_fake, writes  # noqa: E402
 
 PAGE_LABELS = [c.label for c in CATEGORIES] + [LIBRARY_LABEL] + [t[1] for t in TOOL_PAGES]
 PAGE_STEPS = [f"page:{tour_mod._slug(label)}" for label in PAGE_LABELS]
+HALF_STEPS = [f"half:{tour_mod._slug(label)}" for label in PAGE_LABELS]  # #517
 RENDER_STEPS = ([f"render:{k}" for k in tour_mod.CATEGORY_KEYS]
                 + ["render:goa-page", "export:planner", "render:goa-window", "render:acid",
                    "render:blaster-shot", "render:blaster-bank"])
@@ -85,7 +86,7 @@ def tour(tmp_path_factory):
 def test_the_tour_visits_exactly_the_expected_steps(tour):
     names = [s.name for s in tour.steps]
     split = len(tour_mod.CATEGORY_KEYS) + 2  # category renders, Goa page render, planner export
-    expected = (PAGE_STEPS + RENDER_STEPS[:split] + ["reference:kick", "chat:generate"]
+    expected = (PAGE_STEPS + HALF_STEPS + RENDER_STEPS[:split] + ["reference:kick", "chat:generate"]
                 + WINDOW_STEPS + RENDER_STEPS[split:] + ["close:tools-with-main",
                                                          "choice:library", "kit:library"])
     assert names == expected
@@ -115,7 +116,7 @@ def test_reference_page_measures_the_kick_render_and_fills_the_kick_form(tour):
     expect_step(tour.step("reference:kick"))
 
 
-@pytest.mark.parametrize("name", PAGE_STEPS)
+@pytest.mark.parametrize("name", PAGE_STEPS + HALF_STEPS)
 def test_every_main_window_page_shows(tour, name):
     expect_step(tour.step(name))
 
@@ -142,7 +143,7 @@ def test_category_names_do_not_collide(tour):
 
 def test_screenshots_of_every_page_and_window_at_100_percent(tour):
     names = sorted(p.name for p in tour.shots)
-    assert len(names) == len(PAGE_STEPS) + len(tour_mod.TOOL_KEYS), names
+    assert len(names) == len(PAGE_STEPS) + len(HALF_STEPS) + len(tour_mod.TOOL_KEYS), names
     for p in tour.shots:
         img = QImage(str(p))
         assert not img.isNull() and img.width() >= 300 and img.height() >= 200, p.name
@@ -179,6 +180,10 @@ def test_150_percent_pass_has_every_page_and_window_at_one_and_a_half_pixels(tou
         a, b = QImage(str(p)), QImage(str(shots150[name]))
         if name.startswith(("window_blaster", "window_acid")):
             continue  # clamp themselves to the (smaller logical) screen (Acid since #442)
+        if name.startswith("half_"):  # half of the same physical screen at both scales (#517)
+            assert abs(b.width() - a.width()) <= 2 and abs(b.height() - a.height()) <= 2, (
+                name, a.size(), b.size())
+            continue
         assert abs(b.width() - 1.5 * a.width()) <= 2 and abs(b.height() - 1.5 * a.height()) <= 2, (
             name, a.size(), b.size())
 
@@ -187,7 +192,7 @@ def test_150_percent_pass_visits_every_page_and_window(tour150):
     """Pages and windows only (no renders); whether windows fit the screen at 150 % is checked
     once, in tests/gui/test_fit_150.py."""
     assert [s["name"] for s in tour150["steps"]] == (
-        PAGE_STEPS + WINDOW_STEPS + ["close:tools-with-main"])
+        PAGE_STEPS + HALF_STEPS + WINDOW_STEPS + ["close:tools-with-main"])
     assert all(s["ok"] for s in tour150["steps"]), tour150["stdout"]
 
 

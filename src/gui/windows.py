@@ -17,6 +17,8 @@ Shared parts (#439):
 * :class:`WindowManager` gives each opened window the hub (``attach_hub``, if it has one) and
   remembers its position and size in the settings.
 * :class:`SettingsDialog` edits output folder, project folder, sample rate and bit depth.
+* :class:`OnTopBox` is the "Immer im Vordergrund" switch of the main window, Acid and Blaster
+  (the Goa skin has its pin button); the choice is saved with the window's place (#517).
 """
 
 from __future__ import annotations
@@ -24,9 +26,10 @@ from __future__ import annotations
 from collections.abc import Callable
 from pathlib import Path
 
-from PySide6.QtCore import QEvent, QObject, QRect, QUrl, Signal
+from PySide6.QtCore import QEvent, QObject, QRect, Qt, QUrl, Signal
 from PySide6.QtGui import QDesktopServices, QGuiApplication
 from PySide6.QtWidgets import (
+    QCheckBox,
     QComboBox,
     QDialog,
     QDialogButtonBox,
@@ -182,12 +185,62 @@ class ResultActions(QWidget):
             self.hub.live_requested.emit(self.path)
 
 
+# --- always on top (#517) ------------------------------------------------------------------------
+ON_TOP_TEXT = "Immer im Vordergrund"
+ON_TOP_TIP = ("Hält dieses Fenster über allen anderen, auch über Live (ein Bildschirm). Gilt nur "
+              "für dieses Fenster und wird mit seiner Position gemerkt.")
+
+
+def stays_on_top(widget: QWidget) -> bool:
+    return bool(widget.windowFlags() & Qt.WindowType.WindowStaysOnTopHint)
+
+
+def set_stays_on_top(widget: QWidget, on: bool) -> None:
+    """Set or clear the stay-on-top flag of the window ``widget``; a visible window stays
+    visible (changing a window flag hides it)."""
+    on = bool(on)
+    if on == stays_on_top(widget):
+        return
+    was_visible = widget.isVisible()
+    widget.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, on)
+    if was_visible:
+        widget.show()
+
+
+class OnTopBox(QCheckBox):
+    """"Immer im Vordergrund" for the window the box sits in."""
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(ON_TOP_TEXT, parent)
+        self.setObjectName("always_on_top")
+        self.setToolTip(ON_TOP_TIP)
+        self.toggled.connect(self._apply)
+
+    def _apply(self, on: bool) -> None:
+        set_stays_on_top(self.window(), on)
+
+
+class OnTopWindow:
+    """Mixin for a window with an :class:`OnTopBox` in ``self.on_top_box``: the two methods
+    :func:`window_state` and :func:`restore_state` use."""
+
+    on_top_box: OnTopBox
+
+    def always_on_top(self) -> bool:
+        return stays_on_top(self)  # type: ignore[arg-type]
+
+    def set_always_on_top(self, on: bool) -> None:
+        set_stays_on_top(self, on)  # type: ignore[arg-type]
+        self.on_top_box.setChecked(bool(on))  # its handler finds the flag already set
+
+
 # --- geometry ------------------------------------------------------------------------------------
 def window_state(widget: QWidget) -> WindowState:
     g = widget.geometry()
     top = anim = None
-    if hasattr(widget, "always_on_top") and hasattr(widget, "frame"):  # the Goa skin
+    if hasattr(widget, "always_on_top"):  # every window since #517
         top = bool(widget.always_on_top())
+    if hasattr(widget, "frame") and hasattr(widget, "set_animation"):  # the Goa skin
         anim = bool(widget.frame.animated())
     return WindowState(g.x(), g.y(), g.width(), g.height(), top, anim)
 
