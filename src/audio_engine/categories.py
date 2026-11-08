@@ -34,7 +34,9 @@ from . import (
 from .params import resolve_kick_params
 
 # Categories named by contracts/sample-metadata.schema.json (a test compares with the file).
-CONTRACT_CATEGORIES = ("kick", "clap", "hat", "snare", "rim", "bass", "laser", "perc", "fx")
+CONTRACT_CATEGORIES = (
+    "kick", "clap", "hat", "snare", "rim", "bass", "laser", "perc", "fx", "atmos",
+)
 
 
 class CategoryUnavailable(ValueError):

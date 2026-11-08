@@ -2,14 +2,14 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/castorsalzmann-ui/AbeltonGod/contracts/sample-metadata.schema.json",
   "title": "Sample sidecar metadata",
-  "description": "Draft v0.2 (#229, hat added by #249, snare by #272, rim by #296, bass by #320, laser by #416, perc by #475, fx by #482). Written next to every generated WAV as <name>.json. Must be sufficient to re-render the identical file. schema_version 0.1 = kick sidecars as before (still valid, kick keeps 0.1); 0.2 is required for clap, hat, snare, rim, bass, laser, perc and fx sidecars and not allowed for kick. Engine identity is per category (D-025): kick sidecars carry engine.name 'abeltongod-audio-engine' and its version; clap sidecars carry engine.name 'abeltongod-audio-engine-clap' and the clap engine's own version; hat sidecars carry engine.name 'abeltongod-audio-engine-hat' the hat engine's own version; snare sidecars carry engine.name 'abeltongod-audio-engine-snare' and the snare engine's own version; rim sidecars carry engine.name 'abeltongod-audio-engine-rim' and the rim engine's own version; bass sidecars carry engine.name 'abeltongod-audio-engine-bass' and the bass engine's own version; laser sidecars carry engine.name 'abeltongod-audio-engine-laser' and the laser engine's own version; perc sidecars carry engine.name 'abeltongod-audio-engine-perc' and the perc engine's own version; fx sidecars carry engine.name 'abeltongod-audio-engine-fx' and the fx engine's own version, and their features also carry boundary_frame and anchor. A re-render compares only the name/version pair of its own category, so a byte change in one category never invalidates the sidecars of another (D-013 holds inside each category).",
+  "description": "Draft v0.2 (#229, hat added by #249, snare by #272, rim by #296, bass by #320, laser by #416, perc by #475, fx by #482, atmos by #529). Written next to every generated WAV as <name>.json. Must be sufficient to re-render the identical file. schema_version 0.1 = kick sidecars as before (still valid, kick keeps 0.1); 0.2 is required for clap, hat, snare, rim, bass, laser, perc, fx and atmos sidecars and not allowed for kick. Engine identity is per category (D-025): kick sidecars carry engine.name 'abeltongod-audio-engine' and its version; clap sidecars carry engine.name 'abeltongod-audio-engine-clap' and the clap engine's own version; hat sidecars carry engine.name 'abeltongod-audio-engine-hat' the hat engine's own version; snare sidecars carry engine.name 'abeltongod-audio-engine-snare' and the snare engine's own version; rim sidecars carry engine.name 'abeltongod-audio-engine-rim' and the rim engine's own version; bass sidecars carry engine.name 'abeltongod-audio-engine-bass' and the bass engine's own version; laser sidecars carry engine.name 'abeltongod-audio-engine-laser' and the laser engine's own version; perc sidecars carry engine.name 'abeltongod-audio-engine-perc' and the perc engine's own version; fx sidecars carry engine.name 'abeltongod-audio-engine-fx' and the fx engine's own version, and their features also carry boundary_frame and anchor; atmos sidecars carry engine.name 'abeltongod-audio-engine-atmos' and the atmos engine's own version, and their features also carry loop_samples, loop_samples_exact, seamless and preroll_loops (atmos-params $comment points 1, 8, 15). A re-render compares only the name/version pair of its own category, so a byte change in one category never invalidates the sidecars of another (D-013 holds inside each category).",
   "type": "object",
   "additionalProperties": false,
   "required": ["schema_version", "file", "category", "engine", "parameters", "features", "created_at"],
   "properties": {
     "schema_version": { "enum": ["0.1", "0.2"] },
     "file": { "type": "string", "pattern": "\\.wav$" },
-    "category": { "enum": ["kick", "clap", "hat", "snare", "rim", "bass", "laser", "perc", "fx"] },
+    "category": { "enum": ["kick", "clap", "hat", "snare", "rim", "bass", "laser", "perc", "fx", "atmos"] },
     "description": { "type": "string", "maxLength": 500 },
     "engine": {
       "type": "object",
@@ -20,7 +20,7 @@
         "version": { "type": "string" }
       }
     },
-    "parameters": { "type": "object", "description": "Exact <category>-params object used (kick-params for kick, clap-params for clap, hat-params for hat, snare-params for snare, rim-params for rim, bass-params for bass, laser-params for laser, perc-params for perc, fx-params for fx; fx records the fully resolved object including the per-kind defaults), including the variant's derived seed." },
+    "parameters": { "type": "object", "description": "Exact <category>-params object used (kick-params for kick, clap-params for clap, hat-params for hat, snare-params for snare, rim-params for rim, bass-params for bass, laser-params for laser, perc-params for perc, fx-params for fx, atmos-params for atmos; fx and atmos record the fully resolved object including the per-kind defaults), including the variant's derived seed." },
     "features": {
       "type": "object",
       "additionalProperties": false,
@@ -37,7 +37,22 @@
         "t60_ms": { "type": ["number", "null"], "minimum": 0, "description": "v0.2. Time from the peak until the envelope has fallen 60 dB, ms, measured on the signal after a 30 Hz high-pass; null if it does not within the file." },
         "rise_time_ms": { "type": ["number", "null"], "minimum": 0, "description": "v0.2. Onset rise time, 10 % to 90 % of the peak envelope, ms." },
         "boundary_frame": { "type": "integer", "minimum": 0, "description": "v0.2, fx only (required there, #482). Frame index of the musical boundary, round(length_beats * 60 * sample_rate / bpm) for every kind: the first frame at the bar line. Anchor start (a riser's drop): the first frame of the tail. Anchor end (reverse_crash, no tail): the frame count N, one past the last frame N - 1. A placer aligns this frame index with the event's bar line." },
-        "anchor": { "enum": ["start", "end"], "description": "v0.2, fx only (required there, #482). start = the file's first sample sits on the event beat; end = the file ends on it (reverse_crash)." }
+        "anchor": { "enum": ["start", "end"], "description": "v0.2, fx only (required there, #482). start = the file's first sample sits on the event beat; end = the file ends on it (reverse_crash)." },
+        "loop_samples": { "type": "integer", "minimum": 1, "description": "v0.2, atmos only (required there, #529). N = round(240 * bars * sample_rate / bpm) frames (atmos-params point 1): the whole file in seamless mode; in oneshot mode the frame index of the musical end (first frame of the tail)." },
+        "loop_samples_exact": { "type": "number", "exclusiveMinimum": 0, "description": "v0.2, atmos only (required there). 240 * bars * sample_rate / bpm before rounding; differs from loop_samples by at most 0.5 (the musical length is exact only when it is an integer)." },
+        "seamless": { "type": "boolean", "description": "v0.2, atmos only (required there). true = loop_mode seamless: the file is one period and loops without a seam; false = oneshot." },
+        "preroll_loops": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["filter", "reverb"],
+          "properties": {
+            "filter": { "type": "integer", "minimum": 0, "description": "Warm-up periods P of the moving filter (atmos-params point 8); 0 when filter_mode is off or in oneshot mode." },
+            "reverb": { "type": "integer", "minimum": 0, "description": "Warm-up periods P of the reverb; 0 when reverb_mix is 0 or in oneshot mode." }
+          },
+          "description": "v0.2, atmos only (required there). Warm-up periods per recursive stage that the engine ran before keeping the last period."
+        },
+        "tuning_error_cents": { "type": ["number", "null"], "description": "v0.2, atmos only, optional. Bin-locked fundamental minus the requested note, cents (atmos-params point 11): drone and granular with a drone or metal source; null for the other kinds." },
+        "realised_detune_cents": { "type": ["number", "null"], "description": "v0.2, atmos only, optional. drone: interval of the detuned copy of the root's first partial (detune_bins bins higher), cents; null if detune_bins is 0 or the kind is not drone." }
       }
     },
     "bpm": { "type": ["number", "null"] },
@@ -165,6 +180,33 @@
       "then": {
         "properties": {
           "features": { "properties": { "boundary_frame": false, "anchor": false } }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "category": { "const": "atmos" } }, "required": ["category"] },
+      "then": {
+        "properties": {
+          "schema_version": { "const": "0.2" },
+          "engine": { "properties": { "name": { "const": "abeltongod-audio-engine-atmos" } } },
+          "parameters": {
+            "required": ["schema_version", "seed", "bpm"],
+            "properties": { "schema_version": { "const": "0.1" } }
+          },
+          "features": { "required": ["loop_samples", "loop_samples_exact", "seamless", "preroll_loops"] }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "category": { "not": { "const": "atmos" } } }, "required": ["category"] },
+      "then": {
+        "properties": {
+          "features": {
+            "properties": {
+              "loop_samples": false, "loop_samples_exact": false, "seamless": false,
+              "preroll_loops": false, "tuning_error_cents": false, "realised_detune_cents": false
+            }
+          }
         }
       }
     }

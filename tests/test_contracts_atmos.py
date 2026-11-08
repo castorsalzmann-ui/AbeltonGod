@@ -358,7 +358,7 @@ def test_the_contract_names_every_rule_and_its_worked_examples() -> None:
         "Reject cross-field rules A, B, C, D and E with an error text",
         "tail_beats counts in oneshot only", "32 bars need bpm >= 106.67",
         "Reject out-of-range values, never clamp", "byte-identical",
-        "abeltongod-audio-engine-atmos", "NOT part of this v0.1 file",
+        "abeltongod-audio-engine-atmos", "the sample-metadata entry is category 'atmos'",
     ):
         assert needle in TEXT, needle
     desc = ATMOS["description"]

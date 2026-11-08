@@ -43,6 +43,7 @@ DEFAULT_RIM_FOLDER = "Samples/Drums/Rims"
 DEFAULT_PERC_FOLDER = "Samples/Drums/Percs"  # conga, tom, shaker, cowbell, clave (#475)
 DEFAULT_LASER_FOLDER = "Samples/FX/Lasers"  # RX ear candy, not a drum (#416)
 DEFAULT_FX_FOLDER = "Samples/FX/Transitions"  # riser, downlifter, sweep, impact, crashes (#482)
+DEFAULT_ATMOS_FOLDER = "Samples/Atmos"  # noise beds, drones, resonant and granular loops (#529)
 DEFAULT_BASS_FOLDER = "Samples/Bass"  # a bass is not a drum: outside Samples/Drums (#328)
 MIN_STEM_CHARS = 16  # below this the name would be cut too short to stay readable
 # write_kick adds _002, _003 … on a clash. The length check reserves room for up to 9999
@@ -86,6 +87,7 @@ class LibraryLayout:
     lasers: str = DEFAULT_LASER_FOLDER  # laser voice (#416)
     percs: str = DEFAULT_PERC_FOLDER  # used once the perc voice exists (#475)
     fx: str = DEFAULT_FX_FOLDER  # used once the fx engine exists (#482)
+    atmos: str = DEFAULT_ATMOS_FOLDER  # used once the atmos engine exists (#529)
 
     def __post_init__(self) -> None:
         split_folder(self.kicks)  # raises LibraryPathError
@@ -97,6 +99,7 @@ class LibraryLayout:
         split_folder(self.lasers)
         split_folder(self.percs)
         split_folder(self.fx)
+        split_folder(self.atmos)
         limit = self.max_path_chars
         if limit is not None and (isinstance(limit, bool) or not isinstance(limit, int)):
             raise TypeError(f"max_path_chars must be an int or None, got {limit!r}")
@@ -127,6 +130,8 @@ class LibraryLayout:
             return split_folder(self.percs)
         if category == "fx":
             return split_folder(self.fx)
+        if category == "atmos":
+            return split_folder(self.atmos)
         raise LibraryPathError(f"no library folder is defined for category {category!r}")
 
 
