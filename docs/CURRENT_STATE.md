@@ -9,7 +9,8 @@ _Last updated: 2026-11-05 (Endstand-Zeile unten) (Stand-Block unten, ältere Ein
 - **Rate-Limit:** zweimal ausgelaufen (Fr ~16:50, Sa ~13:00), danach fortgesetzt; höchstens 4–5 Agents.
 - **Nicht geprüft:** nichts gehört, nichts in Live, kein echter Claude-Aufruf aus der GUI, kein Lauf auf dem PC des Nutzers. Checkliste Punkte 11–16 in `docs/USER_GUIDE.md`.
 - **Nachträge (abends):** #507 (fx-params-Text: Engine-Entscheidungen, `x-derived-default`; #496, #501), #509 (FX-Ton-Generator blockweise, 4–5× schneller bei tiefen Tönen, Bytes gleich; #503), #508 (Copilot-Nits: Kopier-Entscheidung neu geprüft, keine Überzählung, Hat-Modell; #506). Kleine Review-Reste: `fx.py`-Moduldocstring veraltet, `docs/INTERFACES.md` Satz zu Formular-Defaults, Zähler-Assertion in `test_unknown_outcome_keeps_the_copy`.
-- **Offen:** #484 (Warp langer Riser, Nutzer), #422 (Laser-Alias). Fragen an den Nutzer: was vom Auswahl-Log an Claude darf (B6); Hörtest-Antworten ins echte Log?
+- **So 2026-11-08 (Aufräumen, 1 Agent):** #511 (fx-Doku passt zum Code; #510), #513 (Kit-Test unabhängig vom Checkout-Pfad; #512), #514 (`scripts/qa/smoke_pipeline.py` prüft auch Kit-Export und fx-Längen laut Vertrag; Volllauf auf main 2175 Prüfungen, 0 fehlgeschlagen, 86 s auf 2 Kernen; CI-Test deckt kick, clap, hat, perc, fx, laser; #347). Bewusst offen gelassen (Nutzer merkt es nicht): weitere `test_kit.py`-Tests und `smoke_kit` scheitern erst ab ~170–190 Zeichen Basispfad. Neu im Parkplatz: #515 (Copilot kann keine FX erzeugen, kein `generate_sample`-Adapter).
+- **Offen:** #484 (Warp langer Riser, Nutzer), #422 (Laser-Alias), #515. Fragen an den Nutzer: was vom Auswahl-Log an Claude darf (B6); Hörtest-Antworten ins echte Log?
 
 ## Stand 2026-11-06, abends (Lead): Sprint W1 „gesamte GUI integriert“
 
