@@ -12,7 +12,10 @@ variants into a temporary folder; then, with checks that do not reuse the engine
   silence, tail), and peak/length/sha256 are compared with the sidecar;
 * ``rerender_from_sidecar`` gives the WAV bytes back (byte identity).
 
-Then, once: library placement (folder layout, ``_002`` collision suffix), the
+Then, once: library placement (folder layout, ``_002`` collision suffix), a kit export of a
+few library samples into one output folder, twice (``kit.json`` against
+``contracts/kit.schema.json``, copy names, bytes and sidecars equal to the sources, ``_002`` for
+the second kit, no temporary folder left, sources untouched), the
 ``generate_sample`` tool schema and its hash against the pins in the tests, and a dry
 ``generate_sample`` + ``import_sample`` run with the fake AbletonOSC server from ``tests/bridge``.
 **Nothing here talks to Live**; the fake server is a test double, never evidence for Ableton.
@@ -43,6 +46,18 @@ sys.path.insert(0, str(ROOT / "src"))
 DC_LIMIT = 0.005  # fraction of full scale; the engine's DC blocker keeps real output far below
 TAIL_LIMIT = 0.01  # |last sample| (fraction of full scale): a hard cut at the end clicks
 MAX_SECONDS = 6.0
+# fx files are bars long by design: fx-params v0.1 says the file is length_beats + tail_beats
+# long, at most 72000 ms (cross-field rule A). Their length is checked exactly instead (#347).
+MAX_SECONDS_BY_CATEGORY = {"fx": 72.0}
+
+
+def contract_length_s(meta: dict) -> float | None:
+    """Length the fx contract text promises for this sidecar's parameters, else None."""
+    p = meta.get("parameters") or {}
+    if meta.get("category") != "fx" or not all(k in p for k in ("bpm", "length_beats",
+                                                                 "tail_beats")):
+        return None
+    return (p["length_beats"] + p["tail_beats"]) * 60.0 / p["bpm"]
 
 
 class Results:
@@ -105,7 +120,8 @@ def read_wav(data: bytes) -> dict:
             "min_int": min(ints), "max_int": max(ints), "full": int(scale)}
 
 
-def check_audio(res: Results, label: str, wav_path: Path, meta: dict) -> None:
+def check_audio(res: Results, label: str, wav_path: Path, meta: dict,
+                max_seconds: float = MAX_SECONDS) -> None:
     data = wav_path.read_bytes()
     try:
         w = read_wav(data)
@@ -124,7 +140,12 @@ def check_audio(res: Results, label: str, wav_path: Path, meta: dict) -> None:
     clipped = sum(1 for v in w["samples"] if abs(v) >= (w["full"] - 1) / w["full"])
     res.check(f"{label}: no clipping", clipped <= 2, f"{clipped} samples at full scale")
     res.check(f"{label}: DC offset", abs(dc) <= DC_LIMIT, f"dc={dc:.6f}")
-    res.check(f"{label}: length", 0.01 <= secs <= MAX_SECONDS, f"{secs:.3f} s")
+    res.check(f"{label}: length", 0.01 <= secs <= max_seconds, f"{secs:.3f} s")
+    want = contract_length_s(meta)
+    if want is not None:
+        res.check(f"{label}: length is length_beats + tail_beats",
+                  abs(w["frames"] - want * w["sr"]) <= 1.0,
+                  f"{w['frames']} frames, contract {want * w['sr']:.1f}")
     res.check(f"{label}: tail ends near zero", abs(s[-1]) <= TAIL_LIMIT, f"last={s[-1]:.5f}")
     res.check(f"{label}: finite", all(math.isfinite(v) for v in s))
     feats = meta.get("features", {})
@@ -187,7 +208,8 @@ def smoke_categories(res: Results, work: Path, limit: int | None,
                 errors = [e.message[:120] for e in validator.iter_errors(meta)]
                 res.check(f"{label}: sidecar schema", not errors, "; ".join(errors[:3]))
                 res.check(f"{label}: sidecar category", meta.get("category") == cat)
-                check_audio(res, label, wav, meta)
+                check_audio(res, label, wav, meta,
+                            MAX_SECONDS_BY_CATEGORY.get(cat, MAX_SECONDS))
                 try:
                     again = rerender_from_sidecar(side)
                     res.check(f"{label}: re-render from sidecar is byte-identical",
@@ -205,6 +227,17 @@ def smoke_categories(res: Results, work: Path, limit: int | None,
     return summary
 
 
+def short_params(cat: str, seed: int = 5) -> dict:
+    """Minimal valid params of ``cat`` that render a short file (contract defaults otherwise)."""
+    if cat == "kick":
+        return {"schema_version": "0.2", "seed": seed, "length_ms": 150.0,
+                "amp_decay_ms": 60.0, "drive": 0.0, "bpm": 136}
+    if cat == "fx":  # fx-params requires bpm (lengths in beats); a short file (#482)
+        return {"schema_version": "0.1", "seed": seed, "bpm": 136,
+                "kind": "impact", "length_beats": 1, "tail_beats": 1}
+    return {"schema_version": "0.1", "seed": seed}
+
+
 def smoke_library(res: Results, work: Path) -> None:
     from audio_engine.categories import CONTRACT_CATEGORIES, CategoryUnavailable
     from library import library_folder, place_sample
@@ -213,13 +246,7 @@ def smoke_library(res: Results, work: Path) -> None:
         project = work / "lib" / cat
         project.mkdir(parents=True)
         try:
-            params = {"schema_version": "0.1", "seed": 5}
-            if cat == "kick":
-                params = {"schema_version": "0.2", "seed": 5, "length_ms": 150.0,
-                          "amp_decay_ms": 60.0, "drive": 0.0, "bpm": 136}
-            if cat == "fx":  # fx-params requires bpm (lengths in beats); a short file (#482)
-                params = {"schema_version": "0.1", "seed": 5, "bpm": 136,
-                          "kind": "impact", "length_beats": 1, "tail_beats": 1}
+            params = short_params(cat)
             first = place_sample(cat, params, project, name="smoke")
         except CategoryUnavailable:
             continue
@@ -241,6 +268,99 @@ def smoke_library(res: Results, work: Path) -> None:
                   first.read_bytes() == second.read_bytes())
 
 
+# Kit slots as contracts/kit.schema.json and docs/INTERFACES.md "Kit manifest" name them, written
+# here (not read from gui_core.kit): slot -> (number, tag in the copy name; "" = the category).
+KIT_SLOTS = {"kick": (1, "kick"), "clap_snare": (2, ""), "closed_hat": (3, "hat-closed"),
+             "open_hat": (4, "hat-open"), "rim": (5, "rim"), "perc": (6, "perc"),
+             "bass": (7, "bass")}
+# A few samples; rim and open_hat stay empty (left out of kit.json, numbers keep their place).
+KIT_PICKS = {"kick": "kick", "clap_snare": "snare", "closed_hat": "hat", "perc": "perc",
+             "bass": "bass"}
+
+
+def _sha(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def smoke_kit(res: Results, work: Path) -> dict:
+    """Place a few library samples in one output folder, export a kit twice, check the files."""
+    import jsonschema
+
+    from gui_core import kit
+    from library import place_sample
+
+    out = work / "kit"
+    out.mkdir(parents=True)
+    picks: dict[str, Path] = {}
+    for slot, cat in KIT_PICKS.items():
+        try:
+            picks[slot] = place_sample(cat, short_params(cat, seed=11), out, name=f"smoke-{slot}")
+        except Exception as exc:  # noqa: BLE001 - any failure is a finding
+            res.check(f"kit: place {cat} for {slot}", False, f"{type(exc).__name__}: {exc}")
+    if len(picks) != len(KIT_PICKS):
+        return {"exported": False}
+    before = {slot: (_sha(p), _sha(p.with_suffix(".json"))) for slot, p in picks.items()}
+    schema = json.loads((ROOT / "contracts" / "kit.schema.json").read_text("utf-8"))
+    validator = jsonschema.validators.validator_for(schema)(schema)
+    kits = out / "Samples" / "Kits"
+    folders = []
+    for attempt in (1, 2):
+        try:
+            folders.append(kit.export_kit(kit.plan_kit(out, "Smoke Kit", picks),
+                                          now="2026-11-08T12:00:00Z"))
+        except Exception as exc:  # noqa: BLE001
+            res.check(f"kit: export {attempt}", False, f"{type(exc).__name__}: {exc}")
+            return {"exported": False}
+    first, second = folders
+    res.check("kit: folder Samples/Kits/<name>, second export <name>_002",
+              first == kits / "Smoke-Kit" and second == kits / "Smoke-Kit_002",
+              f"{first.relative_to(out)}, {second.relative_to(out)}")
+    res.check("kit: no temporary folder left",
+              not [p.name for p in kits.iterdir() if p.name.startswith(".kit-tmp")],
+              str(sorted(p.name for p in kits.iterdir())))
+    for folder in folders:
+        tag = f"kit/{folder.name}"
+        try:
+            doc = json.loads((folder / "kit.json").read_text("utf-8"))
+        except (OSError, ValueError) as exc:
+            res.check(f"{tag}: kit.json readable", False, f"{type(exc).__name__}: {exc}")
+            continue
+        errors = [e.message[:120] for e in validator.iter_errors(doc)]
+        res.check(f"{tag}: kit.json schema", not errors, "; ".join(errors[:3]))
+        slots = doc.get("slots", {})
+        res.check(f"{tag}: slots are exactly the picks", set(slots) == set(picks),
+                  str(sorted(slots)))
+        expected_files = {"kit.json"}
+        for slot, src in picks.items():
+            number, slot_tag = KIT_SLOTS[slot]
+            name = f"{number:02d}_{slot_tag or KIT_PICKS[slot]}_{src.stem}.wav"
+            expected_files |= {name, name[:-4] + ".json"}
+            item = slots.get(slot, {})
+            copy = folder / name
+            res.check(f"{tag}/{slot}: copy name", item.get("file") == name,
+                      f"{item.get('file')} != {name}")
+            if not copy.is_file():
+                res.check(f"{tag}/{slot}: copy exists", False, name)
+                continue
+            label = f"{tag}/{slot}"
+            side, src_side = copy.with_suffix(".json"), src.with_suffix(".json")
+            res.check(f"{label}: copy bytes equal source", copy.read_bytes() == src.read_bytes())
+            res.check(f"{label}: kit.json sha256 is the copy's", item.get("sha256") == _sha(copy))
+            res.check(f"{label}: sidecar copied verbatim",
+                      side.is_file() and side.read_bytes() == src_side.read_bytes())
+            res.check(f"{label}: source path relative to the output folder",
+                      item.get("source") == src.relative_to(out).as_posix(),
+                      str(item.get("source")))
+            res.check(f"{tag}/{slot}: category", item.get("category") == KIT_PICKS[slot])
+        found = {p.name for p in folder.iterdir()}
+        res.check(f"{tag}: nothing else in the kit folder", found == expected_files,
+                  f"extra {sorted(found - expected_files)}, "
+                  f"missing {sorted(expected_files - found)}")
+    after = {slot: (_sha(p), _sha(p.with_suffix(".json"))) for slot, p in picks.items()}
+    res.check("kit: library sources untouched", after == before)
+    return {"exported": True, "slots": sorted(picks), "folders": [f.name for f in folders]}
+
+
 def smoke_tools(res: Results, work: Path) -> dict:
     sys.path[:0] = [str(ROOT / "tests" / "orchestrator"), str(ROOT / "tests" / "bridge"),
                     str(ROOT / "tests")]
@@ -259,8 +379,13 @@ def smoke_tools(res: Results, work: Path) -> dict:
     pins = set()
     for f in (ROOT / "tests" / "orchestrator").glob("test_sample*.py"):
         pins |= set(re.findall(r"\b[0-9a-f]{64}\b", f.read_text("utf-8")))
+    from audio_engine.categories import CONTRACT_CATEGORIES
+
+    # Informational: kick has its own tool (generate_kick); any other category listed here has
+    # an engine but no generate_sample adapter, so the dry tool run cannot cover it.
     info = {"schema_sha256": digest, "categories": sorted(ADAPTERS),
-            "pinned_in_tests": digest in pins}
+            "pinned_in_tests": digest in pins,
+            "without_generate_sample": sorted(set(CONTRACT_CATEGORIES) - set(ADAPTERS) - {"kick"})}
     res.check("tool schema: strict, no optional fields beyond the budget",
               schema.get("additionalProperties") is False
               and sorted(schema["properties"]["category"]["enum"]) == sorted(ADAPTERS),
@@ -334,6 +459,7 @@ def main(argv: list[str] | None = None) -> int:
         work.mkdir(parents=True, exist_ok=True)
         cats = smoke_categories(res, work, args.presets_per_category, args.categories)
         smoke_library(res, work)
+        kit_info = smoke_kit(res, work)
         tools = smoke_tools(res, work)
     total = len(res.rows)
     known, unexpected, stale = split_known(res.failed, args.expect_fail)
@@ -342,7 +468,7 @@ def main(argv: list[str] | None = None) -> int:
     for sub in stale:
         print(f"STALE --expect-fail {sub!r}: no failing check matches any more; remove the flag")
     summary = {"checks": total, "failed": len(unexpected), "known": len(known),
-               "stale_expect_fail": stale, "categories": cats, "tools": tools,
+               "stale_expect_fail": stale, "categories": cats, "kit": kit_info, "tools": tools,
                "failures": [{"check": n, "detail": d} for n, _, d in unexpected],
                "known_failures": [{"check": n, "detail": d} for n, _, d in known]}
     print(json.dumps(summary, indent=1))
