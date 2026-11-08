@@ -1,12 +1,13 @@
 """#439: shared settings and the library / Live hand-off of the Goa, Acid and Blaster windows.
 
-Offscreen, the real window factories and engines (goa_arrangement, the acid preview, the laser
+Offscreen, the real window factories and engines (goa_melody, the acid preview, the laser
 category). Nothing talks to Ableton Live: "An Live senden" only opens the main window's Live
 page with the file chosen, which is what is checked here. #444: the Blaster's drag-out never
 offers a file from its temporary folder."""
 
 from __future__ import annotations
 
+import json
 import os
 import time
 import wave
@@ -128,27 +129,26 @@ def test_acid_wav_follows_the_shared_sample_rate_and_bit_depth(main):
         assert (w.getframerate(), w.getsampwidth()) == (44100, 2)
 
 
-def test_goa_window_render_lands_in_the_library(main, tmp_path):
+def test_goa_window_renders_melody_midi_only(main, tmp_path):
+    """D-033: the Goa window is the Goa-Melodie form; its render is one .mid + README in
+    <out>/Goa/<run>, no WAV (so nothing new for the library and no Live hand-off row)."""
     win = main.windows.open("goa")
     assert win is not None, main.windows.last_error
     panel = win.body
+    assert type(panel).__name__ == "GoaPanel" and not panel.findChildren(ResultActions)
     assert Path(panel.folder_edit.text()).parent == tmp_path / "out" / "Goa"
-    panel.forms[next(iter(panel.forms))].edits["seed"].setText("1")
-    panel.refresh()
+    before = set(library_paths(main))
+    seed = panel.form.edits["seed"]
+    seed.setText("1")
+    seed.edited.emit("1")  # what typing does (setText alone does not tell the form)
     panel.render_button.click()
     assert wait_for(lambda: panel.result is not None)
     assert panel.result.ok, panel.result.error
-    samples = panel.result.sample_paths
-    assert samples and panel.actions.path == samples[0]
-    panel.actions.show_button.click()
-    assert main.stack.currentWidget() is main.library_scroll  # holds the page (#517)
-    assert selected_library_path(main) == samples[0]
-    assert set(samples) <= set(library_paths(main))
-    # The Live hand-off is offered exactly when the sample has a readable sidecar (none before
-    # #414's fix, one after it): the row says why instead of failing late on the Live page.
-    readable = read_entry(samples[0]).readable
-    assert panel.actions.live_button.isEnabled() == readable
-    assert (panel.actions.note.text() == "") == readable
+    folder = panel.result.out_dir
+    assert folder.parent == tmp_path / "out" / "Goa"
+    assert sorted(p.name for p in folder.rglob("*")) == [
+        "README.md", "goa_melody_seed1_145bpm.mid"]
+    assert set(library_paths(main)) == before
 
 
 def test_blaster_save_lands_in_the_library_and_goes_to_the_live_page(main, tmp_path):
@@ -268,6 +268,36 @@ def test_show_in_library_outside_the_output_folder_says_so(main, tmp_path):
 
 
 # ---- settings survive a restart ------------------------------------------------------------------
+def test_old_settings_with_goa_arrangement_fields_still_load(qapp, tmp_path):
+    """#520 (D-033): a settings file from before the Goa-Melodie change, with fields of the
+    removed arrangement mode (written here by hand; no version ever saved them, but a user's
+    file may carry anything), loads without error; the unknown fields are ignored and the
+    known ones (output folder, Goa window place) are kept."""
+    cfg = tmp_path / "cfg" / "settings.json"
+    cfg.parent.mkdir(parents=True)
+    out = tmp_path / "old_out"
+    cfg.write_text(json.dumps({
+        "format": 1, "output_dir": str(out),
+        "goa": {"mode": "arrangement", "roll": "gallop", "kick_preset": "default",
+                "no_samples": True, "dj_bars": 16},
+        "goa_mode": "arrangement",
+        "windows": {"goa": {"x": 30, "y": 40, "width": 700, "height": 520,
+                            "always_on_top": False, "mode": "arrangement"}},
+    }), encoding="utf-8")
+    w = MainWindow(backend=FakeBackend(), settings_store=SettingsStore(path=cfg))
+    try:
+        w.show()
+        assert w.goa.base_dir == out / "Goa"
+        assert w.goa.model.argv("X")[0] == "--out=X" and w.goa.render_button.isEnabled()
+        win = w.windows.open("goa")
+        assert win is not None, w.windows.last_error
+        assert (win.width(), win.height()) == (700, 520)
+        assert type(win.body).__name__ == "GoaPanel" and win.body.model.is_valid
+    finally:
+        w.close()
+        QApplication.processEvents()
+
+
 def test_settings_and_window_places_survive_a_restart(qapp, tmp_path):
     cfg = tmp_path / "cfg" / "settings.json"
     w = MainWindow(backend=FakeBackend(), settings_store=SettingsStore(path=cfg))
