@@ -209,8 +209,12 @@ class AcidWindow(OnTopWindow, QWidget):
         self.preview_button = QPushButton("Vorschau")
         self.stop_button = QPushButton("Stopp")
         self.anim_box = QCheckBox("Animation")
+        # #517: next to Live on one monitor. In this row, not the second: with it there the
+        # step grid's pitch area was 74 px high on Windows CI and the drag test failed.
+        self.on_top_box = OnTopBox()
         for w in (self.load_button, self.save_button, self.export_button,
-                  self.open_button, self.preview_button, self.stop_button, self.anim_box):
+                  self.open_button, self.preview_button, self.stop_button, self.anim_box,
+                  self.on_top_box):
             row.addWidget(w)
         al.addLayout(row)
         # Second row: WAV export, the hand-off and the preview note (the note had a line of its
@@ -223,8 +227,6 @@ class AcidWindow(OnTopWindow, QWidget):
         self.preview_note = QLabel(f"Vorschau: {PREVIEW_LABEL}")
         self.preview_note.setObjectName("muted")
         row2.addWidget(self.preview_note)
-        self.on_top_box = OnTopBox()  # #517: next to Live on one monitor
-        row2.addWidget(self.on_top_box, 0, Qt.AlignmentFlag.AlignTop)
         al.addLayout(row2)
         col.addWidget(act_panel)
         # --- footer / status
