@@ -17,6 +17,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 from gui_core.preview import NoBackend, PlaybackBackend
+from gui_core.volume import VolumeBackend
 
 NO_DEVICE = ("Windows meldet kein Wiedergabegerät (waveOut). Lautsprecher oder Kopfhörer "
              "anschließen bzw. in den Windows-Soundeinstellungen ein Ausgabegerät aktivieren.")
@@ -65,4 +66,7 @@ def play_flags(ws) -> int:
 
 
 def choose_backend() -> PlaybackBackend:
-    return WinsoundBackend() if sys.platform == "win32" else NoBackend()
+    """The app's backend: on Windows ``winsound`` behind the shared output volume (#545)."""
+    if sys.platform != "win32":
+        return NoBackend()
+    return VolumeBackend(WinsoundBackend())
