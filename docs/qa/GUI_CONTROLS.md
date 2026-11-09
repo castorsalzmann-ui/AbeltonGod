@@ -164,7 +164,7 @@ differ only in the area. Handler and effect per kind:
 | `fx · Segmented/QPushButton · *` | `Segmented` -> `chosen` -> `ChoiceControl._chosen` | One button per enum choice |
 | `fx · WrapSegmented/QPushButton · *` | `WrapSegmented` -> `chosen` -> `ChoiceControl._chosen` | Enum with many choices, wrapping (kind) |
 | `atmos · ActiveDot · Gefüllt: der Wert wird mitgeschickt. Leer: Stand` | `ParamControl` -> `activeToggled` | Dot of the intervals list field (#533) |
-| `atmos · ChoiceControl · *` | `CategoryPanel._edited` / `_active_toggled` | Enum field (Länge in Takten and Schleife / One-Shot on top, #533) |
+| `atmos · ChoiceControl · *` | `CategoryPanel._edited` / `_active_toggled` | Enum field (Länge in Takten and Loop-Modus on top, #533) |
 | `atmos · ChoiceControl/ActiveDot · *` | `ParamControl` -> `activeToggled` | Dot of an enum field |
 | `atmos · Collapsible · *` | self-contained | Section shows / hides its fields (Erweitert, One-Shot, Filter, Bewegung, Ton, Grains, Reverb) |
 | `atmos · Collapsible/QToolButton · *` | `Collapsible` (internal) | Section header |

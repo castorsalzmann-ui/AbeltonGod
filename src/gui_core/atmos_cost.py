@@ -101,15 +101,20 @@ def length_text(model: Any) -> str:
     p = resolved(model)
     if p is None:
         return ""
+    from .form import live_note_name
+
     a = _engine()
     bars = p["bars"]
     loop_s = 240.0 * bars / p["bpm"]
     head = f"{bars} {'Takt' if bars == 1 else 'Takte'} bei {p['bpm']:g} BPM = {_sec(loop_s)} s"
+    # the kinds that use the note: its name as Live shows it (MIDI 36 = C1, #533 comment)
+    uses_note = a.is_tonal(p) or p["kind"] == "resonant"
+    root = f" Grundton {live_note_name(int(p['note']))} (MIDI {p['note']})." if uses_note else ""
     if p["loop_mode"] == "seamless":
         exact = a.loop_samples(p) == a.loop_samples_exact(p)
         tail = "" if exact else " Bei diesem Tempo bis zu ½ Sample neben der Taktlänge."
-        return (f"{head}, nahtlose Schleife. Ein-/Ausblenden und Ausklang wirken nur bei "
+        return (f"{head}, nahtlose Schleife.{root} Ein-/Ausblenden und Ausklang wirken nur bei "
                 f"oneshot.{tail}")
     file_s = a.file_ms(p) / 1000.0
     return (f"{head}, One-Shot mit Ein- und Ausblenden; Datei {_sec(file_s)} s mit "
-            f"{p['tail_beats']:g} Beats Ausklang.")
+            f"{p['tail_beats']:g} Beats Ausklang.{root}")

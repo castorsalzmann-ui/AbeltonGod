@@ -64,7 +64,13 @@ def test_intervals_field_is_a_list_edit_and_blocks_render_when_wrong(qapp) -> No
     c.edit.setText("5, 0")
     c.edit.editingFinished.emit()
     assert not model.is_valid and c.edit.property("invalid") is True
-    assert panel.controls["note"].note.text() == "In Live: C1"
+    c.edit.setText("0, 7")
+    c.edit.editingFinished.emit()
+    assert "Grundton C1 (MIDI 36)" in panel.length_label.text()
+    note = panel.controls["note"]
+    note.readout.setText("28")
+    note.readout.entered.emit("28")
+    assert "Grundton E0 (MIDI 28)" in panel.length_label.text()
 
 
 def test_long_file_shows_the_render_time_note(qapp) -> None:

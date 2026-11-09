@@ -13,7 +13,7 @@ from PySide6.QtCore import QTimer, Signal
 from PySide6.QtWidgets import QLabel, QScrollArea, QSizePolicy, QVBoxLayout, QWidget
 
 from gui_core import atmos_cost, fx_cost, links
-from gui_core.form import ALWAYS_ACTIVE, CategoryFormModel, FieldSpec, _text_of, live_note_name
+from gui_core.form import ALWAYS_ACTIVE, CategoryFormModel, FieldSpec, _text_of
 from gui_core.form_layout import main_choices, main_controls
 
 from .widgets import (
@@ -390,7 +390,7 @@ class CategoryPanel(QScrollArea):
                 if isinstance(c, NumberControl) and name in lims:
                     lim = lims[name]
                     c.set_limits(lim.lo, lim.hi, lim.reason)
-                c.set_derived_note(derived.notes.get(name, "") or self._extra_note(name))
+                c.set_derived_note(derived.notes.get(name, ""))
             self._show_links(self._lims, links_issue=model.cross_issue())
             self._show_cost()
         finally:
@@ -398,7 +398,7 @@ class CategoryPanel(QScrollArea):
 
     def _show_cost(self) -> None:
         """fx / atmos: the rough render-time note of the current request (#503, #533), hidden
-        when short; atmos also the line about the file length and its note name in Live."""
+        when short; atmos also the line about the file length (and the root's name in Live)."""
         if self.length_label is not None:
             text = atmos_cost.length_text(self.model)
             self.length_label.setText(text)
@@ -408,13 +408,6 @@ class CategoryPanel(QScrollArea):
         text = COST_NOTES[self.model.category](self.model)
         self.cost_label.setText(text)
         self.cost_label.setVisible(bool(text))
-
-    def _extra_note(self, name: str) -> str:
-        """atmos ``note``: the note's name as Live shows it (MIDI 36 = C1), under the field."""
-        if name != "note" or self.model.category != "atmos":
-            return ""
-        value, problem = self.model.parse("note")
-        return "" if problem else f"In Live: {live_note_name(int(value))}"
 
     def _show_value(self, c: ParamControl, active: bool, derived: links.Derived) -> None:
         spec = c.spec

@@ -105,7 +105,8 @@ LABELS_DE: dict[str, str] = {
     "tone_start_hz": "Ton Start", "tone_end_hz": "Ton Ende", "tone_glide_beats": "Ton-Glide",
     "tone_decay_beats": "Ton-Abfall", "echo_note": "Echo-Notenwert",
     # atmos (#533)
-    "bars": "Länge in Takten", "loop_mode": "Schleife / One-Shot",
+    # "Schleife / One-Shot" was 228 px on Windows CI, wider than the 15 M label column
+    "bars": "Länge in Takten", "loop_mode": "Loop-Modus",
     "fade_in_beats": "Einblenden", "fade_out_beats": "Ausblenden",
     "tilt_db_oct": "Rausch-Neigung", "mono_below_hz": "Mono unter",
     "filter_hz": "Filter-Mitte", "move_cycles": "Bewegungen pro Schleife",
