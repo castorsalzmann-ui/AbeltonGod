@@ -67,7 +67,7 @@ from .windows import (
 )
 
 # Pages after the sample categories and the library (left list order).
-TOOL_PAGES = (("goa", "Goa-Arrangement"), ("planner", "Arrangement-Planer"),
+TOOL_PAGES = (("goa", "Goa-Melodie"), ("planner", "Arrangement-Planer"),
               ("live", "Live-Import"), ("chat", "Copilot"), ("reference", "Referenz"))
 
 
