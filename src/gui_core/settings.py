@@ -23,6 +23,7 @@ What the settings mean (decided in #439):
   changes never touch the forms.
 * ``output_volume`` -- 0-100 % for every preview's playback (D-035, #545), default 45. It
   scales only what is played (``gui_core.volume``), never a written file.
+* ``loop_bpm`` -- tempo of the loop preview "Im Takt" (#553), 60-200, default 140.
 * ``windows`` -- last position and size per window key (``main``, ``goa``, ``acid``,
   ``blaster``) and its ``always_on_top`` switch (every window since #517); the Goa window also
   keeps ``animation``.
@@ -40,6 +41,9 @@ from typing import Any
 
 from library.layout import LibraryLayout
 
+from .loop_preview import BPM_MAX as LOOP_BPM_MAX  # one set of limits (#553)
+from .loop_preview import BPM_MIN as LOOP_BPM_MIN
+from .loop_preview import DEFAULT_BPM as LOOP_BPM_DEFAULT
 from .paths import default_output_dir
 from .volume import DEFAULT_VOLUME, clamp_volume
 
@@ -97,6 +101,7 @@ class AppSettings:
     bit_depth: int | None = None
     windows: dict[str, WindowState] = field(default_factory=dict)
     output_volume: int = DEFAULT_VOLUME  # % of every preview's playback (D-035, #545)
+    loop_bpm: int = LOOP_BPM_DEFAULT  # tempo of the loop preview "Im Takt" (#553)
 
     # --- derived places ------------------------------------------------------------------
     def output_root(self) -> Path:
@@ -142,6 +147,7 @@ class AppSettings:
             "bit_depth": self.bit_depth,
             "windows": {k: v.to_json() for k, v in sorted(self.windows.items())},
             "output_volume": self.output_volume,
+            "loop_bpm": self.loop_bpm,
         }
 
 
@@ -184,7 +190,13 @@ def settings_from_json(raw: Any) -> AppSettings:
         bit_depth=bits if _int(bits) is not None and bits in BIT_DEPTHS else None,
         windows=windows,
         output_volume=_volume_or_default(raw.get("output_volume")),
+        loop_bpm=_loop_bpm_or_default(raw.get("loop_bpm")),
     )
+
+
+def _loop_bpm_or_default(v: Any) -> int:
+    ok = _int(v, LOOP_BPM_MIN, LOOP_BPM_MAX)
+    return LOOP_BPM_DEFAULT if ok is None else ok
 
 
 def _volume_or_default(v: Any) -> int:
@@ -309,6 +321,9 @@ class SettingsStore:
                 not isinstance(changes["output_volume"], int)
                 or clamp_volume(changes["output_volume"]) is None):
             raise ValueError("output_volume must be a whole percent 0-100")
+        if "loop_bpm" in changes and _int(changes["loop_bpm"], LOOP_BPM_MIN,
+                                          LOOP_BPM_MAX) is None:
+            raise ValueError(f"loop_bpm must be a whole number {LOOP_BPM_MIN}-{LOOP_BPM_MAX}")
         new = replace(self.settings, **changes)
         if new == self.settings:
             return new

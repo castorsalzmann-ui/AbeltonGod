@@ -51,6 +51,17 @@ class WinsoundBackend:
         except RuntimeError as exc:
             raise RuntimeError(f"Windows konnte die Datei nicht abspielen ({exc}).") from exc
 
+    def play_loop(self, wav_path: Path) -> None:
+        """Repeat the file until :meth:`stop` (#553): SND_LOOP needs SND_ASYNC."""
+        import winsound
+
+        if self._devices() == 0:
+            raise RuntimeError(NO_DEVICE)
+        try:
+            winsound.PlaySound(str(wav_path), play_flags(winsound) | winsound.SND_LOOP)
+        except RuntimeError as exc:
+            raise RuntimeError(f"Windows konnte die Datei nicht abspielen ({exc}).") from exc
+
     def stop(self) -> None:
         import winsound
 

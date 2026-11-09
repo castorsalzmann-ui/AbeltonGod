@@ -41,6 +41,13 @@ from gui_core.choices import ChoiceLog
 from gui_core.form import CategoryFormModel
 from gui_core.goa_render import GoaService
 from gui_core.live import LiveConfig
+from gui_core.loop_preview import (
+    LOOP_RESTART_MS,
+    category_of,
+    default_kick,
+    loop_wav_bytes,
+    read_frames,
+)
 from gui_core.preview import ERROR, PLAYING, PlaybackBackend, PreviewController
 from gui_core.render import RenderHandle, RenderJob, RenderResult, RenderService
 from gui_core.settings import SettingsStore, apply_format_to_form
@@ -56,6 +63,7 @@ from .live_panel import LivePanel
 from .planner_panel import PlannerPanel
 from .reference_panel import ReferencePanel
 from .waveform_widget import WaveformWidget
+from .widgets.loop_bar import LoopBar
 from .widgets.volume import VolumeControl
 from .windows import (
     WINDOW_KEYS,
@@ -296,15 +304,29 @@ class MainWindow(OnTopWindow, QMainWindow):
         # #545: one output volume for every preview, from the settings; saved a moment after
         # the slider stops (not on every step of a drag)
         OUTPUT.set(self.hub.settings.output_volume)
+        self.loop_bar.set_bpm(self.hub.settings.loop_bpm)  # #553: remembered tempo
+        self.loop_bar.bpm_changed.connect(self._loop_bpm_changed)
         self._volume_save = QTimer(self)
         self._volume_save.setSingleShot(True)
         self._volume_save.setInterval(400)
         self._volume_save.timeout.connect(self._save_volume)
+        self._loop_bpm_save = QTimer(self)
+        self._loop_bpm_save.setSingleShot(True)
+        self._loop_bpm_save.setInterval(400)
+        self._loop_bpm_save.timeout.connect(self._save_loop_bpm)
+        # a running loop was scaled once at its start: it is restarted at the new volume once
+        # the slider rests (review of #559)
+        self._loop_volume = QTimer(self)
+        self._loop_volume.setSingleShot(True)
+        self._loop_volume.setInterval(LOOP_RESTART_MS)
+        self._loop_volume.timeout.connect(self._loop_settings_changed)
         OUTPUT.subscribe(self._volume_moved)
 
     def _volume_moved(self, _v: int) -> None:
         try:
             self._volume_save.start()
+            if self.preview.looping:
+                self._loop_volume.start()
         except RuntimeError:  # window already destroyed
             OUTPUT.unsubscribe(self._volume_moved)
 
@@ -591,6 +613,11 @@ class MainWindow(OnTopWindow, QMainWindow):
         vrow.addWidget(self.volume)
         vrow.addStretch(1)
         lay.addLayout(vrow)
+        self.loop_bar = LoopBar()  # #553: the selected sample in a 4/4 loop
+        self.loop_bar.play_clicked.connect(self.play_loop)
+        self.loop_bar.changed.connect(self._loop_settings_changed)
+        self._loop_kick: tuple[int, object] | None = None
+        lay.addWidget(self.loop_bar)
         self.preview_info = QLabel()
         self.preview_info.setObjectName("muted")
         self.preview_info.setWordWrap(True)
@@ -724,6 +751,7 @@ class MainWindow(OnTopWindow, QMainWindow):
         if self.preview.load(path):
             wf = self.preview.waveform
             self.wave.set_waveform(wf)
+            self.loop_bar.set_category(category_of(path))
             self.preview_info.setText(
                 f"{path.name}: {wf.duration_s * 1000:.0f} ms, {wf.sample_rate} Hz, "
                 f"{wf.bit_depth} Bit. Die Höhe der Welle ist auf die Datei skaliert."
@@ -740,8 +768,49 @@ class MainWindow(OnTopWindow, QMainWindow):
         elif self.preview.state == ERROR:
             self.preview_info.setText(self.preview.message)
 
+    def play_loop(self) -> None:
+        """#553: the loaded sample in a 4/4 loop until Stopp (results and library)."""
+        wf = self.preview.waveform
+        if wf is None:
+            self.preview_info.setText("Erst ein Sample in den Ergebnissen oder der Bibliothek "
+                                      "wählen.")
+            return
+        bar = self.loop_bar
+        try:
+            # the file's own channels (the waveform is the mid; review of #559)
+            samples, sr = (read_frames(self.preview.source) if self.preview.source is not None
+                           else (wf.samples, wf.sample_rate))
+            kick = None
+            if bar.with_kick:
+                if self._loop_kick is None or self._loop_kick[0] != sr:
+                    self._loop_kick = (sr, default_kick(sr))
+                kick = self._loop_kick[1]
+            data = loop_wav_bytes(samples, sr, bar.bpm, bar.pattern, 1, kick)
+        except Exception as exc:  # noqa: BLE001 - shown, never swallowed (#543)
+            self.preview_info.setText(f"Loop konnte nicht berechnet werden: {exc}")
+            return
+        if self.preview.play_loop(data):
+            self.timer.stop()
+            self.wave.set_playhead(0.0)
+            kick_text = ", mit Kick" if kick is not None else ""
+            self.preview_info.setText(f"Spielt im Takt: {bar.pattern}, {bar.bpm} BPM{kick_text}."
+                                      " Stopp beendet die Schleife.")
+        else:
+            self.preview_info.setText(self.preview.message)
+
+    def _loop_settings_changed(self) -> None:
+        if self.preview.looping:  # a running loop follows pattern, tempo and kick
+            self.play_loop()
+
+    def _loop_bpm_changed(self, _bpm: int) -> None:
+        self._loop_bpm_save.start()  # saved once the spin box rests (not on every step)
+
+    def _save_loop_bpm(self) -> None:
+        self.hub.store.update(loop_bpm=self.loop_bar.bpm)
+
     def stop(self) -> None:
         self.preview.stop()
+        self._loop_volume.stop()  # a stopped loop is not restarted by a pending volume move
         self.timer.stop()
         self.wave.set_playhead(0.0)
 
@@ -769,6 +838,10 @@ class MainWindow(OnTopWindow, QMainWindow):
         if self._volume_save.isActive():  # a pending volume change is saved, not lost
             self._volume_save.stop()
             self._save_volume()
+        if self._loop_bpm_save.isActive():
+            self._loop_bpm_save.stop()
+            self._save_loop_bpm()
+        self._loop_volume.stop()
         OUTPUT.unsubscribe(self._volume_moved)
         self.windows.close_all()
         self.hub.detach()
