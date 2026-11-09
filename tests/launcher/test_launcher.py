@@ -13,7 +13,8 @@ from launcher.tools import BY_NAME, TOOLS, Tool
 
 # Written out here, not derived from the table under test.
 EXPECTED_TOOLS = {
-    "kick", "hat", "snare", "clap", "rim", "bass", "laser", "perc", "fx", "goa-arrangement",
+    "kick", "hat", "snare", "clap", "rim", "bass", "laser", "perc", "fx", "atmos",
+    "goa-arrangement",
     "goa-melody",
     "goa-patterns", "arrangement-midi", "live-import", "kick-to-live", "bridge-check",
     "arrangement-check", "install-abletonosc", "als-inspect", "plan", "chat",
@@ -21,7 +22,7 @@ EXPECTED_TOOLS = {
 
 
 @pytest.mark.parametrize("name,preset", [("laser", "blaster"), ("perc", "conga"),
-                                         ("fx", "reverse-crash")])
+                                         ("fx", "reverse-crash"), ("atmos", "pumping-bed")])
 def test_laser_and_perc_render_like_python_m(tmp_path: Path, name, preset):
     """Same bytes through the launcher as through ``audio_engine.cli`` directly (#494)."""
     import hashlib
@@ -56,6 +57,7 @@ def test_every_tool_resolves_to_a_real_main(tool: Tool):
     ("clap", ["--category", "clap"]), ("rim", ["--category", "rim"]),
     ("bass", ["--category", "bass"]), ("laser", ["--category", "laser"]),
     ("perc", ["--category", "perc"]), ("fx", ["--category", "fx"]),
+    ("atmos", ["--category", "atmos"]),
 ])
 def test_sound_tools_go_to_audio_engine_cli_with_category(monkeypatch, name, prefix):
     seen = []
@@ -96,6 +98,23 @@ def test_unknown_tool_exits_2_with_list(capsys):
     assert "nope" in err
     for name in EXPECTED_TOOLS:
         assert name in err
+
+
+def test_atmos_help_and_bpm_from_the_command_line(tmp_path: Path, capsys):
+    """#536: ``AbeltonGod-cli.exe atmos --help`` is the engine CLI's help for atmos; the
+    project tempo goes in with ``--set bpm=...`` (by hand: 1 bar at 120 BPM, 48 kHz = 96000
+    frames)."""
+    import wave
+
+    assert cli.main(["atmos", "--help"]) == 0
+    out = capsys.readouterr().out
+    assert "atmos" in out and "--set" in out
+    folder = tmp_path / "a"
+    assert cli.main(["atmos", "--preset", "pumping-bed", "--seed", "7", "--set", "bpm=120",
+                     "--set", "bars=1", "--out", str(folder)]) == 0
+    (wav,) = folder.glob("*.wav")
+    with wave.open(str(wav), "rb") as w:
+        assert (w.getnframes(), w.getnchannels()) == (96000, 2)
 
 
 def test_version_and_help(capsys):
