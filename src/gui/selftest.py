@@ -43,6 +43,14 @@ def run(out=None) -> int:
         blaster = win.windows.window("blaster")
         if ok and getattr(getattr(blaster, "session", None), "engine", None) is None:
             ok, reason = False, "Blaster ohne Laser-Engine (nicht im Paket?)"
+        if ok and sys.platform == "win32":  # #543: the preview backend must be in the package
+            acid = win.windows.window("acid")
+            try:
+                import winsound  # noqa: F401
+            except ImportError as exc:
+                ok, reason = False, f"winsound fehlt im Paket ({exc})"
+            if ok and not getattr(getattr(acid, "backend", None), "available", False):
+                ok, reason = False, "Acid-Fenster ohne Audio-Backend"
         win.close()
         app.processEvents()
     if not ok:

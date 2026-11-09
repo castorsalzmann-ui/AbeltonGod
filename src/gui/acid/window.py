@@ -153,6 +153,17 @@ class AcidWindow(OnTopWindow, QWidget):
             g.addWidget(self._cap(cap.upper()), 0, c)
             g.addWidget(w, 1, c)
         ll.addLayout(g)
+        # #543: play / stop at the top left, visible without scrolling in a half-screen window
+        # (they sat in the file row at the bottom, below the fold at 640 x 680 logical px).
+        self.preview_button = QPushButton("▶ Vorschau")
+        self.preview_button.setObjectName("primary")
+        self.preview_button.setToolTip(f"Spielt die Linie einmal ab ({PREVIEW_LABEL}).")
+        self.stop_button = QPushButton("■ Stopp")
+        prow = QHBoxLayout()
+        prow.addWidget(self.preview_button)
+        prow.addWidget(self.stop_button)
+        prow.addStretch(1)
+        ll.addLayout(prow)
         ll.addStretch(1)
         top.addWidget(line_panel, 5)
         # --- generator panel
@@ -206,14 +217,12 @@ class AcidWindow(OnTopWindow, QWidget):
                                    "Ausgabeordner. Ohne Sidecar: für Acid-Linien gibt es keinen "
                                    "Vertrag.")
         self.open_button = QPushButton("Ordner öffnen")
-        self.preview_button = QPushButton("Vorschau")
-        self.stop_button = QPushButton("Stopp")
         self.anim_box = QCheckBox("Animation")
         # #517: next to Live on one monitor. In this row, not the second: with it there the
         # step grid's pitch area was 74 px high on Windows CI and the drag test failed.
         self.on_top_box = OnTopBox()
         for w in (self.load_button, self.save_button, self.export_button,
-                  self.open_button, self.preview_button, self.stop_button, self.anim_box,
+                  self.open_button, self.anim_box,
                   self.on_top_box):
             row.addWidget(w)
         al.addLayout(row)
@@ -460,20 +469,38 @@ class AcidWindow(OnTopWindow, QWidget):
         if not self.opener(folder):
             self.set_status("Der Ordner konnte nicht geöffnet werden.", error=True)
 
-    def preview(self) -> None:
+    def preview(self) -> bool:
+        """Render the rough preview and hand it to the backend. Every failure ends in a German
+        status line (#543: an exception outside the caught types used to vanish in the Qt slot,
+        and the windowed exe has no console to print it)."""
         if not self.backend.available:
             self.set_status("Keine Audioausgabe verfügbar.", error=True)
-            return
+            return False
         try:
             self.model.bpm = parse_bpm(self.bpm_edit.text())
+        except AcidOptionError as exc:
+            self._fail(exc, self.bpm_edit)
+            return False
+        try:
             data = preview_wav_bytes(self.model.to_line(), self.model.bpm)
+        except Exception as exc:  # noqa: BLE001 - shown to the user, never swallowed
+            self.set_status(f"Vorschau konnte nicht berechnet werden: {exc}", error=True)
+            return False
+        try:
             path = self._tmp / "acid_preview.wav"
             path.write_bytes(data)
+        except OSError as exc:
+            self.set_status(f"Vorschau konnte nicht zwischengespeichert werden: {exc}",
+                            error=True)
+            return False
+        try:
             self.backend.play(path)
-        except (AcidOptionError, ValueError, OSError, RuntimeError) as exc:
-            self._fail(exc)
-            return
-        self.set_status(f"Spielt: {PREVIEW_LABEL}.")
+        except Exception as exc:  # noqa: BLE001
+            self.set_status(f"Wiedergabe fehlgeschlagen: {exc}", error=True)
+            return False
+        self.set_status(f"Spielt: {PREVIEW_LABEL} ({self.model.bpm:g} BPM). Kein Ton? Lautstärke "
+                        "und Wiedergabegerät in Windows prüfen.")
+        return True
 
     def stop_preview(self) -> None:
         try:
