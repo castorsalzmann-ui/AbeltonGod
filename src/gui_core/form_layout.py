@@ -21,6 +21,7 @@ import statistics
 from functools import cache
 
 from audio_engine import (
+    atmos_variants,
     bass_variants,
     clap_variants,
     fx_variants,
@@ -43,11 +44,12 @@ SPREAD_BONUS = 0.1
 HOUSEKEEPING = frozenset({
     "seed", "variants", "bpm", "sample_rate", "bit_depth", "polarity", "offset_ms",
     "peak_ceiling_dbfs", "length_ms", "length_beats",
+    "bars", "loop_mode",  # atmos (#533): shown on top with the tempo
 })
 _VARIANT_MODULES = {
     "kick": kick_variants, "hat": hat_variants, "snare": snare_variants, "clap": clap_variants,
     "rim": rim_variants, "bass": bass_variants, "laser": laser_variants, "perc": perc_variants,
-    "fx": fx_variants,
+    "fx": fx_variants, "atmos": atmos_variants,
 }
 
 

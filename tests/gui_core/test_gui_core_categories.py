@@ -58,6 +58,10 @@ def test_every_contract_field_of_the_category_has_a_spec(cat):
             assert s.kind == "enum" and list(s.choices) == d["enum"], name
         elif d.get("type") == "boolean":
             assert s.kind == "bool", name
+        elif d.get("type") == "array":  # atmos intervals (#533)
+            assert s.kind == "list", name
+            assert (s.minimum, s.maximum) == (d["items"]["minimum"], d["items"]["maximum"])
+            assert (s.min_items, s.max_items) == (d["minItems"], d["maxItems"]), name
         else:
             assert (s.minimum, s.maximum) == (n["minimum"], n["maximum"]), (cat, name)
             assert s.kind == ("int" if n["type"] == "integer" else "float"), name
@@ -81,7 +85,7 @@ def test_every_preset_loads_valid_and_reproduces_itself(cat):
 @pytest.mark.parametrize("cat", CATS)
 def test_boundaries_for_every_numeric_field(cat):
     for name, (d, _gate) in raw_fields(cat).items():
-        if "enum" in d or d.get("type") == "boolean":
+        if "enum" in d or d.get("type") in ("boolean", "array"):  # lists: test_atmos_page
             continue
         n = number_branch(d)
         lo, hi = n["minimum"], n["maximum"]
@@ -103,7 +107,7 @@ def test_random_in_range_values_are_sent_unchanged(cat):
     rng = random.Random(405)
     fields = [
         (k, number_branch(d)) for k, (d, _g) in raw_fields(cat).items()
-        if "enum" not in d and d.get("type") != "boolean"
+        if "enum" not in d and d.get("type") not in ("boolean", "array")
     ]
     for _ in range(100):
         name, n = rng.choice(fields)

@@ -23,6 +23,7 @@ KEY_PARAMS: dict[str, tuple[str, ...]] = {
     "laser": ("family", "pitch_start_hz", "salvo_count"),
     "perc": ("model", "tune_semitones", "decay_scale"),
     "fx": ("kind", "length_beats", "bpm"),
+    "atmos": ("kind", "bars", "bpm"),
 }
 
 
