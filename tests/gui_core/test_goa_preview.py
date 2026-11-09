@@ -63,9 +63,9 @@ def test_silent_voice_is_silent():
 
 
 def test_pad_energy_sits_at_its_chord_tones():
-    # A phrygian, pad density 0 -> one 4-bar triad on degree 0 (A C E) in window 48-59:
+    # A phrygian, progression [0] -> one triad on degree 0 (A C E) in window 48-59:
     # MIDI 48, 52, 57 = 130.81, 164.81, 220.00 Hz (written out here).
-    x = gp.render_voice_preview("pad", seed=0, voices=["pad"])
+    x = gp.render_voice_preview("pad", seed=0, voices=["pad"], progression=[0])
     spec = np.abs(np.fft.rfft(x.astype(np.float64)))
     freqs = np.fft.rfftfreq(len(x), 1 / SR)
     top = sorted(freqs[np.argsort(spec)[-30:]])

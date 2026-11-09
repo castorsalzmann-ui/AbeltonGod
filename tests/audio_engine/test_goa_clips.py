@@ -120,7 +120,31 @@ def _check_clip(voice: str, opts: dict) -> None:
         assert n == bars * _half_up(d * 16)
     else:
         chord_bars = 4 - _half_up(3 * d)
-        assert n == 3 * -(-bars // chord_bars)  # one triad per chord
+        slots = _expected_slots(bars, len(opts.get("progression", [0, 5, 6, 4])))
+        runs = [sum(1 for s in slots if s == k) for k in sorted(set(slots))]
+        assert n == 3 * sum(-(-r // chord_bars) for r in runs)  # one triad per strike
+    if voice in ("arp", "pad"):
+        prog = opts.get("progression", [0, 5, 6, 4])
+        slots = _expected_slots(bars, len(prog))
+        for s, _, pitch, _ in m["notes"]:
+            want = _triad(rpc, opts.get("scale", "phrygian"), prog[slots[s // 1920]])
+            assert pitch % 12 in want, (voice, s, pitch, want)
+
+
+def _expected_slots(bars: int, k: int) -> list[int]:
+    """Spec (coordinator, #546): spread K chords evenly over the bars; fewer bars than
+    chords -> the first `bars` chords, one per bar."""
+    if bars < k:
+        return list(range(bars))
+    out = []
+    for b in range(bars):
+        out.append(int(b * k / bars + 1e-9))  # float route, not the module's integer //
+    return out
+
+
+def _triad(rpc: int, scale: str, degree: int) -> set[int]:
+    steps = sorted(SCALE_STEPS[scale])
+    return {(rpc + steps[(degree + j) % 7]) % 12 for j in (0, 2, 4)}
 
 
 @pytest.mark.parametrize("voice", goa_clips.VOICES)
@@ -133,6 +157,45 @@ def test_default_clip_is_four_bars_in_scale(voice):
 def test_loop_length_exact_in_ticks(bars):
     for v in goa_clips.VOICES:
         assert parse_smf(goa_clips.clip_to_midi(v, seed=1, bars=bars))["end"] == bars * 1920
+
+
+# A phrygian (A Bb C D E F G), triads written out by hand (pitch classes):
+# degree 0 = A C E, 5 = F A C, 6 = G Bb D, 4 = E G Bb
+TRIAD_A_PHRYGIAN = {0: {9, 0, 4}, 5: {5, 9, 0}, 6: {7, 10, 2}, 4: {4, 7, 10}}
+
+
+@pytest.mark.parametrize(("bars", "degrees_per_bar"), [
+    (4, [0, 5, 6, 4]),
+    (8, [0, 0, 5, 5, 6, 6, 4, 4]),
+    (5, [0, 0, 5, 6, 4]),
+    (2, [0, 5]),
+    (1, [0]),
+    (16, [0] * 4 + [5] * 4 + [6] * 4 + [4] * 4),
+])
+@pytest.mark.parametrize("pad_density", [0.0, 0.5, 1.0])
+def test_pad_and_arp_run_through_the_progression(bars, degrees_per_bar, pad_density):
+    opts = {"seed": 2, "bars": bars, "progression": [0, 5, 6, 4],
+            "density": {"pad": pad_density, "arp": 1.0}}
+    pad = parse_smf(goa_clips.clip_to_midi("pad", **opts))["notes"]
+    arp = parse_smf(goa_clips.clip_to_midi("arp", **opts))["notes"]
+    for b, deg in enumerate(degrees_per_bar):
+        mid = b * 1920 + 960  # middle of bar b: which pad notes sound there?
+        sounding = {p % 12 for s, e, p, _ in pad if s <= mid < e}
+        assert sounding == TRIAD_A_PHRYGIAN[deg], (b, sounding)
+        in_bar = {p % 12 for s, _, p, _ in arp if b * 1920 <= s < (b + 1) * 1920}
+        assert in_bar and in_bar <= TRIAD_A_PHRYGIAN[deg], (b, in_bar)
+    text = goa_clips.render_readme({"pad": "x", "arp": "y", "lead": "z", "pluck": "w"},
+                                   **opts)
+    assert "chord per bar (arp and pad): " + ", ".join(map(str, degrees_per_bar)) in text
+
+
+def test_song_mode_pad_unchanged():
+    # goa_melody keeps its own rule: density 0 -> one 4-bar chord on the first degree
+    from audio_engine import goa_melody
+    o = goa_melody.normalise({"seed": 2, "length": 4})
+    notes = goa_melody.voice_pattern("pad", o, 1.0)["notes"]
+    assert [(n["pitch"], n["start"], n["duration"]) for n in notes] == \
+        [(48, 0.0, 15.9375), (52, 0.0, 15.9375), (57, 0.0, 15.9375)]
 
 
 def test_same_options_same_bytes_other_seed_other_bytes():

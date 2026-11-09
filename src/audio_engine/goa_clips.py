@@ -5,8 +5,12 @@ D-035 (1): the Goa page generates clips, not a song. A clip is ``bars`` bars (1-
 register, arp pattern, progression). There are no sections, no energy curve and no song
 form here; song form belongs to the arrangement planner (D-033).
 
-The notes come from ``goa_melody.voice_pattern`` at full energy, so a clip is exactly the
-phrase ``goa_melody`` would repeat, with no section scaling of density or velocity.
+Lead and pluck come from ``goa_melody.voice_pattern`` at full energy (no section scaling
+of density or velocity). Arp and pad follow the progression INSIDE the clip
+(:func:`bar_chords`): with at least as many bars as chords, the chords are spread evenly
+(4 bars, 0,5,6,4: one chord per bar; 8 bars: two bars each). A clip shorter than the
+progression (1-3 bars for 4 chords) holds only the first ``bars`` chords, one per bar.
+This differs from ``goa_melody``'s song phrases on purpose; ``goa_melody`` is unchanged.
 
 File layout: ONE format-0 ``.mid`` PER VOICE (one clip per file). Reason: in Live a MIDI
 file dropped on a track (or a clip slot) becomes one clip on that track, so the user puts
@@ -76,12 +80,59 @@ def _ticks(beats: float) -> int:
     return int(beats * PPQ + 0.5)
 
 
+def bar_chords(o: Mapping[str, Any]) -> list[int]:
+    """Chord slot (index into the progression) for every bar of the clip.
+
+    ``bars >= len(progression)``: the chords are spread evenly, bar ``b`` plays chord
+    ``b * K // bars`` (K = number of chords), so every chord is in the clip.
+    ``bars < K``: the first ``bars`` chords, one per bar (the rest do not fit).
+    """
+    bars, k = o["bars"], len(o["progression"])
+    if bars >= k:
+        return [b * k // bars for b in range(bars)]
+    return list(range(bars))
+
+
+def _clip_pad(o: Mapping[str, Any]) -> list[dict[str, Any]]:
+    """Pad for clip mode: one triad per chord span; long spans are re-struck every
+    ``pad_chord_bars(density)`` bars (the density rule of ``goa_melody``)."""
+    rpc = goa_melody.root_pc(o["root"])
+    cb = goa_melody.pad_chord_bars(o["density"]["pad"])
+    slots = bar_chords(o)
+    notes = []
+    bar = 0
+    while bar < o["bars"]:
+        end = bar
+        while end < o["bars"] and slots[end] == slots[bar]:
+            end += 1
+        degree = o["progression"][slots[bar]]
+        tones = goa_melody._chord_tones("pad", o["register"]["pad"], rpc, o["scale"], degree)
+        while bar < end:
+            span = min(cb, end - bar)
+            for pitch in tones:
+                notes.append({"pitch": pitch, "start": bar * 4.0,
+                              "duration": span * 4.0 - goa_melody.PAD_GAP_BEATS,
+                              "velocity": goa_melody._velocity("pad", 0)})
+            bar += span
+    return notes
+
+
 def clip_notes(voice: str, **params: Any) -> list[Note]:
-    """Notes of one clip in ticks (PPQ 480), sorted by (start, pitch)."""
+    """Notes of one clip in ticks (PPQ 480), sorted by (start, pitch).
+
+    Lead and pluck are the ``goa_melody`` phrase unchanged. Arp and pad follow
+    :func:`bar_chords` (one chord map for both, so they agree in every bar).
+    """
     if voice not in VOICES:
         raise ValueError(f"voice must be one of {list(VOICES)}")
     o = normalise(params)
-    pat = goa_melody.voice_pattern(voice, _melody_options(o), 1.0)
+    if voice == "pad":
+        pat = {"notes": _clip_pad(o)}
+    else:
+        mo = _melody_options(o)
+        # the arp reads progression[bar % len]; a per-bar list makes it follow bar_chords
+        mo["progression"] = [o["progression"][s] for s in bar_chords(o)]
+        pat = goa_melody.voice_pattern(voice, mo, 1.0)
     notes = []
     for n in pat["notes"]:
         s = _ticks(n["start"])
@@ -150,7 +201,12 @@ def render_readme(names: Mapping[str, str], **params: Any) -> str:
          "## Options used", "",
          f"- seed: {o['seed']}", f"- bars per clip: {o['bars']}", f"- bpm: {o['bpm']:g}",
          f"- key: {o['root']} {o['scale']}", f"- arp pattern: {o['arp_pattern']}",
-         f"- progression (scale degrees): {', '.join(map(str, o['progression']))}", "",
+         f"- progression (scale degrees): {', '.join(map(str, o['progression']))}",
+         "- chord per bar (arp and pad): "
+         + ", ".join(str(o["progression"][s]) for s in bar_chords(o)), "",
+         "Arp and pad run through the progression inside the clip: chords spread evenly "
+         "over the bars. A clip with fewer bars than chords holds only the first chords, "
+         "one per bar.", "",
          "| voice | file | notes | density | register (octaves) |",
          "| --- | --- | --- | --- | --- |"]
     for v in o["voices"]:
