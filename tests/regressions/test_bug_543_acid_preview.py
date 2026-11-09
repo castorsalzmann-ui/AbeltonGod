@@ -79,6 +79,27 @@ def test_play_and_stop_are_visible_without_scrolling_in_a_half_screen_window(qap
         w.close()
 
 
+@pytest.mark.parametrize("size", [HALF_SCREEN, (1280, 720)])
+@pytest.mark.parametrize("fail", [None, OSError("Gerät belegt")])
+def test_the_play_result_is_visible_without_scrolling(qapp, tmp_path, size, fail):
+    """Review of #561: the footer status sat below the fold too (0 x 0 visible)."""
+    w = _window(tmp_path, FakeBackend(fail=fail))
+    try:
+        w.resize(*size)
+        QApplication.processEvents()
+        w.preview_button.click()
+        QApplication.processEvents()
+        label = w.preview_status
+        want = "Wiedergabe fehlgeschlagen: Gerät belegt" if fail else "Spielt:"
+        assert want in label.text()
+        assert ("Kein Ton?" in label.text()) == (fail is None)
+        assert (label.property("level") == "error") == (fail is not None)
+        visible = label.visibleRegion().boundingRect()
+        assert visible.size() == label.size() and visible.height() > 0, (size, visible)
+    finally:
+        w.close()
+
+
 def test_an_unexpected_render_error_is_shown_in_german_not_swallowed(qapp, tmp_path,
                                                                      monkeypatch):
     import gui.acid.window as acid_window
