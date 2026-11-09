@@ -20,7 +20,7 @@ if os.environ.get("ABELTONGOD_REQUIRE_GUI") == "1":  # CI: a missing Qt must fai
 else:
     pytest.importorskip("PySide6.QtWidgets", exc_type=ImportError)
 
-from PySide6.QtWidgets import QApplication, QLabel, QPushButton  # noqa: E402
+from PySide6.QtWidgets import QApplication, QLabel, QPushButton, QScrollArea  # noqa: E402
 
 from gui.app import create_app  # noqa: E402
 from gui.drag import PATH_ROLE  # noqa: E402
@@ -161,6 +161,44 @@ def test_goa_window_at_its_start_size_squeezes_no_label(main):
                    *panel.voice_buttons.values()):
         bottom = button.mapTo(win, button.rect().bottomLeft()).y()
         assert 0 < bottom < win.height(), (button.text(), bottom, win.height())
+
+
+def test_goa_window_scrolls_once_reaches_every_setting_and_shows_whole_file_names(main):
+    """#546 review: in the 760 x 560 window an inner scroll area showed 2 of 10 settings (a
+    second scroll bar at the window edge), an empty status line left a gap above the form,
+    and the file column was cut to "goa". Now: one scroll area (the window's), every setting
+    row can be scrolled into view, no gap, every file name shown whole."""
+    win = main.windows.open("goa")
+    assert win is not None, main.windows.last_error
+    QApplication.processEvents()
+    assert (win.width(), win.height()) == (760, 560)
+    panel = win.body
+    areas = [a for a in win.findChildren(QScrollArea)]
+    assert len(areas) == 1, [type(a.widget()).__name__ for a in areas]
+    area = areas[0]
+    assert not panel.findChildren(QScrollArea)
+    for dest, edit in panel.form.edits.items():
+        area.ensureWidgetVisible(edit)
+        QApplication.processEvents()
+        top = edit.mapTo(area.viewport(), edit.rect().topLeft()).y()
+        assert 0 <= top < area.viewport().height(), (dest, top)
+        assert not edit.visibleRegion().isEmpty(), dest
+    area.verticalScrollBar().setValue(0)
+    QApplication.processEvents()
+    line = panel.fontMetrics().height()
+    gap = (panel.form.mapTo(panel, panel.form.rect().topLeft()).y()
+           - panel.export_button.mapTo(panel, panel.export_button.rect().bottomLeft()).y())
+    assert not panel.status.isVisible() and gap < 2 * line, gap
+    table = panel.table
+    fm = table.fontMetrics()
+    assert table.rowCount() == 4
+    shown = table.viewport().width()
+    assert sum(table.columnWidth(c) for c in range(3)) <= shown
+    for r in range(table.rowCount()):
+        name = table.item(r, 2).text()
+        assert name.endswith("bars.mid")
+        assert table.columnWidth(2) >= fm.horizontalAdvance(name), (name, table.columnWidth(2))
+        assert table.item(r, 2).toolTip() == name
 
 
 def test_goa_window_exports_one_clip_per_voice_into_the_shown_folder(main, tmp_path):

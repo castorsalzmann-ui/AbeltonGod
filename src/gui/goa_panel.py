@@ -22,7 +22,6 @@ from PySide6.QtWidgets import (
     QListWidgetItem,
     QPlainTextEdit,
     QPushButton,
-    QScrollArea,
     QSizePolicy,
     QTableWidget,
     QTableWidgetItem,
@@ -61,30 +60,28 @@ class _Signals(QObject):
     done = Signal(object)
 
 
-class OptionForm(QScrollArea):
+class OptionForm(QWidget):
     """The clip generator's options, built from the widget kit. ``edits[dest]`` is the
     editing widget: ``NumberControl`` (bpm), ``Segmented`` / ``PresetChips`` (choices,
     voices), ``Toggle`` (flags) or ``StepEdit`` / ``QLineEdit`` (numbers and texts the
     generator checks itself).
-    ``checks[dest]`` is the dot of an optional option (sent only when on)."""
+    ``checks[dest]`` is the dot of an optional option (sent only when on).
+
+    No scroll area of its own (#546 review): the page and the Goa window already scroll, and
+    a second, inner scroll area showed only two settings in the 760 x 560 window."""
 
     changed = Signal()
 
     def __init__(self, model: GoaFormModel) -> None:
         super().__init__()
         self.model = model
-        self.setWidgetResizable(True)
-        self.setFrameShape(QScrollArea.Shape.NoFrame)
         self.edits: dict[str, QWidget] = {}
         self.checks: dict[str, ActiveDot] = {}
         self.hints: dict[str, QLabel] = {}
         self._syncing = False
-        root = QWidget()
-        root.setObjectName("root")
-        lay = QVBoxLayout(root)
-        lay.setContentsMargins(8, 4, 12, 16)
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(8, 0, 12, 8)
         lay.setSpacing(6)
-        self.setWidget(root)
         for group in GROUPS:
             specs = [s for s in model.specs if s.group == group]
             if not specs:
@@ -297,16 +294,10 @@ class GoaPanel(QWidget):
         self._build_actions(left)
         self.form = OptionForm(self.model)
         self.form.changed.connect(self.refresh)
-        left.addWidget(self.form, 1)
+        left.addWidget(self.form)
+        left.addStretch(1)
         left_box = QWidget()
         left_box.setLayout(left)
-        # The form scrolls inside: its width (the widest row plus the scroll bar) and, for the
-        # stacked layout, a height of its own (else it shrinks to a few px).
-        self.ensurePolished()
-        f = self.form
-        f.setMinimumWidth(f.widget().minimumSizeHint().width()
-                          + f.verticalScrollBar().sizeHint().width() + 2 * f.frameWidth())
-        f.setMinimumHeight(self.fontMetrics().height() * 18)
         outer.addWidget(left_box, 1)
 
         right = QVBoxLayout()
@@ -361,6 +352,7 @@ class GoaPanel(QWidget):
         self.status.setObjectName("status")
         self.status.setWordWrap(True)
         self.status.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Minimum)
+        self.status.hide()
         right.addWidget(self.status)
         # --- drag: one row per exported clip (next to the export, visible without scrolling)
         self.drag_list = DragList()
@@ -385,6 +377,10 @@ class GoaPanel(QWidget):
         self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.table.horizontalHeader().setStretchLastSection(True)
+        # If a name ever does not fit, cut it in the middle (the voice and the bars stay
+        # readable) and show it whole in the tooltip.
+        self.table.setTextElideMode(Qt.TextElideMode.ElideMiddle)
+        self.table.setWordWrap(False)
         cv.addWidget(self.table, 1)
         self.tabs.addTab(clips, "Clips")
         self.readme = QPlainTextEdit()
@@ -422,6 +418,7 @@ class GoaPanel(QWidget):
 
     def set_status(self, text: str, error: bool = False) -> None:
         self.status.setText(text)
+        self.status.setVisible(bool(text))  # an empty line would leave a gap above the form
         self.status.setProperty("level", "error" if error else "ok")
         self.status.style().unpolish(self.status)
         self.status.style().polish(self.status)
@@ -473,8 +470,15 @@ class GoaPanel(QWidget):
                 if col == 1:
                     item.setTextAlignment(Qt.AlignmentFlag.AlignRight
                                           | Qt.AlignmentFlag.AlignVCenter)
+                if col == 2:
+                    item.setToolTip(text)
                 self.table.setItem(r, col, item)
         self.table.resizeColumnsToContents()
+        # The clip side is at least as wide as the whole table, so a narrow window stacks it
+        # below the form (AdaptiveBox) instead of cutting the file names (#546 review).
+        need = (sum(self.table.columnWidth(c) for c in range(self.table.columnCount()))
+                + 2 * self.table.frameWidth() + self.table.verticalScrollBar().sizeHint().width())
+        self.table.setMinimumWidth(need)
 
     # --- preview -------------------------------------------------------------------------
     def preview(self, which: str) -> bool:
