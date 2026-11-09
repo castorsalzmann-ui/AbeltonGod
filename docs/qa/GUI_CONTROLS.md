@@ -329,8 +329,8 @@ ends; its countdown shows what is left of that window. Checked by
 | `acid · QPushButton · MIDI exportieren` | `AcidWindow.export_midi` | Writes acid_<seed>.mid (not in the library, #439; not tested in Live) |
 | `acid · QPushButton · Neuer Seed` | `AcidWindow.new_seed` | Random seed, then generate |
 | `acid · QPushButton · Ordner öffnen` | `AcidWindow.open_folder` | Opens the output folder |
-| `acid · QPushButton · Stopp` | `AcidWindow.stop_preview` | Stops the preview |
-| `acid · QPushButton · Vorschau` | `AcidWindow.preview` | Rough preview WAV (no 303 sound) through the backend |
+| `acid · QPushButton · ■ Stopp` | `AcidWindow.stop_preview` | Stops the preview (top left, Linie panel, #543) |
+| `acid · QPushButton · ▶ Vorschau` | `AcidWindow.preview` | Rough preview WAV (no 303 sound) through the backend; every failure shown in German (#543) |
 | `acid · QPushButton · WAV exportieren` | `AcidWindow.export_wav` | Writes the rough preview as WAV into the run folder `<Ausgabeordner>/Acid/acid_<seed>/` (shared rate/bit depth, no sidecar: no contract) |
 | `acid · QPushButton · In Bibliothek zeigen` | `ResultActions.show_in_library` | Shows the main library with the exported WAV selected |
 | `acid · QPushButton · An Live senden` | `ResultActions.send_to_live` | Disabled for acid WAVs (no sidecar); the row says why |

@@ -140,11 +140,12 @@ PERC_DESCRIPTIONS = {
 
 _FX_BPM = " Written at 135 BPM: set bpm to the track's tempo, or the file misses the bar line."
 FX_DESCRIPTIONS = {
-    "riser-8bar": "Noise riser over 8 bars, band-pass rising, level rising (kind defaults)."
-    + _FX_BPM,
-    "riser-16bar": "Noise riser over 16 bars, the riser kind defaults written out." + _FX_BPM,
-    "riser-32bar": "Noise riser over 32 bars, band-pass rising, level rising (kind defaults)."
-    + _FX_BPM,
+    "riser-8bar": "Noise riser over 8 bars, band-pass rising, level rising from -60 dB (kind "
+    "defaults otherwise)." + _FX_BPM,
+    "riser-16bar": "Noise riser over 16 bars, level rising from -60 dB (riser kind defaults "
+    "otherwise)." + _FX_BPM,
+    "riser-32bar": "Noise riser over 32 bars, band-pass rising, level rising from -60 dB (kind "
+    "defaults otherwise)." + _FX_BPM,
     "downlifter": "Noise downlifter over 2 bars, band-pass falling, level falling (kind "
     "defaults)." + _FX_BPM,
     "sweep": "Resonant low-pass noise sweep over 4 bars (kind defaults)." + _FX_BPM,

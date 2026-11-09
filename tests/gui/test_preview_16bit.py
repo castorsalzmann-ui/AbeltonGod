@@ -106,7 +106,8 @@ def test_winsound_flags_never_play_the_default_sound_and_stop_without_purge(monk
                                  SND_PURGE=0x40,
                                  PlaySound=lambda sound, flags: calls.append((sound, flags)))
     monkeypatch.setitem(sys.modules, "winsound", fake)
-    b = audio.WinsoundBackend()
+    # device probe pinned: what waveOutGetNumDevs returns on a runner is not checked here
+    b = audio.WinsoundBackend(devices=lambda: 1)
     b.play(Path("x.wav"))
     b.stop()
     # values from the Windows SDK (mmsystem.h), written here, not taken from the code

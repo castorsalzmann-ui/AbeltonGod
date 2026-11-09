@@ -646,18 +646,21 @@ def test_live_preview_is_capped_marked_and_not_kept_and_full_render_is_not(win):
     assert idle(win)
     calls = win.session.engine.calls
     cheap, _ = calls[-1]
+    # #544: 1180 ms = 2 shots 150 ms apart + attack 0.5 + decay 400 + reverb 600 + 20 margin
     assert (cheap["length_ms"], cheap["decay_ms"], cheap["salvo_count"],
-            cheap["reverb_decay_ms"]) == (800, 400, 2, 600)
+            cheap["reverb_decay_ms"]) == (1180, 400, 2, 600)
     assert win.history.count() == 0 and win.scope.preview
     assert "gekürzt" in win.status.text() and "Vollqualität" in win.status.text()
     assert "Länge" in win.status.text()
     win.full_btn.click()
     assert idle(win)
     full, _ = win.session.engine.calls[-1]
+    # #544: committing 5 shots grew the length from 3000 to the 6000 ms maximum (5 shots +
+    # decay 2000 + reverb 4000 need more than 6000)
     assert (full["length_ms"], full["decay_ms"], full["salvo_count"],
-            full["reverb_decay_ms"]) == (3000, 2000, 5, 4000)
+            full["reverb_decay_ms"]) == (6000, 2000, 5, 4000)
     assert win.history.count() == 1 and not win.scope.preview
-    assert win.session.history[0].params["length_ms"] == 3000
+    assert win.session.history[0].params["length_ms"] == 6000
 
 
 def test_live_preview_plays_only_when_the_drag_ends_and_not_into_the_history(win):
