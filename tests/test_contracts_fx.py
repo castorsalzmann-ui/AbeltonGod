@@ -85,8 +85,8 @@ KIND_DEFAULTS = {
     "riser": {"length_beats": 64, "tail_beats": 4, "filter_mode": "bp",
               "cutoff_start_hz": 300, "cutoff_end_hz": 9000, "filter_q": 1.2,
               "sweep_curve": 1.5,
-              "level_start_db": -36, "level_end_db": 0, **_TONE_OFF, "tone_wave": "sine",
-              "tone_start_hz": 220, "tone_end_hz": 880, "reverb_mix": 0.3},
+              "level_start_db": -60, "level_end_db": 0, **_TONE_OFF, "tone_wave": "sine",
+              "tone_start_hz": 220, "tone_end_hz": 880, "reverb_mix": 0.3},  # -60: #547
     "sweep": {"length_beats": 16, "tail_beats": 2, "filter_mode": "lp",
               "cutoff_start_hz": 200, "cutoff_end_hz": 12000, "filter_q": 4, "sweep_curve": 1,
               "level_start_db": -6, "level_end_db": 0, **_TONE_OFF, "tone_wave": "sine",
@@ -249,7 +249,7 @@ def test_no_field_has_both_a_top_level_and_a_branch_default() -> None:
 # default differs between kinds, plus the derived ones and a few top-level ones.
 RESOLVED = {
     "riser": {"filter_q": 1.2, "sweep_curve": 1.5, "length_beats": 64, "ramp_beats": 64,
-              "filter_mode": "bp", "cutoff_end_hz": 9000, "level_start_db": -36,
+              "filter_mode": "bp", "cutoff_end_hz": 9000, "level_start_db": -60,
               "level_curve": 1, "peak_ceiling_dbfs": -1.0},
     "sweep": {"filter_q": 4, "sweep_curve": 1, "filter_mode": "lp", "tail_beats": 2,
               "tone_glide_beats": 16},
