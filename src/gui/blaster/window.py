@@ -161,6 +161,7 @@ class BlasterWindow(OnTopWindow, QWidget):
         self._preset_cache: dict[str, bp.BlasterSettings] = {}
         self._last_echo_note = "1/8"
         self._preview_play = False
+        self._length_note = ""  # #544: shown once with the next status
         self.autofire_count = 0
         self.autofire_skipped = 0
         self.autofire_lagging = False
@@ -787,9 +788,33 @@ class BlasterWindow(OnTopWindow, QWidget):
         if self._syncing:
             return
         label = bp.spec(name).label if name in bp.laser_specs() else name
+        if name in bp.LENGTHENING_FIELDS:
+            self._fit_length()
+        else:  # the user's own length (and any other edit) keeps the length; he is told
+            self._length_note = bp.length_warning(self.settings)
         self.undo_stack.record(self.settings, label)
         self._refresh_tools()
+        self._show_length_note()
         self._schedule_preview(True)
+
+    def _fit_length(self) -> None:
+        """#544: after a change of another field the length grows until the last shot of the
+        salvo rings out (the engine cuts at ``length_ms``)."""
+        fitted, self._length_note = bp.fit_length(self.settings)
+        if fitted != self.settings:
+            self._apply_settings(fitted)
+
+    def _show_length_note(self) -> None:
+        if self._length_note:
+            self.set_status(self._length_note)
+
+    def _with_length_note(self, text: str, settings: bp.BlasterSettings | None = None
+                          ) -> tuple[str, bool]:
+        """``text`` with the pending length note (shown once) or, while ``settings`` cut the
+        sound, the warning in front. A note, not an error: a cut can be wanted."""
+        note, self._length_note = self._length_note, ""
+        note = note or bp.length_warning(settings or self.settings)
+        return (f"{note} {text}" if note else text), False
 
     def _reset(self, names: tuple[str, ...], *_: Any) -> None:
         """Ctrl+click: back to the contract default."""
@@ -840,13 +865,16 @@ class BlasterWindow(OnTopWindow, QWidget):
         seed = self.random_seed
         self.random_seed += 1
         self._apply_settings(bp.randomise(self.settings, free, seed))
+        if bp.GROUP_OF["length_ms"] in free:  # a locked group stays unchanged
+            self._fit_length()
         self._apply_family_look()
         self.undo_stack.record(self.settings, "Würfeln")
         self._refresh_tools()
         names = ", ".join(bp.GROUP_BY_KEY[k].label for k in free)
         skipped = [bp.GROUP_BY_KEY[k].label for k in wanted if k in self.locked]
         extra = f" Gesperrt, unverändert: {', '.join(skipped)}." if skipped else ""
-        self.set_status(f"Gewürfelt (Zufalls-Seed {seed}): {names}.{extra}")
+        text, err = self._with_length_note(f"Gewürfelt (Zufalls-Seed {seed}): {names}.{extra}")
+        self.set_status(text, error=err)
         self._schedule_preview(True)
 
     def _on_preset_chip(self, name: str) -> None:
@@ -871,7 +899,8 @@ class BlasterWindow(OnTopWindow, QWidget):
         self._refresh_tools()
         kept = [bp.GROUP_BY_KEY[k].label for k in self.locked]
         extra = f" Gesperrt, unverändert: {', '.join(kept)}." if kept else ""
-        self.set_status(f"Preset „{name}“ geladen.{extra}")
+        text, err = self._with_length_note(f"Preset „{name}“ geladen.{extra}")  # kept as is
+        self.set_status(text, error=err)
         self._schedule_preview(True)
 
     def undo(self) -> None:
@@ -1076,8 +1105,10 @@ class BlasterWindow(OnTopWindow, QWidget):
         self._show_shot(shot)
         self._sync_seed_field()
         self.gun.flash()
-        self.set_status(res.message if res.message else f"Schuss {shot.label()}",
-                        error=res.error)
+        if res.message:
+            self.set_status(res.message, error=res.error)
+        else:
+            self.set_status(*self._with_length_note(f"Schuss {shot.label()}", settings))
 
     def _show_shot(self, shot) -> None:
         self.gun.set_trace(peaks(shot.mono, TRACE_BUCKETS))
@@ -1142,7 +1173,8 @@ class BlasterWindow(OnTopWindow, QWidget):
                 text, err = res.message, res.error
                 self.set_status(text, error=err)
                 return
-        self.set_status(text)
+        text, err = self._with_length_note(text, _settings)
+        self.set_status(text, error=err)
 
     # ---- hold to autofire ------------------------------------------------------------------
     def _on_gun_triggered(self) -> None:

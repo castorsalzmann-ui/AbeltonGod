@@ -248,8 +248,11 @@ def test_preview_caps_lower_only_what_is_over_the_cap_and_keep_the_request_valid
     s = BlasterSettings().with_values(length_ms=5000, decay_ms=2500, salvo_count=5,
                                       reverb_mix=0.3, reverb_decay_ms=5000)
     full, cheap = bp.to_engine_params(s), bp.preview_params(s)
+    # #544: the preview length is what the capped salvo needs to ring out (2 shots 150 ms
+    # apart + attack 0.5 + decay 400 + reverb 600 + 20 ms fade margin = 1170.5 -> 1180), not 800
+    assert s.get("attack_ms") == 0.5 and s.get("salvo_spacing_ms") == 150
     assert (cheap["length_ms"], cheap["decay_ms"], cheap["salvo_count"],
-            cheap["reverb_decay_ms"]) == (800, 400, 2, 600)
+            cheap["reverb_decay_ms"]) == (1180, 400, 2, 600)
     assert (full["length_ms"], full["salvo_count"]) == (5000, 5)  # the real shot is untouched
     assert bp.capped_fields(s) == ["Länge", "Zerfall", "Schüsse", "Nachhall"]
     small = BlasterSettings().with_values(length_ms=300, decay_ms=100)
@@ -259,7 +262,7 @@ def test_preview_caps_lower_only_what_is_over_the_cap_and_keep_the_request_valid
     for _ in range(300):
         c = bp.preview_params(random_settings(rng))
         bp.validate_request(c)
-        assert c["length_ms"] <= 800 and c["decay_ms"] <= 400 and c["salvo_count"] <= 2
+        assert c["length_ms"] <= 2500 and c["decay_ms"] <= 400 and c["salvo_count"] <= 2
         assert c["reverb_mix"] == 0 or c["reverb_decay_ms"] <= 600
 
 
