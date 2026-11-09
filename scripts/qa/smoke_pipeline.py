@@ -415,8 +415,9 @@ def smoke_tools(res: Results, work: Path) -> dict:
             from audio_engine.presets import preset_names
 
             preset = preset_names(cat)[0]
-            # fx needs bpm in adjust whatever the preset carries (#515); 135 = a test tempo
-            adjust = [{"key": "bpm", "value": 135}] if cat == "fx" else []
+            # fx and atmos need bpm in adjust whatever the preset carries (#515, #536);
+            # 135 = a test tempo
+            adjust = [{"key": "bpm", "value": 135}] if cat in ("fx", "atmos") else []
             args = {"category": cat, "preset": preset, "prompt": "", "seed": 7, "variants": 2,
                     "adjust": adjust}
             with guard.request("p") as req:

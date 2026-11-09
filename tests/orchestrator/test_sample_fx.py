@@ -28,7 +28,7 @@ from orch_helpers import (  # noqa: F401 - *_fixture are pytest fixtures (see or
     make_guard_fixture,
 )
 from test_contracts import optional_fields
-from test_sample_dispatch import CLAP_TO_PERC_506, digest, strip
+from test_sample_dispatch import CLAP_TO_FX_515, CLAP_TO_PERC_506, digest, strip
 
 from orchestrator.fake_model import FakeModel
 from orchestrator.loop import Orchestrator
@@ -85,7 +85,8 @@ def frames_and_channels(path):
 
 
 def test_fx_row_is_in_the_copilot_tool_and_keeps_the_shape():
-    before, after = tool_input_schema(CLAP_TO_PERC_506), tool_input_schema()
+    # #536: the default table has an atmos row since; CLAP_TO_FX_515 is the table of #515
+    before, after = tool_input_schema(CLAP_TO_PERC_506), tool_input_schema(CLAP_TO_FX_515)
     assert digest(after) == FX_SCHEMA_SHA256 != digest(before)
     assert after["properties"]["category"]["enum"][-1] == "fx"
     assert strip(after) == strip(before) and optional_fields(after) == 0
@@ -106,7 +107,7 @@ def test_fx_row_is_in_the_copilot_tool_and_keeps_the_shape():
     a = ADAPTERS["fx"]
     assert a.contract == "fx-params.schema.json" and sorted(a.presets) == FX_PRESETS
     assert a.make_variants.__module__ == "audio_engine.fx_variants"
-    tool = SampleTools(type("S", (), {"project_dir": "."})()).tools()[0]
+    tool = SampleTools(type("S", (), {"project_dir": "."})(), CLAP_TO_FX_515).tools()[0]
     assert tool.max_files_written == 16
     assert "Categories: clap, hat, snare, rim, bass, laser, perc, fx." in tool.description
 

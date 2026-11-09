@@ -20,6 +20,10 @@ them unchanged. Approval ``routine``; the kick tool is not touched.
 fx (#515) is tempo-bound: its lengths are beats, ``bpm`` must come from ``adjust`` whatever
 the preset carries (refused otherwise), and ``multipleOf`` steps of the contract are checked
 locally.
+
+atmos (#536) follows the same tempo rule (``bpm`` only from ``adjust``). Its array field
+``intervals`` (the chord) is not an adjust key: adjust values are single numbers, so the chord
+comes from the preset, and the tool text lists which preset gives which chord.
 """
 
 from __future__ import annotations
@@ -30,6 +34,7 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import Any
 
+from audio_engine.atmos_variants import make_variants as atmos_variants
 from audio_engine.bass_variants import make_variants as bass_variants
 from audio_engine.clap_variants import make_variants
 from audio_engine.fx_variants import make_variants as fx_variants
@@ -82,6 +87,8 @@ class CategoryAdapter:
     # tempo); missing = refused before any file.
     required: tuple[str, ...] = ()
     note: str = ""  # extra tool text for this category (fx: tempo rule)
+    # Why bpm is required, in its refusal text (#536: atmos counts bars, fx counts beats).
+    tempo_unit: str = "lengths are in beats"
     no_default: str = "none"  # tool text for a field without a top-level default
 
     @property
@@ -131,6 +138,25 @@ ADAPTERS: Mapping[str, CategoryAdapter] = {
               "(length_beats + tail_beats) * 60 / bpm seconds long, at most 72 s, "
               "stereo; 4 beats = 1 bar. reverse_crash ends on its event beat, every other kind "
               "starts on it.")),
+    # #536 (D-034): atmos (noise_bed, drone, resonant, granular). Tempo-bound like fx: the loop
+    # is `bars` bars at bpm, so bpm must come from adjust (every preset carries 135, which
+    # never counts). Text choices and the `intervals` chord are set by the preset only:
+    # adjust values are single numbers (the tool schema stays as it is), and the per-preset
+    # table in the text says which preset gives which chord. filter_mode has per-kind
+    # defaults (no top-level default), so it follows the preset or the kind like fx.
+    "atmos": CategoryAdapter(
+        "atmos", "atmos-params.schema.json", atmos_variants, noun="atmos loop",
+        preset_only=("kind", "loop_mode", "move_shape", "granular_source", "intervals"),
+        fixed_text=("filter_mode",), required=("bpm",), no_default="set by the kind",
+        tempo_unit="the loop length is in bars at this tempo",
+        note=("Atmos files are tempo-bound loops: the file is bars * 4 * 60 / bpm seconds "
+              "long and loops seamlessly at that tempo, so always put the Live project's "
+              "tempo into adjust as bpm; if you do not know the tempo, ask the user before "
+              "calling. A call without bpm in adjust is refused, whatever the preset. At most "
+              "72 s per file (32 bars need bpm 107 or more); stereo. fade_in_beats, "
+              "fade_out_beats and tail_beats act only in loop_mode oneshot, which no preset "
+              "uses, so they have no effect here. Long loops render slowly (up to about 40 s "
+              "each for 32 bars): use 1 variant for 16 or 32 bars.")),
 }
 CLAP_CONTRACT = ADAPTERS["clap"].contract
 CATEGORIES = tuple(ADAPTERS)
@@ -397,7 +423,7 @@ def build_request(arguments: Mapping[str, Any],
              if isinstance(raw, list) else set())
     for key in adapter.required:  # from adjust itself; a preset value never counts (#515)
         if key not in given:  # given but invalid: check_adjust already named it
-            why = (" (lengths are in beats; use the Live project's tempo, ask the user if it "
+            why = (f" ({adapter.tempo_unit}; use the Live project's tempo, ask the user if it "
                    "is not known; a preset's tempo does not count)" if key == "bpm" else "")
             problems.append(f"{key} is required for {adapter.name}: add {{key: {key!r}, "
                             f"value: ...}} to adjust{why}")

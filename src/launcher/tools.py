@@ -55,6 +55,9 @@ TOOLS: tuple[Tool, ...] = (
     Tool("fx", "FX-Übergang erzeugen (Riser, Downlifter, Impact ...; Stereo, --set bpm=Track)",
          "audio_engine.cli", prefix=("--category", "fx"), out_mode="dir",
          menu_args=("--preset", "riser-8bar")),
+    Tool("atmos", "Atmo-/Drone-Loop erzeugen (Rauschfläche, Drone ...; Stereo, "
+         "--set bpm=Track)", "audio_engine.cli", prefix=("--category", "atmos"),
+         out_mode="dir", menu_args=("--preset", "air-bed")),
     Tool("goa-arrangement", "Kompletter Goa-Track als MIDI + README",
          "audio_engine.goa_arrangement", out_mode="new"),
     Tool("goa-melody", "Goa-Melodien (Lead/Arp/Pad/Pluck) als MIDI + README",

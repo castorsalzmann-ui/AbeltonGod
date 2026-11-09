@@ -147,6 +147,34 @@ jobs:
                   digest[key] = (wavs[0].name, hashlib.sha256(wavs[0].read_bytes()).hexdigest())
               print(cat, digest)
               assert digest["exe"] == digest["py"], digest
+      - name: Smoke CLI exe - atmos --help and a 1-bar loop at 120 BPM, same SHA-256 as python -m (#536)
+        shell: python
+        run: |
+          import hashlib, pathlib, subprocess, sys, tempfile, wave
+          exe = r"dist\AbeltonGod\AbeltonGod-cli.exe"
+          r = subprocess.run([exe, "atmos", "--help"], capture_output=True, text=True,
+                             timeout=120)
+          print(r.returncode, r.stdout[-1500:], r.stderr[-1500:])
+          assert r.returncode == 0, (r.returncode, r.stdout, r.stderr)
+          assert "atmos" in r.stdout and "--set" in r.stdout, r.stdout
+          args = ["--preset", "pumping-bed", "--seed", "7", "--set", "bpm=120",
+                  "--set", "bars=1"]
+          tmp = pathlib.Path(tempfile.mkdtemp())
+          cmds = {"exe": [exe, "atmos", *args],
+                  "py": [sys.executable, "-m", "audio_engine.kick", "--category", "atmos",
+                         *args]}
+          digest = {}
+          for key, cmd in cmds.items():
+              r = subprocess.run([*cmd, "--out", str(tmp / key)], capture_output=True,
+                                 text=True, timeout=300)
+              assert r.returncode == 0, (cmd, r.returncode, r.stdout, r.stderr)
+              wavs = sorted((tmp / key).glob("*.wav"))
+              assert len(wavs) == 1, wavs
+              with wave.open(str(wavs[0]), "rb") as w:  # by hand: 240 * 48000 / 120
+                  assert (w.getnframes(), w.getnchannels()) == (96000, 2), key
+              digest[key] = (wavs[0].name, hashlib.sha256(wavs[0].read_bytes()).hexdigest())
+          print("atmos", digest)
+          assert digest["exe"] == digest["py"], digest
       - name: Screenshots on the real windows platform at 100 % and 150 % (#463)
         # Built exe, real qwindows plugin, every main page + Goa/Acid/Blaster. Temp output only.
         shell: python
