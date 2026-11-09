@@ -60,8 +60,9 @@ def test_other_categories_keep_their_hauptregler(category: str) -> None:
 
 def test_fx_hauptregler_come_from_resolved_per_kind_values() -> None:
     """The per-kind fields have no top-level default, so the presets are scored in resolved
-    form; the fields that differ most between the kinds win (written out from that run)."""
-    assert main_controls("fx") == ("level_end_db", "cutoff_end_hz", "level_start_db",
+    form; the fields that differ most between the kinds win (written out from that run; order
+    since #547, when the riser presets moved level_start_db from -36 to -60)."""
+    assert main_controls("fx") == ("level_start_db", "level_end_db", "cutoff_end_hz",
                                    "tone_level", "cutoff_start_hz")
     assert main_choices("fx") == ("kind",)
 
