@@ -14,8 +14,8 @@ Eine Seite: was es gibt, was du startest, was nicht verifiziert ist. Alle Befehl
 | --- | --- | --- |
 | Programm mit Oberfläche | `AbeltonGod.exe` (Windows, ohne Python): Doppelklick öffnet das Hauptfenster mit allen Kategorien einschließlich Laser, Bibliothek, Goa, Live-Import, Copilot und Knöpfen für die Fenster Goa, Acid-Linie und Laser-Blaster. Aus Quelltext: `python -m gui` | `docs/setup/EXE.md`; Aussehen unter Windows, Drag-and-drop, Klang auf deinem Gerät und ein Lauf der exe bei dir sind nicht geprüft (die CI startet die Oberfläche nur ohne Bildschirm) |
 | Samples | Kick, Hat, Snare, Clap, Rim, Bass, Laser: Presets und Varianten als WAV + Sidecar-JSON | `python -m audio_engine.kick --list-presets`, weitere Kategorien: `src/audio_engine/` (Module `hat`, `snare`, `clap`, `rim`, `bass`), Presets in `src/audio_engine/presets/` |
-| Goa-Arrangement | Mehrspur-MIDI: Kick, Bass, Hat, Snare, Clap, Rim (aus Engine-Presets, mit gerenderten One-Shots) plus Melodie | `python -m audio_engine.goa_arrangement --out <Ordner> --seed 1 --bpm 145` |
-| Goa-Melodie | Lead, Arp, Pad, Pluck als MIDI, alles einstellbar | `python -m audio_engine.goa_melody --out <Ordner> --seed 1 --bpm 145` |
+| Goa-Melodie | Lead, Arp, Pad, Pluck als MIDI, alles einstellbar; Seite „Goa-Melodie“ und Goa-Fenster machen nur Melodien (D-033), arrangiert wird im Arrangement-Planer | `python -m audio_engine.goa_melody --out <Ordner> --seed 1 --bpm 145` |
+| Goa-Arrangement (nur Kommandozeile, D-033) | Mehrspur-MIDI mit Drums und Bass; nicht mehr in der Oberfläche | `python -m audio_engine.goa_arrangement --out <Ordner> --seed 1 --bpm 145` |
 | Import in Live | WAV als Clip über AbletonOSC (Python-Remote-Script, kein Max for Live) | `python scripts/live_import.py "<Pfad der WAV>"`, Rezepte in `docs/setup/*_TO_LIVE.md` |
 | Claude-Copilot | Sprache → geprüfte Parameter → Engine → Import, mit Ressourcen-Wächter | README, Abschnitt „Ressourcen-Wächter“ |
 
@@ -41,7 +41,7 @@ Download: GitHub → Actions → „Build exe“ → neuester Lauf auf `main` �
 2. Passt das Fenster auf deinen Bildschirm (deine Skalierung)? Alle Texte lesbar, nichts abgeschnitten?
 3. Kick-Seite: Preset wählen, einen Regler ziehen (ruckelt es?), „Rendern“. Die Datei erscheint unter Ergebnisse und in der Bibliothek (`Samples/Drums/Kicks/kick_…wav`). „Abspielen“: hörst du den Kick?
 4. Laser-Seite und „Laser-Blaster“-Fenster: Abzug drücken, Schuss hören, „In Bibliothek speichern“.
-5. Acid-Linie: „WAV exportieren“; Goa-Fenster: rendern. Beides taucht ohne Neustart in der Bibliothek auf.
+5. Acid-Linie: „WAV exportieren“: taucht ohne Neustart in der Bibliothek auf. Goa-Fenster: rendern: eine MIDI-Datei (Lead/Arp/Pad/Pluck) unter `Goa/`.
 6. „Einstellungen …“: Projektordner deines Test-Sets (Ordner mit `.als`) setzen; App schließen und neu öffnen: Einstellung und Fensterpositionen bleiben.
 7. Live mit AbletonOSC offen: Live-Seite, eine Kick-Datei → Import. Der Clip liegt danach in `<Projekt>\Samples\Drums\Kicks\` und spielt.
 8. Einen Blaster-Schuss in eine Live-Spur ziehen, Blaster schließen: spielt der Clip noch?
@@ -56,6 +56,11 @@ Download: GitHub → Actions → „Build exe“ → neuester Lauf auf `main` �
 14. Arrangement-Planer: Energiekurve zeichnen, „Exportieren“: Plan-Datei unter `Plans/`.
 15. Bibliothek: ein paar Samples „Favorit“ / „Passt nicht“ markieren, dann „Kit erstellen“ → „Aus Favoriten“ → „Kit exportieren“: Ordner unter `Samples/Kits/`.
 16. Copilot: „Mach mir drei dunkle Kicks für 140 BPM“, dann einen in Live importieren lassen: Bestätigungsdialog erscheint, Nein = nichts passiert, Ja = Clip in Live (bei gesetztem Projektordner als Kopie im Projekt).
+
+**Neu seit 2026-11-08:**
+
+17. Ein Monitor mit Live: Hauptfenster mit Win+Pfeil rechts an den Rand schnappen: Seitenauswahl als Klappmenü sichtbar, nichts abgeschnitten? „Immer im Vordergrund“ anhaken, in Live klicken: bleibt AbeltonGod oben? Nach Neustart noch angehakt? Ein Sample aus Bibliothek oder Ergebnissen in eine Live-Spur ziehen.
+18. Copilot: „Mach mir einen 8-Takt-Riser“ ohne Tempo: er fragt nach dem Tempo statt zu raten; mit Tempo landet der Riser in der Bibliothek.
 
 Jeder Punkt ist bisher nur automatisch (ohne Bildschirm bzw. gegen einen nachgebauten Live-Server) oder gar nicht geprüft; deine Rückmeldung ist der erste echte Beleg.
 

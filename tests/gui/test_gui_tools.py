@@ -26,18 +26,19 @@ from live_helpers import (  # noqa: E402
     write_wav,
     writes,
 )
+from PySide6.QtWidgets import QLabel, QPushButton  # noqa: E402
 
-from audio_engine import goa_arrangement, goa_melody  # noqa: E402
+from audio_engine import goa_melody  # noqa: E402
 from guard import Guard  # noqa: E402
 from gui.app import create_app  # noqa: E402
 from gui.main_window import MainWindow  # noqa: E402
 from gui.widgets import NumberControl, PresetChips, Segmented, StepEdit, Toggle  # noqa: E402
-from gui_core import goa  # noqa: E402
 from gui_core.chat import ChatSession  # noqa: E402
 from orchestrator.fake_model import FakeModel  # noqa: E402
 
-SEED1_MID = "ed6118d21ad392474c0422b4d12ed8f2fa4ca585c47918673b5f149a1dc9fb79"
-SEED1_README = "376510c4af42786c49ee957589d4905a7bb1ed01cc15eebcb1c43095d909974e"
+# `python -m audio_engine.goa_melody --out X --seed 3` (pinned literals, as in gui_core tests)
+SEED3_MELODY_MID = "9a601a7381fbaf7ffb5bb9354bed1ccad7cb78a41261648ddace68ab4ddd0579"
+SEED3_README = "8806593f873084d8c6dfdd550bcc16a4a2407dc310451bc523376eae1aa9c8d9"
 
 
 @pytest.fixture(scope="module")
@@ -106,22 +107,29 @@ def test_tool_pages_replace_the_render_column_and_the_kick_page_brings_it_back(w
 
 # --- Goa page -------------------------------------------------------------------------------
 
-@pytest.mark.parametrize("mode,module", [(goa.ARRANGEMENT, goa_arrangement),
-                                         (goa.MELODY, goa_melody)])
-def test_goa_form_has_a_widget_for_every_cli_option(window, mode, module):
-    form = window.goa.forms[mode]
-    dests = {a.dest for a in module.build_parser()._actions if a.dest not in ("help", "out")}
+def test_goa_page_is_melody_only(window):
+    """D-033: the page is "Goa-Melodie": one form (goa_melody), no mode switch, no
+    arrangement / drum / bass option anywhere on it."""
+    go(window, "goa")
+    p = window.goa
+    assert window.categories.currentItem().text() == "Goa-Melodie"
+    assert not hasattr(p, "mode_seg") and not hasattr(p, "forms")
+    labels = {w.text() for w in p.findChildren(QLabel)} | {
+        b.text() for b in p.findChildren(QPushButton)}
+    for word in ("Arrangement (ganzer Track)", "Kick-Preset", "Bass-Preset", "Bass-Rhythmus",
+                 "Keine Samples rendern", "DJ-Intro/Outro"):
+        assert not any(word in t for t in labels), word
+    assert p.form.model.spec("voices").choices == ("lead", "arp", "pad", "pluck")
+
+
+def test_goa_form_has_a_widget_for_every_cli_option(window):
+    form = window.goa.form
+    dests = {a.dest for a in goa_melody.build_parser()._actions if a.dest not in ("help", "out")}
     assert set(form.edits) == dests
     for dest in dests:
         assert form.edits[dest].accessibleName() or isinstance(form.edits[dest], NumberControl)
     # optional options have a switch, the others do not
     assert set(form.checks) == {s.dest for s in form.model.specs if s.optional}
-
-
-def set_enum(form, dest, text):
-    box = form.edits[dest]
-    assert isinstance(box, Segmented | PresetChips)
-    box.buttons[box.items.index(text)].click()
 
 
 def type_text(edit, text):
@@ -132,7 +140,7 @@ def type_text(edit, text):
 def test_goa_invalid_value_blocks_render_with_the_modules_message(qapp, window):
     go(window, "goa")
     p = window.goa
-    form = p.forms[goa.ARRANGEMENT]
+    form = p.form
     assert p.render_button.isEnabled()
     edit = form.edits["seed"]
     assert isinstance(edit, StepEdit)
@@ -142,71 +150,77 @@ def test_goa_invalid_value_blocks_render_with_the_modules_message(qapp, window):
     assert p.table.rowCount() == 0 and p.timeline.plan is None
     type_text(edit, "0")
     assert edit.property("invalid") is False and p.render_button.isEnabled()
-    assert p.table.rowCount() == 19
+    assert p.table.rowCount() == 5
 
 
 def test_goa_tempo_slider_cannot_leave_the_generators_range(qapp, window):
     go(window, "goa")
     p = window.goa
-    bpm = p.forms[goa.ARRANGEMENT].edits["bpm"]
+    bpm = p.form.edits["bpm"]
     assert isinstance(bpm, NumberControl)
     bpm.readout.setText("200")
     bpm.readout.entered.emit("200")  # generator range is 135 to 150 BPM
     assert p.model.text["bpm"] == "150" and p.render_button.isEnabled()
     bpm.slider.move_to_position(0)
-    assert p.model.text["bpm"] == "135" and p.table.rowCount() == 19
+    assert p.model.text["bpm"] == "135" and p.table.rowCount() == 5
 
 
 def test_goa_preview_shows_the_generators_plan(window):
     go(window, "goa")
     p = window.goa
-    assert p.table.rowCount() == 19
+    assert p.table.rowCount() == 5
     row0 = [p.table.item(0, c).text() for c in range(5)]
-    assert row0 == ["1", "8", "Intro", "0.30", "kick, bass"]
-    row_b1 = [p.table.item(7, c).text() for c in range(5)]
-    assert row_b1 == ["73", "16", "Break 1", "0.30", "arp, pad"]
-    assert "224 Takte" in p.summary.text()
+    assert row0 == ["1", "8", "Intro", "0.30", "pad"]
+    row_br = [p.table.item(3, c).text() for c in range(5)]
+    assert row_br == ["33", "8", "Break", "0.20", "lead, pad"]
+    assert "56 Takte" in p.summary.text()
+    assert "Spuren: lead, arp, pad, pluck." in p.summary.text()
     spans = p.timeline.section_spans()
     total_w = spans[-1][2] - spans[0][1]
-    assert len(spans) == 19
+    assert len(spans) == 5
     for s, x0, x1 in spans:
-        assert abs((x1 - x0) / total_w - s.bars / 224) < 1e-6
-    mid = (spans[7][1] + spans[7][2]) / 2
-    assert p.timeline.section_at(mid).name == "Break 1"
+        assert abs((x1 - x0) / total_w - s.bars / 56) < 1e-6
+    mid = (spans[3][1] + spans[3][2]) / 2
+    assert p.timeline.section_at(mid).name == "Break"
     # a change in the form changes the preview
-    form = p.forms[goa.ARRANGEMENT]
-    set_enum(form, "dj_bars", "16")
-    assert p.table.rowCount() == 21 and p.table.item(0, 2).text() == "DJ Intro"
-    assert "256 Takte" in p.summary.text()
+    form = p.form
+    form.checks["sections"].setChecked(True)
+    type_text(form.edits["sections"], "A:4:0.5:lead,B:12:1:lead+arp")
+    assert p.table.rowCount() == 2 and p.table.item(1, 2).text() == "B"
+    assert "16 Takte" in p.summary.text()
     p.timeline.grab()  # paints without raising
 
 
 def test_goa_render_writes_the_cli_folder_and_shows_the_readme(qapp, window, opened):
     go(window, "goa")
     p = window.goa
-    form = p.forms[goa.ARRANGEMENT]
-    type_text(form.edits["seed"], "1")
-    form.edits["no_samples"].setChecked(True)  # keeps the test short; samples: gui_core test
+    form = p.form
+    type_text(form.edits["seed"], "3")
     folder = Path(p.folder_edit.text())
-    assert folder.name == "goa_seed1_145bpm" and not folder.exists()
+    assert folder.name == "goa_melody_seed3_145bpm" and not folder.exists()
     p.render_button.click()
     assert wait_for(qapp, lambda: p.result is not None)
     assert p.result.ok, p.result.error
-    mid = folder / "goa_seed1_145bpm.mid"
-    assert hashlib.sha256(mid.read_bytes()).hexdigest() == SEED1_MID
-    assert hashlib.sha256((folder / "README.md").read_bytes()).hexdigest() == SEED1_README
+    mid = folder / "goa_melody_seed3_145bpm.mid"
+    assert hashlib.sha256(mid.read_bytes()).hexdigest() == SEED3_MELODY_MID
+    assert hashlib.sha256((folder / "README.md").read_bytes()).hexdigest() == SEED3_README
+    assert sorted(x.name for x in folder.iterdir()) == ["README.md", mid.name]  # no samples
     assert p.readme.toPlainText() == (folder / "README.md").read_text(encoding="utf-8")
     assert "Fertig" in p.status.text() and not p.running
-    assert Path(p.folder_edit.text()).name == "goa_seed1_145bpm_2"  # never the same folder again
+    # never the same folder again
+    assert Path(p.folder_edit.text()).name == "goa_melody_seed3_145bpm_2"
     p.open_button.click()
     assert opened == [folder]  # the folder of the finished run
+    # voices as chips: switching one off removes its track from the preview
+    chips = form.edits["voices"]
+    chips.buttons[chips.items.index("pad")].click()
+    assert form.model.text["voices"] == "lead,arp,pluck"
+    assert "pad" not in p.summary.text().split("Spuren:")[1]
 
 
 def test_goa_existing_folder_is_an_error_and_nothing_is_overwritten(qapp, window):
     go(window, "goa")
     p = window.goa
-    form = p.forms[goa.ARRANGEMENT]
-    form.edits["no_samples"].setChecked(True)
     target = p.base_dir / "mine"
     target.mkdir(parents=True)
     (target / "README.md").write_text("alt", encoding="utf-8")
@@ -219,30 +233,9 @@ def test_goa_existing_folder_is_an_error_and_nothing_is_overwritten(qapp, window
     assert (target / "README.md").read_text(encoding="utf-8") == "alt"
 
 
-def test_goa_melody_mode_renders_the_melody_cli_output(qapp, window):
-    go(window, "goa")
-    p = window.goa
-    p.mode_seg.buttons[1].click()
-    assert p.mode == goa.MELODY and p.form_stack.currentWidget() is p.forms[goa.MELODY]
-    form = p.forms[goa.MELODY]
-    type_text(form.edits["seed"], "3")
-    folder = Path(p.folder_edit.text())
-    assert folder.name == "goa_melody_seed3_145bpm"
-    p.render_button.click()
-    assert wait_for(qapp, lambda: p.result is not None)
-    assert p.result.ok, p.result.error
-    got = hashlib.sha256((folder / "goa_melody_seed3_145bpm.mid").read_bytes()).hexdigest()
-    assert got == "9a601a7381fbaf7ffb5bb9354bed1ccad7cb78a41261648ddace68ab4ddd0579"
-    # voices as chips: switching one off removes its track from the preview
-    chips = form.edits["voices"]
-    chips.buttons[chips.items.index("pad")].click()
-    assert form.model.text["voices"] == "lead,arp,pluck"
-    assert "pad" not in p.summary.text().split("Spuren:")[1]
-
-
 def test_goa_optional_switch_activates_the_field(window):
     go(window, "goa")
-    form = window.goa.forms[goa.ARRANGEMENT]
+    form = window.goa.form
     edit = form.edits["density"]
     assert not edit.isEnabled() and "density" not in form.model.active
     form.checks["density"].setChecked(True)
@@ -435,19 +428,17 @@ def test_chat_page_without_key_says_so_and_cannot_send(qapp, tmp_path, monkeypat
         w.close()
 
 
-def test_every_goa_switch_and_button_row_reflects_the_model_after_a_mode_switch(window):
+def test_every_goa_switch_and_button_row_reflects_the_model(window):
     go(window, "goa")
-    p = window.goa
-    for mode in goa.MODES:
-        form = p.forms[mode]
-        for dest, edit in form.edits.items():
-            spec = form.model.spec(dest)
-            if isinstance(edit, Segmented):
-                if dest in form.model.active:  # a switched-off optional shows its first choice
-                    assert edit.items[edit.index()] == form.model.text[dest]
-            elif isinstance(edit, PresetChips) and not edit.multi:
-                if dest in form.model.active:
-                    assert edit.current() == form.model.text[dest]
-            elif isinstance(edit, Toggle):
-                assert edit.isChecked() == (form.model.text[dest] == "ja")
-            assert edit.isEnabled() == (dest in form.model.active), (mode, dest, spec.kind)
+    form = window.goa.form
+    for dest, edit in form.edits.items():
+        spec = form.model.spec(dest)
+        if isinstance(edit, Segmented):
+            if dest in form.model.active:  # a switched-off optional shows its first choice
+                assert edit.items[edit.index()] == form.model.text[dest]
+        elif isinstance(edit, PresetChips) and not edit.multi:
+            if dest in form.model.active:
+                assert edit.current() == form.model.text[dest]
+        elif isinstance(edit, Toggle):
+            assert edit.isChecked() == (form.model.text[dest] == "ja")
+        assert edit.isEnabled() == (dest in form.model.active), (dest, spec.kind)

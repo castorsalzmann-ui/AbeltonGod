@@ -1,6 +1,7 @@
 """GUI tour (#437): walk every page of the main window and every tool window offscreen, render
-one sample per category plus Goa, Acid and Blaster, and check that each result shows up in the
-main window's library; export one arrangement plan from the planner page and check it with the
+one sample per category plus Acid and Blaster, and check that each result shows up in the
+main window's library; render the Goa melody (page and window: MIDI with melodic tracks only,
+D-033); export one arrangement plan from the planner page and check it with the
 contract checker; ask the Copilot page (fake model, no Claude call) for one clap and find it in
 the library (#491). Every page once more with the main window at half the screen width (#517,
 compact layout). Optional screenshots of every page at 100 % and 150 %, full and half width.
@@ -287,9 +288,53 @@ def render_category(window, key: str) -> Step:
     return Step(name, True, wav.name, time.perf_counter() - t)
 
 
+MELODY_VOICES = ("lead", "arp", "pad", "pluck")  # D-033: the only tracks a Goa render may have
+
+
+def midi_track_names(data: bytes) -> list[str] | None:
+    """Names of the tracks after the conductor track of a format-1 SMF (first event of each
+    track: the name meta event), read here byte by byte; None if the file is not such a file."""
+    if data[:4] != b"MThd" or len(data) < 14:
+        return None
+    fmt, ntrk = int.from_bytes(data[8:10], "big"), int.from_bytes(data[10:12], "big")
+    if fmt != 1:
+        return None
+    pos, names = 14, []
+    for i in range(ntrk):
+        if data[pos:pos + 4] != b"MTrk":
+            return None
+        size = int.from_bytes(data[pos + 4:pos + 8], "big")
+        body = data[pos + 8:pos + 8 + size]
+        if len(body) < 4 or body[:3] != b"\x00\xff\x03":
+            return None
+        if i:
+            names.append(body[4:4 + body[3]].decode("ascii", "replace"))
+        pos += 8 + size
+    return names if pos == len(data) else None
+
+
+def _melody_folder(name: str, panel, t: float) -> Step:
+    """A Goa render (D-033, #520) is one .mid with only melodic tracks plus its README: no
+    sample WAV, no drum or bass track, nothing else in the run folder."""
+    res = panel.result
+    if res is None or not res.ok:
+        status = getattr(panel, "status", None)
+        return Step(name, False, f"render failed: {status.text() if status else ''}",
+                    time.perf_counter() - t)
+    files = sorted(p.relative_to(res.out_dir).as_posix() for p in res.out_dir.rglob("*"))
+    if files != sorted([res.mid_path.name, "README.md"]):
+        return Step(name, False, f"run folder holds {files}", time.perf_counter() - t)
+    tracks = midi_track_names(res.mid_path.read_bytes())
+    if not tracks or any(tr not in MELODY_VOICES for tr in tracks):
+        return Step(name, False, f"{res.mid_path.name}: tracks {tracks}, expected only "
+                    f"{'/'.join(MELODY_VOICES)}", time.perf_counter() - t)
+    return Step(name, True, f"{res.mid_path.name}: {', '.join(tracks)}",
+                time.perf_counter() - t)
+
+
 def render_goa_page(window) -> Step:
-    """Goa page of the main window: render the default arrangement; its WAVs must be in the
-    library as readable entries."""
+    """Goa-Melodie page of the main window: render the default melody; the run folder must
+    hold its MIDI (melodic tracks only) and README, nothing else."""
     t = time.perf_counter()
     name = "render:goa-page"
     window.categories.setCurrentRow(window.tool_rows["goa"])
@@ -300,11 +345,7 @@ def render_goa_page(window) -> Step:
     page.render_button.click()
     if not wait_for(lambda: not page.running):
         return Step(name, False, f"no result after {WAIT_S:.0f} s", time.perf_counter() - t)
-    res = page.result
-    if res is None or not res.ok:
-        return Step(name, False, f"render failed: {page.status.text()}", time.perf_counter() - t)
-    return _all_in_library(window, name, list(res.sample_paths), t,
-                           f"{res.mid_path.name} + {len(res.sample_paths)} WAV")
+    return _melody_folder(name, page, t)
 
 
 def reference_kick(window) -> Step:
@@ -440,20 +481,24 @@ def open_tool(window, key: str, shots: Path | None, tag: str) -> tuple[Step, obj
 
 
 def render_goa_window(window, win) -> Step:
-    """Goa tool window: its Render button must produce files that appear in the library."""
+    """Goa tool window (Goa-Melodie form): its Render button must write melody MIDI and README
+    only; the library (WAVs) gets nothing new."""
     t = time.perf_counter()
+    name = "render:goa-window"
     before = set(_wavs(window._library_folder()))
     win.body.render_button.click()
-    # The render may run in a worker thread (GoaPanel); the placeholder answers at once and
-    # has no ``running``. Never a short fixed deadline (CLAUDE.md: >= 5 s for an answer).
-    wait_for(lambda: not getattr(win.body, "running", False), WAIT_S)
+    # The render runs in a worker thread (GoaPanel); the placeholder answers at once and has
+    # no ``running``. Never a short fixed deadline (CLAUDE.md: >= 5 s for an answer).
+    if not wait_for(lambda: not getattr(win.body, "running", False), WAIT_S):
+        return Step(name, False, f"no result after {WAIT_S:.0f} s", time.perf_counter() - t)
     new = sorted(set(_wavs(window._library_folder())) - before)
-    status = getattr(win.body, "status", None)
-    text = status.text() if status is not None else ""
-    if not new:
-        return Step("render:goa-window", False, f"no new WAV; window says: {text}",
+    if new:
+        return Step(name, False, f"Goa wrote WAVs: {[p.name for p in new[:3]]}",
                     time.perf_counter() - t)
-    return _all_in_library(window, "render:goa-window", new, t, f"{len(new)} WAV")
+    if not hasattr(win.body, "result"):
+        return Step(name, False, f"window body {type(win.body).__name__} cannot render",
+                    time.perf_counter() - t)
+    return _melody_folder(name, win.body, t)
 
 
 def render_acid(window, win) -> Step:
@@ -549,7 +594,7 @@ def choose_in_library(window) -> Step:
     if not lib.list.currentItem() or not lib.list.currentItem().text().startswith("★ "):
         problems.append("row has no favourite mark")
     # A verdict belongs to the bytes (sha256): byte-identical copies elsewhere in the output
-    # folder (the Goa page and the Goa window render the same files) are favourites too.
+    # folder (e.g. the same render made twice) are favourites too.
     digest = hashlib.sha256(wav.read_bytes()).digest()
     same = sorted(e.wav_path for e in lib.entries
                   if hashlib.sha256(e.wav_path.read_bytes()).digest() == digest)

@@ -1,9 +1,11 @@
-"""Goa render service (no Qt): writes the output folder exactly as the CLI does.
+"""Goa-Melodie render service (no Qt): writes the output folder exactly as the CLI does.
 
-``run_goa_job`` parses the same ``--flag=value`` list the CLI would get, turns it into the
-module's keyword arguments (:func:`gui_core.goa.call_of`) and calls ``write_track`` /
-``write_melody``. Every failure comes back as an :class:`ErrorInfo`; nothing raises.
-Existing files are never overwritten (the modules refuse and write nothing).
+``run_goa_job`` parses the same ``--flag=value`` list ``python -m audio_engine.goa_melody``
+would get, turns it into the module's keyword arguments (:func:`gui_core.goa.call_of`) and calls
+``goa_melody.write_melody``: one ``.mid`` (one track per voice: lead, arp, pad, pluck) and a
+README. D-033: no full-song arrangement, no drum/bass tracks, no sample WAVs from the GUI.
+Every failure comes back as an :class:`ErrorInfo`; nothing raises. Existing files are never
+overwritten (the module refuses and writes nothing).
 """
 
 from __future__ import annotations
@@ -13,16 +15,15 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
-from audio_engine import goa_arrangement, goa_melody
+from audio_engine import goa_melody
 
-from .goa import ARRANGEMENT, OptionError, call_of, parse_argv
+from .goa import OptionError, call_of, parse_argv
 from .render import ErrorInfo
 from .tasks import TaskHandle, start_task
 
 
 @dataclass(frozen=True)
 class GoaJob:
-    mode: str
     argv: tuple[str, ...]  # complete, including --out=
 
 
@@ -33,7 +34,6 @@ class GoaResult:
     mid_path: Path | None = None
     readme_path: Path | None = None
     readme_text: str = ""
-    sample_paths: tuple[Path, ...] = ()
     error: ErrorInfo | None = None
 
     @property
@@ -43,7 +43,7 @@ class GoaResult:
 
 def run_goa_job(job: GoaJob) -> GoaResult:
     try:
-        call = call_of(job.mode, parse_argv(job.mode, job.argv))
+        call = call_of(parse_argv(job.argv))
     except OptionError as exc:
         return GoaResult(job, error=ErrorInfo("invalid_params", f"Ungültige Option: {exc}",
                                               str(exc)))
@@ -56,14 +56,8 @@ def run_goa_job(job: GoaJob) -> GoaResult:
         return GoaResult(job, error=ErrorInfo("invalid_params", "Kein Ausgabeordner angegeben.",
                                               "empty --out"))
     try:
-        if job.mode == ARRANGEMENT:
-            mid, readme = goa_arrangement.write_track(
-                out, render_samples=call.render_samples, **call.kwargs)
-        else:
-            mid, readme = goa_melody.write_melody(out, **call.kwargs)
+        mid, readme = goa_melody.write_melody(out, **call.kwargs)
         text = readme.read_text(encoding="utf-8")
-        samples = tuple(sorted((out / "samples").glob("*.wav"))) if job.mode == ARRANGEMENT \
-            else ()
     except FileExistsError as exc:
         if exc.errno is not None:  # the OS (mkdir below a file, Windows), not the module's refusal
             return GoaResult(job, out, error=ErrorInfo(
@@ -85,7 +79,7 @@ def run_goa_job(job: GoaJob) -> GoaResult:
     except Exception as exc:  # noqa: BLE001
         return GoaResult(job, out, error=ErrorInfo(
             "internal", f"Unerwarteter Fehler: {type(exc).__name__}: {exc}", repr(exc)))
-    return GoaResult(job, out, mid, readme, text, samples)
+    return GoaResult(job, out, mid, readme, text)
 
 
 class GoaService:

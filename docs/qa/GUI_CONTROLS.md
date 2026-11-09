@@ -2,7 +2,7 @@
 
 Every button, action, shortcut, input and interactive widget of the main window pages and the
 three tool windows (Goa, Acid, Laser-Blaster), with its handler and effect. Issue #437 (sprint
-W1, area D). As of `main` `d922923` (2026-11-06).
+W1, area D). As of `main` `d922923` (2026-11-06); Goa rows updated for #520 (2026-11-08).
 
 **How this list is kept true.** `tests/gui/test_tour_inventory.py` walks the freshly opened
 windows (`scripts/qa/gui_controls.py`) and compares the IDs in the first column with what it
@@ -44,7 +44,7 @@ without category / three output layouts. Already filed before: #413, #414, #439.
 | `main · QPushButton · Abspielen` | `MainWindow.play` | Plays the selected file (winsound on Windows; elsewhere an honest 'no audio output' message) |
 | `main · QPushButton · Acid-Linie` | `MainWindow.open_acid_window` | Opens the Acid window with the current output folder (not updated later, #439) |
 | `main · QPushButton · Ausgabeordner öffnen` | `MainWindow.open_folder` | Opens the output folder in the file manager; error text if it does not exist yet |
-| `main · QPushButton · Goa-Fenster` | `MainWindow.open_goa_window` | Opens the Goa skin window (one instance; see #440: body is a placeholder) |
+| `main · QPushButton · Goa-Fenster` | `MainWindow.open_goa_window` | Opens the Goa skin window (one instance; its body is the Goa-Melodie form, #440 fixed in #450, melody only since #520) |
 | `main · QPushButton · Laser-Blaster` | `MainWindow.open_blaster_window` | Opens the Blaster window; it follows the shared settings (#439, fixed in #450) |
 | `main · QPushButton · Einstellungen …` | `MainWindow.open_settings` | Settings dialog: output folder, project folder (= Live page "Live-Projekt"), sample rate, bit depth; saved in the user config dir |
 | `main · QPushButton · Rendern` | `MainWindow.start_render` | Renders the current category form in a worker thread; disabled with the reason while the form is invalid |
@@ -191,32 +191,30 @@ differ only in the area. Handler and effect per kind:
 | `library · QPushButton · Aus Favoriten` | `LibraryPanel.prefill_kit` | Sets every slot to the newest current favourite that fits (parsed instant), "(keine)" when none |
 | `library · QPushButton · Kit exportieren` | `LibraryPanel.export_kit` | Enabled once a kick is picked. Copies the picked WAVs (01_kick_….wav …), their sidecars verbatim and a kit.json (contract kit v0.1) into `<Ausgabeordner>/Samples/Kits/<Name>/`; never overwrites, a failure leaves nothing. Files only, no Drum Rack, nothing goes to Live |
 
-### Main window: Goa-Arrangement page
+### Main window: Goa-Melodie page
+
+Melody only (D-033, #520): the options of `goa_melody` (lead, arp, pad, pluck). The former
+mode switch (Arrangement / Melodie), the arrangement options (roll, intro, breakdowns, outro,
+DJ bars, kick/bass/hat/snare/clap/rim presets and patterns, "Keine Samples rendern") and the
+library / Live row (a melody render has no WAV) are gone; `goa_arrangement` stays a CLI.
 
 | ID | Handler | Effect |
 | --- | --- | --- |
 | `goa-page · ActiveDot · Gefüllt: der Wert wird mitgeschickt. Leer: Stand` | `OptionForm._toggled` | Dot of an optional option: pass it / use the module default |
-| `goa-page · NumberControl · *` | `OptionForm._edited` | BPM slider |
-| `goa-page · OptionForm · -` | `GoaPanel.refresh` (via `changed`) | One option form per mode: preview plan, Render enabled or blocked with the module's message |
-| `goa-page · PresetChips · *` | `OptionForm._edited` | Choice / multi-choice options (voices, styles) |
+| `goa-page · NumberControl · *` | `OptionForm._edited` | BPM slider (135 to 150, the generator's range) |
+| `goa-page · OptionForm · GoaPanel.form` | `GoaPanel.refresh` (via `changed`) | The melody option form: preview of the phrase sections, Render enabled or blocked with the module's message |
+| `goa-page · PresetChips · *` | `OptionForm._edited` | Choice / multi-choice options (voices lead/arp/pad/pluck, scale) |
 | `goa-page · PresetChips/QPushButton · *` | `PresetChips` -> `chosen` / `changed` | One chip per choice |
-| `goa-page · QLineEdit · Abschnitte` | `OptionForm._edited` (`textEdited`) | Free text option, checked by the module's parser |
+| `goa-page · QLineEdit · Abschnitte` | `OptionForm._edited` (`textEdited`) | Free text option (melody phrase sections `Name:Takte:Energie:stimme+stimme`), checked by the module's parser |
 | `goa-page · QLineEdit · Akkordfolge (Stufen)` | `OptionForm._edited` (`textEdited`) | Free text option |
 | `goa-page · QLineEdit · Dichte` | `OptionForm._edited` (`textEdited`) | Free text option |
-| `goa-page · QLineEdit · GoaPanel.folder_edit` | `GoaPanel._folder_typed` | New run folder (auto-named, never overwritten) below `<Ausgabeordner>/Goa` (#468); follows the shared settings (#450) |
-| `goa-page · QPushButton · An Live senden` | `ResultActions.send_to_live` | Opens the Live page with the first sample WAV chosen; nothing is sent |
-| `goa-page · QPushButton · In Bibliothek zeigen` | `ResultActions.show_in_library` | Shows the library with the first sample WAV selected |
+| `goa-page · QLineEdit · GoaPanel.folder_edit` | `GoaPanel._folder_typed` | New run folder (auto-named `goa_melody_seed<N>_<BPM>bpm`, never overwritten) below `<Ausgabeordner>/Goa` (#468); follows the shared settings (#450) |
 | `goa-page · QLineEdit · Grundton` | `OptionForm._edited` (`textEdited`) | Free text option |
 | `goa-page · QLineEdit · Register (Oktaven)` | `OptionForm._edited` (`textEdited`) | Free text option |
 | `goa-page · QPushButton · Ordner öffnen` | `GoaPanel.open_folder` | Opens the run folder (or the last finished one) |
-| `goa-page · QPushButton · Rendern` | `GoaPanel.start_render` | Runs goa_arrangement / goa_melody in a worker; MIDI + README + sample WAVs with sidecars (#414, fixed by #451) |
-| `goa-page · Segmented · *` | `OptionForm` edits | Enum options of the Goa generator with a few short choices |
-| `goa-page · Segmented/QPushButton · *` | `Segmented` -> `chosen` | One button per enum choice |
-| `goa-page · WrapSegmented · *` | `GoaPanel.set_mode` | Mode (Arrangement / Melodie); wraps on a narrow page (was `Segmented`, 696 px wide on Windows, #517) |
-| `goa-page · WrapSegmented/QPushButton · *` | `WrapSegmented` -> `chosen` | One button per mode |
+| `goa-page · QPushButton · Rendern` | `GoaPanel.start_render` | Runs `goa_melody` in a worker: one .mid (one track per chosen voice) + README; no WAV, no drum/bass track |
 | `goa-page · StepEdit · Phrasenlänge (Takte)` | `OptionForm._edited` | Phrase length in bars |
 | `goa-page · StepEdit · Seed` | `OptionForm._edited` | Seed (typed, Up/Down) |
-| `goa-page · Toggle · Keine Samples rendern` | `OptionForm._edited` | Flag: MIDI only, no sample WAVs |
 
 ### Main window: Arrangement-Planer page
 
@@ -281,9 +279,9 @@ ends; its countdown shows what is left of that window. Checked by
 | `goa · ChromeButton · Immer im Vordergrund` | `CompactGoaWindow.set_always_on_top` | Stay on top on/off (saved; on by default). Main window, Acid and Blaster have the same switch as a check box (#517) |
 | `goa · ChromeButton · Minimieren` | `QWidget.showMinimized` | Minimise |
 | `goa · ChromeButton · Schliessen` | `QWidget.close` | Close (saves position/size) |
-| `goa · ActiveDot · Gefüllt: der Wert wird mitgeschickt. Leer: Stand` | `OptionForm._toggled` | As on the Goa page (the window body is the same `GoaPanel`, #440 fixed in #450) |
+| `goa · ActiveDot · Gefüllt: der Wert wird mitgeschickt. Leer: Stand` | `OptionForm._toggled` | As on the Goa-Melodie page (the window body is the same `GoaPanel`, #440 fixed in #450; melody only, D-033) |
 | `goa · NumberControl · *` | `OptionForm._edited` | BPM slider |
-| `goa · OptionForm · -` | `GoaPanel.refresh` (via `changed`) | One option form per mode |
+| `goa · OptionForm · GoaPanel.form` | `GoaPanel.refresh` (via `changed`) | The melody option form |
 | `goa · PresetChips · *` | `OptionForm._edited` | Choice / multi-choice options |
 | `goa · PresetChips/QPushButton · *` | `PresetChips` -> `chosen` / `changed` | One chip per choice |
 | `goa · QLineEdit · Abschnitte` | `OptionForm._edited` (`textEdited`) | Free text option |
@@ -292,17 +290,10 @@ ends; its countdown shows what is left of that window. Checked by
 | `goa · QLineEdit · GoaPanel.folder_edit` | `GoaPanel._folder_typed` | New run folder below `<Ausgabeordner>/Goa` (follows the shared settings) |
 | `goa · QLineEdit · Grundton` | `OptionForm._edited` (`textEdited`) | Free text option |
 | `goa · QLineEdit · Register (Oktaven)` | `OptionForm._edited` (`textEdited`) | Free text option |
-| `goa · QPushButton · An Live senden` | `ResultActions.send_to_live` | Opens the main window's Live page with the first sample WAV chosen (only with a readable sidecar); nothing is sent |
-| `goa · QPushButton · In Bibliothek zeigen` | `ResultActions.show_in_library` | Shows the main library with the first sample WAV selected |
 | `goa · QPushButton · Ordner öffnen` | `GoaPanel.open_folder` | Opens the run folder |
-| `goa · QPushButton · Rendern` | `GoaPanel.start_render` | Runs the Goa generator in a worker; the WAVs appear in the main library |
-| `goa · Segmented · *` | `OptionForm` edits | Enum options with a few short choices |
-| `goa · Segmented/QPushButton · *` | `Segmented` -> `chosen` | One button per choice |
-| `goa · WrapSegmented · *` | `GoaPanel.set_mode` | Mode (Arrangement / Melodie), wrapping (#517) |
-| `goa · WrapSegmented/QPushButton · *` | `WrapSegmented` -> `chosen` | One button per mode |
+| `goa · QPushButton · Rendern` | `GoaPanel.start_render` | Runs `goa_melody` in a worker: melody .mid (one track per voice) + README in `<Ausgabeordner>/Goa/<Lauf>`; no WAV, so nothing new in the library |
 | `goa · StepEdit · Phrasenlänge (Takte)` | `OptionForm._edited` | Phrase length in bars |
 | `goa · StepEdit · Seed` | `OptionForm._edited` | Seed |
-| `goa · Toggle · Keine Samples rendern` | `OptionForm._edited` | Flag: MIDI only |
 
 ### Acid window
 

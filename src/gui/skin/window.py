@@ -158,8 +158,9 @@ class TitleStrip(QWidget):
 class GoaPlaceholderPanel(QWidget):
     """Placeholder body: title, section/BPM fields, Render button.
 
-    ``goa_arrangement`` has no service-layer function in ``gui_core`` yet, so Render only emits
-    :attr:`render_requested` and says so. GUI-2 (#406) replaces this panel through the body slot."""
+    Only the skin demo shows it: Render only emits :attr:`render_requested` and says so. The
+    program's Goa window replaces it through the body slot with the Goa-Melodie form
+    (``gui.goa_panel.GoaPanel``, melody only, D-033)."""
 
     render_requested = Signal(str, str)
 

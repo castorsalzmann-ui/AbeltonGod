@@ -1,7 +1,9 @@
-"""Goa page: option form for the arrangement and melody generators, section preview, render.
+"""Goa-Melodie page (and the Goa window's body): option form of the melody generator
+(``goa_melody``: lead, arp, pad, pluck), phrase-section preview, MIDI render.
 
-State and checks live in ``gui_core.goa``; the generator runs in ``gui_core.goa_render``. This
-widget only shows them."""
+D-033: melodies only. No full-song arrangement and no drum/bass tracks; arranging is the
+Arrangement-Planer's job. State and checks live in ``gui_core.goa``; the generator runs in
+``gui_core.goa_render``. This widget only shows them."""
 
 from __future__ import annotations
 
@@ -17,7 +19,6 @@ from PySide6.QtWidgets import (
     QPushButton,
     QScrollArea,
     QSizePolicy,
-    QStackedWidget,
     QTableWidget,
     QTableWidgetItem,
     QTabWidget,
@@ -25,9 +26,9 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from audio_engine import goa_patterns
+from audio_engine import goa_melody
 from gui_core.form import FieldSpec, parse_number
-from gui_core.goa import GROUPS, MODE_LABELS, MODES, GoaFormModel, OptionSpec, TimelinePlan
+from gui_core.goa import GROUPS, TITLE, GoaFormModel, OptionSpec, TimelinePlan
 from gui_core.goa_render import GoaJob, GoaResult, GoaService
 from gui_core.paths import default_output_dir
 
@@ -44,8 +45,6 @@ from .widgets import (
     muted,
 )
 from .widgets.adaptive import AdaptiveBox
-from .widgets.choice import WrapSegmented
-from .windows import ResultActions
 
 BODY_HOOK = "goa_body"  # objectName of the page body: a hook for later skins/extra panels
 
@@ -55,9 +54,10 @@ class _Signals(QObject):
 
 
 class OptionForm(QScrollArea):
-    """One mode's options, built from the widget kit. ``edits[dest]`` is the editing widget:
-    ``NumberControl`` (bpm), ``Segmented`` / ``PresetChips`` (choices, voices), ``Toggle``
-    (flags) or ``StepEdit`` / ``QLineEdit`` (numbers and texts the generator checks itself).
+    """The melody generator's options, built from the widget kit. ``edits[dest]`` is the
+    editing widget: ``NumberControl`` (bpm), ``Segmented`` / ``PresetChips`` (choices,
+    voices), ``Toggle`` (flags) or ``StepEdit`` / ``QLineEdit`` (numbers and texts the
+    generator checks itself).
     ``checks[dest]`` is the dot of an optional option (sent only when on)."""
 
     changed = Signal()
@@ -129,6 +129,11 @@ class OptionForm(QScrollArea):
         hint.setVisible(isinstance(edit, StepEdit | QLineEdit))
         self.hints[spec.dest] = hint
         if is_number:
+            # The unit beside a number field is one short line ("ganze Zahl", "Takte"): it
+            # counts in the form's minimum width, so a narrow window stacks form and preview
+            # instead of squeezing it to a few px (#530 review: 7 px in the Goa window).
+            hint.setWordWrap(False)
+            hint.setMinimumWidth(hint.fontMetrics().horizontalAdvance(hint.text()) + 2)
             row.addWidget(hint, 1)
             outer.addLayout(row)
         else:
@@ -162,8 +167,8 @@ class OptionForm(QScrollArea):
             return chips
         if spec.dest == "bpm":
             fs = FieldSpec(
-                name="bpm", label=spec.label, kind="float", minimum=goa_patterns.MIN_BPM,
-                maximum=goa_patterns.MAX_BPM, default=None, choices=(), unit="BPM",
+                name="bpm", label=spec.label, kind="float", minimum=goa_melody.MIN_BPM,
+                maximum=goa_melody.MAX_BPM, default=None, choices=(), unit="BPM",
                 description=spec.help)
             c = NumberControl(fs, style="row", always_active=True)
             c.edited.connect(lambda _n, v, d=spec.dest: self._edited(d, f"{v:g}"))
@@ -251,8 +256,7 @@ class GoaPanel(QWidget):
         self.service = service or GoaService()
         self.opener = opener or (lambda p: False)
         self.base_dir = Path(base_dir) if base_dir else default_output_dir() / "Goa"
-        self.models = {m: GoaFormModel(m) for m in MODES}
-        self.mode = MODES[0]
+        self.model = GoaFormModel()
         self.handle = None
         self._folder_auto = True
         self._signals = _Signals()
@@ -263,27 +267,24 @@ class GoaPanel(QWidget):
         # the main window at half the screen width; the Goa window at its start size).
         outer = AdaptiveBox(self)
         left = QVBoxLayout()
-        left.addWidget(heading("Erzeuger"))
-        # Wraps: the two long mode names in one row made the page 696 px wide on Windows (#517)
-        self.mode_seg = WrapSegmented([MODE_LABELS[m] for m in MODES])
-        self.mode_seg.set_index(0)
-        self.mode_seg.chosen.connect(lambda i: self.set_mode(MODES[i]))
-        left.addWidget(self.mode_seg)
-        self.forms = {m: OptionForm(self.models[m]) for m in MODES}
-        self.form_stack = QStackedWidget()
-        for m in MODES:
-            self.forms[m].changed.connect(self.refresh)
-            self.form_stack.addWidget(self.forms[m])
-        left.addWidget(self.form_stack, 1)
+        left.addWidget(heading(TITLE))
+        intro = muted("Lead, Arp, Pad und Pluck als MIDI, eine Spur je Stimme. Das ganze "
+                      "Arrangement baust du im Arrangement-Planer.")
+        intro.setWordWrap(True)
+        intro.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Minimum)
+        left.addWidget(intro)
+        self.form = OptionForm(self.model)
+        self.form.changed.connect(self.refresh)
+        left.addWidget(self.form, 1)
         left_box = QWidget()
         left_box.setLayout(left)
         # The form scrolls inside: its width (the widest row plus the scroll bar) and, for the
         # stacked layout, a height of its own (else it shrinks to a few px).
         self.ensurePolished()
-        self.form_stack.setMinimumWidth(max(
-            f.widget().minimumSizeHint().width() + f.verticalScrollBar().sizeHint().width()
-            + 2 * f.frameWidth() for f in self.forms.values()))
-        self.form_stack.setMinimumHeight(self.fontMetrics().height() * 18)
+        f = self.form
+        f.setMinimumWidth(f.widget().minimumSizeHint().width()
+                          + f.verticalScrollBar().sizeHint().width() + 2 * f.frameWidth())
+        f.setMinimumHeight(self.fontMetrics().height() * 18)
         outer.addWidget(left_box, 1)
 
         right = QVBoxLayout()
@@ -332,22 +333,21 @@ class GoaPanel(QWidget):
         self.tabs.addTab(self.readme, "README")
         right.addWidget(self.tabs, 1)
         self.note = QLabel(
-            "Nichts davon ist in Live getestet oder angehört. Das Arrangement ist eine MIDI-"
-            "Datei mit Beispiel-WAVs; du ziehst sie selbst in Live (Anleitung in der README).")
+            "Nichts davon ist in Live getestet oder angehört. Die Melodie ist eine MIDI-Datei "
+            "(eine Spur je Stimme, keine Samples); du ziehst sie selbst in Live und legst "
+            "eigene Instrumente darauf (Anleitung in der README).")
         self.note.setObjectName("muted")
         self.note.setWordWrap(True)
         self.note.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Minimum)
         right.addWidget(self.note)
-        self.actions = ResultActions()
-        right.addWidget(self.actions)
         outer.addLayout(right, 1)
         self.hub = None
         self.refresh()
 
     def attach_hub(self, hub) -> None:
-        """Follow the shared output folder and hand results to the library / Live page."""
+        """Follow the shared output folder (the melody is MIDI only: nothing for the library,
+        which lists WAVs)."""
         self.hub = hub
-        self.actions.set_hub(hub)
         hub.settings_changed.connect(self._settings_changed)
         self.set_base_dir(hub.settings.goa_dir())
 
@@ -355,10 +355,6 @@ class GoaPanel(QWidget):
         self.set_base_dir(settings.goa_dir())
 
     # --- state ---------------------------------------------------------------------------
-    @property
-    def model(self) -> GoaFormModel:
-        return self.models[self.mode]
-
     @property
     def running(self) -> bool:
         return self.handle is not None
@@ -372,13 +368,6 @@ class GoaPanel(QWidget):
         self.status.setProperty("level", "error" if error else "ok")
         self.status.style().unpolish(self.status)
         self.status.style().polish(self.status)
-
-    def set_mode(self, mode: str) -> None:
-        self.mode = mode
-        self.mode_seg.set_index(MODES.index(mode))
-        self.form_stack.setCurrentIndex(MODES.index(self.mode))
-        self._folder_auto = True
-        self.refresh()
 
     def _folder_typed(self, _t: str) -> None:
         self._folder_auto = False
@@ -433,7 +422,7 @@ class GoaPanel(QWidget):
         if self.running or not self.model.is_valid:
             return
         folder = self.folder_edit.text().strip()
-        job = GoaJob(self.mode, tuple(self.model.argv(folder)))
+        job = GoaJob(tuple(self.model.argv(folder)))
         self.set_status("Rendern …")
         self.render_button.setEnabled(False)
         self.handle = self.service.start(job, on_done=self._signals.done.emit)
@@ -447,13 +436,7 @@ class GoaPanel(QWidget):
             self.readme.setPlainText(result.readme_text)
             self.tabs.setCurrentIndex(1)
             self.set_status(
-                f"Fertig: {result.mid_path.name}, README"
-                + (f" und {len(result.sample_paths)} Beispiel-WAV(s)" if result.sample_paths
-                   else "") + f" in {result.out_dir}")
-            files = [*result.sample_paths, result.mid_path]
-            self.actions.set_paths([p for p in files if p is not None])
-            if self.hub is not None:
-                self.hub.files_written.emit(list(result.sample_paths))
+                f"Fertig: {result.mid_path.name} und README in {result.out_dir}")
         self.refresh()
 
     def open_folder(self) -> None:
