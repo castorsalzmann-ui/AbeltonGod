@@ -37,6 +37,15 @@ from gui_core.live import (
     inspect_live,
     prepare_import,
 )
+from gui_core.live_steps import (
+    SETUP_DOC,
+    SETUP_URL,
+    STEPS,
+    StepState,
+    current_step,
+    next_step,
+    reasons,
+)
 from gui_core.tasks import start_task
 
 from .tool_style import STYLE
@@ -139,6 +148,25 @@ class LivePanel(QWidget):
             "importieren")
         lay.addWidget(self.unverified_check)
 
+        # #548: the three steps, where the user is, and why a button is grey
+        self.steps_label = QLabel()
+        self.steps_label.setWordWrap(True)
+        self.steps_label.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Minimum)
+        lay.addWidget(self.steps_label)
+        self.next_label = QLabel()
+        self.next_label.setObjectName("status")
+        self.next_label.setWordWrap(True)
+        self.next_label.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Minimum)
+        lay.addWidget(self.next_label)
+        self.setup_label = QLabel(
+            f'Einrichtung von AbletonOSC Schritt für Schritt: <a href="{SETUP_URL}">'
+            f"{SETUP_DOC}</a> (Live offen? AbletonOSC als Control Surface gewählt? Live neu "
+            "gestartet? Port frei?)")
+        self.setup_label.setOpenExternalLinks(True)
+        self.setup_label.setWordWrap(True)
+        self.setup_label.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Minimum)
+        self.setup_label.setVisible(False)
+        lay.addWidget(self.setup_label)
         buttons = QHBoxLayout()
         self.inspect_button = QPushButton("Live-Set lesen")
         self.plan_button = QPushButton("Plan prüfen")
@@ -297,6 +325,34 @@ class LivePanel(QWidget):
         self.import_button.setEnabled(
             idle and gate_ok and self.plan is not None and self.plan.ok
             and self.testset_check.isChecked() and unv)
+        self._show_steps()
+
+    def step_state(self) -> StepState:
+        return StepState(
+            have_wav=self.wav_path is not None, gate_ok=getattr(self, "_gate_ok", False),
+            busy=self.busy,
+            inspection_ok=None if self.inspection is None else bool(self.inspection.ok),
+            plan_ok=None if self.plan is None else bool(self.plan.ok),
+            testset=self.testset_check.isChecked(),
+            needs_unverified=self.needs_unverified_ok, unverified_ok=self._accept())
+
+    def _show_steps(self) -> None:
+        """#548: numbered steps, the next one, and a tooltip on every grey button saying why."""
+        s = self.step_state()
+        why = reasons(s)
+        cur = current_step(s)
+        parts = []
+        for i, name in enumerate(STEPS, start=1):
+            text = f"{i} · {name}"
+            parts.append(f"<b>{text}</b>" if i == cur else text)
+        self.steps_label.setText("Schritte: " + " → ".join(parts))
+        self.next_label.setText(next_step(s))
+        what = {"inspect": "Liest Spuren und Szenen des offenen Sets (ändert nichts).",
+                "plan": "Zeigt genau, was geschrieben würde (sendet noch nichts).",
+                "import": "Schreibt den Clip ins Set."}
+        for key, button in (("inspect", self.inspect_button), ("plan", self.plan_button),
+                            ("import", self.import_button)):
+            button.setToolTip(f"Gesperrt: {why[key]}" if why[key] else what[key])
 
     # --- actions -------------------------------------------------------------------------
     def start_inspect(self) -> None:
@@ -316,6 +372,7 @@ class LivePanel(QWidget):
         if not isinstance(res, LiveInspection):
             self.inspection = None
             self.set_status(f"Unerwarteter Fehler: {res!r}", error=True)
+            self.setup_label.setVisible(True)
             self._update_state()
             return
         self.inspection = res
@@ -342,6 +399,7 @@ class LivePanel(QWidget):
                             f"{res.num_scenes} Szenen.{sample}{copy} Nichts wurde geändert.")
         else:
             self.set_status(res.error, error=True)
+        self.setup_label.setVisible(not res.ok and "AbletonOSC" in res.error)
         self._update_state()
 
     def start_plan(self) -> None:

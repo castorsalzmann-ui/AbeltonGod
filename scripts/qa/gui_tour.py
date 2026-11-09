@@ -1,10 +1,11 @@
 """GUI tour (#437): walk every page of the main window and every tool window offscreen, render
 one sample per category plus Acid and Blaster, and check that each result shows up in the
-main window's library; render the Goa melody (page and window: MIDI with melodic tracks only,
-D-033); export one arrangement plan from the planner page and check it with the
-contract checker; ask the Copilot page (fake model, no Claude call) for one clap and find it in
-the library (#491). Every page once more with the main window at half the screen width (#517,
-compact layout). Optional screenshots of every page at 100 % and 150 %, full and half width.
+main window's library; export the Goa clips (page and window: one looping .mid per melodic
+voice, D-035) and play their rough preview through a recording backend; export one
+arrangement plan from the planner page and check it with the contract checker; ask the
+Copilot page (fake model, no Claude call) for one clap and find it in the library (#491).
+Every page once more with the main window at half the screen width (#517, compact layout).
+Optional screenshots of every page at 100 % and 150 %, full and half width.
 
 Usage (screenshots never go into the repo; pick a folder outside it)::
 
@@ -288,64 +289,118 @@ def render_category(window, key: str) -> Step:
     return Step(name, True, wav.name, time.perf_counter() - t)
 
 
-MELODY_VOICES = ("lead", "arp", "pad", "pluck")  # D-033: the only tracks a Goa render may have
+MELODY_VOICES = ("lead", "arp", "pad", "pluck")  # D-033/D-035: the only Goa clips
 
 
-def midi_track_names(data: bytes) -> list[str] | None:
-    """Names of the tracks after the conductor track of a format-1 SMF (first event of each
-    track: the name meta event), read here byte by byte; None if the file is not such a file."""
-    if data[:4] != b"MThd" or len(data) < 14:
+def midi_clip_info(data: bytes) -> tuple[str, int] | None:
+    """(track name, end tick) of a format-0 one-track SMF whose first event is the name meta
+    event after tempo and time signature, read here byte by byte; None for anything else."""
+    if data[:4] != b"MThd" or len(data) < 22:
         return None
     fmt, ntrk = int.from_bytes(data[8:10], "big"), int.from_bytes(data[10:12], "big")
-    if fmt != 1:
+    if fmt != 0 or ntrk != 1 or data[14:18] != b"MTrk":
         return None
-    pos, names = 14, []
-    for i in range(ntrk):
-        if data[pos:pos + 4] != b"MTrk":
-            return None
-        size = int.from_bytes(data[pos + 4:pos + 8], "big")
-        body = data[pos + 8:pos + 8 + size]
-        if len(body) < 4 or body[:3] != b"\x00\xff\x03":
-            return None
-        if i:
-            names.append(body[4:4 + body[3]].decode("ascii", "replace"))
-        pos += 8 + size
-    return names if pos == len(data) else None
+    body, i, tick, name, end = data[22:], 0, 0, None, None
+    while i < len(body):
+        delta = 0
+        while True:
+            if i >= len(body):
+                return None
+            b = body[i]
+            i += 1
+            delta = (delta << 7) | (b & 0x7F)
+            if b < 0x80:
+                break
+        tick += delta
+        if body[i] == 0xFF:
+            typ, ln = body[i + 1], body[i + 2]
+            if typ == 0x03:
+                name = body[i + 3:i + 3 + ln].decode("ascii", "replace")
+            elif typ == 0x2F:
+                end = tick
+            i += 3 + ln
+        else:
+            i += 3
+    return (name, end) if name is not None and end is not None else None
 
 
-def _melody_folder(name: str, panel, t: float) -> Step:
-    """A Goa render (D-033, #520) is one .mid with only melodic tracks plus its README: no
-    sample WAV, no drum or bass track, nothing else in the run folder."""
+class _RecordingBackend:
+    """Stands in for the sound output during the tour: records what would be played."""
+
+    available = True
+
+    def __init__(self) -> None:
+        self.played: list[bytes] = []
+
+    def play(self, wav_path) -> None:
+        self.played.append(Path(wav_path).read_bytes())
+
+    def stop(self) -> None:
+        pass
+
+
+def _clip_folder(name: str, panel, t: float, shown: Path) -> Step:
+    """A Goa export (D-035, #546) is one looping .mid per chosen voice plus README, in exactly
+    the folder the page showed: no sample WAV, no drum or bass clip, nothing else. Before it,
+    "Alle vorhören" and one voice button must hand a WAV to the sound output."""
     res = panel.result
     if res is None or not res.ok:
         status = getattr(panel, "status", None)
-        return Step(name, False, f"render failed: {status.text() if status else ''}",
+        return Step(name, False, f"export failed: {status.text() if status else ''}",
                     time.perf_counter() - t)
+    if res.out_dir != shown:
+        return Step(name, False, f"wrote {res.out_dir}, showed {shown}", time.perf_counter() - t)
     files = sorted(p.relative_to(res.out_dir).as_posix() for p in res.out_dir.rglob("*"))
-    if files != sorted([res.mid_path.name, "README.md"]):
+    if files != sorted([p.name for p in res.mid_paths] + ["README.md"]) or not res.mid_paths:
         return Step(name, False, f"run folder holds {files}", time.perf_counter() - t)
-    tracks = midi_track_names(res.mid_path.read_bytes())
-    if not tracks or any(tr not in MELODY_VOICES for tr in tracks):
-        return Step(name, False, f"{res.mid_path.name}: tracks {tracks}, expected only "
-                    f"{'/'.join(MELODY_VOICES)}", time.perf_counter() - t)
-    return Step(name, True, f"{res.mid_path.name}: {', '.join(tracks)}",
-                time.perf_counter() - t)
+    names = []
+    for p in res.mid_paths:
+        info = midi_clip_info(p.read_bytes())
+        if info is None or info[0] not in {f"Goa {v}" for v in MELODY_VOICES} \
+                or info[1] <= 0 or info[1] % 1920:
+            return Step(name, False, f"{p.name}: {info}, expected a 'Goa <voice>' clip of "
+                        "whole bars", time.perf_counter() - t)
+        names.append(info[0])
+    if panel.drag_list.count() != len(res.mid_paths):
+        return Step(name, False, f"drag list shows {panel.drag_list.count()} clips",
+                    time.perf_counter() - t)
+    return Step(name, True, f"{len(names)} clips: {', '.join(names)}", time.perf_counter() - t)
+
+
+def _preview_and_export(name: str, panel, t: float) -> Step | None:
+    """Preview (all, then lead) through a recording backend, then start the export; a Step
+    only on failure."""
+    real = panel.backend
+    rec = _RecordingBackend()
+    panel.backend = rec
+    try:
+        panel.all_button.click()
+        panel.voice_buttons["lead"].click()
+        panel.stop_button.click()
+    finally:
+        panel.backend = real
+    if len(rec.played) != 2 or any(d[:4] != b"RIFF" for d in rec.played):
+        return Step(name, False, f"preview played {len(rec.played)} WAVs: "
+                    f"{panel.status.text()}", time.perf_counter() - t)
+    if not panel.export_button.isEnabled():
+        return Step(name, False, f"Export gesperrt: {panel.status.text()}",
+                    time.perf_counter() - t)
+    panel.export_button.click()
+    if not wait_for(lambda: not panel.running, WAIT_S):
+        return Step(name, False, f"no result after {WAIT_S:.0f} s", time.perf_counter() - t)
+    return None
 
 
 def render_goa_page(window) -> Step:
-    """Goa-Melodie page of the main window: render the default melody; the run folder must
-    hold its MIDI (melodic tracks only) and README, nothing else."""
+    """Goa page of the main window: preview, then export the default clips; the run folder
+    must hold one .mid per voice and the README, nothing else."""
     t = time.perf_counter()
     name = "render:goa-page"
     window.categories.setCurrentRow(window.tool_rows["goa"])
     page = window.goa
-    if not page.render_button.isEnabled():
-        return Step(name, False, f"Rendern gesperrt: {page.status.text()}",
-                    time.perf_counter() - t)
-    page.render_button.click()
-    if not wait_for(lambda: not page.running):
-        return Step(name, False, f"no result after {WAIT_S:.0f} s", time.perf_counter() - t)
-    return _melody_folder(name, page, t)
+    shown = Path(page.folder_edit.text())
+    failed = _preview_and_export(name, page, t)
+    return failed or _clip_folder(name, page, t, shown)
 
 
 def reference_kick(window) -> Step:
@@ -481,24 +536,25 @@ def open_tool(window, key: str, shots: Path | None, tag: str) -> tuple[Step, obj
 
 
 def render_goa_window(window, win) -> Step:
-    """Goa tool window (Goa-Melodie form): its Render button must write melody MIDI and README
-    only; the library (WAVs) gets nothing new."""
+    """Goa tool window (the same clip form): preview, then export; one .mid per voice and the
+    README only; the library (WAVs) gets nothing new."""
     t = time.perf_counter()
     name = "render:goa-window"
+    if not hasattr(win.body, "export_button"):
+        return Step(name, False, f"window body {type(win.body).__name__} cannot export",
+                    time.perf_counter() - t)
     before = set(_wavs(window._library_folder()))
-    win.body.render_button.click()
-    # The render runs in a worker thread (GoaPanel); the placeholder answers at once and has
-    # no ``running``. Never a short fixed deadline (CLAUDE.md: >= 5 s for an answer).
-    if not wait_for(lambda: not getattr(win.body, "running", False), WAIT_S):
-        return Step(name, False, f"no result after {WAIT_S:.0f} s", time.perf_counter() - t)
+    shown = Path(win.body.folder_edit.text())
+    # The export runs in a worker thread (GoaPanel). Never a short fixed deadline
+    # (CLAUDE.md: >= 5 s for an answer).
+    failed = _preview_and_export(name, win.body, t)
+    if failed:
+        return failed
     new = sorted(set(_wavs(window._library_folder())) - before)
     if new:
         return Step(name, False, f"Goa wrote WAVs: {[p.name for p in new[:3]]}",
                     time.perf_counter() - t)
-    if not hasattr(win.body, "result"):
-        return Step(name, False, f"window body {type(win.body).__name__} cannot render",
-                    time.perf_counter() - t)
-    return _melody_folder(name, win.body, t)
+    return _clip_folder(name, win.body, t, shown)
 
 
 def render_acid(window, win) -> Step:

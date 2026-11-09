@@ -159,8 +159,8 @@ class GoaPlaceholderPanel(QWidget):
     """Placeholder body: title, section/BPM fields, Render button.
 
     Only the skin demo shows it: Render only emits :attr:`render_requested` and says so. The
-    program's Goa window replaces it through the body slot with the Goa-Melodie form
-    (``gui.goa_panel.GoaPanel``, melody only, D-033)."""
+    program's Goa window replaces it through the body slot with the Goa clip form
+    (``gui.goa_panel.GoaPanel``: one MIDI clip per voice, no song form, D-035)."""
 
     render_requested = Signal(str, str)
 
