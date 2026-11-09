@@ -1,9 +1,9 @@
-"""Goa-Melodie render service (no Qt): writes the output folder exactly as the CLI does.
+"""Goa clip export service (no Qt): writes the output folder exactly as the CLI does.
 
-``run_goa_job`` parses the same ``--flag=value`` list ``python -m audio_engine.goa_melody``
+``run_goa_job`` parses the same ``--flag=value`` list ``python -m audio_engine.goa_clips``
 would get, turns it into the module's keyword arguments (:func:`gui_core.goa.call_of`) and calls
-``goa_melody.write_melody``: one ``.mid`` (one track per voice: lead, arp, pad, pluck) and a
-README. D-033: no full-song arrangement, no drum/bass tracks, no sample WAVs from the GUI.
+``goa_clips.write_clips``: one ``.mid`` per chosen voice (one looping clip each) and a README,
+in exactly the folder of ``--out`` (D-035). No song form, no drum/bass tracks, no sample WAVs.
 Every failure comes back as an :class:`ErrorInfo`; nothing raises. Existing files are never
 overwritten (the module refuses and writes nothing).
 """
@@ -15,7 +15,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
-from audio_engine import goa_melody
+from audio_engine import goa_clips
 
 from .goa import OptionError, call_of, parse_argv
 from .render import ErrorInfo
@@ -31,7 +31,7 @@ class GoaJob:
 class GoaResult:
     job: GoaJob
     out_dir: Path | None = None
-    mid_path: Path | None = None
+    mid_paths: tuple[Path, ...] = ()  # one per voice, fixed voice order
     readme_path: Path | None = None
     readme_text: str = ""
     error: ErrorInfo | None = None
@@ -56,7 +56,7 @@ def run_goa_job(job: GoaJob) -> GoaResult:
         return GoaResult(job, error=ErrorInfo("invalid_params", "Kein Ausgabeordner angegeben.",
                                               "empty --out"))
     try:
-        mid, readme = goa_melody.write_melody(out, **call.kwargs)
+        mids, readme = goa_clips.write_clips(out, **call.kwargs)
         text = readme.read_text(encoding="utf-8")
     except FileExistsError as exc:
         if exc.errno is not None:  # the OS (mkdir below a file, Windows), not the module's refusal
@@ -68,8 +68,8 @@ def run_goa_job(job: GoaJob) -> GoaResult:
     except OSError as exc:
         if exc.errno == errno.ENOSPC:
             return GoaResult(job, out, error=ErrorInfo(
-                "disk_full", "Der Datenträger ist voll. Der Ordner kann unvollständig sein.",
-                str(exc)))
+                "disk_full", "Der Datenträger ist voll. Bereits geschriebene Clips dieses "
+                "Laufs wurden wieder entfernt.", str(exc)))
         return GoaResult(job, out, error=ErrorInfo(
             "output", f"Der Ausgabeordner ist nicht beschreibbar: {exc}.", str(exc)))
     except ValueError as exc:  # generator refused the options: nothing was written
@@ -79,7 +79,7 @@ def run_goa_job(job: GoaJob) -> GoaResult:
     except Exception as exc:  # noqa: BLE001
         return GoaResult(job, out, error=ErrorInfo(
             "internal", f"Unerwarteter Fehler: {type(exc).__name__}: {exc}", repr(exc)))
-    return GoaResult(job, out, mid, readme, text)
+    return GoaResult(job, out, tuple(mids), readme, text)
 
 
 class GoaService:
