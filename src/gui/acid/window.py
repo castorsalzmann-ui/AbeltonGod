@@ -167,6 +167,12 @@ class AcidWindow(OnTopWindow, QWidget):
         prow.addWidget(self.volume)
         prow.addStretch(1)
         ll.addLayout(prow)
+        # The play result next to the buttons (the footer status is below the fold too, review
+        # of #561): "Spielt …", or the German error.
+        self.preview_status = QLabel("")
+        self.preview_status.setObjectName("status")
+        self.preview_status.setWordWrap(True)
+        ll.addWidget(self.preview_status)
         ll.addStretch(1)
         top.addWidget(line_panel, 5)
         # --- generator panel
@@ -475,7 +481,16 @@ class AcidWindow(OnTopWindow, QWidget):
     def preview(self) -> bool:
         """Render the rough preview and hand it to the backend. Every failure ends in a German
         status line (#543: an exception outside the caught types used to vanish in the Qt slot,
-        and the windowed exe has no console to print it)."""
+        and the windowed exe has no console to print it), shown in the footer and next to the
+        play buttons (the footer can be below the fold in a half-screen window)."""
+        ok = self._preview()
+        self.preview_status.setText(self.status.text())
+        self.preview_status.setProperty("level", self.status.property("level"))
+        self.preview_status.style().unpolish(self.preview_status)
+        self.preview_status.style().polish(self.preview_status)
+        return ok
+
+    def _preview(self) -> bool:
         if not self.backend.available:
             self.set_status("Keine Audioausgabe verfügbar.", error=True)
             return False
