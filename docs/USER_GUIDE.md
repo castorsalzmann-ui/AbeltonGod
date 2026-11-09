@@ -61,6 +61,8 @@ Download: GitHub → Actions → „Build exe“ → neuester Lauf auf `main` �
 
 17. Ein Monitor mit Live: Hauptfenster mit Win+Pfeil rechts an den Rand schnappen: Seitenauswahl als Klappmenü sichtbar, nichts abgeschnitten? „Immer im Vordergrund“ anhaken, in Live klicken: bleibt AbeltonGod oben? Nach Neustart noch angehakt? Ein Sample aus Bibliothek oder Ergebnissen in eine Live-Spur ziehen.
 18. Copilot: „Mach mir einen 8-Takt-Riser“ ohne Tempo: er fragt nach dem Tempo statt zu raten; mit Tempo landet der Riser in der Bibliothek.
+19. Atmos-Seite: Tempo deines Tracks, 8 Takte, Preset `dark-bed` und `drone-root-fifth` rendern, in Live als Loop (Warp-Modus „Texture“) laufen lassen: hörst du an der Loop-Naht einen Klick? Passt die Länge auf den Takt?
+20. Goa-Melodie: rendern: eine MIDI-Datei mit Lead/Arp/Pad/Pluck, keine Drums.
 
 Jeder Punkt ist bisher nur automatisch (ohne Bildschirm bzw. gegen einen nachgebauten Live-Server) oder gar nicht geprüft; deine Rückmeldung ist der erste echte Beleg.
 
