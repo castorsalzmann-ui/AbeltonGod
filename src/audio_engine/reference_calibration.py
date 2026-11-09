@@ -127,7 +127,7 @@ def _kick_known(p: dict[str, Any], audio: np.ndarray) -> dict[str, float]:
         return fe * t + (fs - fe) * tau * (1.0 - math.exp(-t / tau))
 
     out = {f"pitch_{ms:g}ms_hz": freq(t0 + ms / 1000.0) for ms in V.PITCH_TIMES_MS}
-    x = V.prepare(audio)
+    x = V.prepare_signal(audio)
     a, b = tail_window(x, sr)
     if b > a:
         ta, tb = t0 + a / sr, t0 + b / sr
@@ -268,7 +268,8 @@ def calibrate(category: str, log: Callable[[str], None] = lambda s: None) -> dic
 
 def build_table(log: Callable[[str], None] = lambda s: None) -> dict[str, Any]:
     return {
-        "description": "Reference feature scales (#540, E3). Generated, do not edit by hand.",
+        "description": "Reference feature scales (reference steering v2, E3). Generated, "
+                       "do not edit by hand.",
         "command": COMMAND,
         "seeds": list(SEEDS),
         "variants_per_preset": VARIANTS,

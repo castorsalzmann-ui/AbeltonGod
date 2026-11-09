@@ -329,7 +329,7 @@
     }
   },
   "command": "PYTHONPATH=src python -m audio_engine.reference_calibration --write",
-  "description": "Reference feature scales (#540, E3). Generated, do not edit by hand.",
+  "description": "Reference feature scales (reference steering v2, E3). Generated, do not edit by hand.",
   "engines": {
     "bass": "0.2.0",
     "kick": "0.1.0"

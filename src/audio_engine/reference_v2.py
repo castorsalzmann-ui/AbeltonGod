@@ -373,7 +373,7 @@ DB_FLOOR = -80.0
 SUB_SPLIT_HZ = 100.0
 
 
-def prepare(x: np.ndarray) -> np.ndarray:
+def prepare_signal(x: np.ndarray) -> np.ndarray:
     """Mid of a mono or ``(n, 2)`` signal, DC removed, cut at the onset, peak-normalised."""
     x = mid_signal(np.asarray(x, dtype=np.float64))
     if len(x):
@@ -518,7 +518,7 @@ def kick_features_from_audio(audio: np.ndarray, sr: int) -> dict[str, float | No
     """Kick features of a mono or stereo signal (one hit)."""
     mono = mid_signal(np.asarray(audio, dtype=np.float64))
     out: dict[str, float | None] = dict(measure(mono, sr))  # the v1 six, unchanged
-    x = prepare(mono)
+    x = prepare_signal(mono)
     for t, v in zip(PITCH_TIMES_MS, pitch_at_ms(x, sr), strict=True):
         out[f"pitch_{t:g}ms_hz"] = v
     out["tail_harmonics_db"] = tail_harmonics_db(x, sr, out["fundamental_hz"])
@@ -653,7 +653,7 @@ def _whole_periods(seg: np.ndarray, sr: int, f: float, even: bool = False) -> np
 
 def bass_features_from_audio(audio: np.ndarray, sr: int) -> dict[str, float | None]:
     """Bass features of a mono or stereo signal (one note; module docstring)."""
-    x = prepare(audio)
+    x = prepare_signal(audio)
     out: dict[str, float | None] = dict.fromkeys(BASS_FEATURES)
     if len(x) < 16 or not np.any(x):
         return out

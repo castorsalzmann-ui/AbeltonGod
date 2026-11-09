@@ -412,7 +412,7 @@ def test_pitch_curve_follows_its_definition_over_the_contract_range(seed):
         fs = rng.uniform(max(60, fe * 1.05), 600)
         tau = math.exp(rng.uniform(math.log(0.002), math.log(0.3)))
         x = np.cos(2 * np.pi * _sweep_cycles(t, fs, fe, tau)) * np.exp(-t / 0.2)
-        got = V.pitch_at_ms(V.prepare(x), SR)
+        got = V.pitch_at_ms(V.prepare_signal(x), SR)
         for ms, g in zip((5, 10, 20, 40), got, strict=True):
             want, t_minus = _one_period_hz(ms / 1000, fs, fe, tau)
             if g is None:
@@ -428,7 +428,7 @@ def test_pitch_curve_ignores_the_harmonics_of_a_driven_body():
     t = np.arange(int(0.5 * SR)) / SR
     body = np.sin(2 * np.pi * _sweep_cycles(t, 220, 50, 0.02)) * np.exp(-t / 0.15)
     x = np.tanh(4 * body) / np.tanh(4)
-    got = V.pitch_at_ms(V.prepare(x), SR)
+    got = V.pitch_at_ms(V.prepare_signal(x), SR)
     # tanh(4x) is heavier than the engine's drive and the pitch moves inside the period, so
     # the harmonics cancel to about 1 % (measured 1.1 % at 20 ms); a fixed +-1 ms slope was off
     # by semitones on driven presets. 3 % = 0.5 semitone separates the two.
@@ -454,14 +454,14 @@ def test_body_zone_energy_on_known_signals():
     # 200 Hz: 16 whole periods in the file (mean 0, so DC removal changes nothing) and 15 in
     # 5..80 ms (bin 15 exactly, no leakage). 160 Hz (12.8 periods) had a mean that moved it.
     low = np.cos(2 * np.pi * 200 * t)
-    assert V.body_energy_db(V.prepare(low), SR) == pytest.approx(10 * math.log10(75 / 80),
+    assert V.body_energy_db(V.prepare_signal(low), SR) == pytest.approx(10 * math.log10(75 / 80),
                                                                  abs=0.01)
     both = np.concatenate([low, np.cos(2 * np.pi * 1000 * t)])
-    assert V.body_energy_db(V.prepare(both), SR) == pytest.approx(10 * math.log10(75 / 160),
+    assert V.body_energy_db(V.prepare_signal(both), SR) == pytest.approx(10 * math.log10(75 / 160),
                                                                   abs=0.01)
     high = np.cos(2 * np.pi * 1000 * np.arange(int(0.16 * SR)) / SR)
-    assert V.body_energy_db(V.prepare(high), SR) <= -60.0
-    assert V.body_energy_db(V.prepare(low[: int(0.07 * SR)]), SR) is None
+    assert V.body_energy_db(V.prepare_signal(high), SR) <= -60.0
+    assert V.body_energy_db(V.prepare_signal(low[: int(0.07 * SR)]), SR) is None
 
 
 def test_body_zone_energy_does_not_depend_on_the_sample_rate():
