@@ -358,7 +358,11 @@ def test_the_contract_names_every_rule_and_its_worked_examples() -> None:
         "Reject cross-field rules A, B, C, D and E with an error text",
         "tail_beats counts in oneshot only", "32 bars need bpm >= 106.67",
         "Reject out-of-range values, never clamp", "byte-identical",
-        "abeltongod-audio-engine-atmos", "NOT part of this v0.1 file",
+        "abeltongod-audio-engine-atmos", "the sample-metadata entry is category 'atmos'",
+        # #528 review carry-overs, fixed in #529
+        "draws nine uniforms in [0, 1) from s3 in this order: theta",
+        "a band-pass narrower than about one bin", "Reject non-finite numbers",
+        "1-bar oneshot with the default 4 + 4 fade beats is rejected",
     ):
         assert needle in TEXT, needle
     desc = ATMOS["description"]
@@ -444,13 +448,20 @@ def _own_svf(x: np.ndarray, fc: np.ndarray, q: float, sr: int, mode: str) -> np.
     return out
 
 
-@pytest.mark.parametrize("q, mode", [(12, "bp"), (0.5, "lp")])
-def test_warm_up_rule_converges_at_the_worst_corner(q: float, mode: str) -> None:
-    """Review #525 point 2: static cutoff 20 Hz, 1 bar at 200 BPM, 48 kHz. After P_filter
-    warm-up loops the kept period and the next differ by less than 1/16 of a 24-bit LSB."""
-    sr, bars, bpm, fc = 48000, 1, 200, 20.0
+@pytest.mark.parametrize("q, mode, bpm, periods", [
+    (12, "bp", 200, 4), (0.5, "lp", 200, 1),
+    # the rule's tightest point (#528 review nit 3): 20 tau / T_loop = 2.9985, so P = 3 gives
+    # only 20 tau of decay
+    (12, "lp", 188.4, 3), (12, "bp", 188.4, 3),
+])
+def test_warm_up_rule_converges_at_the_worst_corner(q: float, mode: str, bpm: float,
+                                                    periods: int) -> None:
+    """Review #525 point 2: static cutoff 20 Hz, 1 bar, 48 kHz. After P_filter warm-up loops
+    the kept period and the next differ by less than 1/16 of a 24-bit LSB."""
+    sr, bars, fc = 48000, 1, 20.0
     n = loop_frames(bars, bpm, sr)
     p = p_filter(fc, q, bars, bpm, sr)
+    assert p == periods
     x = np.random.default_rng(526).standard_normal(n)
     y = _own_svf(np.tile(x, p + 2), np.full(n * (p + 2), fc), q, sr, mode)
     kept, nxt = y[p * n:(p + 1) * n], y[(p + 1) * n:]

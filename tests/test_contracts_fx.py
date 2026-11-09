@@ -491,8 +491,8 @@ def _changed(path: str, value, base: dict = FX_DOC) -> dict:
     return doc
 
 
-def test_metadata_category_enum_ends_with_fx() -> None:
-    assert META["properties"]["category"]["enum"] == [
+def test_metadata_category_enum_has_fx_after_perc() -> None:
+    assert META["properties"]["category"]["enum"][:9] == [
         "kick", "clap", "hat", "snare", "rim", "bass", "laser", "perc", "fx"]
 
 
@@ -557,7 +557,7 @@ def test_fx_contract_category_is_registered_with_the_contract_engine_name() -> N
     """#482 engine step: the engine renders fx under the engine name this contract fixes."""
     from audio_engine.categories import CONTRACT_CATEGORIES, get_category, registered_categories
 
-    assert CONTRACT_CATEGORIES[-1] == "fx"
+    assert CONTRACT_CATEGORIES[8] == "fx"
     assert "fx" in registered_categories()
     assert get_category("fx").engine_name == "abeltongod-audio-engine-fx"
     assert get_category("fx").metadata_schema_version == "0.2"
