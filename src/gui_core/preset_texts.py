@@ -134,15 +134,16 @@ PRESET_TEXTS_DE: dict[tuple[str, str], str] = {
     ("perc", "shaker-long"): "Shaker mit doppeltem Abfall, langsamerem Anstieg, 3 Halbtöne "
                              "tiefer.",
     # fx (#482): all written at 135 BPM; the tempo must match the track
-    ("fx", "riser-8bar"): "Rausch-Riser über 8 Takte: Bandpass steigt, Pegel steigt "
-                          "(Standardwerte der Art). Gespeichert mit 135 BPM: Tempo auf den "
-                          "Track einstellen.",
-    ("fx", "riser-16bar"): "Rausch-Riser über 16 Takte, die Standardwerte der Art "
-                           "ausgeschrieben. Gespeichert mit 135 BPM: Tempo auf den Track "
+    # risers (#547): the level starts at -60 dB, so the start is near silence
+    ("fx", "riser-8bar"): "Rausch-Riser über 8 Takte: Bandpass steigt, Pegel steigt von "
+                          "-60 dB aus. Gespeichert mit 135 BPM: Tempo auf den Track "
+                          "einstellen.",
+    ("fx", "riser-16bar"): "Rausch-Riser über 16 Takte: Bandpass steigt, Pegel steigt von "
+                           "-60 dB aus. Gespeichert mit 135 BPM: Tempo auf den Track "
                            "einstellen.",
-    ("fx", "riser-32bar"): "Rausch-Riser über 32 Takte: Bandpass steigt, Pegel steigt "
-                           "(Standardwerte der Art). Gespeichert mit 135 BPM: Tempo auf den "
-                           "Track einstellen.",
+    ("fx", "riser-32bar"): "Rausch-Riser über 32 Takte: Bandpass steigt, Pegel steigt von "
+                           "-60 dB aus. Gespeichert mit 135 BPM: Tempo auf den Track "
+                           "einstellen.",
     ("fx", "downlifter"): "Rausch-Downlifter über 2 Takte: Bandpass fällt, Pegel fällt "
                           "(Standardwerte der Art). Gespeichert mit 135 BPM: Tempo auf den "
                           "Track einstellen.",
