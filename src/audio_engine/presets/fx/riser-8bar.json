@@ -4,5 +4,6 @@
   "seed": 1,
   "bpm": 135,
   "kind": "riser",
-  "length_beats": 32
+  "length_beats": 32,
+  "level_start_db": -60
 }
