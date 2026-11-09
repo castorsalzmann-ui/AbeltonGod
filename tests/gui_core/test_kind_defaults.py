@@ -29,7 +29,7 @@ def fx(kind: str | None = None) -> CategoryFormModel:
 @pytest.mark.parametrize(("kind", "field", "text"), [
     (None, "length_beats", "64"), (None, "sweep_curve", "1.5"), (None, "cutoff_end_hz", "9000"),
     (None, "ramp_beats", "64"),  # derived: = length_beats
-    ("riser", "filter_mode", "bp"), ("riser", "level_start_db", "-36"),
+    ("riser", "filter_mode", "bp"), ("riser", "level_start_db", "-60"),  # #547
     ("sweep", "filter_q", "4"), ("sweep", "length_beats", "16"), ("sweep", "ramp_beats", "16"),
     ("sweep", "tone_glide_beats", "16"),
     ("downlifter", "cutoff_start_hz", "8000"), ("downlifter", "tone_wave", "saw"),

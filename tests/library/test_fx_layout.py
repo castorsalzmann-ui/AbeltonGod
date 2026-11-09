@@ -36,7 +36,7 @@ def test_place_sample_fx_writes_a_valid_sidecar_into_transitions(tmp_path: Path)
     schema = json.loads((ROOT / "contracts/sample-metadata.schema.json").read_text("utf-8"))
     Draft202012Validator(schema).validate(meta)
     assert meta["category"] == "fx"
-    assert meta["engine"] == {"name": "abeltongod-audio-engine-fx", "version": "0.1.0"}
+    assert meta["engine"] == {"name": "abeltongod-audio-engine-fx", "version": "0.2.0"}
     # 1 beat at 140 BPM, 48 kHz = 20571.43 -> 20571 frames; reverse_crash: boundary = N
     assert meta["features"]["anchor"] == "end"
     assert meta["features"]["boundary_frame"] == 20571
