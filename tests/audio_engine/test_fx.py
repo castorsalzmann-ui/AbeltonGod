@@ -97,7 +97,8 @@ def _frames(beats, bpm, sr=SR) -> int:
 RESOLVED = {  # hand-written from the contract's allOf branches
     "riser": {"length_beats": 64, "tail_beats": 4, "filter_mode": "bp", "filter_q": 1.2,
               "sweep_curve": 1.5, "cutoff_start_hz": 300, "cutoff_end_hz": 9000,
-              "ramp_beats": 64, "tone_glide_beats": 64, "reverb_mix": 0.3},
+              "ramp_beats": 64, "tone_glide_beats": 64, "reverb_mix": 0.3,
+              "level_start_db": -60},  # -60 since #547 (was -36)
     "sweep": {"filter_mode": "lp", "filter_q": 4, "cutoff_end_hz": 12000, "ramp_beats": 16},
     "downlifter": {"sweep_curve": 0.7, "tone_wave": "saw", "level_end_db": -36},
     "impact": {"ramp_beats": 0.25, "tone_glide_beats": 0.5, "tone_decay_beats": 6,
@@ -245,6 +246,20 @@ def test_sweep_end_frequency_and_direction_of_the_riser_default() -> None:
     assert abs(math.log2(end / 9000)) < 1 / 2, end
     assert abs(math.log2(start / 300)) < 1 / 2, start
     assert end / start > 16
+
+
+def test_riser_kind_default_starts_near_silence() -> None:
+    """#547: a riser without a preset (all kind defaults) started at -61 dB RMS re peak in its
+    first 10 / 50 / 100 ms (level_start_db -36; main 3f07f1e, seed 7, 180 BPM: -59.4 / -59.3 /
+    -59.4). Since the contract sets the riser default to -60 dB (measured -83.2 / -83.1 /
+    -83.1) it must stay at or below -80 dB. Plain numpy RMS of the rendered buffer."""
+    audio, p = render_fx({**BASE})
+    assert p["kind"] == "riser" and int(p["sample_rate"]) == SR
+    peak = float(np.max(np.abs(audio)))
+    for ms in (10, 50, 100):
+        w = audio[: SR * ms // 1000]
+        got = 20.0 * math.log10(math.sqrt(float(np.mean(w * w))) / peak)
+        assert got <= -80.0, (ms, round(got, 1))
 
 
 def test_hp_lp_and_lp_modes_shape_the_noise() -> None:
@@ -546,7 +561,7 @@ def test_platform_independent_math_matches_numpy() -> None:
 
 # --- golden hashes (Linux and Windows CI must agree) ---------------------------------------------
 
-GOLDEN_VERSION = "0.1.0"
+GOLDEN_VERSION = "0.2.0"  # 0.2.0 (#547): only "riser short" changed (riser default -60 dB)
 SHORT = {"bpm": 200, "length_beats": 2, "tail_beats": 1}
 GOLDEN: dict[str, dict] = {
     **{f"preset {n}": load_preset(n, "fx") for n in ("impact", "reverse-crash", "downlifter")},
@@ -564,7 +579,7 @@ GOLDEN_SHA = {  # pinned on Linux x86_64, NumPy 2.5.3; CI checks the same table 
     "preset impact": "d540c6c65397badd3fb354dfbf63cb89e5a9e4a0959f7a64af7cd737012ac4a7",
     "preset reverse-crash": "578a22f79eef32d5c0adea562e62d6875b47ba4c31b2d466d92042401b231aef",
     "preset downlifter": "10ea2e6b3bd48d7b07b8bbacaa30c5510e50fbd5c4988400b14c508ea82c7a11",
-    "riser short": "30aa15849db809639c85d967aceb6a4e060242d23fa63041d2cdd2b1f1aa63d6",
+    "riser short": "4586d09f2c19d872f590148d3ead50d216e54774dfd671a27e4151effe4e4c23",
     "sweep pink hp_lp echo": "ce4ebab8f9be0b7b381dc9237b8a019896fd130a8f6494e2c9d14819f6ad9a3c",
     "saw drive pump": "3e5acda5bddd1c897ab4efb0575b7c87e88d9fc07df68a272a6a2146749d9270",
     "square tone only": "39a90a6608d8d61c81adddfb8ba80a1ccbf8a1bd8ae55feb76d24ec50bc9a123",
