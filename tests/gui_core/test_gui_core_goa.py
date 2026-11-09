@@ -1,6 +1,6 @@
-"""Goa-Melodie service layer (no Qt): option coverage, byte identity with the melody CLI, error
-objects, the timeline against the generator's plan data, and D-033 (melody only: no path of
-the GUI layer reaches ``goa_arrangement``, no drum/bass track, no sample WAV)."""
+"""Goa clip service layer (no Qt, D-035, #546): option coverage, byte identity with the clip
+CLI, error objects, the clip summary, and no song form (no sections, energy or song length;
+no path of the GUI layer reaches ``goa_arrangement``)."""
 
 from __future__ import annotations
 
@@ -13,39 +13,47 @@ from pathlib import Path
 
 import pytest
 
-from audio_engine import goa_melody
+from audio_engine import goa_clips
 from gui_core import goa
 from gui_core.goa import GoaFormModel
 from gui_core.goa_render import GoaJob, GoaService, run_goa_job
 
 SRC = Path(__file__).resolve().parents[2] / "src"
 
-# sha256 of the CLI output, pinned as literals (made with `python -m audio_engine.goa_melody`
+# sha256 of the CLI output, pinned as literals (made with `python -m audio_engine.goa_clips`
 # on the argument lists below, not with the code under test).
 PINNED = {
-    "mel_default": {
-        "goa_melody_seed3_145bpm.mid":
-            "9a601a7381fbaf7ffb5bb9354bed1ccad7cb78a41261648ddace68ab4ddd0579",
-        "README.md": "8806593f873084d8c6dfdd550bcc16a4a2407dc310451bc523376eae1aa9c8d9"},
-    "mel_custom": {
-        "goa_melody_seed9_138bpm.mid":
-            "0cd9ce75c7c79d722df406932ec3393a4f8336f5557d8a2606a198c8b4939ccc",
-        "README.md": "953d87708d720c813ea397c28ea452c67c23198518bde8614180a62e67d13e6c"},
+    "default": {  # --seed 3
+        "goa_lead_seed3_145bpm_4bars.mid":
+            "b217dc235f5e5b730c48c2862230cca1e3110669fcfd8a0cd6e55f70f4502c51",
+        "goa_arp_seed3_145bpm_4bars.mid":
+            "5a9f87afd3328d325d92aa3a141ba107dae8ff8eca4e3c4958bf66ba595e2b76",
+        "goa_pad_seed3_145bpm_4bars.mid":
+            "5323e98f4842e977da646ab39aace54c71483007e6a5b878de16d7ce218c6906",
+        "goa_pluck_seed3_145bpm_4bars.mid":
+            "9b6aaac665cab8f2852a2067d4e014b948177bee65a32400418e10c05093398a",
+        "README.md": "b0f59e892738ea4c8faa2b0de1019dd5a5369dd8aa23c3038444b52b909a3418"},
+    "custom": {  # --seed 9 --bars 2 --bpm 138 --root Bb --scale aeolian --density 0.4
+                 # --register -1 --arp-pattern random --progression 0,5 --voices lead,arp
+        "goa_lead_seed9_138bpm_2bars.mid":
+            "022b069adb466908bbaae4cb1da12126f73f2476a3d6d2f292abbb2bf85e4dd1",
+        "goa_arp_seed9_138bpm_2bars.mid":
+            "202ac66ce6c79fae3406e1b2340a4ab7f8a5c164b2b40e2a8bb980ea8985cf37",
+        "README.md": "6e566c5667dc430c15036e3a3fe7abdfa08eb7abdfc745555938175b17c5da85"},
 }
 
 # What the user types into the form for each pinned run (field -> text; optionals switched on).
 FORM_RUNS = {
-    "mel_default": {"seed": "3"},
-    "mel_custom": {
-        "seed": "9", "bpm": "138", "root": "Bb", "scale": "aeolian", "length": "2",
+    "default": {"seed": "3"},
+    "custom": {
+        "seed": "9", "bars": "2", "bpm": "138", "root": "Bb", "scale": "aeolian",
         "density": "0.4", "register": "-1", "arp_pattern": "random", "progression": "0,5",
-        "voices": "lead,arp", "sections": "Intro:4:0.3:lead,Peak:8:1:lead+arp"},
+        "voices": "lead,arp"},
 }
 
-# Flags of the removed Goa-Arrangement mode (the goa_arrangement CLI still has them).
-ARRANGEMENT_FLAGS = ("--roll=gallop", "--kick-preset=default", "--bass-preset=goa-roll-long",
-                     "--intro-bars=8", "--breakdowns=1", "--outro=kick_less", "--dj-bars=16",
-                     "--melody-voices=lead", "--no-samples")
+# Song-form flags: of the removed arrangement mode and of goa_melody's sections.
+SONG_FLAGS = ("--roll=gallop", "--kick-preset=default", "--intro-bars=8", "--breakdowns=1",
+              "--no-samples", "--sections=A:4:0.5:lead", "--length=4", "--energy=1")
 
 
 def filled(values: dict[str, str]) -> GoaFormModel:
@@ -66,37 +74,42 @@ def tree(root: Path) -> dict[str, bytes]:
             if p.is_file()}
 
 
-def midi_track_names(data: bytes) -> list[str]:
-    """Track names (meta 0x03 at tick 0) of every MTrk after the first (the conductor), read
-    with a small SMF walker written here (not the project's MIDI writer)."""
+def smf_info(data: bytes) -> tuple[int, int, str, int]:
+    """(format, tracks, track name, end tick) of a one-track SMF, read here byte by byte."""
     assert data[:4] == b"MThd"
     _len, fmt, ntrk, _ppq = struct.unpack(">IHHH", data[4:14])
-    assert fmt == 1
-    pos, names = 14, []
-    for i in range(ntrk):
-        assert data[pos:pos + 4] == b"MTrk"
-        (size,) = struct.unpack(">I", data[pos + 4:pos + 8])
-        body = data[pos + 8:pos + 8 + size]
-        # first event: delta 0x00, FF 03 <len> <name>
-        assert body[0] == 0 and body[1] == 0xFF and body[2] == 0x03, f"track {i}: no name"
-        name = body[4:4 + body[3]].decode("ascii")
-        if i:
-            names.append(name)
-        pos += 8 + size
-    assert pos == len(data)
-    return names
+    body = data[22:]
+    i, tick, name, end = 0, 0, "", None
+    while i < len(body):
+        delta = 0
+        while True:
+            b = body[i]
+            i += 1
+            delta = (delta << 7) | (b & 0x7F)
+            if b < 0x80:
+                break
+        tick += delta
+        if body[i] == 0xFF:
+            typ, ln = body[i + 1], body[i + 2]
+            if typ == 0x03:
+                name = body[i + 3:i + 3 + ln].decode("ascii")
+            if typ == 0x2F:
+                end = tick
+            i += 3 + ln
+        else:
+            i += 3
+    return fmt, ntrk, name, end
 
 
 # --- every CLI option is in the form --------------------------------------------------------
 
 def test_every_cli_option_has_a_form_field():
-    parser = goa_melody.build_parser()
+    parser = goa_clips.build_parser()
     cli = {a.dest: a.option_strings[0] for a in parser._actions
            if a.dest not in ("help", "out")}
     form = {s.dest: s.flag for s in GoaFormModel().specs}
     assert form == cli
-    argv = GoaFormModel().argv("X")
-    assert argv[0] == "--out=X"
+    assert GoaFormModel().argv("X")[0] == "--out=X"
 
 
 def test_form_argv_with_every_optional_switched_on_is_accepted_by_the_cli_parser():
@@ -104,18 +117,19 @@ def test_form_argv_with_every_optional_switched_on_is_accepted_by_the_cli_parser
     for s in m.specs:
         if s.optional:
             m.set_active(s.dest, True)
-            if s.kind == "enum":
-                assert m.text[s.dest] == s.choices[0]
-            elif s.dest in ("density", "register"):
-                m.set_text(s.dest, "0" if s.dest == "register" else "0.5")
-            elif s.dest == "sections":
-                m.set_text(s.dest, "A:4:0.5:lead")
+            m.set_text(s.dest, "0" if s.dest == "register" else "0.5")
     assert m.evaluate().ok, m.evaluate().problem
-    ns = goa.parse_argv(m.argv("X"))
-    assert ns.out == "X"
+    assert goa.parse_argv(m.argv("X")).out == "X"
 
 
-# --- D-033: melody only ---------------------------------------------------------------------
+def test_tempo_is_whole_bpm_in_the_form():
+    m = GoaFormModel()
+    assert m.spec("bpm").kind == "int" and m.text["bpm"] == "145"
+    m.set_text("bpm", "140.5")
+    assert "bpm" in m.field_issues() and not m.evaluate().ok
+
+
+# --- D-035: clips, no song form -------------------------------------------------------------
 
 def _imports(path: Path) -> set[str]:
     out: set[str] = set()
@@ -130,8 +144,7 @@ def _imports(path: Path) -> set[str]:
 
 
 def test_no_gui_module_imports_the_goa_arrangement_generator():
-    """D-033: the full-song arranger stays a CLI. No module of the GUI layers may import it
-    (so no button, window or service can produce a Goa arrangement)."""
+    """D-033: the full-song arranger stays a CLI. No module of the GUI layers may import it."""
     files = sorted((SRC / "gui").rglob("*.py")) + sorted((SRC / "gui_core").rglob("*.py"))
     assert len(files) > 20
     hits = [str(p.relative_to(SRC)) for p in files
@@ -139,15 +152,16 @@ def test_no_gui_module_imports_the_goa_arrangement_generator():
     assert hits == []
 
 
-def test_the_form_has_no_arrangement_or_drum_options():
+def test_the_form_has_clip_options_only():
     dests = {s.dest for s in GoaFormModel().specs}
-    assert dests == {"seed", "bpm", "root", "scale", "length", "density", "register",
-                     "arp_pattern", "progression", "voices", "sections"}
+    assert dests == {"seed", "bars", "bpm", "root", "scale", "density", "register",
+                     "arp_pattern", "progression", "voices"}
     assert GoaFormModel().spec("voices").choices == ("lead", "arp", "pad", "pluck")
+    assert GoaFormModel().text["bars"] == "4"
 
 
-@pytest.mark.parametrize("flag", ARRANGEMENT_FLAGS)
-def test_arrangement_flags_are_refused_and_nothing_is_written(flag, tmp_path):
+@pytest.mark.parametrize("flag", SONG_FLAGS)
+def test_song_form_flags_are_refused_and_nothing_is_written(flag, tmp_path):
     out = tmp_path / "never"
     res = run_goa_job(GoaJob((f"--out={out}", flag)))
     assert res.error is not None and res.error.kind == "invalid_params"
@@ -155,22 +169,28 @@ def test_arrangement_flags_are_refused_and_nothing_is_written(flag, tmp_path):
     assert not out.exists()
 
 
-def test_rendered_midi_has_one_track_per_chosen_voice_and_no_samples(tmp_path):
-    rng = random.Random(20261108)
+def test_export_writes_one_clip_per_chosen_voice_into_the_shown_folder(tmp_path):
+    rng = random.Random(20261109)
     for i in range(6):
         voices = [v for v in ("lead", "arp", "pad", "pluck") if rng.random() < 0.6] or ["pad"]
-        model = filled({"seed": str(rng.randrange(10**6)), "voices": ",".join(voices)})
+        bars = rng.randint(1, 16)
+        model = filled({"seed": str(rng.randrange(10**6)), "voices": ",".join(voices),
+                        "bars": str(bars), "bpm": str(rng.randint(135, 150))})
         out = tmp_path / f"r{i}"
         res = run_goa_job(GoaJob(tuple(model.argv(str(out)))))
         assert res.ok, res.error
-        assert sorted(p.name for p in out.iterdir()) == sorted([res.mid_path.name, "README.md"])
-        assert midi_track_names(res.mid_path.read_bytes()) == voices
+        assert res.out_dir == out  # the folder shown before the export is the one written
+        assert sorted(p.name for p in out.iterdir()) == sorted(
+            [p.name for p in res.mid_paths] + ["README.md"])
+        assert [p.parent for p in res.mid_paths] == [out] * len(voices)
+        for v, p in zip(voices, res.mid_paths, strict=True):
+            assert smf_info(p.read_bytes()) == (0, 1, f"Goa {v}", bars * 1920)
 
 
 # --- byte identity --------------------------------------------------------------------------
 
 @pytest.mark.parametrize("key", sorted(FORM_RUNS))
-def test_form_render_matches_the_pinned_cli_hashes(key, tmp_path):
+def test_form_export_matches_the_pinned_cli_hashes(key, tmp_path):
     model = filled(FORM_RUNS[key])
     out = tmp_path / "out"
     res = run_goa_job(GoaJob(tuple(model.argv(str(out)))))
@@ -178,14 +198,12 @@ def test_form_render_matches_the_pinned_cli_hashes(key, tmp_path):
     got = {p.name: sha(p) for p in out.iterdir() if p.is_file()}
     assert got == PINNED[key]
     assert res.readme_text == (out / "README.md").read_text(encoding="utf-8")
-    assert res.mid_path.name in PINNED[key]
 
 
 def test_whole_folder_equals_what_the_real_cli_main_writes(tmp_path):
     cli = tmp_path / "cli"
-    assert goa_melody.main([f"--out={cli}", "--seed=2"]) == 0
-    model = GoaFormModel()
-    model.set_text("seed", "2")
+    assert goa_clips.main([f"--out={cli}", "--seed=2", "--bars=8"]) == 0
+    model = filled({"seed": "2", "bars": "8"})
     gui = tmp_path / "gui"
     res = run_goa_job(GoaJob(tuple(model.argv(str(gui)))))
     assert res.ok and tree(gui) == tree(cli)
@@ -199,8 +217,8 @@ def test_whole_folder_equals_what_the_real_cli_main_writes(tmp_path):
     ("density", "2", "density"),
     ("register", "5", "register"),
     ("progression", "0,9", "progression"),
-    ("length", "0", "length"),
-    ("sections", "A:4:2:lead", "energy"),
+    ("bars", "0", "bars"),
+    ("bars", "17", "bars"),
 ])
 def test_out_of_range_options_are_refused_by_the_module_and_nothing_is_written(
         field, value, needle, tmp_path):
@@ -208,7 +226,7 @@ def test_out_of_range_options_are_refused_by_the_module_and_nothing_is_written(
     ev = model.evaluate()
     out = tmp_path / "never"
     res = run_goa_job(GoaJob(tuple(model.argv(str(out)))))
-    assert not ev.ok
+    assert not ev.ok and ev.plan is None and ev.kwargs is None
     assert needle in ev.problem and ev.problem.startswith("Ungültige")
     assert res.error is not None and res.error.kind == "invalid_params"
     assert needle in res.error.message and res.error.detail
@@ -256,14 +274,14 @@ def test_unwritable_folder_and_full_disk_are_error_objects(tmp_path, monkeypatch
     def full(*a, **k):
         raise OSError(errno.ENOSPC, "No space left on device")
 
-    monkeypatch.setattr(goa_melody, "write_melody", full)
+    monkeypatch.setattr(goa_clips, "write_clips", full)
     res = run_goa_job(GoaJob(tuple(model.argv(str(tmp_path / "x")))))
     assert res.error is not None and res.error.kind == "disk_full"
 
     def boom(*a, **k):
         raise RuntimeError("kaputt")
 
-    monkeypatch.setattr(goa_melody, "write_melody", boom)
+    monkeypatch.setattr(goa_clips, "write_clips", boom)
     res = run_goa_job(GoaJob(tuple(model.argv(str(tmp_path / "y")))))
     assert res.error is not None and res.error.kind == "internal" and "kaputt" in res.error.message
 
@@ -286,23 +304,28 @@ def test_service_runs_in_a_thread_and_always_finishes(tmp_path):
     assert h.wait(30) and h.result.error.kind == "internal"
 
 
-# --- timeline vs the generator's plan data -------------------------------------------------
+# --- clip summary ---------------------------------------------------------------------------
 
-def test_default_timeline_has_the_known_literal_values():
-    plan = GoaFormModel().evaluate().plan
-    # goa_melody's default sections, written here as literals (elements in voice order)
-    assert [(s.start_bar, s.bars, s.name, s.energy, s.elements) for s in plan.sections] == [
-        (1, 8, "Intro", 0.3, ("pad",)), (9, 8, "Build", 0.6, ("arp", "pad", "pluck")),
-        (17, 16, "Peak", 1.0, ("lead", "arp", "pad", "pluck")),
-        (33, 8, "Break", 0.2, ("lead", "pad")),
-        (41, 16, "Peak2", 1.0, ("lead", "arp", "pad", "pluck"))]
-    assert plan.tracks == ("lead", "arp", "pad", "pluck") and plan.total_bars == 56
-    assert abs(plan.minutes - 56 * 4 / 145) < 1e-9
+def test_default_summary_has_the_known_literal_values():
+    ev = GoaFormModel().evaluate()
+    plan = ev.plan
+    assert (plan.bars, plan.tempo, plan.key) == (4, 145.0, "A phrygian")
+    assert plan.chords == (0, 5, 6, 4)  # one chord per bar (D-035 clip rule)
+    # documented note counts at the default densities (lead 0.6 -> round(4.8)=5 per bar,
+    # arp 1 -> 16, pad 0 -> one triad per chord = 4 x 3, pluck 0.5 -> 8)
+    assert [(c.voice, c.notes) for c in plan.clips] == [
+        ("lead", 20), ("arp", 64), ("pad", 12), ("pluck", 32)]
+    assert plan.clips[0].file_name == "goa_lead_seed0_145bpm_4bars.mid"
+    assert abs(plan.seconds - 16 * 60 / 145) < 1e-9
+    assert ev.kwargs["voices"] == ["lead", "arp", "pad", "pluck"]
 
 
-def test_melody_timeline_comes_from_the_melody_sections():
-    m = filled({"sections": "Intro:4:0.3:lead,Peak:8:1:lead+arp", "voices": "lead,arp"})
-    plan = m.evaluate().plan
-    assert [(s.start_bar, s.bars, s.name, s.energy, s.elements) for s in plan.sections] == [
-        (1, 4, "Intro", 0.3, ("lead",)), (5, 8, "Peak", 1.0, ("lead", "arp"))]
-    assert plan.tracks == ("lead", "arp") and plan.total_bars == 12
+def test_summary_follows_bars_and_voices():
+    plan = filled({"bars": "8", "voices": "pad,arp"}).evaluate().plan
+    assert plan.chords == (0, 0, 5, 5, 6, 6, 4, 4)
+    assert [c.voice for c in plan.clips] == ["arp", "pad"]
+
+
+def test_suggested_folder_names_seed_tempo_and_bars():
+    assert filled({"seed": "7", "bpm": "140", "bars": "2"}).suggested_folder_name() == \
+        "goa_clips_seed7_140bpm_2bars"

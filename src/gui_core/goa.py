@@ -1,9 +1,9 @@
-"""Goa-Melodie form model, option translation and timeline plan (no Qt).
+"""Goa clip form model, option translation and clip summary (no Qt).
 
-The GUI's Goa generator is ``python -m audio_engine.goa_melody`` (lead, arp, pad, pluck as
-multitrack MIDI, one track per voice). D-033: the Goa plugin makes only melodies; arranging a
-whole song belongs to the arrangement planner, so ``audio_engine.goa_arrangement`` (still a CLI)
-is not imported here and no GUI path can reach it.
+D-035 (1): the Goa page and window make short MIDI clips, one per voice (lead, arp, pad,
+pluck), like the Acid line. The generator is ``python -m audio_engine.goa_clips``; there are
+no sections, no energy curve and no song length (song form belongs to the arrangement
+planner, D-033). ``audio_engine.goa_arrangement`` is not imported here.
 
 This module does not copy the generator's rules:
 
@@ -11,11 +11,10 @@ This module does not copy the generator's rules:
   a test enumerates every parser option and fails when the form misses one.
 * The form turns its state into the same ``--flag=value`` list a user would type, and the CLI's
   parser reads it back (:func:`parse_argv`), so choices and types are checked by the CLI itself.
-* The namespace becomes keyword arguments exactly as the module's ``main`` does it
+* The namespace becomes keyword arguments with the CLI's own ``params_from_args``
   (:func:`call_of`; a test compares the written bytes against the real ``main``).
-* Ranges and combinations are decided by the module's ``build_arrangement`` (ValueError text
-  is shown as is); the timeline is drawn from the ``sections`` of its result (the melody's own
-  phrase sections, not a song form).
+* Ranges and combinations are decided by ``goa_clips`` (ValueError text is shown as is); the
+  clip summary (notes per voice, chord per bar, file names) comes from its functions.
 """
 
 from __future__ import annotations
@@ -24,40 +23,39 @@ import argparse
 from dataclasses import dataclass
 from typing import Any
 
-from audio_engine import goa_melody
+from audio_engine import goa_clips, goa_melody
 
 from .form import parse_number
 
-MELODY = "melody"  # the only Goa generator of the GUI (D-033)
-TITLE = "Goa-Melodie"
+TITLE = "Goa-Melodie"  # same as the main window's page name (main_window.TOOL_PAGES)
 
 SKIPPED_DESTS = ("help", "out")  # --out is the folder row of the page
 
 LABELS_DE: dict[str, str] = {
-    "seed": "Seed", "bpm": "Tempo", "root": "Grundton", "scale": "Tonleiter",
-    "voices": "Melodie-Stimmen", "density": "Dichte", "register": "Register (Oktaven)",
-    "arp_pattern": "Arp-Muster", "progression": "Akkordfolge (Stufen)",
-    "length": "Phrasenlänge (Takte)", "sections": "Abschnitte",
+    "seed": "Seed", "bars": "Clip-Länge (Takte)", "bpm": "Tempo", "root": "Grundton",
+    "scale": "Tonleiter", "voices": "Stimmen", "density": "Dichte",
+    "register": "Register (Oktaven)", "arp_pattern": "Arp-Muster",
+    "progression": "Akkordfolge (Stufen)",
 }
-UNITS = {"bpm": "BPM", "length": "Takte"}
+UNITS = {"bpm": "BPM", "bars": "Takte"}
 GROUP_OF: dict[str, str] = {}
-for _d in ("seed", "bpm", "root", "scale"):
-    GROUP_OF[_d] = "Grundlagen"
+for _d in ("bars", "bpm", "root", "scale", "seed"):
+    GROUP_OF[_d] = "Clip"
 for _d in ("voices", "density", "register", "arp_pattern", "progression"):
-    GROUP_OF[_d] = "Melodie"
-for _d in ("length", "sections"):
-    GROUP_OF[_d] = "Phrasen"
-GROUPS = ("Grundlagen", "Melodie", "Phrasen")
+    GROUP_OF[_d] = "Stimmen"
+GROUPS = ("Clip", "Stimmen")
+INT_DESTS = ("bpm",)  # whole BPM in the GUI (the CLI takes a float; 145 -> "145bpm")
 
 # Hints for free-text fields (the module decides what is valid).
 HINTS = {
     "density": "0 bis 1, oder je Stimme: lead=0.5,arp=1",
     "register": "-2 bis 2, oder je Stimme: lead=1,pad=-1",
     "progression": "Stufen 0 bis 6, durch Komma getrennt, z. B. 0,5,6,4",
-    "sections": "Name:Takte:Energie:stimme+stimme, durch Komma getrennt",
     "root": "A bis G, optional mit # oder b",
+    "bars": f"{goa_clips.MIN_BARS} bis {goa_clips.MAX_BARS} Takte",
 }
-MULTI_VOICES = {"voices": tuple(goa_melody.VOICES)}
+MULTI_VOICES = {"voices": tuple(goa_clips.VOICES)}
+VOICE_LABELS = {"lead": "Lead", "arp": "Arp", "pad": "Pad", "pluck": "Pluck"}
 
 
 @dataclass(frozen=True)
@@ -101,7 +99,7 @@ def _spec(action: argparse.Action) -> OptionSpec:
         kind = "multi"
     elif choices:
         kind = "enum"
-    elif action.type is int:
+    elif action.type is int or dest in INT_DESTS:
         kind = "int"
     elif action.type is float:
         kind = "float"
@@ -113,7 +111,7 @@ def _spec(action: argparse.Action) -> OptionSpec:
         dest=dest, flag=action.option_strings[0], label=LABELS_DE.get(dest, dest), kind=kind,
         choices=choices, default="" if optional else _default_text(default),
         optional=optional and kind != "flag", help=action.help or "",
-        group=GROUP_OF.get(dest, "Grundlagen"), unit=UNITS.get(dest, ""),
+        group=GROUP_OF.get(dest, "Clip"), unit=UNITS.get(dest, ""),
     )
 
 
@@ -124,12 +122,13 @@ def _default_text(value: Any) -> str:
 
 
 def parser_of() -> argparse.ArgumentParser:
-    return goa_melody.build_parser()
+    return goa_clips.build_parser()
 
 
 def option_specs() -> list[OptionSpec]:
-    """One spec per CLI option (except ``--out``), in the parser's order."""
-    return [_spec(a) for a in parser_of()._actions if a.dest not in SKIPPED_DESTS]
+    """One spec per CLI option (except ``--out``), in the order of :data:`GROUPS`."""
+    specs = [_spec(a) for a in parser_of()._actions if a.dest not in SKIPPED_DESTS]
+    return sorted(specs, key=lambda s: GROUPS.index(s.group))
 
 
 # --- argv <-> namespace -> call --------------------------------------------------------------
@@ -151,74 +150,51 @@ def parse_argv(argv: list[str] | tuple[str, ...]) -> argparse.Namespace:
 @dataclass(frozen=True)
 class GoaCall:
     out_dir: str
-    kwargs: dict[str, Any]  # for goa_melody.build_arrangement / write_melody
+    kwargs: dict[str, Any]  # for goa_clips.write_clips / gui_core.goa_preview
 
 
 def call_of(a: argparse.Namespace) -> GoaCall:
-    """The keyword arguments ``goa_melody.main`` builds from the same namespace. Raises
+    """The keyword arguments ``goa_clips.main`` builds from the same namespace. Raises
     ValueError for text the CLI would also fail on (``int('x')``)."""
-    kw: dict[str, Any] = {
-        "seed": a.seed, "bpm": a.bpm, "root": a.root, "scale": a.scale, "length": a.length,
-        "arp_pattern": a.arp_pattern,
-        "progression": [int(x) for x in a.progression.split(",")],
-        "voices": [v for v in a.voices.split(",") if v]}
-    if a.density is not None:
-        kw["density"] = goa_melody._parse_voice_map(a.density, float, "density")
-    if a.register is not None:
-        kw["register"] = goa_melody._parse_voice_map(a.register, int, "register")
-    if a.sections is not None:
-        kw["sections"] = goa_melody._parse_sections(a.sections)
-    return GoaCall(a.out, kw)
+    return GoaCall(a.out, goa_clips.params_from_args(a))
 
 
-def build_plan_data(call: GoaCall) -> dict[str, Any]:
-    """The generator's own plan dict (what the MIDI is made from)."""
-    return goa_melody.build_arrangement(**call.kwargs)
-
-
-# --- timeline --------------------------------------------------------------------------------
+# --- clip summary ----------------------------------------------------------------------------
 
 @dataclass(frozen=True)
-class SectionRow:
-    start_bar: int  # 1-based
+class VoiceClip:
+    voice: str
+    notes: int
+    file_name: str
+
+
+@dataclass(frozen=True)
+class ClipPlan:
     bars: int
-    name: str
-    energy: float
-    elements: tuple[str, ...]
-
-
-@dataclass(frozen=True)
-class TimelinePlan:
     tempo: float
     key: str
-    tracks: tuple[str, ...]
-    sections: tuple[SectionRow, ...]
+    chords: tuple[int, ...]  # scale degree per bar (arp and pad)
+    clips: tuple[VoiceClip, ...]  # selected voices, fixed order
 
     @property
-    def total_bars(self) -> int:
-        return sum(s.bars for s in self.sections)
-
-    @property
-    def minutes(self) -> float:
-        return self.total_bars * 4 * 60 / self.tempo / 60
+    def seconds(self) -> float:
+        return self.bars * 4 * 60 / self.tempo
 
 
-def timeline_of(arr: dict[str, Any]) -> TimelinePlan:
-    rows, pos = [], 1
-    for s in arr["sections"]:
-        rows.append(SectionRow(pos, s["bars"], s["name"], float(s["energy"]),
-                               tuple(s["elements"])))
-        pos += s["bars"]
-    return TimelinePlan(
-        float(arr["tempo"]), f"{arr['key']['root']} {arr['key']['scale']}",
-        tuple(e["name"] for e in arr["elements"]), tuple(rows))
+def clip_plan(kwargs: dict[str, Any]) -> ClipPlan:
+    o = goa_clips.normalise(kwargs)
+    clips = tuple(VoiceClip(v, len(goa_clips.clip_notes(v, **kwargs)),
+                            goa_clips.clip_filename(v, **kwargs)) for v in o["voices"])
+    chords = tuple(o["progression"][s] for s in goa_clips.bar_chords(o))
+    return ClipPlan(o["bars"], o["bpm"], f"{o['root']} {o['scale']}", chords, clips)
 
 
 @dataclass(frozen=True)
 class Evaluation:
     ok: bool
     problem: str  # German line, "" when ok
-    plan: TimelinePlan | None = None
+    plan: ClipPlan | None = None
+    kwargs: dict[str, Any] | None = None  # the generator's options when ok
 
 
 # --- form model ------------------------------------------------------------------------------
@@ -274,7 +250,7 @@ class GoaFormModel:
         return out
 
     def argv(self, out_dir: str = "OUT") -> list[str]:
-        """What the user would type after ``python -m audio_engine.goa_melody``."""
+        """What the user would type after ``python -m audio_engine.goa_clips``."""
         argv = [f"--out={out_dir}"]
         for s in self.specs:
             if s.dest not in self.active:
@@ -310,16 +286,17 @@ class GoaFormModel:
     def suggested_folder_name(self) -> str:
         seed = self.text.get("seed", "0").strip() or "0"
         bpm = self.text.get("bpm", "145").strip() or "145"
-        return f"goa_melody_seed{seed}_{bpm}bpm"
+        bars = self.text.get("bars", str(goa_clips.DEFAULT_BARS)).strip() or "4"
+        return f"goa_clips_seed{seed}_{bpm}bpm_{bars}bars"
 
 
 def evaluate_argv(argv: tuple[str, ...]) -> Evaluation:
-    """Parse with the CLI's parser and build the generator's plan; the problem text is
+    """Parse with the CLI's parser and summarise the clips; the problem text is
     German-prefixed, the generator's own sentence follows."""
     try:
         call = call_of(parse_argv(argv))
-        arr = build_plan_data(call)
-        return Evaluation(True, "", timeline_of(arr))
+        plan = clip_plan(call.kwargs)
+        return Evaluation(True, "", plan, call.kwargs)
     except OptionError as exc:
         return Evaluation(False, f"Ungültige Option: {exc}")
     except (ValueError, KeyError, TypeError) as exc:

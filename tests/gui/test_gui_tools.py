@@ -28,17 +28,30 @@ from live_helpers import (  # noqa: E402
 )
 from PySide6.QtWidgets import QLabel, QPushButton  # noqa: E402
 
-from audio_engine import goa_melody  # noqa: E402
+from audio_engine import goa_clips  # noqa: E402
 from guard import Guard  # noqa: E402
 from gui.app import create_app  # noqa: E402
 from gui.main_window import MainWindow  # noqa: E402
 from gui.widgets import NumberControl, PresetChips, Segmented, StepEdit, Toggle  # noqa: E402
+from gui_core import goa_preview  # noqa: E402
 from gui_core.chat import ChatSession  # noqa: E402
 from orchestrator.fake_model import FakeModel  # noqa: E402
 
-# `python -m audio_engine.goa_melody --out X --seed 3` (pinned literals, as in gui_core tests)
-SEED3_MELODY_MID = "9a601a7381fbaf7ffb5bb9354bed1ccad7cb78a41261648ddace68ab4ddd0579"
-SEED3_README = "8806593f873084d8c6dfdd550bcc16a4a2407dc310451bc523376eae1aa9c8d9"
+# `python -m audio_engine.goa_clips --out X --seed 3` (pinned literals, as in gui_core tests)
+SEED3_CLIPS = {
+    "goa_lead_seed3_145bpm_4bars.mid":
+        "b217dc235f5e5b730c48c2862230cca1e3110669fcfd8a0cd6e55f70f4502c51",
+    "goa_arp_seed3_145bpm_4bars.mid":
+        "5a9f87afd3328d325d92aa3a141ba107dae8ff8eca4e3c4958bf66ba595e2b76",
+    "goa_pad_seed3_145bpm_4bars.mid":
+        "5323e98f4842e977da646ab39aace54c71483007e6a5b878de16d7ce218c6906",
+    "goa_pluck_seed3_145bpm_4bars.mid":
+        "9b6aaac665cab8f2852a2067d4e014b948177bee65a32400418e10c05093398a",
+}
+SEED3_README = "b0f59e892738ea4c8faa2b0de1019dd5a5369dd8aa23c3038444b52b909a3418"
+
+
+ROOT = Path(__file__).resolve().parents[2]
 
 
 @pytest.fixture(scope="module")
@@ -107,24 +120,31 @@ def test_tool_pages_replace_the_render_column_and_the_kick_page_brings_it_back(w
 
 # --- Goa page -------------------------------------------------------------------------------
 
-def test_goa_page_is_melody_only(window):
-    """D-033: the page is "Goa-Melodie": one form (goa_melody), no mode switch, no
-    arrangement / drum / bass option anywhere on it."""
+def test_goa_page_makes_clips_without_song_form(window):
+    """D-035 (1): the page "Goa-Melodie" makes MIDI clips: no timeline, no section table, no
+    energy, no song length, no arrangement / drum / bass option anywhere on it."""
     go(window, "goa")
     p = window.goa
     assert window.categories.currentItem().text() == "Goa-Melodie"
     assert not hasattr(p, "mode_seg") and not hasattr(p, "forms")
+    assert not hasattr(p, "timeline")
+    assert not (ROOT / "src" / "gui" / "timeline_widget.py").exists()
     labels = {w.text() for w in p.findChildren(QLabel)} | {
         b.text() for b in p.findChildren(QPushButton)}
+    headers = {p.table.horizontalHeaderItem(c).text() for c in range(p.table.columnCount())}
     for word in ("Arrangement (ganzer Track)", "Kick-Preset", "Bass-Preset", "Bass-Rhythmus",
-                 "Keine Samples rendern", "DJ-Intro/Outro"):
-        assert not any(word in t for t in labels), word
+                 "Keine Samples rendern", "DJ-Intro/Outro", "Abschnitt", "Energie",
+                 "Minuten", "Phrasenlänge", "Rendern"):
+        assert not any(word in t for t in labels | headers), word
+    assert headers == {"Stimme", "Noten", "Datei"}
     assert p.form.model.spec("voices").choices == ("lead", "arp", "pad", "pluck")
+    assert {b.text() for b in p.findChildren(QPushButton)} >= {
+        "Lead", "Arp", "Pad", "Pluck", "Alle vorhören", "Stopp", "MIDI exportieren"}
 
 
 def test_goa_form_has_a_widget_for_every_cli_option(window):
     form = window.goa.form
-    dests = {a.dest for a in goa_melody.build_parser()._actions if a.dest not in ("help", "out")}
+    dests = {a.dest for a in goa_clips.build_parser()._actions if a.dest not in ("help", "out")}
     assert set(form.edits) == dests
     for dest in dests:
         assert form.edits[dest].accessibleName() or isinstance(form.edits[dest], NumberControl)
@@ -137,85 +157,121 @@ def type_text(edit, text):
     edit.edited.emit(text) if isinstance(edit, StepEdit) else edit.textEdited.emit(text)
 
 
-def test_goa_invalid_value_blocks_render_with_the_modules_message(qapp, window):
+def test_goa_invalid_value_blocks_export_and_preview_with_the_modules_message(qapp, window):
     go(window, "goa")
     p = window.goa
     form = p.form
-    assert p.render_button.isEnabled()
+    assert p.export_button.isEnabled() and p.all_button.isEnabled()
     edit = form.edits["seed"]
     assert isinstance(edit, StepEdit)
     type_text(edit, "abc")
-    assert edit.property("invalid") is True and not p.render_button.isEnabled()
-    assert "Rendern nicht möglich" in p.status.text()
-    assert p.table.rowCount() == 0 and p.timeline.plan is None
+    assert edit.property("invalid") is True and not p.export_button.isEnabled()
+    assert not p.all_button.isEnabled()
+    assert not any(b.isEnabled() for b in p.voice_buttons.values())
+    assert "Export nicht möglich" in p.status.text()
+    assert p.table.rowCount() == 0
     type_text(edit, "0")
-    assert edit.property("invalid") is False and p.render_button.isEnabled()
-    assert p.table.rowCount() == 5
+    assert edit.property("invalid") is False and p.export_button.isEnabled()
+    assert p.table.rowCount() == 4
+    type_text(form.edits["bars"], "17")  # the generator's range is 1 to 16 bars
+    assert not p.export_button.isEnabled() and "bars must be" in p.status.text()
 
 
-def test_goa_tempo_slider_cannot_leave_the_generators_range(qapp, window):
+def test_goa_tempo_slider_gives_whole_bpm_in_the_generators_range(qapp, window):
     go(window, "goa")
     p = window.goa
     bpm = p.form.edits["bpm"]
     assert isinstance(bpm, NumberControl)
     bpm.readout.setText("200")
     bpm.readout.entered.emit("200")  # generator range is 135 to 150 BPM
-    assert p.model.text["bpm"] == "150" and p.render_button.isEnabled()
+    assert p.model.text["bpm"] == "150" and p.export_button.isEnabled()
     bpm.slider.move_to_position(0)
-    assert p.model.text["bpm"] == "135" and p.table.rowCount() == 5
+    assert p.model.text["bpm"] == "135" and p.table.rowCount() == 4
+    bpm.readout.setText("141.6")
+    bpm.readout.entered.emit("141.6")
+    assert p.model.text["bpm"] in ("141", "142") and p.export_button.isEnabled()
 
 
-def test_goa_preview_shows_the_generators_plan(window):
+def test_goa_clip_table_follows_the_form(window):
     go(window, "goa")
     p = window.goa
-    assert p.table.rowCount() == 5
-    row0 = [p.table.item(0, c).text() for c in range(5)]
-    assert row0 == ["1", "8", "Intro", "0.30", "pad"]
-    row_br = [p.table.item(3, c).text() for c in range(5)]
-    assert row_br == ["33", "8", "Break", "0.20", "lead, pad"]
-    assert "56 Takte" in p.summary.text()
-    assert "Spuren: lead, arp, pad, pluck." in p.summary.text()
-    spans = p.timeline.section_spans()
-    total_w = spans[-1][2] - spans[0][1]
-    assert len(spans) == 5
-    for s, x0, x1 in spans:
-        assert abs((x1 - x0) / total_w - s.bars / 56) < 1e-6
-    mid = (spans[3][1] + spans[3][2]) / 2
-    assert p.timeline.section_at(mid).name == "Break"
-    # a change in the form changes the preview
-    form = p.form
-    form.checks["sections"].setChecked(True)
-    type_text(form.edits["sections"], "A:4:0.5:lead,B:12:1:lead+arp")
-    assert p.table.rowCount() == 2 and p.table.item(1, 2).text() == "B"
-    assert "16 Takte" in p.summary.text()
-    p.timeline.grab()  # paints without raising
+    rows = [[p.table.item(r, c).text() for c in range(3)] for r in range(p.table.rowCount())]
+    assert rows == [["Lead", "20", "goa_lead_seed0_145bpm_4bars.mid"],
+                    ["Arp", "64", "goa_arp_seed0_145bpm_4bars.mid"],
+                    ["Pad", "12", "goa_pad_seed0_145bpm_4bars.mid"],
+                    ["Pluck", "32", "goa_pluck_seed0_145bpm_4bars.mid"]]
+    assert "Je Clip 4 Takte" in p.summary.text() and "0, 5, 6, 4" in p.summary.text()
+    type_text(p.form.edits["bars"], "8")
+    assert "Je Clip 8 Takte" in p.summary.text() and "0, 0, 5, 5, 6, 6, 4, 4" in p.summary.text()
+    assert p.table.item(0, 2).text() == "goa_lead_seed0_145bpm_8bars.mid"
+    chips = p.form.edits["voices"]
+    chips.buttons[chips.items.index("pad")].click()
+    assert p.form.model.text["voices"] == "lead,arp,pluck"
+    assert [p.table.item(r, 0).text() for r in range(p.table.rowCount())] == [
+        "Lead", "Arp", "Pluck"]
+    assert not p.voice_buttons["pad"].isEnabled() and p.voice_buttons["lead"].isEnabled()
 
 
-def test_goa_render_writes_the_cli_folder_and_shows_the_readme(qapp, window, opened):
+def test_goa_preview_plays_the_rough_preview_per_voice_and_for_all(window, tmp_path):
+    go(window, "goa")
+    p = window.goa
+    played: list[tuple[str, bytes]] = []
+
+    class Recorder(FakeBackend):
+        def play(self, wav_path):
+            played.append(("play", Path(wav_path).read_bytes()))
+
+        def stop(self):
+            played.append(("stop", b""))
+
+    p.backend = Recorder()
+    out = Path(p.folder_edit.text())
+    p.voice_buttons["arp"].click()
+    assert played[-1][0] == "play" and p.playing == "arp"
+    assert played[-1][1] == goa_preview.voice_preview_wav_bytes("arp", seed=0)
+    assert "Spielt: Arp" in p.status.text() and "grobe Vorschau" in p.status.text()
+    p.all_button.click()
+    assert played[-2] == ("stop", b"")  # the previous sound stops first
+    assert played[-1][1] == goa_preview.mix_preview_wav_bytes(seed=0)
+    p.stop_button.click()
+    assert played[-1] == ("stop", b"") and p.playing is None
+    assert not out.exists()  # previewing writes nothing into the output folder
+    p.backend = FakeBackend()
+    p.backend.available = False
+    p.voice_buttons["lead"].click()
+    assert "Keine Audioausgabe" in p.status.text()
+
+
+def test_goa_export_writes_the_shown_folder_and_offers_each_clip_for_drag(
+        qapp, window, opened):
     go(window, "goa")
     p = window.goa
     form = p.form
     type_text(form.edits["seed"], "3")
     folder = Path(p.folder_edit.text())
-    assert folder.name == "goa_melody_seed3_145bpm" and not folder.exists()
-    p.render_button.click()
+    assert folder.name == "goa_clips_seed3_145bpm_4bars" and not folder.exists()
+    p.export_button.click()
     assert wait_for(qapp, lambda: p.result is not None)
     assert p.result.ok, p.result.error
-    mid = folder / "goa_melody_seed3_145bpm.mid"
-    assert hashlib.sha256(mid.read_bytes()).hexdigest() == SEED3_MELODY_MID
+    assert p.result.out_dir == folder  # the folder shown before the export is the one written
+    names = sorted(x.name for x in folder.iterdir())
+    assert names == sorted([*SEED3_CLIPS, "README.md"])  # no samples, nothing else
+    for name, digest in SEED3_CLIPS.items():
+        assert hashlib.sha256((folder / name).read_bytes()).hexdigest() == digest, name
     assert hashlib.sha256((folder / "README.md").read_bytes()).hexdigest() == SEED3_README
-    assert sorted(x.name for x in folder.iterdir()) == ["README.md", mid.name]  # no samples
     assert p.readme.toPlainText() == (folder / "README.md").read_text(encoding="utf-8")
-    assert "Fertig" in p.status.text() and not p.running
+    assert "Fertig: 4 MIDI-Clips" in p.status.text() and not p.running
+    # drag: one row per clip, offered as a file URL (mime level only; no drop into Live)
+    items = [p.drag_list.item(i) for i in range(p.drag_list.count())]
+    assert [i.text() for i in items] == [
+        "goa_lead_seed3_145bpm_4bars.mid", "goa_arp_seed3_145bpm_4bars.mid",
+        "goa_pad_seed3_145bpm_4bars.mid", "goa_pluck_seed3_145bpm_4bars.mid"]
+    urls = p.drag_list.mimeData(items[1:2]).urls()
+    assert [Path(u.toLocalFile()) for u in urls] == [folder / "goa_arp_seed3_145bpm_4bars.mid"]
     # never the same folder again
-    assert Path(p.folder_edit.text()).name == "goa_melody_seed3_145bpm_2"
+    assert Path(p.folder_edit.text()).name == "goa_clips_seed3_145bpm_4bars_2"
     p.open_button.click()
     assert opened == [folder]  # the folder of the finished run
-    # voices as chips: switching one off removes its track from the preview
-    chips = form.edits["voices"]
-    chips.buttons[chips.items.index("pad")].click()
-    assert form.model.text["voices"] == "lead,arp,pluck"
-    assert "pad" not in p.summary.text().split("Spuren:")[1]
 
 
 def test_goa_existing_folder_is_an_error_and_nothing_is_overwritten(qapp, window):
@@ -226,11 +282,13 @@ def test_goa_existing_folder_is_an_error_and_nothing_is_overwritten(qapp, window
     (target / "README.md").write_text("alt", encoding="utf-8")
     p.folder_edit.setText(str(target))
     p.folder_edit.textEdited.emit(str(target))
-    p.render_button.click()
+    p.export_button.click()
     assert wait_for(qapp, lambda: p.result is not None)
     assert p.result.error.kind == "exists"
     assert "Fehler" in p.status.text() and "nichts überschrieben" in p.status.text()
+    assert sorted(x.name for x in target.iterdir()) == ["README.md"]
     assert (target / "README.md").read_text(encoding="utf-8") == "alt"
+    assert p.drag_list.count() == 0
 
 
 def test_goa_optional_switch_activates_the_field(window):
@@ -240,9 +298,9 @@ def test_goa_optional_switch_activates_the_field(window):
     assert not edit.isEnabled() and "density" not in form.model.active
     form.checks["density"].setChecked(True)
     assert edit.isEnabled() and "density" in form.model.active
-    assert not window.goa.render_button.isEnabled()  # active but empty
+    assert not window.goa.export_button.isEnabled()  # active but empty
     type_text(edit, "lead=0.5")
-    assert window.goa.render_button.isEnabled()
+    assert window.goa.export_button.isEnabled()
 
 
 # --- Live page (fake OSC only) --------------------------------------------------------------

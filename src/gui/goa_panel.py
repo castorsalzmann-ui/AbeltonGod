@@ -1,12 +1,16 @@
-"""Goa-Melodie page (and the Goa window's body): option form of the melody generator
-(``goa_melody``: lead, arp, pad, pluck), phrase-section preview, MIDI render.
+"""Goa-Clips page (and the Goa window's body): option form of the clip generator
+(``goa_clips``: one looping MIDI clip per voice: lead, arp, pad, pluck), rough preview per
+voice and for all voices, MIDI export, drag of each .mid into Live.
 
-D-033: melodies only. No full-song arrangement and no drum/bass tracks; arranging is the
-Arrangement-Planer's job. State and checks live in ``gui_core.goa``; the generator runs in
-``gui_core.goa_render``. This widget only shows them."""
+D-035 (1): clips like the Acid line. No sections, no energy curve, no song length; song form
+is the Arrangement-Planer's job (D-033). State and checks live in ``gui_core.goa``; the export
+runs in ``gui_core.goa_render``; the preview sound comes from ``gui_core.goa_preview``. This
+widget only shows them."""
 
 from __future__ import annotations
 
+import shutil
+import tempfile
 from collections.abc import Callable
 from pathlib import Path
 
@@ -15,9 +19,9 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QListWidgetItem,
     QPlainTextEdit,
     QPushButton,
-    QScrollArea,
     QSizePolicy,
     QTableWidget,
     QTableWidgetItem,
@@ -27,12 +31,14 @@ from PySide6.QtWidgets import (
 )
 
 from audio_engine import goa_melody
+from gui_core import goa_preview
 from gui_core.form import FieldSpec, parse_number
-from gui_core.goa import GROUPS, TITLE, GoaFormModel, OptionSpec, TimelinePlan
+from gui_core.goa import GROUPS, TITLE, VOICE_LABELS, ClipPlan, GoaFormModel, OptionSpec
 from gui_core.goa_render import GoaJob, GoaResult, GoaService
 from gui_core.paths import default_output_dir
+from gui_core.preview import PlaybackBackend
 
-from .timeline_widget import TimelineWidget
+from .drag import PATH_ROLE, DragList
 from .tool_style import STYLE
 from .widgets import (
     ActiveDot,
@@ -47,36 +53,35 @@ from .widgets import (
 from .widgets.adaptive import AdaptiveBox
 
 BODY_HOOK = "goa_body"  # objectName of the page body: a hook for later skins/extra panels
+ALL = "all"  # preview key of "Alle vorhören"
 
 
 class _Signals(QObject):
     done = Signal(object)
 
 
-class OptionForm(QScrollArea):
-    """The melody generator's options, built from the widget kit. ``edits[dest]`` is the
+class OptionForm(QWidget):
+    """The clip generator's options, built from the widget kit. ``edits[dest]`` is the
     editing widget: ``NumberControl`` (bpm), ``Segmented`` / ``PresetChips`` (choices,
     voices), ``Toggle`` (flags) or ``StepEdit`` / ``QLineEdit`` (numbers and texts the
     generator checks itself).
-    ``checks[dest]`` is the dot of an optional option (sent only when on)."""
+    ``checks[dest]`` is the dot of an optional option (sent only when on).
+
+    No scroll area of its own (#546 review): the page and the Goa window already scroll, and
+    a second, inner scroll area showed only two settings in the 760 x 560 window."""
 
     changed = Signal()
 
     def __init__(self, model: GoaFormModel) -> None:
         super().__init__()
         self.model = model
-        self.setWidgetResizable(True)
-        self.setFrameShape(QScrollArea.Shape.NoFrame)
         self.edits: dict[str, QWidget] = {}
         self.checks: dict[str, ActiveDot] = {}
         self.hints: dict[str, QLabel] = {}
         self._syncing = False
-        root = QWidget()
-        root.setObjectName("root")
-        lay = QVBoxLayout(root)
-        lay.setContentsMargins(8, 4, 12, 16)
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(8, 0, 12, 8)
         lay.setSpacing(6)
-        self.setWidget(root)
         for group in GROUPS:
             specs = [s for s in model.specs if s.group == group]
             if not specs:
@@ -166,12 +171,13 @@ class OptionForm(QScrollArea):
             chips.setAccessibleName(spec.label)
             return chips
         if spec.dest == "bpm":
+            # whole BPM only (D-035 GUI): the slider and the readout give integers
             fs = FieldSpec(
-                name="bpm", label=spec.label, kind="float", minimum=goa_melody.MIN_BPM,
+                name="bpm", label=spec.label, kind="int", minimum=goa_melody.MIN_BPM,
                 maximum=goa_melody.MAX_BPM, default=None, choices=(), unit="BPM",
                 description=spec.help)
             c = NumberControl(fs, style="row", always_active=True)
-            c.edited.connect(lambda _n, v, d=spec.dest: self._edited(d, f"{v:g}"))
+            c.edited.connect(lambda _n, v, d=spec.dest: self._edited(d, str(int(round(v)))))
             return c
         if spec.kind in ("int", "float"):
             se = StepEdit()
@@ -249,12 +255,20 @@ class GoaPanel(QWidget):
         base_dir: Path | None = None,
         service: GoaService | None = None,
         opener: Callable[[Path], bool] | None = None,
+        backend: PlaybackBackend | None = None,
     ) -> None:
         super().__init__()
         self.setObjectName(BODY_HOOK)
         self.setStyleSheet(STYLE)
         self.service = service or GoaService()
         self.opener = opener or (lambda p: False)
+        if backend is None:
+            # The app's own backend choice (winsound on Windows); the shared output volume
+            # wraps it there (D-035 (3)), so the Goa preview follows it without code here.
+            from .audio import choose_backend
+
+            backend = choose_backend()
+        self.backend = backend
         self.base_dir = Path(base_dir) if base_dir else default_output_dir() / "Goa"
         self.model = GoaFormModel()
         self.handle = None
@@ -262,32 +276,61 @@ class GoaPanel(QWidget):
         self._signals = _Signals()
         self._signals.done.connect(self._on_done)
         self.result: GoaResult | None = None
+        self.playing: str | None = None  # voice or ALL of the last started preview
+        self._tmp = Path(tempfile.mkdtemp(prefix="abeltongod-goa-"))
 
         # Form and result side by side while they fit, else the result below the form (#517:
         # the main window at half the screen width; the Goa window at its start size).
         outer = AdaptiveBox(self)
         left = QVBoxLayout()
         left.addWidget(heading(TITLE))
-        intro = muted("Lead, Arp, Pad und Pluck als MIDI, eine Spur je Stimme. Das ganze "
-                      "Arrangement baust du im Arrangement-Planer.")
+        intro = muted("Kurze MIDI-Clips (1 bis 16 Takte), einer je Stimme: Lead, Arp, Pad, "
+                      "Pluck. Den ganzen Song baust du im Arrangement-Planer.")
         intro.setWordWrap(True)
         intro.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Minimum)
         left.addWidget(intro)
+        # The actions (preview, folder, export, status) sit above the form, so the Goa window
+        # (form and clip table stacked, #517) shows them without scrolling.
+        self._build_actions(left)
         self.form = OptionForm(self.model)
         self.form.changed.connect(self.refresh)
-        left.addWidget(self.form, 1)
+        left.addWidget(self.form)
+        left.addStretch(1)
         left_box = QWidget()
         left_box.setLayout(left)
-        # The form scrolls inside: its width (the widest row plus the scroll bar) and, for the
-        # stacked layout, a height of its own (else it shrinks to a few px).
-        self.ensurePolished()
-        f = self.form
-        f.setMinimumWidth(f.widget().minimumSizeHint().width()
-                          + f.verticalScrollBar().sizeHint().width() + 2 * f.frameWidth())
-        f.setMinimumHeight(self.fontMetrics().height() * 18)
         outer.addWidget(left_box, 1)
 
         right = QVBoxLayout()
+        self.tabs = QTabWidget()
+        self._build_tabs(right)
+        outer.addLayout(right, 1)
+        self.hub = None
+        self.refresh()
+
+    def _build_actions(self, right: QVBoxLayout) -> None:
+        # --- preview: one button per voice, all, stop
+        right.addWidget(QLabel(f"Vorhören ({goa_preview.PREVIEW_LABEL})"))
+        voices_row = QHBoxLayout()
+        self.voice_buttons: dict[str, QPushButton] = {}
+        for v, text in VOICE_LABELS.items():
+            b = QPushButton(text)
+            b.setObjectName(f"preview_{v}")
+            b.setToolTip(f"{text}-Clip vorhören ({goa_preview.PREVIEW_LABEL}, ein Durchlauf)")
+            b.clicked.connect(lambda _c=False, voice=v: self.preview(voice))
+            self.voice_buttons[v] = b
+            voices_row.addWidget(b)
+        right.addLayout(voices_row)
+        play_row = QHBoxLayout()
+        self.all_button = QPushButton("Alle vorhören")
+        self.all_button.setToolTip("Alle gewählten Stimmen zusammen vorhören "
+                                   f"({goa_preview.PREVIEW_LABEL})")
+        self.all_button.clicked.connect(lambda: self.preview(ALL))
+        self.stop_button = QPushButton("Stopp")
+        self.stop_button.clicked.connect(self.stop_preview)
+        play_row.addWidget(self.all_button, 1)
+        play_row.addWidget(self.stop_button)
+        right.addLayout(play_row)
+        # --- export
         row = QHBoxLayout()
         row.addWidget(QLabel("Neuer Ordner"))
         self.folder_edit = QLineEdit()
@@ -295,57 +338,67 @@ class GoaPanel(QWidget):
         row.addWidget(self.folder_edit, 1)
         right.addLayout(row)
         buttons = QHBoxLayout()
-        self.render_button = QPushButton("Rendern")
-        self.render_button.setObjectName("primary")
-        self.render_button.clicked.connect(self.start_render)
+        self.export_button = QPushButton("MIDI exportieren")
+        self.export_button.setObjectName("primary")
+        self.export_button.setToolTip("Schreibt eine .mid je gewählter Stimme und eine README "
+                                      "in den Ordner oben")
+        self.export_button.clicked.connect(self.start_export)
         self.open_button = QPushButton("Ordner öffnen")
         self.open_button.clicked.connect(self.open_folder)
-        buttons.addWidget(self.render_button, 1)
+        buttons.addWidget(self.export_button, 1)
         buttons.addWidget(self.open_button)
         right.addLayout(buttons)
         self.status = QLabel()
         self.status.setObjectName("status")
         self.status.setWordWrap(True)
         self.status.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Minimum)
+        self.status.hide()
         right.addWidget(self.status)
+        # --- drag: one row per exported clip (next to the export, visible without scrolling)
+        self.drag_list = DragList()
+        self.drag_list.setObjectName("goa_clip_files")
+        self.drag_list.setToolTip("Nach dem Export: eine Zeile auf eine MIDI-Spur in Live ziehen "
+                                  "(ein Clip; nicht in Live getestet)")
+        self.drag_list.setMaximumHeight(int(self.fontMetrics().height() * 5.5))
+        self.drag_list.hide()  # shown once there is something to drag
+        right.addWidget(self.drag_list)
 
-        self.tabs = QTabWidget()
-        preview = QWidget()
-        pv = QVBoxLayout(preview)
+    def _build_tabs(self, right: QVBoxLayout) -> None:
+        clips = QWidget()
+        cv = QVBoxLayout(clips)
         self.summary = QLabel()
         self.summary.setObjectName("muted")
         self.summary.setWordWrap(True)
         self.summary.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Minimum)
-        pv.addWidget(self.summary)
-        self.timeline = TimelineWidget()
-        pv.addWidget(self.timeline)
-        self.table = QTableWidget(0, 5)
-        self.table.setHorizontalHeaderLabels(["Start", "Takte", "Abschnitt", "Energie", "Spuren"])
+        cv.addWidget(self.summary)
+        self.table = QTableWidget(0, 3)
+        self.table.setHorizontalHeaderLabels(["Stimme", "Noten", "Datei"])
         self.table.verticalHeader().setVisible(False)
         self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.table.horizontalHeader().setStretchLastSection(True)
-        pv.addWidget(self.table, 1)
-        self.tabs.addTab(preview, "Vorschau")
+        # If a name ever does not fit, cut it in the middle (the voice and the bars stay
+        # readable) and show it whole in the tooltip.
+        self.table.setTextElideMode(Qt.TextElideMode.ElideMiddle)
+        self.table.setWordWrap(False)
+        cv.addWidget(self.table, 1)
+        self.tabs.addTab(clips, "Clips")
         self.readme = QPlainTextEdit()
         self.readme.setReadOnly(True)
-        self.readme.setPlaceholderText("Nach dem Rendern steht hier die README des Ordners.")
+        self.readme.setPlaceholderText("Nach dem Export steht hier die README des Ordners.")
         self.tabs.addTab(self.readme, "README")
         right.addWidget(self.tabs, 1)
         self.note = QLabel(
-            "Nichts davon ist in Live getestet oder angehört. Die Melodie ist eine MIDI-Datei "
-            "(eine Spur je Stimme, keine Samples); du ziehst sie selbst in Live und legst "
-            "eigene Instrumente darauf (Anleitung in der README).")
+            "Nichts davon ist in Live getestet. Die Vorschau ist grob (einfache Töne, kein "
+            "Synth); das Produkt sind die MIDI-Clips, auf die du in Live eigene Instrumente "
+            "legst.")
         self.note.setObjectName("muted")
         self.note.setWordWrap(True)
         self.note.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Minimum)
         right.addWidget(self.note)
-        outer.addLayout(right, 1)
-        self.hub = None
-        self.refresh()
 
     def attach_hub(self, hub) -> None:
-        """Follow the shared output folder (the melody is MIDI only: nothing for the library,
+        """Follow the shared output folder (clips are MIDI only: nothing for the library,
         which lists WAVs)."""
         self.hub = hub
         hub.settings_changed.connect(self._settings_changed)
@@ -365,6 +418,7 @@ class GoaPanel(QWidget):
 
     def set_status(self, text: str, error: bool = False) -> None:
         self.status.setText(text)
+        self.status.setVisible(bool(text))  # an empty line would leave a gap above the form
         self.status.setProperty("level", "error" if error else "ok")
         self.status.style().unpolish(self.status)
         self.status.style().polish(self.status)
@@ -385,46 +439,95 @@ class GoaPanel(QWidget):
     def refresh(self) -> None:
         self._auto_folder()
         ev = self.model.evaluate()
-        self.render_button.setEnabled(ev.ok and not self.running)
+        self.export_button.setEnabled(ev.ok and not self.running)
+        chosen = set(ev.kwargs["voices"]) if ev.ok else set()
+        for v, b in self.voice_buttons.items():
+            b.setEnabled(v in chosen)
+        self.all_button.setEnabled(ev.ok)
         if not self.running:
             if ev.ok:
                 if self.status.property("level") == "error" and self.status.text().startswith(
-                        "Rendern nicht möglich"):
+                        "Export nicht möglich"):
                     self.set_status("")
             else:
-                self.set_status("Rendern nicht möglich: " + ev.problem, error=True)
+                self.set_status("Export nicht möglich: " + ev.problem, error=True)
         self.show_plan(ev.plan)
 
-    def show_plan(self, plan: TimelinePlan | None) -> None:
-        self.timeline.set_plan(plan)
+    def show_plan(self, plan: ClipPlan | None) -> None:
         self.table.setRowCount(0)
         if plan is None:
-            self.summary.setText("Keine gültige Vorschau, solange die Optionen nicht stimmen.")
+            self.summary.setText("Keine Clips, solange die Optionen nicht stimmen.")
             return
         self.summary.setText(
-            f"{plan.total_bars} Takte, etwa {plan.minutes:.1f} Minuten bei {plan.tempo:g} BPM, "
-            f"Tonart {plan.key}. Spuren: {', '.join(plan.tracks)}. Aus den Plandaten des "
-            "Erzeugers; angehört wurde nichts.")
-        self.table.setRowCount(len(plan.sections))
-        for r, s in enumerate(plan.sections):
-            cells = [str(s.start_bar), str(s.bars), s.name, f"{s.energy:.2f}",
-                     ", ".join(s.elements)]
-            for c, text in enumerate(cells):
+            f"Je Clip {plan.bars} Takte ({plan.seconds:.1f} s bei {plan.tempo:g} BPM), "
+            f"Tonart {plan.key}. Akkord je Takt (Arp und Pad): "
+            f"{', '.join(map(str, plan.chords))}.")
+        self.table.setRowCount(len(plan.clips))
+        for r, c in enumerate(plan.clips):
+            cells = [VOICE_LABELS[c.voice], str(c.notes), c.file_name]
+            for col, text in enumerate(cells):
                 item = QTableWidgetItem(text)
-                if c in (0, 1, 3):
+                if col == 1:
                     item.setTextAlignment(Qt.AlignmentFlag.AlignRight
                                           | Qt.AlignmentFlag.AlignVCenter)
-                self.table.setItem(r, c, item)
+                if col == 2:
+                    item.setToolTip(text)
+                self.table.setItem(r, col, item)
         self.table.resizeColumnsToContents()
+        # The clip side is at least as wide as the whole table, so a narrow window stacks it
+        # below the form (AdaptiveBox) instead of cutting the file names (#546 review).
+        need = (sum(self.table.columnWidth(c) for c in range(self.table.columnCount()))
+                + 2 * self.table.frameWidth() + self.table.verticalScrollBar().sizeHint().width())
+        self.table.setMinimumWidth(need)
 
-    # --- render --------------------------------------------------------------------------
-    def start_render(self) -> None:
+    # --- preview -------------------------------------------------------------------------
+    def preview(self, which: str) -> bool:
+        """Play the rough preview of one voice (``lead`` ...) or of all chosen voices
+        (:data:`ALL`). Never writes into the output folder."""
+        ev = self.model.evaluate()
+        if not ev.ok:
+            self.set_status("Vorhören nicht möglich: " + ev.problem, error=True)
+            return False
+        if not self.backend.available:
+            self.set_status("Keine Audioausgabe verfügbar.", error=True)
+            return False
+        self.stop_preview()
+        try:
+            if which == ALL:
+                data = goa_preview.mix_preview_wav_bytes(**ev.kwargs)
+            else:
+                data = goa_preview.voice_preview_wav_bytes(which, **ev.kwargs)
+            path = self._tmp / f"goa_preview_{which}.wav"
+            path.write_bytes(data)
+            self.play_file(path)
+        except (ValueError, OSError, RuntimeError) as exc:
+            self.set_status(f"Vorhören fehlgeschlagen: {exc}", error=True)
+            return False
+        self.playing = which
+        what = "alle Stimmen" if which == ALL else VOICE_LABELS[which]
+        self.set_status(f"Spielt: {what}, {goa_preview.PREVIEW_LABEL} "
+                        f"({ev.plan.bars} Takte, ein Durchlauf).")
+        return True
+
+    def play_file(self, path: Path) -> None:
+        """The one place the Goa preview reaches the sound output (16-bit WAV)."""
+        self.backend.play(path)
+
+    def stop_preview(self) -> None:
+        self.playing = None
+        try:
+            self.backend.stop()
+        except Exception:  # noqa: BLE001
+            pass
+
+    # --- export --------------------------------------------------------------------------
+    def start_export(self) -> None:
         if self.running or not self.model.is_valid:
             return
         folder = self.folder_edit.text().strip()
         job = GoaJob(tuple(self.model.argv(folder)))
-        self.set_status("Rendern …")
-        self.render_button.setEnabled(False)
+        self.set_status("Exportiere …")
+        self.export_button.setEnabled(False)
         self.handle = self.service.start(job, on_done=self._signals.done.emit)
 
     def _on_done(self, result: GoaResult) -> None:
@@ -434,9 +537,17 @@ class GoaPanel(QWidget):
             self.set_status(f"Fehler: {result.error.message}", error=True)
         else:
             self.readme.setPlainText(result.readme_text)
-            self.tabs.setCurrentIndex(1)
-            self.set_status(
-                f"Fertig: {result.mid_path.name} und README in {result.out_dir}")
+            self.drag_list.clear()
+            for p in result.mid_paths:
+                item = QListWidgetItem(p.name)
+                item.setData(PATH_ROLE, str(p))
+                item.setToolTip(str(p))
+                self.drag_list.addItem(item)
+            self.drag_list.setVisible(self.drag_list.count() > 0)
+            self.tabs.setCurrentIndex(0)
+            self.set_status(f"Fertig: {len(result.mid_paths)} MIDI-Clips und README in "
+                            f"{result.out_dir}. Jede Datei unten auf eine MIDI-Spur in Live "
+                            "ziehen (nicht in Live getestet).")
         self.refresh()
 
     def open_folder(self) -> None:
@@ -444,12 +555,14 @@ class GoaPanel(QWidget):
         if not folder.is_dir() and self.result is not None and self.result.ok:
             folder = self.result.out_dir  # the last finished run
         if not folder.is_dir():
-            self.set_status("Der Ordner existiert noch nicht (er entsteht beim Rendern).",
+            self.set_status("Der Ordner existiert noch nicht (er entsteht beim Export).",
                             error=True)
             return
         if not self.opener(folder):
             self.set_status("Der Ordner konnte nicht geöffnet werden.", error=True)
 
     def shutdown(self) -> None:
+        self.stop_preview()
         if self.handle is not None:
             self.handle.wait(30)
+        shutil.rmtree(self._tmp, ignore_errors=True)
