@@ -151,7 +151,11 @@ def read_reference_wav(path: str | Path) -> ReferenceAudio:
     return decode_reference_wav(data)
 
 
-def decode_reference_wav(data: bytes) -> ReferenceAudio:
+def riff_chunks(data: bytes) -> tuple[bytes, bytes]:
+    """``(fmt, data)`` chunk bodies of a RIFF/WAVE file; German errors as in the reader.
+
+    Shared by :func:`decode_reference_wav` and :mod:`audio_engine.reference_v2` (#540).
+    """
     if len(data) < 12 or data[:4] != b"RIFF" or data[8:12] != b"WAVE":
         raise ReferenceAudioError("Keine WAV-Datei (RIFF/WAVE-Kopf fehlt).")
     fmt: bytes | None = None
@@ -174,6 +178,11 @@ def decode_reference_wav(data: bytes) -> ReferenceAudio:
         raise ReferenceAudioError("Die WAV-Datei hat keinen gültigen fmt-Block.")
     if frames is None:
         raise ReferenceAudioError("Die WAV-Datei enthält keinen data-Block.")
+    return fmt, frames
+
+
+def decode_reference_wav(data: bytes) -> ReferenceAudio:
+    fmt, frames = riff_chunks(data)
     tag, channels, sr, _, block, bits = struct.unpack("<HHIIHH", fmt[:16])
     if tag == 0xFFFE and len(fmt) >= 26:
         tag = struct.unpack("<H", fmt[24:26])[0]  # first two bytes of the sub-format GUID
