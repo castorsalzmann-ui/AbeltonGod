@@ -45,6 +45,7 @@ where = ["src"]
 
 [tool.setuptools.package-data]
 "audio_engine.presets" = ["*.json", "**/*.json"]
+"audio_engine" = ["calibration/*.json"]  # reference feature scales (#540)
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
