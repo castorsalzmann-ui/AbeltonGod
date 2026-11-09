@@ -29,7 +29,8 @@ class VolumeControl(QWidget):
         self.slider.setToolTip("Lautstärke aller Vorschauen (nur das Abspielen; geschriebene "
                                "Dateien bleiben unverändert).")
         self.readout = QLabel()
-        self.readout.setMinimumWidth(int(u * 2.4))
+        # room for "100 %" in this font (Windows at 150 % needs more than 2.4 line heights)
+        self.readout.setMinimumWidth(self.readout.fontMetrics().horizontalAdvance("100 %") + 6)
         for w in (self.label, self.slider, self.readout):
             lay.addWidget(w)
         self._show(volume.value)

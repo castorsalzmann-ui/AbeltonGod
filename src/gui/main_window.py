@@ -581,11 +581,16 @@ class MainWindow(OnTopWindow, QMainWindow):
         self.open_button.clicked.connect(self.open_folder)
         transport.addWidget(self.play_button)
         transport.addWidget(self.stop_button)
-        self.volume = VolumeControl()  # #545: shared with Acid and Blaster
-        transport.addWidget(self.volume)
         transport.addStretch(1)
         transport.addWidget(self.open_button)
         lay.addLayout(transport)
+        # #545: shared with Acid and Blaster; a row of its own (in the transport row the main
+        # window was 758 px wide at 150 % on Windows CI, more than half the screen)
+        vrow = QHBoxLayout()
+        self.volume = VolumeControl()
+        vrow.addWidget(self.volume)
+        vrow.addStretch(1)
+        lay.addLayout(vrow)
         self.preview_info = QLabel()
         self.preview_info.setObjectName("muted")
         self.preview_info.setWordWrap(True)
