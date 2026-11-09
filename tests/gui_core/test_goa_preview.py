@@ -75,14 +75,16 @@ def test_pad_energy_sits_at_its_chord_tones():
 
 
 def test_onsets_follow_the_notes():
-    # pluck at density 0.25: 4 notes in one bar; sound only where a 16th carries a note
-    # (or rings on from the previous one). Positions are read from the notes.
-    opts = {"seed": 4, "bars": 1, "density": {"pluck": 0.25}, "bpm": 144}
+    # pluck at density 0.25: 4 notes per bar; sound only where a 16th carries a note
+    # (or rings on from the previous one). Positions are read from the notes. Four bars, so
+    # a tempo error of 2 % moves the last bar's notes by more than a 16th (review of #550).
+    opts = {"seed": 4, "bars": 4, "density": {"pluck": 0.25}, "bpm": 144}
     x = gp.render_voice_preview("pluck", **opts)
     starts = {n.start for n in goa_clips.clip_notes("pluck", **opts)}
-    step = int(round(120 * 60 / 144 / 480 * SR))  # one 16th in samples
-    for k in range(16):
-        seg = np.abs(x[k * step + step // 4: k * step + step // 2])
+    step = 120 * 60 / 144 / 480 * SR  # one 16th in samples (float: no rounding drift)
+    for k in range(64):
+        a = int(k * step + step / 4)
+        seg = np.abs(x[a: a + int(step / 4)])
         if k * 120 in starts:
             assert seg.max() > 0.05, k
         elif (k - 1) * 120 not in starts:

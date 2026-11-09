@@ -2,7 +2,7 @@
 
 Every button, action, shortcut, input and interactive widget of the main window pages and the
 three tool windows (Goa, Acid, Laser-Blaster), with its handler and effect. Issue #437 (sprint
-W1, area D). As of `main` `d922923` (2026-11-06); Goa rows updated for #520 (2026-11-08).
+W1, area D). As of `main` `d922923` (2026-11-06); Goa rows updated for #520 (2026-11-08) and #546 (clips, 2026-11-09).
 
 **How this list is kept true.** `tests/gui/test_tour_inventory.py` walks the freshly opened
 windows (`scripts/qa/gui_controls.py`) and compares the IDs in the first column with what it
@@ -207,27 +207,33 @@ differ only in the area. Handler and effect per kind:
 
 ### Main window: Goa-Melodie page
 
-Melody only (D-033, #520): the options of `goa_melody` (lead, arp, pad, pluck). The former
-mode switch (Arrangement / Melodie), the arrangement options (roll, intro, breakdowns, outro,
-DJ bars, kick/bass/hat/snare/clap/rim presets and patterns, "Keine Samples rendern") and the
-library / Live row (a melody render has no WAV) are gone; `goa_arrangement` stays a CLI.
+MIDI clips (D-035, #546): the options of `goa_clips`, one looping clip per voice (lead, arp,
+pad, pluck), 1-16 bars, like the Acid line. No song form: the phrase sections, the timeline,
+the section table, energy and song length are gone (song form is the Arrangement-Planer's,
+D-033); `goa_arrangement` and `goa_melody` stay CLIs. The page name stays "Goa-Melodie".
 
 | ID | Handler | Effect |
 | --- | --- | --- |
 | `goa-page · ActiveDot · Gefüllt: der Wert wird mitgeschickt. Leer: Stand` | `OptionForm._toggled` | Dot of an optional option: pass it / use the module default |
-| `goa-page · NumberControl · *` | `OptionForm._edited` | BPM slider (135 to 150, the generator's range) |
-| `goa-page · OptionForm · GoaPanel.form` | `GoaPanel.refresh` (via `changed`) | The melody option form: preview of the phrase sections, Render enabled or blocked with the module's message |
+| `goa-page · NumberControl · *` | `OptionForm._edited` | BPM slider and readout, whole BPM 135 to 150 (the generator's range) |
+| `goa-page · OptionForm · GoaPanel.form` | `GoaPanel.refresh` (via `changed`) | The clip option form: clip table (voice, notes, file) and chord per bar; export and preview enabled or blocked with the module's message |
 | `goa-page · PresetChips · *` | `OptionForm._edited` | Choice / multi-choice options (voices lead/arp/pad/pluck, scale) |
 | `goa-page · PresetChips/QPushButton · *` | `PresetChips` -> `chosen` / `changed` | One chip per choice |
-| `goa-page · QLineEdit · Abschnitte` | `OptionForm._edited` (`textEdited`) | Free text option (melody phrase sections `Name:Takte:Energie:stimme+stimme`), checked by the module's parser |
-| `goa-page · QLineEdit · Akkordfolge (Stufen)` | `OptionForm._edited` (`textEdited`) | Free text option |
+| `goa-page · QLineEdit · Akkordfolge (Stufen)` | `OptionForm._edited` (`textEdited`) | Free text option; arp and pad run through it inside the clip |
 | `goa-page · QLineEdit · Dichte` | `OptionForm._edited` (`textEdited`) | Free text option |
-| `goa-page · QLineEdit · GoaPanel.folder_edit` | `GoaPanel._folder_typed` | New run folder (auto-named `goa_melody_seed<N>_<BPM>bpm`, never overwritten) below `<Ausgabeordner>/Goa` (#468); follows the shared settings (#450) |
+| `goa-page · QLineEdit · GoaPanel.folder_edit` | `GoaPanel._folder_typed` | New run folder (auto-named `goa_clips_seed<N>_<BPM>bpm_<bars>bars`, never overwritten) below `<Ausgabeordner>/Goa` (#468); follows the shared settings (#450); the export writes exactly this folder |
 | `goa-page · QLineEdit · Grundton` | `OptionForm._edited` (`textEdited`) | Free text option |
 | `goa-page · QLineEdit · Register (Oktaven)` | `OptionForm._edited` (`textEdited`) | Free text option |
+| `goa-page · QPushButton · Lead` | `GoaPanel.preview` | Plays the lead clip's rough preview (`goa_preview`, "grobe Vorschau", one pass) through the app's preview backend; enabled when the voice is chosen; writes nothing to the output folder |
+| `goa-page · QPushButton · Arp` | `GoaPanel.preview` | As Lead, for the arp clip |
+| `goa-page · QPushButton · Pad` | `GoaPanel.preview` | As Lead, for the pad clip |
+| `goa-page · QPushButton · Pluck` | `GoaPanel.preview` | As Lead, for the pluck clip |
+| `goa-page · QPushButton · Alle vorhören` | `GoaPanel.preview` | Plays all chosen voices together (rough preview, one pass) |
+| `goa-page · QPushButton · Stopp` | `GoaPanel.stop_preview` | Stops the preview |
+| `goa-page · QPushButton · MIDI exportieren` | `GoaPanel.start_export` | Runs `goa_clips.write_clips` in a worker: one .mid per chosen voice + README in the folder shown; no WAV, no drum/bass clip; never overwrites |
 | `goa-page · QPushButton · Ordner öffnen` | `GoaPanel.open_folder` | Opens the run folder (or the last finished one) |
-| `goa-page · QPushButton · Rendern` | `GoaPanel.start_render` | Runs `goa_melody` in a worker: one .mid (one track per chosen voice) + README; no WAV, no drum/bass track |
-| `goa-page · StepEdit · Phrasenlänge (Takte)` | `OptionForm._edited` | Phrase length in bars |
+| `goa-page · DragList · goa_clip_files` | `DragList.mimeData` (drag start) | One row per exported .mid: drag it onto a MIDI track in Live (file URL; the drop into Live is not tested) |
+| `goa-page · StepEdit · Clip-Länge (Takte)` | `OptionForm._edited` | Clip length 1-16 bars |
 | `goa-page · StepEdit · Seed` | `OptionForm._edited` | Seed (typed, Up/Down) |
 
 ### Main window: Arrangement-Planer page
@@ -293,20 +299,26 @@ ends; its countdown shows what is left of that window. Checked by
 | `goa · ChromeButton · Immer im Vordergrund` | `CompactGoaWindow.set_always_on_top` | Stay on top on/off (saved; on by default). Main window, Acid and Blaster have the same switch as a check box (#517) |
 | `goa · ChromeButton · Minimieren` | `QWidget.showMinimized` | Minimise |
 | `goa · ChromeButton · Schliessen` | `QWidget.close` | Close (saves position/size) |
-| `goa · ActiveDot · Gefüllt: der Wert wird mitgeschickt. Leer: Stand` | `OptionForm._toggled` | As on the Goa-Melodie page (the window body is the same `GoaPanel`, #440 fixed in #450; melody only, D-033) |
-| `goa · NumberControl · *` | `OptionForm._edited` | BPM slider |
-| `goa · OptionForm · GoaPanel.form` | `GoaPanel.refresh` (via `changed`) | The melody option form |
+| `goa · ActiveDot · Gefüllt: der Wert wird mitgeschickt. Leer: Stand` | `OptionForm._toggled` | As on the Goa-Melodie page (the window body is the same `GoaPanel`, #440 fixed in #450; clips only, D-035) |
+| `goa · NumberControl · *` | `OptionForm._edited` | BPM slider (whole BPM) |
+| `goa · OptionForm · GoaPanel.form` | `GoaPanel.refresh` (via `changed`) | The clip option form |
 | `goa · PresetChips · *` | `OptionForm._edited` | Choice / multi-choice options |
 | `goa · PresetChips/QPushButton · *` | `PresetChips` -> `chosen` / `changed` | One chip per choice |
-| `goa · QLineEdit · Abschnitte` | `OptionForm._edited` (`textEdited`) | Free text option |
 | `goa · QLineEdit · Akkordfolge (Stufen)` | `OptionForm._edited` (`textEdited`) | Free text option |
 | `goa · QLineEdit · Dichte` | `OptionForm._edited` (`textEdited`) | Free text option |
-| `goa · QLineEdit · GoaPanel.folder_edit` | `GoaPanel._folder_typed` | New run folder below `<Ausgabeordner>/Goa` (follows the shared settings) |
+| `goa · QLineEdit · GoaPanel.folder_edit` | `GoaPanel._folder_typed` | New run folder below `<Ausgabeordner>/Goa` (follows the shared settings); the export writes exactly this folder |
 | `goa · QLineEdit · Grundton` | `OptionForm._edited` (`textEdited`) | Free text option |
 | `goa · QLineEdit · Register (Oktaven)` | `OptionForm._edited` (`textEdited`) | Free text option |
+| `goa · QPushButton · Lead` | `GoaPanel.preview` | Rough preview of the lead clip (as on the page) |
+| `goa · QPushButton · Arp` | `GoaPanel.preview` | Rough preview of the arp clip |
+| `goa · QPushButton · Pad` | `GoaPanel.preview` | Rough preview of the pad clip |
+| `goa · QPushButton · Pluck` | `GoaPanel.preview` | Rough preview of the pluck clip |
+| `goa · QPushButton · Alle vorhören` | `GoaPanel.preview` | Rough preview of all chosen voices together |
+| `goa · QPushButton · Stopp` | `GoaPanel.stop_preview` | Stops the preview |
+| `goa · QPushButton · MIDI exportieren` | `GoaPanel.start_export` | One .mid per chosen voice + README in `<Ausgabeordner>/Goa/<Lauf>`; no WAV, so nothing new in the library |
 | `goa · QPushButton · Ordner öffnen` | `GoaPanel.open_folder` | Opens the run folder |
-| `goa · QPushButton · Rendern` | `GoaPanel.start_render` | Runs `goa_melody` in a worker: melody .mid (one track per voice) + README in `<Ausgabeordner>/Goa/<Lauf>`; no WAV, so nothing new in the library |
-| `goa · StepEdit · Phrasenlänge (Takte)` | `OptionForm._edited` | Phrase length in bars |
+| `goa · DragList · goa_clip_files` | `DragList.mimeData` (drag start) | One row per exported .mid, drag onto a MIDI track in Live (drop not tested) |
+| `goa · StepEdit · Clip-Länge (Takte)` | `OptionForm._edited` | Clip length 1-16 bars |
 | `goa · StepEdit · Seed` | `OptionForm._edited` | Seed |
 
 ### Acid window

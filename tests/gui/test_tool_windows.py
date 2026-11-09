@@ -1,6 +1,6 @@
 """#439: shared settings and the library / Live hand-off of the Goa, Acid and Blaster windows.
 
-Offscreen, the real window factories and engines (goa_melody, the acid preview, the laser
+Offscreen, the real window factories and engines (goa_clips, the acid preview, the laser
 category). Nothing talks to Ableton Live: "An Live senden" only opens the main window's Live
 page with the file chosen, which is what is checked here. #444: the Blaster's drag-out never
 offers a file from its temporary folder."""
@@ -20,7 +20,7 @@ if os.environ.get("ABELTONGOD_REQUIRE_GUI") == "1":  # CI: a missing Qt must fai
 else:
     pytest.importorskip("PySide6.QtWidgets", exc_type=ImportError)
 
-from PySide6.QtWidgets import QApplication, QLabel  # noqa: E402
+from PySide6.QtWidgets import QApplication, QLabel, QPushButton  # noqa: E402
 
 from gui.app import create_app  # noqa: E402
 from gui.drag import PATH_ROLE  # noqa: E402
@@ -132,8 +132,8 @@ def test_acid_wav_follows_the_shared_sample_rate_and_bit_depth(main):
 def test_goa_window_at_its_start_size_squeezes_no_label(main):
     """#530 review: without the mode switch the Goa form became narrow enough that form and
     preview went side by side in the 760 x 560 window and the unit labels got 7 px ("g / Z").
-    Every visible label must be at least as wide as its longest word, and every section of
-    the preview at least one text line wide (room for its rotated name)."""
+    Every visible label and button must be at least as wide as its longest word (#546: the
+    preview and export buttons of the clip page)."""
     win = main.windows.open("goa")
     assert win is not None, main.windows.last_error
     QApplication.processEvents()
@@ -148,16 +148,25 @@ def test_goa_window_at_its_start_size_squeezes_no_label(main):
         if label.width() < fm.horizontalAdvance(word):
             squeezed.append(f"{label.text()!r}: {label.width()} px, needs "
                             f"{fm.horizontalAdvance(word)}")
+    for button in panel.findChildren(QPushButton):
+        if not button.isVisibleTo(panel) or not button.text().strip():
+            continue
+        fm = button.fontMetrics()
+        need = fm.horizontalAdvance(max(button.text().split(), key=fm.horizontalAdvance))
+        if button.width() < need:
+            squeezed.append(f"button {button.text()!r}: {button.width()} px, needs {need}")
     assert squeezed == []
-    tl = panel.timeline
-    line = tl.fontMetrics().height()
-    thin = [(s.name, round(x1 - x0)) for s, x0, x1 in tl.section_spans() if x1 - x0 < line]
-    assert tl.section_spans() and thin == []
+    # #546: preview and export are reachable without scrolling the window
+    for button in (panel.all_button, panel.stop_button, panel.export_button,
+                   *panel.voice_buttons.values()):
+        bottom = button.mapTo(win, button.rect().bottomLeft()).y()
+        assert 0 < bottom < win.height(), (button.text(), bottom, win.height())
 
 
-def test_goa_window_renders_melody_midi_only(main, tmp_path):
-    """D-033: the Goa window is the Goa-Melodie form; its render is one .mid + README in
-    <out>/Goa/<run>, no WAV (so nothing new for the library and no Live hand-off row)."""
+def test_goa_window_exports_one_clip_per_voice_into_the_shown_folder(main, tmp_path):
+    """D-035: the Goa window is the clip form; its export writes one .mid per voice + README
+    in exactly the folder it showed (<out>/Goa/<run>), no WAV (nothing new for the library,
+    no Live hand-off row; each .mid is offered for drag instead)."""
     win = main.windows.open("goa")
     assert win is not None, main.windows.last_error
     panel = win.body
@@ -167,13 +176,16 @@ def test_goa_window_renders_melody_midi_only(main, tmp_path):
     seed = panel.form.edits["seed"]
     seed.setText("1")
     seed.edited.emit("1")  # what typing does (setText alone does not tell the form)
-    panel.render_button.click()
+    shown = Path(panel.folder_edit.text())
+    panel.export_button.click()
     assert wait_for(lambda: panel.result is not None)
     assert panel.result.ok, panel.result.error
     folder = panel.result.out_dir
-    assert folder.parent == tmp_path / "out" / "Goa"
+    assert folder == shown and folder.parent == tmp_path / "out" / "Goa"
     assert sorted(p.name for p in folder.rglob("*")) == [
-        "README.md", "goa_melody_seed1_145bpm.mid"]
+        "README.md", "goa_arp_seed1_145bpm_4bars.mid", "goa_lead_seed1_145bpm_4bars.mid",
+        "goa_pad_seed1_145bpm_4bars.mid", "goa_pluck_seed1_145bpm_4bars.mid"]
+    assert panel.drag_list.count() == 4
     assert set(library_paths(main)) == before
 
 
@@ -314,7 +326,7 @@ def test_old_settings_with_goa_arrangement_fields_still_load(qapp, tmp_path):
     try:
         w.show()
         assert w.goa.base_dir == out / "Goa"
-        assert w.goa.model.argv("X")[0] == "--out=X" and w.goa.render_button.isEnabled()
+        assert w.goa.model.argv("X")[0] == "--out=X" and w.goa.export_button.isEnabled()
         win = w.windows.open("goa")
         assert win is not None, w.windows.last_error
         assert (win.width(), win.height()) == (700, 520)
