@@ -1,0 +1,7 @@
+{
+  "schema_version": "0.1",
+  "preset": "drone-root-fifth",
+  "seed": 4,
+  "bpm": 135,
+  "kind": "drone"
+}

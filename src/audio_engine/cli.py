@@ -2,12 +2,18 @@
 
     python -m audio_engine.kick --preset NAME [--variants N] --out DIR
                                 [--seed INT] [--set FIELD=VALUE ...]
-                                [--category kick|clap|hat|snare|rim|bass|laser|perc|fx]
+                                [--category kick|clap|hat|snare|rim|bass|laser|perc|fx|atmos]
     python -m audio_engine.kick --list-presets
-                                [--category kick|clap|hat|snare|rim|bass|laser|perc|fx]
+                                [--category kick|clap|hat|snare|rim|bass|laser|perc|fx|atmos]
 
 ``--category fx`` (#482): the presets are written at 135 BPM; set the track's tempo with
 ``--set bpm=<track bpm>``, otherwise the file does not end on the bar line in Live.
+
+``--category atmos`` (#529): the same, the presets are loops of whole bars at 135 BPM; text
+fields (``kind``, ``loop_mode``, ``filter_mode``, ``move_shape``, ``granular_source``) take
+words and ``intervals`` takes a JSON list, e.g. ``--set intervals=[0,7]``. A refused request
+(e.g. rule E: a one-bar oneshot with the default 4 + 4 fade beats) prints the contract's error
+text, which names the fields to change.
 
 ``--category clap`` (#231) renders clap presets from ``presets/clap/`` and writes
 ``clap-params`` sidecars; the default is ``kick``.
@@ -35,6 +41,7 @@ from pathlib import Path
 from typing import Any, TextIO
 
 from . import (
+    atmos_variants,
     bass_variants,
     clap_variants,
     fx_variants,
@@ -44,6 +51,8 @@ from . import (
     rim_variants,
     snare_variants,
 )
+from .atmos import AtmosConvergenceError, AtmosParamsError, resolve_atmos_params
+from .atmos import _schema as atmos_schema
 from .bass import BassParamsError, resolve_bass_params
 from .categories import CategoryUnavailable, get_category
 from .clap import ClapParamsError, resolve_clap_params
@@ -80,7 +89,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="python -m audio_engine.kick",
         description="Render sample presets and variants (--category kick, clap, hat, snare, "
-        "rim, bass, laser, perc, fx) as WAV + sidecar JSON; laser and fx files are 2-channel.",
+        "rim, bass, laser, perc, fx, atmos) as WAV + sidecar JSON; laser, fx and atmos files "
+        "are 2-channel.",
     )
     parser.add_argument("--preset", help="preset name (see --list-presets)")
     parser.add_argument(
@@ -100,7 +110,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--category",
-        choices=("kick", "clap", "hat", "snare", "rim", "bass", "laser", "perc", "fx"),
+        choices=("kick", "clap", "hat", "snare", "rim", "bass", "laser", "perc", "fx", "atmos"),
         default="kick",
         help="sound category (default kick)",
     )
@@ -115,13 +125,15 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def parse_overrides(
-    items: list[str], text_fields: frozenset[str] = frozenset()
+    items: list[str], text_fields: frozenset[str] = frozenset(),
+    list_fields: frozenset[str] = frozenset(),
 ) -> dict[str, Any]:
     """``["a=1", "b=2.5"]`` -> ``{"a": 1, "b": 2.5}``. Values must be finite JSON numbers.
 
     ``text_fields`` (laser v0.2 text enums such as ``salvo_pan_mode=alternate_lr`` or
     ``echo_sync=1/8``): for these a value that is not a number is kept as text; the contract
-    then accepts or rejects it. Every other field stays numbers-only.
+    then accepts or rejects it. ``list_fields`` (atmos ``intervals``) take a JSON list of
+    numbers. Every other field stays numbers-only.
     """
     out: dict[str, Any] = {}
     for item in items:
@@ -140,6 +152,12 @@ def parse_overrides(
             value = None
         if field in text_fields and value is None and text.strip():
             out[field] = text.strip()
+            continue
+        if field in list_fields and isinstance(value, list):
+            if not all(isinstance(v, int | float) and not isinstance(v, bool)
+                       and math.isfinite(v) for v in value):
+                raise UsageError(f"--set {field}={text!r}: list items must be finite numbers")
+            out[field] = value
             continue
         if isinstance(value, bool) or not isinstance(value, int | float):
             raise UsageError(f"--set {field}={text!r}: value must be a number")
@@ -170,7 +188,14 @@ def plan(args: argparse.Namespace) -> tuple[str, list[dict[str, Any]], list[str]
             k for k, spec in fx_schema()["properties"].items()
             if all(isinstance(v, str) for v in spec.get("enum", (0,)))
         )
-    overrides = parse_overrides(args.overrides, text_fields)
+    list_fields: frozenset[str] = frozenset()
+    if category == "atmos":  # kind, loop_mode, filter_mode, move_shape, granular_source (#529)
+        text_fields = frozenset(
+            k for k, spec in atmos_schema()["properties"].items()
+            if all(isinstance(v, str) for v in spec.get("enum", (0,)))
+        )
+        list_fields = frozenset({"intervals"})
+    overrides = parse_overrides(args.overrides, text_fields, list_fields)
     base = dict(load_preset(args.preset, category))
     if args.seed is not None:
         base["seed"] = args.seed
@@ -191,6 +216,7 @@ def plan(args: argparse.Namespace) -> tuple[str, list[dict[str, Any]], list[str]
         "laser": (resolve_laser_params, laser_variants.make_variants),
         "perc": (resolve_perc_params, perc_variants.make_variants),
         "fx": (resolve_fx_params, fx_variants.make_variants),
+        "atmos": (resolve_atmos_params, atmos_variants.make_variants),
     }[category]
     base = resolve(request)
     # The request, not its resolved form: variants of a tail_note / length_beats request keep
@@ -221,7 +247,7 @@ def _plan_prompt(
     if getattr(args, "category", "kick") != "kick":
         raise UsageError(
             "--prompt is a kick vocabulary, not usable with --category clap, hat, snare, rim, "
-            "bass, laser, perc or fx"
+            "bass, laser, perc, fx or atmos"
         )
     if not args.out:
         raise UsageError("--out is required")
@@ -286,7 +312,7 @@ def _main(argv: list[str] | None, stdout: TextIO, stderr: TextIO) -> int:
         out_dir, variants, stems, descriptions = plan(args)
     except (UsageError, UnknownPresetError, KickParamsError, ClapParamsError,
                 HatParamsError, SnareParamsError, RimParamsError, BassParamsError,
-                LaserParamsError, PercParamsError, FxParamsError) as exc:
+                LaserParamsError, PercParamsError, FxParamsError, AtmosParamsError) as exc:
         print(f"error: {exc}", file=stderr)
         return EXIT_USAGE
 
@@ -299,6 +325,13 @@ def _main(argv: list[str] | None, stdout: TextIO, stderr: TextIO) -> int:
             wav_path, json_path = write_kick(
                 params, out_dir, name=stem, description=description, **extra
             )
+        except AtmosConvergenceError as exc:  # refused before any file of it is written
+            print(
+                f"error: variant {i} ({stem}) not written: {exc}. "
+                f"{i} file pair(s) written before it stay.",
+                file=stderr,
+            )
+            return EXIT_USAGE
         except OSError as exc:  # includes FileExistsError (no free name) and disk full
             print(
                 f"error: variant {i} ({stem}) not written: {exc}. "

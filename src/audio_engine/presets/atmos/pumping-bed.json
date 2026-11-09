@@ -1,0 +1,10 @@
+{
+  "schema_version": "0.1",
+  "preset": "pumping-bed",
+  "seed": 3,
+  "bpm": 135,
+  "kind": "noise_bed",
+  "bars": 4,
+  "pump_depth": 0.6,
+  "move_shape": "smooth_random"
+}
