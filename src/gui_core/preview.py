@@ -52,6 +52,8 @@ class PreviewController:
         self.source: Path | None = None
         self._preview_path: Path | None = None
         self._started = 0.0
+        self.looping = False  # #553: a loop plays until stop()
+        self._loop_n = 0
 
     def load(self, wav_path: str | Path) -> bool:
         """Load ``wav_path`` for display and playback. False (state ERROR) if unreadable."""
@@ -70,6 +72,29 @@ class PreviewController:
         self.state, self.message = LOADED, ""
         return True
 
+    def play_loop(self, wav_bytes: bytes) -> bool:
+        """Play ``wav_bytes`` (a loop from ``gui_core.loop_preview``) repeatedly until
+        :meth:`stop` (#553). The playhead stays at 0 while looping."""
+        if not self.backend.available:
+            self.state, self.message = ERROR, "Keine Audioausgabe verfügbar."
+            return False
+        play_loop = getattr(self.backend, "play_loop", None)
+        if play_loop is None:
+            self.state, self.message = ERROR, "Diese Audioausgabe kann nicht in Schleife spielen."
+            return False
+        self.stop()
+        self._loop_n += 1
+        path = self._tmp / f"loop_{self._loop_n % 2}.wav"  # a playing file cannot be replaced
+        try:
+            path.write_bytes(wav_bytes)
+            play_loop(path)
+        except Exception as exc:  # noqa: BLE001
+            self.state, self.message = ERROR, f"Wiedergabe fehlgeschlagen: {exc}"
+            return False
+        self.looping = True
+        self.state, self.message = PLAYING, ""
+        return True
+
     def play(self) -> bool:
         if self.waveform is None or self._preview_path is None:
             self.message = "Keine Datei geladen."
@@ -83,6 +108,7 @@ class PreviewController:
             self.state, self.message = ERROR, f"Wiedergabe fehlgeschlagen: {exc}"
             return False
         self._started = self._clock()
+        self.looping = False
         self.state, self.message = PLAYING, ""
         return True
 
@@ -93,18 +119,19 @@ class PreviewController:
             except Exception:  # noqa: BLE001
                 pass
             self.state = LOADED
+        self.looping = False
 
     def position(self) -> float:
         """Playhead in seconds; the end of the file once the sound is over."""
         if self.waveform is None:
             return 0.0
-        if self.state != PLAYING:
+        if self.state != PLAYING or self.looping:
             return 0.0
         return min(self._clock() - self._started, self.waveform.duration_s)
 
     def tick(self) -> None:
         """Called by the shell's timer: leaves PLAYING when the file has played out."""
-        if self.state == PLAYING and self.waveform is not None:
+        if self.state == PLAYING and self.waveform is not None and not self.looping:
             if self._clock() - self._started >= self.waveform.duration_s:
                 self.state = LOADED
 

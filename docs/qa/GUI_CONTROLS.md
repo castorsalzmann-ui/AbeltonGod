@@ -42,6 +42,11 @@ without category / three output layouts. Already filed before: #413, #414, #439.
 | `main · OnTopBox · Immer im Vordergrund` | `OnTopBox._apply` | Keeps the main window above other windows, also above Live (stay-on-top window flag); saved with the window's place (#517) |
 | `main · QPushButton · Abbrechen` | `MainWindow.cancel_render` | Cancels the running render (finished files stay) |
 | `main · QPushButton · Abspielen` | `MainWindow.play` | Plays the selected file (winsound on Windows; elsewhere an honest 'no audio output' message) |
+| `main · LoopBar · MainWindow.loop_bar` | `MainWindow.play_loop` / `_loop_settings_changed` | Loop preview row (#553) under the transport: results and library |
+| `main · QPushButton · Im Takt ▶` | `MainWindow.play_loop` (via `LoopBar.play_clicked`) | Plays the selected sample on a 4/4 grid in a loop until Stopp (#553) |
+| `main · QComboBox · Wo im Takt das Sample erklingt` | `MainWindow._loop_settings_changed` (via `LoopBar.changed`) | Pattern; default from the sample's category |
+| `main · QSpinBox · LoopBar.bpm_spin` | `MainWindow._loop_bpm_changed` (saved as `loop_bpm`) | Loop tempo 60-200 BPM, default 140 |
+| `main · QCheckBox · mit Kick` | `MainWindow._loop_settings_changed` (via `LoopBar.changed`) | Adds the default kick on every quarter |
 | `main · QPushButton · Acid-Linie` | `MainWindow.open_acid_window` | Opens the Acid window with the current output folder (not updated later, #439) |
 | `main · QPushButton · Ausgabeordner öffnen` | `MainWindow.open_folder` | Opens the output folder in the file manager; error text if it does not exist yet |
 | `main · QPushButton · Goa-Fenster` | `MainWindow.open_goa_window` | Opens the Goa skin window (one instance; its body is the Goa-Melodie form, #440 fixed in #450, melody only since #520) |
@@ -367,6 +372,12 @@ ends; its countdown shows what is left of that window. Checked by
 | `blaster · QPushButton · Ion` | `BlasterWindow._on_dim_clicked` | Weapon dimension |
 | `blaster · QPushButton · Klassik` | `BlasterWindow._on_dim_clicked` | Weapon dimension (family + look) |
 | `blaster · QPushButton · Nochmal abspielen` | `BlasterWindow.replay_selected` | Replays the selected shot |
+| `blaster · LoopBar · BlasterWindow.loop_bar` | `BlasterWindow.loop_selected` / `stop_loop` | Loop preview row (#553) |
+| `blaster · QPushButton · Im Takt ▶` | `BlasterWindow.loop_selected` (via `LoopBar.play_clicked`) | Selected (or newest) shot on a 4/4 grid in a loop until Stopp (#553) |
+| `blaster · QPushButton · ■ Stopp` | `BlasterWindow.stop_loop` (via `LoopBar.stop_clicked`) | Stops the loop |
+| `blaster · QComboBox · Wo im Takt das Sample erklingt` | `BlasterWindow._loop_settings_changed` (via `LoopBar.changed`) | Pattern, default once per bar |
+| `blaster · QSpinBox · LoopBar.bpm_spin` | `BlasterWindow._loop_settings_changed` (via `LoopBar.changed`) | Loop tempo; start value = the saved `loop_bpm` |
+| `blaster · QCheckBox · mit Kick` | `BlasterWindow._loop_settings_changed` (via `LoopBar.changed`) | Adds the default kick on every quarter |
 | `blaster · QPushButton · Plasma` | `BlasterWindow._on_dim_clicked` | Weapon dimension |
 | `blaster · QPushButton · Preset laden …` | `BlasterWindow.load_preset_dialog` | Loads a preset file |
 | `blaster · QPushButton · Preset speichern …` | `BlasterWindow.save_preset_dialog` | Saves the settings as a preset file |

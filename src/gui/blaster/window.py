@@ -41,6 +41,7 @@ from PySide6.QtWidgets import (
 
 from gui.drag import PATH_ROLE, DragList
 from gui.widgets import Collapsible, FlowLayout, NumberControl, PresetChips, Segmented
+from gui.widgets.loop_bar import LoopBar
 from gui.widgets.volume import VolumeControl
 from gui.windows import OnTopBox, OnTopWindow, ResultActions
 from gui_core import blaster_params as bp
@@ -55,6 +56,7 @@ from gui_core.blaster import (
     export_bank,
     load_engine,
 )
+from gui_core.loop_preview import default_kick, loop_wav_bytes
 from gui_core.paths import default_output_dir
 from gui_core.preview import PlaybackBackend
 from gui_core.settings import AppSettings, free_stem
@@ -354,6 +356,15 @@ class BlasterWindow(OnTopWindow, QWidget):
         self.replay_btn.clicked.connect(self.replay_selected)
         seed_row.addWidget(self.replay_btn)
         sl.addLayout(seed_row)
+        self.loop_bar = LoopBar(with_stop=True)  # #553: the selected shot in a 4/4 loop
+        self.loop_bar.set_category("laser")
+        self.loop_bar.play_clicked.connect(self.loop_selected)
+        self.loop_bar.stop_clicked.connect(self.stop_loop)
+        self.loop_bar.changed.connect(self._loop_settings_changed)
+        self._looping = False
+        self._loop_n = 0
+        self._loop_kick = None
+        sl.addWidget(self.loop_bar)
         bank_row = QHBoxLayout()
         bank_row.addWidget(QLabel("Bank mit"))
         self.bank_count = QSpinBox()
@@ -1103,6 +1114,47 @@ class BlasterWindow(OnTopWindow, QWidget):
     def replay_selected(self) -> None:
         self._replay(self._shot_of(self.history.currentItem()))
 
+    def loop_selected(self) -> bool:
+        """#553: the selected shot (or the newest) on the 4/4 grid until Stopp."""
+        shot = self._shot_of(self.history.currentItem()) or (
+            self.session.history[0] if self.session.history else None)
+        if shot is None:
+            self.set_status("Noch kein Schuss: erst abfeuern, dann im Takt hören.", error=True)
+            return False
+        bar = self.loop_bar
+        play_loop = getattr(self.backend, "play_loop", None)
+        if not self.backend.available or play_loop is None:
+            self.set_status("Keine Audioausgabe, die in Schleife spielen kann.", error=True)
+            return False
+        try:
+            kick = None
+            if bar.with_kick:
+                if self._loop_kick is None or self._loop_kick[0] != shot.sample_rate:
+                    self._loop_kick = (shot.sample_rate, default_kick(shot.sample_rate))
+                kick = self._loop_kick[1]
+            data = loop_wav_bytes(shot.samples, shot.sample_rate, bar.bpm, bar.pattern, 1, kick)
+            self._loop_n += 1
+            self.session.work_dir.mkdir(parents=True, exist_ok=True)
+            path = self.session.work_dir / f"loop_{self._loop_n % 2}.wav"
+            path.write_bytes(data)
+            play_loop(path)
+        except Exception as exc:  # noqa: BLE001 - shown, never swallowed (#543)
+            self.set_status(f"Loop nicht abspielbar: {exc}", error=True)
+            return False
+        self._looping = True
+        kick_text = ", mit Kick" if kick is not None else ""
+        self.set_status(f"Im Takt: {shot.label()}, {bar.pattern}, {bar.bpm} BPM{kick_text}. "
+                        "Stopp beendet die Schleife.")
+        return True
+
+    def stop_loop(self) -> None:
+        self._looping = False
+        self.session.stop()
+
+    def _loop_settings_changed(self) -> None:
+        if self._looping:  # a running loop follows pattern, tempo and kick
+            self.loop_selected()
+
     def _replay(self, shot) -> None:
         if shot is None:
             self.set_status("Noch kein Schuss ausgewählt.", error=True)
@@ -1234,6 +1286,7 @@ class BlasterWindow(OnTopWindow, QWidget):
         self.library_dir = settings.laser_dir()
         self.bank_start_dir = settings.bank_start_dir()
         self.format_overrides = settings.format_overrides()
+        self.loop_bar.set_bpm(settings.loop_bpm)  # #553: the shared loop tempo
 
     def save_to_library(self, *_: Any) -> bool:
         """Write the selected shot (or the newest) through the laser category: WAV + sidecar in

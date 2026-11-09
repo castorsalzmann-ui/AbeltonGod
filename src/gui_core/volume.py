@@ -123,14 +123,22 @@ class VolumeBackend:
         out.write_bytes(scale_wav16(data, self.volume()))
         return out
 
-    def play(self, wav_path: Path) -> None:
+    def _copy(self, wav_path: Path) -> Path:
         try:
-            copy = self.scaled_copy(wav_path)
+            return self.scaled_copy(wav_path)
         except ValueError as exc:
             raise RuntimeError(f"Lautstärke nicht anwendbar: {exc}") from exc
         except OSError as exc:
             raise RuntimeError(f"Abspielkopie konnte nicht geschrieben werden: {exc}") from exc
-        self.inner.play(copy)
+
+    def play(self, wav_path: Path) -> None:
+        self.inner.play(self._copy(wav_path))
+
+    def play_loop(self, wav_path: Path) -> None:
+        play_loop = getattr(self.inner, "play_loop", None)
+        if play_loop is None:
+            raise RuntimeError("Diese Audioausgabe kann nicht in Schleife spielen.")
+        play_loop(self._copy(wav_path))
 
     def stop(self) -> None:
         self.inner.stop()
