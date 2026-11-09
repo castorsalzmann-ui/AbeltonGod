@@ -166,16 +166,17 @@ ATMOS_DESCRIPTIONS = {
     "'dark' variant of the research note), 8 bars." + _ATMOS_BPM,
     "pumping-bed": "Noise bed with a level dip on every beat and a seeded slow movement, "
     "4 bars." + _ATMOS_BPM,
-    "drone-root-fifth": "Drone with the kind defaults: C2 root, fifth and octave, detuned "
-    "pairs and slow level drift, 8 bars." + _ATMOS_BPM,
-    "drone-octaves-e1": "Drone on E1 in three octaves with wider detuned pairs, 16 bars."
-    + _ATMOS_BPM,
-    "resonant-bed": "Noise through resonators at the partials of C2, fifth and octave (kind "
-    "defaults), 8 bars." + _ATMOS_BPM,
-    "granular-drone": "Grains of the internal C2 drone, scattered in time and pan (kind "
-    "defaults), 8 bars." + _ATMOS_BPM,
-    "granular-metal": "Short grains of the metallic square bank on C3 with seeded pitch "
-    "offsets, 8 bars." + _ATMOS_BPM,
+    # Note names as Ableton Live shows them (MIDI 36 = C1, 60 = C3; #533 comment).
+    "drone-root-fifth": "Drone with the kind defaults: C1 root (MIDI 36), fifth and octave, "
+    "detuned pairs and slow level drift, 8 bars." + _ATMOS_BPM,
+    "drone-octaves-e1": "Drone on E0 (MIDI 28; E1 in scientific pitch, hence the name) in "
+    "three octaves with wider detuned pairs, 16 bars." + _ATMOS_BPM,
+    "resonant-bed": "Noise through resonators at the partials of C1 (MIDI 36), fifth and "
+    "octave (kind defaults), 8 bars." + _ATMOS_BPM,
+    "granular-drone": "Grains of the internal C1 drone (MIDI 36), scattered in time and pan "
+    "(kind defaults), 8 bars." + _ATMOS_BPM,
+    "granular-metal": "Short grains of the metallic square bank on C2 (MIDI 48) with seeded "
+    "pitch offsets, 8 bars." + _ATMOS_BPM,
 }
 
 

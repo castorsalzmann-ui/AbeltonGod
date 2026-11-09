@@ -51,7 +51,7 @@ without category / three output layouts. Already filed before: #413, #414, #439.
 | `main · QPushButton · Stopp` | `MainWindow.stop` | Stops playback |
 | `main · QPushButton · Wählen …` | `MainWindow._choose_folder` | Folder dialog for the output folder |
 
-### Main window: category pages `kick`, `hat`, `snare`, `clap`, `rim`, `bass`, `laser`, `perc`, `fx`
+### Main window: category pages `kick`, `hat`, `snare`, `clap`, `rim`, `bass`, `laser`, `perc`, `fx`, `atmos`
 
 The seven category pages are built by `CategoryPanel` from the category's contract; their rows
 differ only in the area. Handler and effect per kind:
@@ -163,6 +163,20 @@ differ only in the area. Handler and effect per kind:
 | `fx · SeedControl · *` | `CategoryPanel._edited` | Seed field |
 | `fx · Segmented/QPushButton · *` | `Segmented` -> `chosen` -> `ChoiceControl._chosen` | One button per enum choice |
 | `fx · WrapSegmented/QPushButton · *` | `WrapSegmented` -> `chosen` -> `ChoiceControl._chosen` | Enum with many choices, wrapping (kind) |
+| `atmos · ActiveDot · Gefüllt: der Wert wird mitgeschickt. Leer: Stand` | `ParamControl` -> `activeToggled` | Dot of the intervals list field (#533) |
+| `atmos · ChoiceControl · *` | `CategoryPanel._edited` / `_active_toggled` | Enum field (Länge in Takten and Loop-Modus on top, #533) |
+| `atmos · ChoiceControl/ActiveDot · *` | `ParamControl` -> `activeToggled` | Dot of an enum field |
+| `atmos · Collapsible · *` | self-contained | Section shows / hides its fields (Erweitert, One-Shot, Filter, Bewegung, Ton, Grains, Reverb) |
+| `atmos · Collapsible/QToolButton · *` | `Collapsible` (internal) | Section header |
+| `atmos · ListControl · Intervalle (Halbtöne)` | `CategoryPanel._edited` / `_committed` / `_active_toggled` | Intervals as typed list "0, 7, 12"; an invalid list blocks Render with the reason (#533) |
+| `atmos · NumberControl · *` | `CategoryPanel._edited` / `_committed` / `_active_toggled` / `_reset` | Number field (Tempo on top, #533) |
+| `atmos · NumberControl/ActiveDot · *` | `ParamControl` -> `activeToggled` | Dot of a number field |
+| `atmos · PresetChips · *` | `CategoryPanel._preset_chosen` | Preset chips row |
+| `atmos · PresetChips/QPushButton · *` | `PresetChips` -> `chosen` | One chip per preset |
+| `atmos · ReadoutEdit · Intervalle (Halbtöne)` | `ListControl._typed` (via `entered`) | Text of the intervals list, sent on Enter / focus out |
+| `atmos · SeedControl · *` | `CategoryPanel._edited` | Seed field |
+| `atmos · Segmented/QPushButton · *` | `Segmented` -> `chosen` -> `ChoiceControl._chosen` | One button per enum choice |
+| `atmos · WrapSegmented/QPushButton · *` | `WrapSegmented` -> `chosen` -> `ChoiceControl._chosen` | Enum with many choices, wrapping (bars, kind) |
 
 ### Main window: Bibliothek
 
