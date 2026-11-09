@@ -21,6 +21,7 @@ from typing import Any
 
 import numpy as np
 
+from audio_engine import laser_fx
 from audio_engine.laser import SYNC_DEFAULT_BPM, LaserParamsError, resolve_laser_params
 from audio_engine.params import CONTRACTS_DIR, load_schema
 from audio_engine.presets import describe, load_preset, preset_names
@@ -284,13 +285,33 @@ def _caps_for(s: BlasterSettings) -> dict[str, float]:
             if n != "reverb_decay_ms" or s.values["reverb_mix"] > 0}
 
 
+PREVIEW_LENGTH_MAX_MS = 2500  # a capped sound that needs more is still cut (and says so)
+
+
+def preview_length_ms(s: BlasterSettings) -> int:
+    """Length of the preview render: at least the cap, longer (up to
+    :data:`PREVIEW_LENGTH_MAX_MS`) when the capped salvo needs it to ring out, never longer
+    than the shot itself (#544: a hard 800 ms cut the last shot of the preview)."""
+    caps = _caps_for(s)
+    room = max(int(PREVIEW_CAPS["length_ms"]), min(needed_length_ms(s, caps),
+                                                    PREVIEW_LENGTH_MAX_MS))
+    return min(int(s.values["length_ms"]), room)
+
+
 def preview_params(s: BlasterSettings) -> dict[str, Any]:
-    return to_engine_params(s, _caps_for(s))
+    p = to_engine_params(s, _caps_for(s))
+    p["length_ms"] = preview_length_ms(s)
+    return p
 
 
 def capped_fields(s: BlasterSettings) -> list[str]:
     """Fields whose value the preview profile lowers for ``s`` (German labels)."""
-    return [spec(n).label for n, cap in _caps_for(s).items() if s.values[n] > cap]
+    out = []
+    for n, cap in _caps_for(s).items():
+        lowered = (preview_length_ms(s) < s.values[n]) if n == "length_ms" else s.values[n] > cap
+        if lowered:
+            out.append(spec(n).label)
+    return out
 
 
 # ---- fire rate -----------------------------------------------------------------------------------
@@ -305,6 +326,94 @@ def base_gap_ms(s: BlasterSettings) -> float:
     if mode == "hz":
         return 1000.0 / float(s.values["salvo_rate_hz"])
     return note_ms(s.values["salvo_sync_note"], float(s.values["bpm"]))
+
+
+TAIL_FLOOR = 1e-3  # -60 dB: the sound counts as finished below this
+# Fields whose change can make the sound longer: a commit of one of them grows length_ms
+# (#544). Other edits (and length_ms itself) keep the length and only warn.
+LENGTHENING_FIELDS = frozenset({
+    "family", "attack_ms", "decay_ms", "variation", "offset_ms", "bpm",
+    "salvo_count", "salvo_rate_mode", "salvo_spacing_ms", "salvo_rate_hz", "salvo_sync_note",
+    "salvo_rate_ramp", "salvo_humanize",
+    "echo_mix", "echo_ms", "echo_feedback", "echo_sync",
+    "reverb_mix", "reverb_decay_ms", "reverb_predelay_ms",
+})
+FADE_MARGIN_MS = 20.0  # the engine's 5 ms (50 ms with reverb) fade sits after the tail
+LENGTH_STEP_MS = 10
+
+
+def needed_length_ms(s: BlasterSettings, caps: Mapping[str, float] | None = None) -> int:
+    """File length that lets the LAST shot of the salvo ring out to -60 dB, echo taps and
+    reverb tail included (#544). The engine cuts at ``length_ms`` with a 5 ms fade (contract,
+    ``length_ms``); a salvo whose last shot starts near the end was cut while still loud.
+
+    Not clamped to the contract maximum (the caller compares). Rounded up to 10 ms. ``caps``:
+    the preview profile's lowered fields.
+    """
+    v = dict(s.values)
+    for n, cap in (caps or {}).items():
+        if n in v and v[n] > cap:
+            v[n] = cap
+    count = int(v["salvo_count"])
+    base = base_gap_ms(BlasterSettings(v)) if count > 1 else 0.0
+    ramp, human = float(v["salvo_rate_ramp"]), float(v["salvo_humanize"])
+    last = 0.0
+    for k in range(1, count):  # the gaps of laser_fx.salvo_plan (contract point 17)
+        frac = (k - 1 + 0.5) / (count - 1)
+        gap = base * 2.0 ** (-ramp * (2.0 * frac - 1.0))
+        last += gap
+    if count > 1:  # humanize may push the last shot later by up to HUMAN_TIME of its gap
+        last += laser_fx.HUMAN_TIME * human * base * 2.0 ** abs(ramp)
+    voice = float(v["decay_ms"]) * (1.5 if v["family"] == "subboom" else 1.0)
+    if float(v["variation"]) > 0.0:  # variation may lengthen decay_ms by up to 2 ** 0.3
+        voice *= 2.0 ** 0.3
+    tail = float(v["attack_ms"]) + voice
+    mix, fb = float(v["echo_mix"]), float(v["echo_feedback"])
+    if mix > 0.0:
+        echo_ms = (float(v["echo_ms"]) if v["echo_sync"] == "off"
+                   else note_ms(v["echo_sync"], float(v["bpm"])))
+        taps = 1
+        if fb > 0.0 and mix * fb >= TAIL_FLOOR:
+            taps = 1 + int(np.ceil(np.log(TAIL_FLOOR / mix) / np.log(fb)))
+        tail += taps * echo_ms
+    if float(v["reverb_mix"]) > 0.0:
+        tail += float(v["reverb_predelay_ms"]) + float(v["reverb_decay_ms"])
+    total = float(v["offset_ms"]) + last + tail + FADE_MARGIN_MS
+    return int(np.ceil(total / LENGTH_STEP_MS) * LENGTH_STEP_MS)
+
+
+def length_max_ms() -> int:
+    return int(spec("length_ms").maximum)
+
+
+def _ms(v: float) -> str:
+    return f"{v:g}"
+
+
+def fit_length(s: BlasterSettings) -> tuple[BlasterSettings, str]:
+    """Raise ``length_ms`` so the last shot rings out (#544); ``(settings, German note)``.
+    Used after a change of any other field: a length the user set himself is lowered never."""
+    need, top, length = needed_length_ms(s), length_max_ms(), float(s.values["length_ms"])
+    if length >= need:
+        return s, ""
+    if need <= top:
+        return (s.with_values(length_ms=need),
+                f"Länge auf {need} ms erhöht, damit der letzte Schuss ausklingt "
+                f"(vorher {_ms(length)} ms).")
+    note = (f"Der Klang braucht {need} ms, die größte Länge ist {top} ms: "
+            "sein Ende wird abgeschnitten.")
+    if length < top:
+        return s.with_values(length_ms=top), f"Länge auf {top} ms erhöht. " + note
+    return s, note
+
+
+def length_warning(s: BlasterSettings) -> str:
+    """German warning when ``length_ms`` cuts the sound, else ``""``."""
+    need, length = needed_length_ms(s), float(s.values["length_ms"])
+    if length >= need:
+        return ""
+    return (f"Länge {_ms(length)} ms ist kürzer als der Klang ({need} ms): der letzte Schuss "
+            "wird abgeschnitten.")
 
 
 def autofire_interval_ms(s: BlasterSettings) -> float:

@@ -84,7 +84,7 @@ from .params import CONTRACTS_DIR, _error_line, _to_python, load_schema
 FX_NAME = "abeltongod-audio-engine-fx"
 # Bump on every change that alters rendered bytes (D-013 per category, D-025); update the golden
 # hashes in tests/audio_engine/test_fx.py in the same PR.
-FX_VERSION = "0.1.0"
+FX_VERSION = "0.2.0"  # 0.2.0: riser default level_start_db -36 -> -60 (#547)
 FX_SCHEMA_FILE = CONTRACTS_DIR / "fx-params.schema.json"
 
 MAX_FILE_MS = 72000.0  # cross-field rule A
