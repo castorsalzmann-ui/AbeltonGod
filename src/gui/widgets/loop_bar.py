@@ -5,8 +5,9 @@ Only the controls; the window renders the loop with ``gui_core.loop_preview`` an
 from __future__ import annotations
 
 from PySide6.QtCore import Signal
-from PySide6.QtWidgets import QCheckBox, QComboBox, QHBoxLayout, QPushButton, QSpinBox, QWidget
+from PySide6.QtWidgets import QCheckBox, QComboBox, QPushButton, QSpinBox, QWidget
 
+from gui.widgets.choice import FlowLayout
 from gui_core.loop_preview import BPM_MAX, BPM_MIN, DEFAULT_BPM, PATTERN_CHOICES, default_pattern
 
 
@@ -19,12 +20,14 @@ class LoopBar(QWidget):
     def __init__(self, with_stop: bool = False, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         u = self.fontMetrics().height()
-        lay = QHBoxLayout(self)
-        lay.setContentsMargins(0, 0, 0, 0)
-        lay.setSpacing(int(u * 0.3))
+        # wraps in a narrow window (half screen at 150 %), so it never sets the window's width
+        lay = FlowLayout(self, spacing=int(u * 0.3))
         self.play_button = QPushButton("Im Takt ▶")
         self.play_button.setToolTip("Spielt das Sample im 4/4-Takt in Schleife, bis Stopp.")
         self.pattern_box = QComboBox()
+        self.pattern_box.setSizeAdjustPolicy(
+            QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
+        self.pattern_box.setMinimumContentsLength(14)
         self.pattern_box.addItems(list(PATTERN_CHOICES))
         self.pattern_box.setToolTip("Wo im Takt das Sample erklingt")
         self.bpm_spin = QSpinBox()
@@ -40,7 +43,6 @@ class LoopBar(QWidget):
             self.stop_button = QPushButton("■ Stopp")
             lay.addWidget(self.stop_button)
             self.stop_button.clicked.connect(self.stop_clicked)
-        lay.addStretch(1)
         self.play_button.clicked.connect(self.play_clicked)
         self.bpm_spin.valueChanged.connect(self.bpm_changed)
         # a running loop follows every change (the window restarts it)
