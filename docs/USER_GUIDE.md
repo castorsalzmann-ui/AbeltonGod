@@ -62,7 +62,11 @@ Download: GitHub → Actions → „Build exe“ → neuester Lauf auf `main` �
 17. Ein Monitor mit Live: Hauptfenster mit Win+Pfeil rechts an den Rand schnappen: Seitenauswahl als Klappmenü sichtbar, nichts abgeschnitten? „Immer im Vordergrund“ anhaken, in Live klicken: bleibt AbeltonGod oben? Nach Neustart noch angehakt? Ein Sample aus Bibliothek oder Ergebnissen in eine Live-Spur ziehen.
 18. Copilot: „Mach mir einen 8-Takt-Riser“ ohne Tempo: er fragt nach dem Tempo statt zu raten; mit Tempo landet der Riser in der Bibliothek.
 19. Atmos-Seite: Tempo deines Tracks, 8 Takte, Preset `dark-bed` und `drone-root-fifth` rendern, in Live als Loop (Warp-Modus „Texture“) laufen lassen: hörst du an der Loop-Naht einen Klick? Passt die Länge auf den Takt?
-20. Goa-Melodie: rendern: eine MIDI-Datei mit Lead/Arp/Pad/Pluck, keine Drums.
+20. Goa (D-035): Clip-Länge wählen, „Lead“ / „Alle vorhören“ (grobe Vorschau), „MIDI exportieren“: eine .mid pro Stimme, jede in eine Live-Spur ziehen: ein Clip, der im Takt loopt?
+21. Lautstärke-Regler: startet bei 45 %, wirkt auf alle Vorschauen (auch einen laufenden Loop), bleibt nach Neustart.
+22. „Im Takt ▶“: eine Kick, dann eine Hat mit „mit Kick“ bei deinem Tempo: läuft der Loop ohne Klick und im Takt?
+23. Acid-Fenster: Abspielen oben links: hörst du die grobe Vorschau? Falls nicht: welcher Text steht darunter?
+24. Blaster: 5er-Salve: klingt der letzte Schuss ganz aus?
 
 Jeder Punkt ist bisher nur automatisch (ohne Bildschirm bzw. gegen einen nachgebauten Live-Server) oder gar nicht geprüft; deine Rückmeldung ist der erste echte Beleg.
 

@@ -2,6 +2,12 @@
 
 _Last updated: 2026-11-05 (Endstand-Zeile unten) (Stand-Block unten, ältere Einträge teils historisch) · Written only by the lead session on `main` after a merge. Parallel tracks: `docs/ROADMAP.md` → Pipeline._
 
+## Stand 2026-11-09, nachmittags (Lead): erster Test des Nutzers am PC (D-035)
+
+- **Gemergt:** #541 (Referenz v2 Slice 1: Leser, Kick/Bass-Merkmale, Skalen-Kalibrierung; #540), #550 + #562 (Goa als Clip-Generator mit Vorschau, eine .mid pro Stimme, keine Songform; #546), #555 (Blaster: letzter Schuss klingt aus, Länge wächst mit; #544), #552 + #558 (Riser starten bei -60 dB, fx-Engine 0.2.0; #547, #551), #561 (Acid-Vorschau oben sichtbar, Fehler sichtbar, Gerätecheck; Ursache beim Nutzer offen; #543), #557 (Ausgabelautstärke für alle Vorschauen, Start 45 %; #545), #559 (Loop-Vorschau im 4/4-Takt mit Kategorie-Mustern und „mit Kick“; #553), #560 (Live-Import: Schritte und Sperrgründe; #548). Build exe 42628586313 grün.
+- **Offen:** #556 (Rauschen bei allen Samples; Dateien und 16-bit-Kopie gemessen sauber, Antwort des Nutzers nötig), #554 (Blaster-Presets ion/pew-wide-echo schneiden eigenes Echo), #542 (exe bündelt Kalibriertabelle nicht), #527, #534, #537, #539, #521, #519. Nächster Bau: Referenz v2 E6 (Fit; Skalen per Messfehler an degradierten Kopien statt Untergrenze).
+- **Nicht geprüft:** alles Hörbare nur am Nutzer-PC (Checkliste 20–24 in `docs/USER_GUIDE.md`).
+
 ## Stand 2026-11-09, früh (Lead): Nutzerwünsche vom 8.11. abends
 
 - **Gemergt:** #516 (Copilot erzeugt FX; `bpm` muss aus `adjust` kommen, Preset-135 zählt nie; #515), #523 (Ein-Monitor: „Immer im Vordergrund“ in allen 4 Fenstern, kompaktes Hauptfenster ab halber Breite bei 100 % und 150 %, Fit-Test je Seite; #517), #524 (Recherche Referenz-Steuerung v2: Merkmale je Kategorie, Fit-Methode, erste Scheibe Kick + Bass; #522), #525 (Recherche Atmos/Drones; #518), #528 (Vertrag atmos-params v0.1; #526), #530 (Goa-Seite und -Fenster nur Melodie, D-033; #520).
