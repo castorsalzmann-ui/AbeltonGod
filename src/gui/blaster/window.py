@@ -41,6 +41,7 @@ from PySide6.QtWidgets import (
 
 from gui.drag import PATH_ROLE, DragList
 from gui.widgets import Collapsible, FlowLayout, NumberControl, PresetChips, Segmented
+from gui.widgets.volume import VolumeControl
 from gui.windows import OnTopBox, OnTopWindow, ResultActions
 from gui_core import blaster_params as bp
 from gui_core.blaster import (
@@ -348,6 +349,8 @@ class BlasterWindow(OnTopWindow, QWidget):
         self.seed_edit.editingFinished.connect(self._on_seed_edited)
         seed_row.addWidget(self.seed_edit)
         seed_row.addStretch(1)
+        self.volume = VolumeControl()  # #545: the shared output volume
+        seed_row.addWidget(self.volume)
         self.replay_btn = QPushButton("Nochmal abspielen")
         self.replay_btn.clicked.connect(self.replay_selected)
         seed_row.addWidget(self.replay_btn)

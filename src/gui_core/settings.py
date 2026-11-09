@@ -21,6 +21,8 @@ What the settings mean (decided in #439):
   value is the start value of the category forms and is used for Blaster library saves, Blaster
   banks and Acid WAVs. Changing it (also back to ``None``) puts the forms to it; other settings
   changes never touch the forms.
+* ``output_volume`` -- 0-100 % for every preview's playback (D-035, #545), default 45. It
+  scales only what is played (``gui_core.volume``), never a written file.
 * ``windows`` -- last position and size per window key (``main``, ``goa``, ``acid``,
   ``blaster``) and its ``always_on_top`` switch (every window since #517); the Goa window also
   keeps ``animation``.
@@ -39,6 +41,7 @@ from typing import Any
 from library.layout import LibraryLayout
 
 from .paths import default_output_dir
+from .volume import DEFAULT_VOLUME, clamp_volume
 
 CONFIG_ENV = "ABELTONGOD_CONFIG_DIR"
 FILE_NAME = "settings.json"
@@ -93,6 +96,7 @@ class AppSettings:
     sample_rate: int | None = None
     bit_depth: int | None = None
     windows: dict[str, WindowState] = field(default_factory=dict)
+    output_volume: int = DEFAULT_VOLUME  # % of every preview's playback (D-035, #545)
 
     # --- derived places ------------------------------------------------------------------
     def output_root(self) -> Path:
@@ -137,6 +141,7 @@ class AppSettings:
             "sample_rate": self.sample_rate,
             "bit_depth": self.bit_depth,
             "windows": {k: v.to_json() for k, v in sorted(self.windows.items())},
+            "output_volume": self.output_volume,
         }
 
 
@@ -178,7 +183,13 @@ def settings_from_json(raw: Any) -> AppSettings:
         sample_rate=rate if _int(rate) is not None and rate in SAMPLE_RATES else None,
         bit_depth=bits if _int(bits) is not None and bits in BIT_DEPTHS else None,
         windows=windows,
+        output_volume=_volume_or_default(raw.get("output_volume")),
     )
+
+
+def _volume_or_default(v: Any) -> int:
+    c = clamp_volume(v) if isinstance(v, int) else None  # whole percent only
+    return DEFAULT_VOLUME if c is None else c
 
 
 def load_settings(path: Path | None = None) -> AppSettings:
@@ -294,6 +305,10 @@ class SettingsStore:
             raise ValueError(f"sample_rate must be one of {SAMPLE_RATES} or None")
         if bits is not None and bits not in BIT_DEPTHS:
             raise ValueError(f"bit_depth must be one of {BIT_DEPTHS} or None")
+        if "output_volume" in changes and (
+                not isinstance(changes["output_volume"], int)
+                or clamp_volume(changes["output_volume"]) is None):
+            raise ValueError("output_volume must be a whole percent 0-100")
         new = replace(self.settings, **changes)
         if new == self.settings:
             return new

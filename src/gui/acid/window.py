@@ -44,6 +44,7 @@ from gui_core.paths import default_output_dir
 from gui_core.preview import PlaybackBackend
 from gui_core.settings import DEFAULT_BIT_DEPTH, DEFAULT_SAMPLE_RATE, free_stem
 
+from ..widgets.volume import VolumeControl
 from ..windows import OnTopBox, OnTopWindow, ResultActions
 from . import skin
 from .widgets import AcidRoot, EtchedPanel, FooterBand, HeaderBand, StepGridWidget
@@ -162,6 +163,8 @@ class AcidWindow(OnTopWindow, QWidget):
         prow = QHBoxLayout()
         prow.addWidget(self.preview_button)
         prow.addWidget(self.stop_button)
+        self.volume = VolumeControl()  # #545: the shared output volume
+        prow.addWidget(self.volume)
         prow.addStretch(1)
         ll.addLayout(prow)
         # The play result next to the buttons (the footer status is below the fold too, review

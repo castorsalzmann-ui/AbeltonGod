@@ -44,6 +44,7 @@ from gui_core.live import LiveConfig
 from gui_core.preview import ERROR, PLAYING, PlaybackBackend, PreviewController
 from gui_core.render import RenderHandle, RenderJob, RenderResult, RenderService
 from gui_core.settings import SettingsStore, apply_format_to_form
+from gui_core.volume import OUTPUT
 
 from .audio import choose_backend
 from .category_panel import CategoryPanel
@@ -55,6 +56,7 @@ from .live_panel import LivePanel
 from .planner_panel import PlannerPanel
 from .reference_panel import ReferencePanel
 from .waveform_widget import WaveformWidget
+from .widgets.volume import VolumeControl
 from .windows import (
     WINDOW_KEYS,
     AppHub,
@@ -291,6 +293,23 @@ class MainWindow(OnTopWindow, QMainWindow):
         self.hub.files_written.connect(self._on_files_written)
         self.hub.settings_changed.connect(self._on_settings_changed)
         self.settings_dialog: SettingsDialog | None = None
+        # #545: one output volume for every preview, from the settings; saved a moment after
+        # the slider stops (not on every step of a drag)
+        OUTPUT.set(self.hub.settings.output_volume)
+        self._volume_save = QTimer(self)
+        self._volume_save.setSingleShot(True)
+        self._volume_save.setInterval(400)
+        self._volume_save.timeout.connect(self._save_volume)
+        OUTPUT.subscribe(self._volume_moved)
+
+    def _volume_moved(self, _v: int) -> None:
+        try:
+            self._volume_save.start()
+        except RuntimeError:  # window already destroyed
+            OUTPUT.unsubscribe(self._volume_moved)
+
+    def _save_volume(self) -> None:
+        self.hub.store.update(output_volume=OUTPUT.value)
 
     def _build_window_buttons(self) -> QWidget:
         """Buttons that open the other windows (one instance each, see ``windows``)."""
@@ -565,6 +584,13 @@ class MainWindow(OnTopWindow, QMainWindow):
         transport.addStretch(1)
         transport.addWidget(self.open_button)
         lay.addLayout(transport)
+        # #545: shared with Acid and Blaster; a row of its own (in the transport row the main
+        # window was 758 px wide at 150 % on Windows CI, more than half the screen)
+        vrow = QHBoxLayout()
+        self.volume = VolumeControl()
+        vrow.addWidget(self.volume)
+        vrow.addStretch(1)
+        lay.addLayout(vrow)
         self.preview_info = QLabel()
         self.preview_info.setObjectName("muted")
         self.preview_info.setWordWrap(True)
@@ -740,6 +766,10 @@ class MainWindow(OnTopWindow, QMainWindow):
             self.handle.cancel()
             self.handle.wait(10)  # the daemon thread must not write into a closed window
         self.hub.store.set_window("main", window_state(self))
+        if self._volume_save.isActive():  # a pending volume change is saved, not lost
+            self._volume_save.stop()
+            self._save_volume()
+        OUTPUT.unsubscribe(self._volume_moved)
         self.windows.close_all()
         self.hub.detach()
         self.goa.shutdown()
