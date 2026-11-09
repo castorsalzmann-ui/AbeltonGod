@@ -381,3 +381,11 @@ The researchers for 04b clusters 1 (Agent SDK behaviour) and 2 (tool-schema gene
 **Reason.** The user asked for atmospheres and drones; the research note shows a deterministic, testable way.
 
 **Consequences.** Order: `contract-change` PR `atmos-params` v0.1 (with the review points of #525 fixed: moving-filter Q and centre fields, warm-up length from the filter's decay, damping floor vs. "dark" variant) → engine → presets, GUI page via the category registry, CLI, copilot adapter (tempo from `adjust`, as for fx).
+
+## D-035 · 2026-11-09 · accepted — Goa is a MIDI clip generator like Acid; every tool can be previewed; output volume (user, 2026-11-09 09:12, first test on his PC: "es soll lediglich goa mids erzeugen so wie der acid und der blaster auch. nichts mit arrangement oder anderen elementen" · "irgendwie muss ich vorhören können" · "Startlautstärke auf 45% masterausgabe regler"; amends D-033)
+
+**Decision.** (1) The Goa page and window generate short MIDI clips (patterns/loops of a few bars) per voice — lead, arp, pad, pluck — like the Acid line: no sections, no energy curve, no song timeline, no arrangement table. Song form stays with the arrangement planner (D-033). (2) Every tool that makes MIDI (Goa, Acid) gets an audible preview: a deterministic offline preview render (numpy, labelled "grobe Vorschau", like `gui_core/acid_preview.py`) played through the app's preview backend; the MIDI file stays the product. (3) The app gets one output-volume control for all previews (main window, Goa, Acid, Blaster), default 45 %, remembered in the settings; it scales only playback, never the written files. (4) User-reported playback bugs (Acid preview not playable, Blaster last shot cut off) are bugs with regression tests.
+
+**Reason.** First real use on the user's machine: the Goa page produced a song plan instead of usable clips, and nothing MIDI-based could be heard.
+
+**Consequences.** Issues for the Goa clip generator + preview (audio-engineer, then GUI), the output volume, and the two playback bugs (GUI).
