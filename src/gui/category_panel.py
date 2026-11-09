@@ -12,16 +12,16 @@ from __future__ import annotations
 from PySide6.QtCore import QTimer, Signal
 from PySide6.QtWidgets import QLabel, QScrollArea, QSizePolicy, QVBoxLayout, QWidget
 
-from gui_core import links
-from gui_core.form import ALWAYS_ACTIVE, CategoryFormModel, FieldSpec, _text_of
+from gui_core import atmos_cost, fx_cost, links
+from gui_core.form import ALWAYS_ACTIVE, CategoryFormModel, FieldSpec, _text_of, live_note_name
 from gui_core.form_layout import main_choices, main_controls
-from gui_core.fx_cost import cost_note
 
 from .widgets import (
     BoolControl,
     ChoiceControl,
     Collapsible,
     FlowLayout,
+    ListControl,
     NumberControl,
     ParamControl,
     PresetChips,
@@ -38,9 +38,22 @@ LASER_GROUPS = (("salvo_", "Salve"), ("filter_", "Filter"), ("hp_", "Filter"), (
 FX_GROUPS = (("noise_", "Rauschen"), ("filter_", "Filter"), ("cutoff_", "Filter"),
              ("lp_ratio", "Filter"), ("sweep_", "Filter"), ("level_", "Pegel"), ("ramp_", "Pegel"),
              ("pump_", "Pegel"), ("tone_", "Ton"), ("echo_", "Delay"), ("reverb_", "Reverb"))
-GROUPS = {"laser": LASER_GROUPS, "fx": FX_GROUPS}
+ATMOS_GROUPS = (("fade_", "One-Shot"), ("tail_", "One-Shot"), ("hp_", "Filter"),
+                ("lp_", "Filter"), ("filter_", "Filter"), ("move_", "Bewegung"),
+                ("amp_move", "Bewegung"), ("pan_move", "Bewegung"), ("pump_", "Bewegung"),
+                ("note", "Ton"), ("cents", "Ton"), ("intervals", "Ton"), ("partials", "Ton"),
+                ("brightness_", "Ton"), ("detune_", "Ton"), ("drift_", "Ton"),
+                ("max_tuning", "Ton"), ("res_q", "Ton"), ("granular_", "Grains"),
+                ("grain_", "Grains"), ("reverb_", "Reverb"))
+GROUPS = {"laser": LASER_GROUPS, "fx": FX_GROUPS, "atmos": ATMOS_GROUPS}
 FX_BPM_HINT = ("Tempo des Tracks einstellen: die Längen sind in Beats, sonst endet das FX nicht "
                "auf dem Taktstrich in Live.")
+ATMOS_BPM_HINT = ("Tempo des Tracks einstellen: die Schleife ist eine ganze Zahl von Takten bei "
+                  "diesem Tempo, nur dann loopt sie in Live nahtlos auf dem Taktraster.")
+# Fields shown above the Hauptregler, and the hint under them (fx #482, atmos #533).
+TOP_FIELDS = {"fx": ("bpm",), "atmos": ("bpm", "bars", "loop_mode")}
+BPM_HINTS = {"fx": FX_BPM_HINT, "atmos": ATMOS_BPM_HINT}
+COST_NOTES = {"fx": fx_cost.cost_note, "atmos": atmos_cost.cost_note}  # render-time notes
 
 
 def _field_groups(category: str, specs: list[FieldSpec]) -> dict[str, list[FieldSpec]]:
@@ -101,21 +114,31 @@ class CategoryPanel(QScrollArea):
         lay.addWidget(self.preset_text)
 
         # fx (#482): all lengths are in beats, so the tempo is shown on top with a hint.
-        self.top_fields: tuple[str, ...] = ("bpm",) if model.category == "fx" else ()
+        # atmos (#533): tempo, bars and loop / one-shot on top, with a line about the file.
+        self.top_fields: tuple[str, ...] = TOP_FIELDS.get(model.category, ())
         self.cost_label: QLabel | None = None
+        self.length_label: QLabel | None = None
         if self.top_fields:
-            lay.addWidget(heading("Tempo"))
+            lay.addWidget(heading("Tempo und Länge" if len(self.top_fields) > 1 else "Tempo"))
             for name in self.top_fields:
                 lay.addWidget(self._make(model.spec(name), main=False))
-            bpm_hint = muted(FX_BPM_HINT)
+            bpm_hint = muted(BPM_HINTS[model.category])
             bpm_hint.setObjectName("bpmhint")
             bpm_hint.setWordWrap(True)
             bpm_hint.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Minimum)
             lay.addWidget(bpm_hint)
+        if model.category == "atmos":
+            self.length_label = muted()
+            self.length_label.setObjectName("lengthhint")
+            self.length_label.setWordWrap(True)
+            self.length_label.setSizePolicy(QSizePolicy.Policy.Ignored,
+                                            QSizePolicy.Policy.Minimum)
+            lay.addWidget(self.length_label)
 
         lay.addWidget(heading("Hauptregler"))
         for name in main_choices(model.category):
-            lay.addWidget(self._make(model.spec(name), main=True))
+            if name not in self.top_fields:
+                lay.addWidget(self._make(model.spec(name), main=True))
         # The knobs wrap to a second line on a narrow page (#442: five knobs in one row made
         # the page 47 M wide, too wide for 1920 x 1080 at 150 %).
         self.knob_box = QWidget()
@@ -147,7 +170,7 @@ class CategoryPanel(QScrollArea):
         lay.addWidget(heading("Ausgabe"))
         for name in ALWAYS_ACTIVE:
             lay.addWidget(self._make(model.spec(name), main=False))
-        if model.category == "fx":  # render-time note before rendering (#503), never blocks
+        if model.category in COST_NOTES:  # render-time note before rendering (#503, #533)
             self.cost_label = QLabel()
             self.cost_label.setObjectName("costhint")
             self.cost_label.setWordWrap(True)
@@ -198,6 +221,8 @@ class CategoryPanel(QScrollArea):
         c: ParamControl
         if spec.kind == "bool":
             c = BoolControl(spec)
+        elif spec.kind == "list":
+            c = ListControl(spec)
         elif spec.kind == "enum":
             c = ChoiceControl(spec, accent=main)
         elif spec.name == "seed":
@@ -365,19 +390,31 @@ class CategoryPanel(QScrollArea):
                 if isinstance(c, NumberControl) and name in lims:
                     lim = lims[name]
                     c.set_limits(lim.lo, lim.hi, lim.reason)
-                c.set_derived_note(derived.notes.get(name, ""))
+                c.set_derived_note(derived.notes.get(name, "") or self._extra_note(name))
             self._show_links(self._lims, links_issue=model.cross_issue())
             self._show_cost()
         finally:
             self._syncing = was
 
     def _show_cost(self) -> None:
-        """fx: the rough render-time note of the current request (#503); hidden otherwise."""
+        """fx / atmos: the rough render-time note of the current request (#503, #533), hidden
+        when short; atmos also the line about the file length and its note name in Live."""
+        if self.length_label is not None:
+            text = atmos_cost.length_text(self.model)
+            self.length_label.setText(text)
+            self.length_label.setVisible(bool(text))
         if self.cost_label is None:
             return
-        text = cost_note(self.model)
+        text = COST_NOTES[self.model.category](self.model)
         self.cost_label.setText(text)
         self.cost_label.setVisible(bool(text))
+
+    def _extra_note(self, name: str) -> str:
+        """atmos ``note``: the note's name as Live shows it (MIDI 36 = C1), under the field."""
+        if name != "note" or self.model.category != "atmos":
+            return ""
+        value, problem = self.model.parse("note")
+        return "" if problem else f"In Live: {live_note_name(int(value))}"
 
     def _show_value(self, c: ParamControl, active: bool, derived: links.Derived) -> None:
         spec = c.spec
@@ -387,7 +424,7 @@ class CategoryPanel(QScrollArea):
                 value, problem = derived.shown[c.name], None
             if problem is None and (c.value() != value):
                 c.set_value(value)
-        elif isinstance(c, SeedControl):
+        elif isinstance(c, SeedControl | ListControl):
             c.set_value(self.model.text[c.name])
         else:
             text = self.model.text[c.name]

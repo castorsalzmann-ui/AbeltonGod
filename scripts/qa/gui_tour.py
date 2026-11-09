@@ -43,7 +43,7 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-CATEGORY_KEYS = ("kick", "clap", "hat", "snare", "rim", "bass", "laser", "perc", "fx")
+CATEGORY_KEYS = ("kick", "clap", "hat", "snare", "rim", "bass", "laser", "perc", "fx", "atmos")
 TOOL_KEYS = ("goa", "acid", "blaster")
 SCALES = (1.0, 1.5)
 WAIT_S = 60.0  # a render that answers within this is fine; the tour fails, never hangs

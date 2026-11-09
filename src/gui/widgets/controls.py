@@ -374,6 +374,59 @@ class SeedControl(ParamControl):
             self.edit.style().polish(self.edit)
 
 
+class ListControl(ParamControl):
+    """List field (atmos ``intervals``, #533): the model text ``"0, 7, 12"`` in a line edit,
+    with the allowed form under it. The model checks the text; an invalid list blocks Render."""
+
+    def __init__(self, spec: FieldSpec) -> None:
+        super().__init__(spec)
+        self.setAccessibleName(spec.label)  # stable name for the control inventory
+        em = self.fontMetrics().horizontalAdvance("M")
+        self.edit = ReadoutEdit(Qt.AlignmentFlag.AlignLeft)
+        self.edit.setAccessibleName(spec.label)
+        self.edit.setToolTip(spec.description)
+        self.edit.setFixedWidth(em * 12)
+        self.edit.entered.connect(self._typed)
+        self.label.setFixedWidth(em * 15)
+        row = QHBoxLayout()
+        row.setContentsMargins(0, 0, 0, 0)
+        row.addWidget(self.dot)
+        row.addWidget(self.label)
+        column = QVBoxLayout()
+        column.setContentsMargins(0, 0, 0, 0)
+        column.setSpacing(0)
+        column.addWidget(self.edit)
+        self.range_label = QLabel(spec.range_text)
+        self.range_label.setObjectName("muted")
+        self.range_label.setWordWrap(True)
+        self.range_label.setFixedWidth(em * 12)
+        column.addWidget(self.range_label)
+        row.addLayout(column)
+        row.addStretch(1)
+        self._finish(row)
+
+    def set_value(self, text: str) -> None:
+        self.edit.show_text(text, muted=not self._active)
+
+    def value(self) -> str:
+        return self.edit.text()
+
+    def _after_active(self) -> None:
+        self.edit.show_text(self.edit.text(), muted=not self._active)
+
+    def _typed(self, text: str) -> None:
+        self.edited.emit(self.name, text)
+        self.committed.emit(self.name)
+
+    def set_invalid(self, message: str | None) -> None:
+        super().set_invalid(message)
+        self.edit.setToolTip(message or self.spec.description)
+        if bool(self.edit.property("invalid")) != bool(message):
+            self.edit.setProperty("invalid", bool(message))
+            self.edit.style().unpolish(self.edit)
+            self.edit.style().polish(self.edit)
+
+
 class ChoiceControl(ParamControl):
     """Enum field as buttons; values are the model texts of the choices."""
 

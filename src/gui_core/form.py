@@ -17,7 +17,7 @@ from audio_engine.categories import get_category
 from audio_engine.params import CONTRACTS_DIR, load_schema
 from audio_engine.presets import describe, load_preset, preset_names
 
-CATEGORY_KEYS = ("kick", "hat", "snare", "clap", "rim", "bass", "laser", "perc", "fx")
+CATEGORY_KEYS = ("kick", "hat", "snare", "clap", "rim", "bass", "laser", "perc", "fx", "atmos")
 # Contract fields the form does not edit as a value: the format version is derived, the preset
 # name has its own drop-down.
 HIDDEN_FIELDS = ("schema_version", "preset")
@@ -25,6 +25,7 @@ ALWAYS_ACTIVE = ("seed", "variants")
 DEFAULT_PRESETS = {
     "kick": "punchy", "hat": "closed-std", "snare": "default", "clap": "default",
     "rim": "rim", "bass": "default", "laser": "blaster", "perc": "conga", "fx": "riser-8bar",
+    "atmos": "air-bed",
 }
 DEFAULT_PRESET = DEFAULT_PRESETS["kick"]
 YES, NO = "ja", "nein"
@@ -103,12 +104,43 @@ LABELS_DE: dict[str, str] = {
     "ramp_beats": "Pegel-Rampe", "tone_level": "Ton-Pegel", "tone_wave": "Ton-Wellenform",
     "tone_start_hz": "Ton Start", "tone_end_hz": "Ton Ende", "tone_glide_beats": "Ton-Glide",
     "tone_decay_beats": "Ton-Abfall", "echo_note": "Echo-Notenwert",
+    # atmos (#533)
+    "bars": "Länge in Takten", "loop_mode": "Schleife / One-Shot",
+    "fade_in_beats": "Einblenden", "fade_out_beats": "Ausblenden",
+    "tilt_db_oct": "Rausch-Neigung", "mono_below_hz": "Mono unter",
+    "filter_hz": "Filter-Mitte", "move_cycles": "Bewegungen pro Schleife",
+    "move_shape": "Bewegungs-Form", "move_depth_oct": "Filter-Bewegung",
+    "amp_move_db": "Pegel-Bewegung", "pan_move": "Auto-Pan",
+    "intervals": "Intervalle (Halbtöne)", "partials": "Teiltöne pro Stimme",
+    "brightness_db_oct": "Helligkeit", "detune_bins": "Schwebung (Bins)",
+    "drift_db": "Pegel-Drift", "max_tuning_cents": "Max. Stimmfehler",
+    "res_q": "Resonator-Güte (Q)", "granular_source": "Grain-Quelle",
+    "grain_ms": "Grain-Länge", "grain_density": "Grain-Dichte",
+    "grain_pitch_cents": "Grain-Tonhöhe", "grain_spread": "Grain-Streuung",
+    "grain_pan": "Grain-Pan",
 }
 _UNIT_BY_NAME = {"bpm": "BPM", "length_beats": "Beats", "tail_beats": "Beats",
                  "cut_beats": "Beats", "ramp_beats": "Beats", "tone_glide_beats": "Beats",
                  "tone_decay_beats": "Beats", "tail_note": "MIDI", "note": "MIDI",
                  "cents": "Cent", "bursts": "", "rate_div": "", "salvo_pitch_step_st": "st",
-                 "salvo_count": "", "glitch_steps": "", "tune_semitones": "st"}
+                 "salvo_count": "", "glitch_steps": "", "tune_semitones": "st",
+                 "fade_in_beats": "Beats", "fade_out_beats": "Beats", "bars": "Takte",
+                 "tilt_db_oct": "dB/Okt", "brightness_db_oct": "dB/Okt",
+                 "move_depth_oct": "Okt", "max_tuning_cents": "Cent",
+                 "grain_pitch_cents": "Cent", "grain_density": "/s", "intervals": "st",
+                 "detune_bins": "", "move_cycles": "", "partials": ""}
+# Contract texts the GUI shows in other words (tooltips). atmos ``note``: the contract counts
+# MIDI 36 as C2 (scientific pitch), Live names it C1 (60 = C3; #533 comment).
+DESCRIPTIONS_DE: dict[tuple[str, str], str] = {
+    ("atmos", "note"): "Tonale Arten: MIDI-Note des Grundtons. Namen wie in Live: 36 = C1 "
+                       "(65,41 Hz), 60 = C3.",
+}
+_NOTE_NAMES = ("C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B")
+
+
+def live_note_name(note: int) -> str:
+    """MIDI note number as Ableton Live names it: 36 -> ``"C1"``, 60 -> ``"C3"`` (0 = C-2)."""
+    return f"{_NOTE_NAMES[note % 12]}{note // 12 - 2}"
 _UNIT_BY_SUFFIX = (("_dbfs", "dBFS"), ("_db", "dB"), ("_ms", "ms"), ("_hz", "Hz"))
 
 
@@ -126,6 +158,10 @@ class FieldSpec:
     gate_version: str | None = None  # lives in the branch of this schema_version
     zero_ok: bool = False  # 0 = "off" besides the range (hat choke_ms, clap gate_ms)
     step: float | None = None  # contract ``multipleOf`` (fx lengths: 0.25 beat, #482)
+    # kind "list" (atmos ``intervals``, #533): integer items in [minimum, maximum]
+    min_items: int = 0
+    max_items: int = 0
+    first_item: int | None = None  # contract ``prefixItems[0].const`` (atmos: the root, 0)
 
     @property
     def optional_v03(self) -> bool:  # kept for the first GUI's name
@@ -142,6 +178,10 @@ class FieldSpec:
         if self.kind in ("enum", "bool"):
             return " / ".join(self.choice_texts)
         unit = f" {self.unit}" if self.unit else ""
+        if self.kind == "list":
+            first = "" if self.first_item is None else f", die erste {self.first_item}"
+            return (f"{self.min_items} bis {self.max_items} verschiedene ganze Zahlen "
+                    f"{_fmt(self.minimum)} bis {_fmt(self.maximum)}{unit}{first}")
         text = f"{_fmt(self.minimum)} bis {_fmt(self.maximum)}{unit}"
         return f"0 (aus) oder {text}" if self.zero_ok else text
 
@@ -159,7 +199,17 @@ def _unit(name: str) -> str:
     return ""
 
 
-def _spec(name: str, d: dict[str, Any], gate: str | None) -> FieldSpec:
+def _spec(name: str, d: dict[str, Any], gate: str | None, category: str = "") -> FieldSpec:
+    description = DESCRIPTIONS_DE.get((category, name), str(d.get("description", "")))
+    if d.get("type") == "array":  # a list of integers (atmos intervals, #533)
+        items = d["items"]
+        prefix = d.get("prefixItems") or [{}]
+        return FieldSpec(
+            name=name, label=LABELS_DE.get(name, name), kind="list", minimum=items["minimum"],
+            maximum=items["maximum"], default=d.get("default"), choices=(), unit=_unit(name),
+            description=description, gate_version=gate, min_items=d.get("minItems", 0),
+            max_items=d.get("maxItems", 0), first_item=prefix[0].get("const"),
+        )
     zero_ok = False
     if "oneOf" in d or "anyOf" in d:  # "0 = off, otherwise a range" (const 0 + number branch)
         branches = d.get("oneOf") or d["anyOf"]
@@ -176,7 +226,7 @@ def _spec(name: str, d: dict[str, Any], gate: str | None) -> FieldSpec:
     return FieldSpec(
         name=name, label=LABELS_DE.get(name, name), kind=kind, minimum=lo, maximum=hi,
         default=d.get("default"), choices=choices, unit=_unit(name),
-        description=str(d.get("description", "")), gate_version=gate, zero_ok=zero_ok,
+        description=description, gate_version=gate, zero_ok=zero_ok,
         step=d.get("multipleOf"),
     )
 
@@ -261,13 +311,14 @@ def field_specs(category: str) -> list[FieldSpec]:
     """Every editable contract field: ``properties`` first, then each schema_version branch."""
     schema = load_schema(schema_path(category))
     specs = [
-        _spec(n, d, None) for n, d in schema["properties"].items() if n not in HIDDEN_FIELDS
+        _spec(n, d, None, category) for n, d in schema["properties"].items()
+        if n not in HIDDEN_FIELDS
     ]
     own = {s.name for s in specs}
     for gate, props in gated_branches(schema).items():
         # A branch that only narrows a field the base already has (laser 0.1: length_ms up to
         # 3000) is a rule for the engine's resolve, not a second field.
-        specs += [_spec(n, d, gate) for n, d in props.items() if n not in own]
+        specs += [_spec(n, d, gate, category) for n, d in props.items() if n not in own]
     return specs
 
 
@@ -303,7 +354,25 @@ def parse_number(text: str) -> int | float | None:
     return float(t)
 
 
+def _parse_list(spec: FieldSpec, raw: str) -> tuple[Any, str | None]:
+    """``"0, 7, 12"`` (commas, semicolons or spaces) -> ``[0, 7, 12]``, checked against the
+    contract's item count, range, uniqueness and fixed first item."""
+    parts = [p for p in re.split(r"[,;\s]+", raw) if p]
+    if not parts or not all(_INT_RE.fullmatch(p) for p in parts):
+        return None, f"Bitte ganze Zahlen mit Komma eingeben ({spec.range_text})."
+    values = [int(p) for p in parts]
+    bad = (not spec.min_items <= len(values) <= spec.max_items
+           or len(set(values)) != len(values)
+           or any(not spec.minimum <= v <= spec.maximum for v in values)  # type: ignore[operator]
+           or (spec.first_item is not None and values[0] != spec.first_item))
+    if bad:
+        return None, f"Erlaubt: {spec.range_text}."
+    return values, None
+
+
 def _text_of(spec: FieldSpec | None, value: Any) -> str:
+    if isinstance(value, list | tuple):  # kind "list": "0, 7, 12"
+        return ", ".join(str(v) for v in value)
     if isinstance(value, bool):
         return YES if value else NO
     # repr: the shortest text that parses back to the same float (no lost digits).
@@ -473,6 +542,8 @@ class CategoryFormModel:
                     if not isinstance(c, str) and number == c:
                         return c, None
             return None, f"Erlaubt: {spec.range_text}."
+        if spec.kind == "list":
+            return _parse_list(spec, raw)
         value = parse_number(raw)
         if value is None:
             return None, "Bitte eine Zahl eingeben."

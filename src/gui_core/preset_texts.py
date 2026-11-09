@@ -156,6 +156,32 @@ PRESET_TEXTS_DE: dict[tuple[str, str], str] = {
     ("fx", "reverse-crash"): "Metallische Teiltöne und Rauschen werden über einen Takt lauter "
                              "und enden genau auf dem Taktstrich (Standardwerte der Art). "
                              "Gespeichert mit 135 BPM: Tempo auf den Track einstellen.",
+    # atmos (#533): all written at 135 BPM; note names as in Live (MIDI 36 = C1, 60 = C3)
+    ("atmos", "air-bed"): "Rausch-Fläche mit den Standardwerten der Art: geneigtes Rauschen, "
+                          "Hoch- und Tiefpass, langsam wandernder Tiefpass, 8 Takte. "
+                          "Gespeichert mit 135 BPM: Tempo auf den Track einstellen.",
+    ("atmos", "dark-bed"): "Rausch-Fläche mit tieferem Tiefpass und einem Hall, der ab 400 Hz "
+                           "gedämpft wird (die dunkle Variante der Recherche-Notiz), 8 Takte. "
+                           "Gespeichert mit 135 BPM: Tempo auf den Track einstellen.",
+    ("atmos", "pumping-bed"): "Rausch-Fläche mit einem Pegel-Einbruch auf jedem Beat und "
+                              "zufällig geformter langsamer Bewegung, 4 Takte. Gespeichert mit "
+                              "135 BPM: Tempo auf den Track einstellen.",
+    ("atmos", "drone-root-fifth"): "Drone mit den Standardwerten der Art: Grundton C1, Quinte "
+                                   "und Oktave, schwebende Paare und langsame Pegel-Drift, "
+                                   "8 Takte. Gespeichert mit 135 BPM: Tempo auf den Track "
+                                   "einstellen.",
+    ("atmos", "drone-octaves-e1"): "Drone auf E0 (MIDI 28) in drei Oktaven mit breiteren "
+                                   "schwebenden Paaren, 16 Takte. Gespeichert mit 135 BPM: "
+                                   "Tempo auf den Track einstellen.",
+    ("atmos", "resonant-bed"): "Rauschen durch Resonatoren auf den Teiltönen von C1, Quinte "
+                               "und Oktave (Standardwerte der Art), 8 Takte. Gespeichert mit "
+                               "135 BPM: Tempo auf den Track einstellen.",
+    ("atmos", "granular-drone"): "Grains der internen C1-Drone, verstreut in Zeit und Panorama "
+                                 "(Standardwerte der Art), 8 Takte. Gespeichert mit 135 BPM: "
+                                 "Tempo auf den Track einstellen.",
+    ("atmos", "granular-metal"): "Kurze Grains der metallischen Rechteck-Bank auf C2 (MIDI 48) "
+                                 "mit zufälligen Tonhöhen-Abweichungen, 8 Takte. Gespeichert "
+                                 "mit 135 BPM: Tempo auf den Track einstellen.",
 }
 
 

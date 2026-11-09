@@ -134,7 +134,8 @@ def _old_placeholder(spec):
     return repr(spec.minimum) if isinstance(spec.minimum, float) else str(spec.minimum)
 
 
-@pytest.mark.parametrize("category", [c for c in CATEGORY_KEYS if c != "fx"])  # fx: kind-aware
+@pytest.mark.parametrize("category", [c for c in CATEGORY_KEYS
+                                      if c not in ("fx", "atmos")])  # fx, atmos: kind-aware
 def test_existing_categories_keep_their_placeholders_and_requests(category):
     rng = random.Random(f"keep-{category}")
     for preset in preset_names(category):

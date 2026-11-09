@@ -7,6 +7,7 @@ from .choice import FlowLayout, PresetChips, Segmented
 from .controls import (
     BoolControl,
     ChoiceControl,
+    ListControl,
     NumberControl,
     ParamControl,
     ReadoutEdit,
@@ -19,7 +20,7 @@ from .toggle import ActiveDot, Toggle, ToggleRow
 
 __all__ = [
     "ActiveDot", "BoolControl", "ChoiceControl", "Collapsible", "FlowLayout", "KnobDial",
-    "MappedSlider", "NumberControl", "ParamControl", "PresetChips", "ReadoutEdit", "SeedControl",
-    "Segmented", "StepEdit", "Stepper", "Toggle", "ToggleRow", "TrackSlider", "heading", "muted",
-    "rule",
+    "ListControl", "MappedSlider", "NumberControl", "ParamControl", "PresetChips", "ReadoutEdit",
+    "SeedControl", "Segmented", "StepEdit", "Stepper", "Toggle", "ToggleRow", "TrackSlider",
+    "heading", "muted", "rule",
 ]
