@@ -129,6 +129,25 @@ def test_default_pattern_per_category_from_sidecar_or_name(tmp_path):
     assert lp.category_of(tmp_path / "mystery.wav") is None
 
 
+def test_read_frames_keeps_channels_at_16_and_24_bit(tmp_path):
+    from audio_engine.io import encode_wav
+
+    st = np.stack([np.linspace(-0.5, 0.5, 100), np.full(100, -0.25)], axis=1)
+    for bits, tol in ((24, 2 ** -22), (16, 2 ** -14)):
+        p = tmp_path / f"s{bits}.wav"
+        p.write_bytes(encode_wav(st, 44100, bits))
+        x, sr = lp.read_frames(p)
+        assert sr == 44100 and x.shape == (100, 2)
+        assert np.max(np.abs(x - st)) < tol
+    m = tmp_path / "m.wav"
+    m.write_bytes(encode_wav(np.full(10, 0.5), 48000, 16))
+    x, _ = lp.read_frames(m)
+    assert x.shape == (10,)
+    (tmp_path / "bad.wav").write_bytes(b"nope")
+    with pytest.raises(lp.LoopError):
+        lp.read_frames(tmp_path / "bad.wav")
+
+
 def test_default_kick_renders_at_the_sample_rate():
     k = lp.default_kick(48000)
     assert k.ndim == 1 and 1000 < len(k) < 48000 * 3 and np.max(np.abs(k)) > 0.5

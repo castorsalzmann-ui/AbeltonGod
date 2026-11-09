@@ -56,12 +56,13 @@ from gui_core.blaster import (
     export_bank,
     load_engine,
 )
-from gui_core.loop_preview import default_kick, loop_wav_bytes
+from gui_core.loop_preview import LOOP_RESTART_MS, default_kick, loop_wav_bytes
 from gui_core.paths import default_output_dir
 from gui_core.preview import PlaybackBackend
 from gui_core.settings import AppSettings, free_stem
 from gui_core.tasks import start_task
 from gui_core.valuemap import map_of
+from gui_core.volume import OUTPUT
 from gui_core.waveform import peaks
 
 from . import skin
@@ -365,6 +366,13 @@ class BlasterWindow(OnTopWindow, QWidget):
         self._loop_n = 0
         self._loop_kick = None
         sl.addWidget(self.loop_bar)
+        # a running loop was scaled at its start: restart it at the new volume once the slider
+        # rests (review of #559)
+        self._loop_volume = QTimer(self)
+        self._loop_volume.setSingleShot(True)
+        self._loop_volume.setInterval(LOOP_RESTART_MS)
+        self._loop_volume.timeout.connect(self._loop_settings_changed)
+        OUTPUT.subscribe(self._volume_moved)
         bank_row = QHBoxLayout()
         bank_row.addWidget(QLabel("Bank mit"))
         self.bank_count = QSpinBox()
@@ -1074,6 +1082,8 @@ class BlasterWindow(OnTopWindow, QWidget):
             return
         settings, seed, samples, params = result
         res = self.session.commit(settings, seed, samples, params)
+        if res.played:
+            self._looping = False  # the shot replaced a running loop in winsound
         if res.shot is None:
             self.set_status(res.message, error=True)
             return
@@ -1155,10 +1165,18 @@ class BlasterWindow(OnTopWindow, QWidget):
         if self._looping:  # a running loop follows pattern, tempo and kick
             self.loop_selected()
 
+    def _volume_moved(self, _v: int) -> None:
+        try:
+            if self._looping:
+                self._loop_volume.start()
+        except RuntimeError:  # window already destroyed
+            OUTPUT.unsubscribe(self._volume_moved)
+
     def _replay(self, shot) -> None:
         if shot is None:
             self.set_status("Noch kein Schuss ausgewählt.", error=True)
             return
+        self._looping = False  # the shot replaces a running loop in winsound
         res = self.session.replay(shot)
         self.set_status(res.message or f"Wiederholt: {shot.label()}", error=res.error)
 
@@ -1193,6 +1211,8 @@ class BlasterWindow(OnTopWindow, QWidget):
         text = "Vorschau (gekürzt gerechnet)." + note + " Der echte Schuss: Vollqualität rendern."
         if play:
             res = self.session.play_preview(samples)
+            if res.played:
+                self._looping = False  # the preview replaced a running loop
             if res.message:
                 text, err = res.message, res.error
                 self.set_status(text, error=err)
@@ -1389,6 +1409,8 @@ class BlasterWindow(OnTopWindow, QWidget):
         self._closed = True
         self.preview_timer.stop()
         self.fire_timer.stop()
+        self._loop_volume.stop()
+        OUTPUT.unsubscribe(self._volume_moved)
         self.gun.set_animation(False)
         self.session.close()
         super().closeEvent(e)

@@ -72,6 +72,8 @@ def test_main_window_loops_the_selected_sample_with_its_category_pattern(qapp, t
         assert w.loop_bar.pattern == "Offbeat-Achtel"  # the hat's default
         assert w.loop_bar.bpm == 140
         w.loop_bar.bpm_spin.setValue(120)
+        assert w._loop_bpm_save.isActive()  # saved once the spin box rests
+        w._loop_bpm_save.timeout.emit()
         assert load_settings(cfg).loop_bpm == 120
         w.loop_bar.play_button.click()
         assert len(backend.loops) == 1
@@ -83,6 +85,87 @@ def test_main_window_loops_the_selected_sample_with_its_category_pattern(qapp, t
     finally:
         w.close()
         QApplication.processEvents()
+
+
+def peak_of(data: bytes) -> int:
+    return int(np.max(np.abs(np.frombuffer(data[44:], dtype="<i2").astype(np.int64))))
+
+
+def test_moving_the_volume_during_a_loop_restarts_it_louder(qapp, tmp_path):
+    """Review of #559: a loop is scaled once at its start, so the window restarts it."""
+    from gui.main_window import MainWindow
+    from gui_core.volume import OUTPUT, VolumeBackend
+
+    rec = LoopRecorder()
+    w = MainWindow(out_dir=tmp_path / "out", backend=VolumeBackend(rec),
+                   settings_store=SettingsStore(path=tmp_path / "s.json"))
+    try:
+        assert OUTPUT.value == 45
+        kick = tmp_path / "kick_a_s1_v0.wav"
+        kick.write_bytes(encode_wav(np.full(480, 0.5), 48000, 24))
+        w._load_preview(kick)
+        w.loop_bar.play_button.click()
+        assert len(rec.loops) == 1
+        w.volume.slider.setValue(90)
+        assert w._loop_volume.isActive() and len(rec.loops) == 1  # waits for the slider
+        w._loop_volume.timeout.emit()
+        assert len(rec.loops) == 2
+        assert abs(peak_of(rec.loops[1]) - 2 * peak_of(rec.loops[0])) <= 1
+        w.stop_button.click()
+        w.volume.slider.setValue(50)  # no loop running: nothing restarts
+        assert not w._loop_volume.isActive()
+    finally:
+        w.close()
+        OUTPUT.set(45)
+
+
+def test_main_window_loops_a_stereo_file_in_stereo(qapp, tmp_path):
+    from gui.main_window import MainWindow
+
+    rec = LoopRecorder()
+    w = MainWindow(out_dir=tmp_path / "out", backend=rec,
+                   settings_store=SettingsStore(path=tmp_path / "s.json"))
+    try:
+        bed = tmp_path / "atmos_bed_s1_v0.wav"
+        st = np.stack([np.full(4800, 0.4), np.full(4800, -0.2)], axis=1)
+        bed.write_bytes(encode_wav(st, 48000, 24))
+        w._load_preview(bed)
+        assert w.loop_bar.pattern == "als Loop (wie die Datei)"
+        w.loop_bar.play_button.click()
+        frames_ = np.frombuffer(rec.loops[0][44:], dtype="<i2").reshape(-1, 2)
+        assert frames_[100, 0] > 0 > frames_[100, 1]  # left and right kept, not the mid
+    finally:
+        w.close()
+
+
+def test_blaster_forgets_its_loop_when_a_shot_or_replay_takes_over(qapp, tmp_path):
+    """Review of #559: a later tempo change must not restart a loop the user replaced."""
+    from gui.blaster.window import BlasterWindow
+    from gui_core.blaster_stub import StubLaserEngine
+
+    rec = LoopRecorder()
+    w = BlasterWindow(engine=StubLaserEngine(), backend=rec, out_dir=tmp_path / "out",
+                      work_dir=tmp_path / "w")
+    try:
+        res = w.session.fire(play=False)
+        assert w.loop_selected() and len(rec.loops) == 1
+        w._replay(res.shot)  # the shot plays instead of the loop
+        w.loop_bar.bpm_spin.setValue(150)
+        assert len(rec.loops) == 1
+        assert w.loop_selected() and len(rec.loops) == 2
+        w._shot_done((w.settings, 7, res.shot.samples, res.shot.params))  # a fired shot
+        w.loop_bar.bpm_spin.setValue(160)
+        assert len(rec.loops) == 2
+        assert w.loop_selected() and len(rec.loops) == 3
+        from gui_core.volume import OUTPUT
+        OUTPUT.set(80)  # volume while looping restarts after the pause
+        assert w._loop_volume.isActive()
+        w._loop_volume.timeout.emit()
+        assert len(rec.loops) == 4
+    finally:
+        w.close()
+        from gui_core.volume import OUTPUT
+        OUTPUT.set(45)
 
 
 def test_main_window_starts_with_the_saved_tempo(qapp, tmp_path):

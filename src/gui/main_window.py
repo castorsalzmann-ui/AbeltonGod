@@ -41,7 +41,13 @@ from gui_core.choices import ChoiceLog
 from gui_core.form import CategoryFormModel
 from gui_core.goa_render import GoaService
 from gui_core.live import LiveConfig
-from gui_core.loop_preview import category_of, default_kick, loop_wav_bytes
+from gui_core.loop_preview import (
+    LOOP_RESTART_MS,
+    category_of,
+    default_kick,
+    loop_wav_bytes,
+    read_frames,
+)
 from gui_core.preview import ERROR, PLAYING, PlaybackBackend, PreviewController
 from gui_core.render import RenderHandle, RenderJob, RenderResult, RenderService
 from gui_core.settings import SettingsStore, apply_format_to_form
@@ -304,11 +310,23 @@ class MainWindow(OnTopWindow, QMainWindow):
         self._volume_save.setSingleShot(True)
         self._volume_save.setInterval(400)
         self._volume_save.timeout.connect(self._save_volume)
+        self._loop_bpm_save = QTimer(self)
+        self._loop_bpm_save.setSingleShot(True)
+        self._loop_bpm_save.setInterval(400)
+        self._loop_bpm_save.timeout.connect(self._save_loop_bpm)
+        # a running loop was scaled once at its start: it is restarted at the new volume once
+        # the slider rests (review of #559)
+        self._loop_volume = QTimer(self)
+        self._loop_volume.setSingleShot(True)
+        self._loop_volume.setInterval(LOOP_RESTART_MS)
+        self._loop_volume.timeout.connect(self._loop_settings_changed)
         OUTPUT.subscribe(self._volume_moved)
 
     def _volume_moved(self, _v: int) -> None:
         try:
             self._volume_save.start()
+            if self.preview.looping:
+                self._loop_volume.start()
         except RuntimeError:  # window already destroyed
             OUTPUT.unsubscribe(self._volume_moved)
 
@@ -759,12 +777,15 @@ class MainWindow(OnTopWindow, QMainWindow):
             return
         bar = self.loop_bar
         try:
+            # the file's own channels (the waveform is the mid; review of #559)
+            samples, sr = (read_frames(self.preview.source) if self.preview.source is not None
+                           else (wf.samples, wf.sample_rate))
             kick = None
             if bar.with_kick:
-                if self._loop_kick is None or self._loop_kick[0] != wf.sample_rate:
-                    self._loop_kick = (wf.sample_rate, default_kick(wf.sample_rate))
+                if self._loop_kick is None or self._loop_kick[0] != sr:
+                    self._loop_kick = (sr, default_kick(sr))
                 kick = self._loop_kick[1]
-            data = loop_wav_bytes(wf.samples, wf.sample_rate, bar.bpm, bar.pattern, 1, kick)
+            data = loop_wav_bytes(samples, sr, bar.bpm, bar.pattern, 1, kick)
         except Exception as exc:  # noqa: BLE001 - shown, never swallowed (#543)
             self.preview_info.setText(f"Loop konnte nicht berechnet werden: {exc}")
             return
@@ -781,11 +802,15 @@ class MainWindow(OnTopWindow, QMainWindow):
         if self.preview.looping:  # a running loop follows pattern, tempo and kick
             self.play_loop()
 
-    def _loop_bpm_changed(self, bpm: int) -> None:
-        self.hub.store.update(loop_bpm=bpm)
+    def _loop_bpm_changed(self, _bpm: int) -> None:
+        self._loop_bpm_save.start()  # saved once the spin box rests (not on every step)
+
+    def _save_loop_bpm(self) -> None:
+        self.hub.store.update(loop_bpm=self.loop_bar.bpm)
 
     def stop(self) -> None:
         self.preview.stop()
+        self._loop_volume.stop()  # a stopped loop is not restarted by a pending volume move
         self.timer.stop()
         self.wave.set_playhead(0.0)
 
@@ -813,6 +838,10 @@ class MainWindow(OnTopWindow, QMainWindow):
         if self._volume_save.isActive():  # a pending volume change is saved, not lost
             self._volume_save.stop()
             self._save_volume()
+        if self._loop_bpm_save.isActive():
+            self._loop_bpm_save.stop()
+            self._save_loop_bpm()
+        self._loop_volume.stop()
         OUTPUT.unsubscribe(self._volume_moved)
         self.windows.close_all()
         self.hub.detach()

@@ -45,6 +45,7 @@ BARS_CHOICES = (1, 2)
 FADE_MS = 5.0
 CEILING = 0.89  # -1 dBFS
 MAX_LOOP_S = 60.0  # an as-is loop longer than this is cut (a preview, not the file)
+LOOP_RESTART_MS = 250  # a running loop restarts this long after the volume slider rests
 
 
 class LoopError(ValueError):
@@ -123,6 +124,42 @@ def loop_wav_bytes(sample: np.ndarray, sr: int, bpm: float, pattern: str, bars: 
                    kick: np.ndarray | None = None) -> bytes:
     """The loop as a 16-bit stereo WAV (what the backend plays)."""
     return encode_wav(render_loop(sample, sr, bpm, pattern, bars, kick), sr, 16)
+
+
+def read_frames(wav_path: str | Path) -> tuple[np.ndarray, int]:
+    """Samples of a PCM WAV (16 or 24 bit, mono ``(n,)`` or stereo ``(n, 2)``, full scale
+    1.0) and its rate, channels kept (the main preview's waveform is the mid; a loop of an
+    atmos bed keeps its stereo image, review of #559). Raises ``LoopError``."""
+    try:
+        data = Path(wav_path).read_bytes()
+    except OSError as exc:
+        raise LoopError(f"Datei nicht lesbar: {exc}") from exc
+    if len(data) < 12 or data[:4] != b"RIFF" or data[8:12] != b"WAVE":
+        raise LoopError("Keine WAV-Datei.")
+    pos, fmt = 12, None
+    while pos + 8 <= len(data):
+        cid = data[pos:pos + 4]
+        size = int.from_bytes(data[pos + 4:pos + 8], "little")
+        body = data[pos + 8:pos + 8 + size]
+        if cid == b"fmt ":
+            fmt = (int.from_bytes(body[0:2], "little"), int.from_bytes(body[2:4], "little"),
+                   int.from_bytes(body[4:8], "little"), int.from_bytes(body[14:16], "little"))
+        elif cid == b"data" and fmt is not None:
+            tag, ch, sr, bits = fmt
+            if tag != 1 or ch not in (1, 2) or bits not in (16, 24):
+                raise LoopError(f"Nur PCM 16/24 Bit, mono oder stereo ({bits} Bit, {ch} Kanäle).")
+            width = bits // 8
+            body = body[: len(body) - len(body) % (width * ch)]
+            if bits == 16:
+                ints = np.frombuffer(body, dtype="<i2").astype(np.int64)
+            else:
+                raw = np.frombuffer(body, dtype=np.uint8).reshape(-1, 3).astype(np.int64)
+                v = raw[:, 0] | (raw[:, 1] << 8) | (raw[:, 2] << 16)
+                ints = np.where(v >= 1 << 23, v - (1 << 24), v)
+            x = ints / float(2 ** (bits - 1))
+            return (x.reshape(-1, 2) if ch == 2 else x), sr
+        pos += 8 + size + (size & 1)
+    raise LoopError("WAV ohne Daten.")
 
 
 def category_of(wav_path: str | Path) -> str | None:

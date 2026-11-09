@@ -41,10 +41,11 @@ from typing import Any
 
 from library.layout import LibraryLayout
 
+from .loop_preview import BPM_MAX as LOOP_BPM_MAX  # one set of limits (#553)
+from .loop_preview import BPM_MIN as LOOP_BPM_MIN
+from .loop_preview import DEFAULT_BPM as LOOP_BPM_DEFAULT
 from .paths import default_output_dir
 from .volume import DEFAULT_VOLUME, clamp_volume
-
-LOOP_BPM_DEFAULT, LOOP_BPM_MIN, LOOP_BPM_MAX = 140, 60, 200  # = gui_core.loop_preview
 
 CONFIG_ENV = "ABELTONGOD_CONFIG_DIR"
 FILE_NAME = "settings.json"
