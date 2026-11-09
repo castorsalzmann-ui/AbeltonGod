@@ -447,6 +447,12 @@ def test_tail_harmonics_on_known_partials():
     want = 10 * math.log10(0.1**2 + 0.05**2)  # -19.03 dB
     assert V.kick_features_from_audio(rich, SR)["tail_harmonics_db"] == pytest.approx(
         want, abs=0.3)
+    # Partials 4-8 count too (drive and clip add mostly odd ones): 5th and 7th only.
+    odd = (np.sin(2 * np.pi * 50 * t) + 0.1 * np.sin(2 * np.pi * 250 * t)
+           + 0.1 * np.sin(2 * np.pi * 350 * t)) * env
+    want = 10 * math.log10(2 * 0.1**2)  # -16.99 dB
+    assert V.kick_features_from_audio(odd, SR)["tail_harmonics_db"] == pytest.approx(
+        want, abs=0.3)
 
 
 def test_body_zone_energy_on_known_signals():
@@ -526,6 +532,43 @@ def test_bass_features_of_an_additive_saw():
     assert abs(f["attack_ms"] - 4.0) <= period_ms + 1.0
 
 
+@pytest.mark.parametrize("gate", [110, 120, 130, 150])
+def test_harmonics_survive_an_exact_whole_period_cut(gate):
+    """Regression (review of PR #541, P1): the period count was re-derived from the rounded
+    cut length, so an exact 4-period cut counted 3.9996 and harm2/harm3 became None."""
+    x = additive_note(98.0, [(k, 1 / k) for k in range(1, 9)], 5, gate, 60)
+    f = V.bass_features_from_audio(x, SR)
+    assert f["harm2_db"] == pytest.approx(20 * math.log10(1 / 2), abs=0.05)
+    assert f["harm3_db"] == pytest.approx(20 * math.log10(1 / 3), abs=0.05)
+
+
+@pytest.mark.parametrize(("f0", "gate"), [(65.41, 62), (65.41, 55), (32.7, 160)])
+def test_short_notes_use_the_wide_window(f0, gate):
+    """Review of PR #541, P2: 40-80 % of a 62 ms gate holds 1.6 periods at 65 Hz and YIN found
+    nothing. The 10-90 % fallback gives note and exact harmonics."""
+    x = additive_note(f0, [(k, 1 / k) for k in range(1, 9)], 1.5, gate, 12)
+    f = V.bass_features_from_audio(x, SR)
+    assert 1200 * math.log2(f["note_hz"] / f0) == pytest.approx(0.0, abs=2.0)
+    assert f["harm2_db"] == pytest.approx(20 * math.log10(1 / 2), abs=0.05)
+    assert f["harm3_db"] == pytest.approx(20 * math.log10(1 / 3), abs=0.05)
+    assert f["gate_ms"] is not None and f["centroid_hz"] is not None
+
+
+@pytest.mark.parametrize("name", ["goa-roll-short", "goa-roll-medium", "goa-roll-long", "sub"])
+def test_short_and_sub_presets_get_every_stationary_feature(name):
+    """The presets the review found without note or harmonics (P1, P2): all variants now
+    have note (f0, or f0 / 2 with the sub-octave, within 3 cents), gate and harmonics."""
+    from audio_engine.bass_variants import make_variants
+    for p in make_variants(load_preset(name, "bass"), 8):
+        x, q = render_bass(p)
+        f = V.bass_features_from_audio(x, SR)
+        f0 = note_frequency(q["note"], q["cents"])
+        cents = min((1200 * math.log2(f["note_hz"] / c) for c in (f0, f0 / 2)), key=abs)
+        assert abs(cents) < 3.0, (name, cents)
+        for k in ("gate_ms", "harm2_db", "harm3_db", "centroid_hz"):
+            assert f[k] is not None, (name, k)
+
+
 def test_bass_sub_share_of_an_additive_saw():
     # 60 Hz saw: only the first partial (power 1 of sum 1/k^2) lies below 100 Hz, far from the
     # split (a 98 Hz partial leaks across it).
@@ -544,7 +587,7 @@ def test_bass_gate_release_attack_within_one_period(f0, attack, gate, release):
     assert f["gate_ms"] == pytest.approx(gate - _onset_ms(x), abs=8.0)
     assert abs(f["release_ms"] - 0.99 * release) <= period_ms
     assert abs(f["attack_ms"] - 0.8 * attack) <= period_ms + 1.0
-    assert f["harm2_db"] == V.DB_FLOOR
+    assert f["harm2_db"] == -60.0  # absent partial: the documented -60 dB floor
     assert f["harm3_db"] == pytest.approx(20 * math.log10(1 / 3), abs=0.05)
 
 
@@ -581,6 +624,7 @@ def test_bass_note_over_the_contract_range(seed):
     with a sub-octave, half of it, within 1 semitone always and within 10 cents for clean
     notes (drive 0, gate >= 200 ms; measured: within 0.4 cents)."""
     rng = random.Random(60 + seed)
+    nones = 0
     for _ in range(10):
         x, p = _random_bass(rng)
         if rng.random() < 0.5:
@@ -590,6 +634,12 @@ def test_bass_note_over_the_contract_range(seed):
         for k, v in f.items():
             assert v is None or math.isfinite(v), (k, v, p)
         assert 0.0 <= f["sub_share"] <= 1.0
+        # None bound (review of PR #541, P2). Measured on 200 full-range renders: no None
+        # for any feature but filter_move_db, which is None exactly when 30 ms hold fewer
+        # than 2 periods of the note (87 of 200).
+        nones += sum(f[k] is None for k in V.BASS_FEATURES if k != "filter_move_db")
+        if f["note_hz"] is not None:
+            assert (f["filter_move_db"] is None) == (0.03 * f["note_hz"] < 2), (f, p)
         if f["note_hz"] is None:
             continue
         f0 = note_frequency(p["note"], p["cents"])
@@ -598,6 +648,7 @@ def test_bass_note_over_the_contract_range(seed):
         assert abs(cents) < 100, (cents, p)
         if p["drive"] == 0 and p["gate_ms"] >= 200:
             assert abs(cents) < 10, (cents, p)
+    assert nones <= 1  # at most one missing value in 10 renders x 8 features
 
 
 # --- E3: distance, weight rule and the committed table ------------------------------------------

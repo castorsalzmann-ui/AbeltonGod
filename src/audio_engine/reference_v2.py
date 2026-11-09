@@ -72,9 +72,11 @@ A reference has no gate parameter, so the gate is estimated from the signal:
    with a linear release). Tried first and dropped: "last time at -6 dB of the peak" (a
    bright start more than 6 dB above the hold moved it to the start), and the 90 % / 50 %
    points of the release (a hold whose level falls with the filter envelope moved them).
-2. Period (:func:`period_hz`, YIN) in the window 40 ... 80 % of that gate (the contract's
-   stationary window). If the period is longer than 25 ms, step 1 is repeated with a
-   one-period envelope window.
+2. Period (:func:`period_hz`, YIN) in the *stationary window* (:func:`stationary`): 40 ...
+   80 % of that gate (the contract's window), or 10 ... 90 % when 40-80 % holds fewer than 4
+   periods or no period. Short rolling notes need the wide window: a 62 ms gate at 65 Hz
+   leaves 1.6 periods in 40-80 %, and YIN, which needs 2, found nothing. If the period is
+   longer than 25 ms, step 1 is repeated with a one-period envelope window.
 3. ``release_ms`` = last sample with |x| >= 0.01 L (-40 dB, ``L`` = max |x| in the stationary
    window) minus ``gate_ms`` (contract rule 8 reads it the same way on renders).
 
@@ -87,8 +89,9 @@ A reference has no gate parameter, so the gate is estimated from the signal:
   (E6). ``None`` if the window holds fewer than 2 periods or YIN finds no dip below 0.25.
 - ``harm2_db``, ``harm3_db``: level of the partial at 2 / 3 x note over the note, dB,
   stationary window cut to an even number of note periods (so a sub-octave is whole too),
-  rectangular, DFT at the exact frequencies; floored at :data:`DB_FLOOR`; ``None`` below 4
-  periods.
+  rectangular, DFT at the exact frequencies; floored at :data:`HARM_FLOOR_DB` (-60 dB);
+  ``None`` below 2 whole periods (over whole periods the DFT of a periodic note is exact;
+  synthetic saws at 2-4 periods give -6.02 / -9.54 dB within 0.01 dB).
 - ``sub_share``: energy below 100 Hz over all, whole signal from the onset (as the kick).
 - ``centroid_hz``: power-weighted mean frequency of the stationary window (rectangular, whole
   periods, DC excluded).
@@ -530,12 +533,21 @@ def kick_features_from_audio(audio: np.ndarray, sr: int) -> dict[str, float | No
 
 COARSE_ENV_MS = 25.0
 STATIONARY = (0.4, 0.8)  # contract rule 6
+# Fallback when 40-80 % holds fewer than WINDOW_MIN_PERIODS periods (short rolling notes: a
+# 62 ms gate at 65 Hz gives 1.6 periods there and YIN cannot see the period at all).
+STATIONARY_WIDE = (0.1, 0.9)
 NOTE_BAND_HZ = (12.0, 1000.0)
 YIN_THRESHOLD = 0.1
 YIN_MAX_DIP = 0.25  # a best dip above this is no period
 KNEE_HOP_MS = 1.0
 NOTE_MIN_PERIODS = 2
-HARM_MIN_PERIODS = 4
+WINDOW_MIN_PERIODS = 4  # below this in 40-80 %, the 10-90 % window is used
+# Harmonic levels need an even number of whole periods (a sub-octave is then whole too);
+# over whole periods of a periodic note the rectangular DFT is exact, so 2 suffice.
+HARM_MIN_PERIODS = 2
+# An absent partial reads as cut residue: -63 dB at 48 kHz and the -80 dB floor at 44.1 kHz on
+# the `sub` preset (no partial at 3x its period), a 17 dB "method error" between two zeros.
+HARM_FLOOR_DB = -60.0
 EARLY_MS = 30.0
 RELEASE_DB = -40.0
 
@@ -629,8 +641,22 @@ def knee_gate(x: np.ndarray, sr: int, win: int) -> int | None:
     return (start + g) * hop
 
 
-def _window(gate: int, sr: int) -> tuple[int, int]:
-    return int(round(STATIONARY[0] * gate)), int(round(STATIONARY[1] * gate))
+def _window(gate: int, frac: tuple[float, float]) -> tuple[int, int]:
+    return int(round(frac[0] * gate)), int(round(frac[1] * gate))
+
+
+def stationary(x: np.ndarray, gate: int, sr: int) -> tuple[int, int, float | None]:
+    """``(a, b, period_hz)``: 40-80 % of the gate, or 10-90 % when that holds fewer than
+    :data:`WINDOW_MIN_PERIODS` periods or no period (module docstring)."""
+    a, b = _window(gate, STATIONARY)
+    f = period_hz(x[a:b], sr) if b - a >= 16 else None
+    if f is not None and (b - a) * f / sr >= WINDOW_MIN_PERIODS:
+        return a, b, f
+    a2, b2 = _window(gate, STATIONARY_WIDE)
+    f2 = period_hz(x[a2:b2], sr) if b2 - a2 >= 16 else None
+    if f2 is not None:
+        return a2, b2, f2
+    return a, b, f
 
 
 def _centroid(seg: np.ndarray, sr: int) -> float | None:
@@ -642,13 +668,17 @@ def _centroid(seg: np.ndarray, sr: int) -> float | None:
     return float(np.sum(freqs[1:] * power[1:]) / total)
 
 
-def _whole_periods(seg: np.ndarray, sr: int, f: float, even: bool = False) -> np.ndarray | None:
+def _whole_periods(seg: np.ndarray, sr: int, f: float, even: bool = False) \
+        -> tuple[np.ndarray | None, int]:
+    """``(cut, periods)``: ``seg`` cut to a whole (even) number of periods of ``f``. The
+    count is returned as an integer: re-deriving it from the rounded cut length gave 3.9996
+    for an exact 4-period cut and dropped the harmonics (review of PR #541, P1)."""
     periods = int(len(seg) * f / sr)
     if even:
         periods -= periods % 2
     if periods < 1:
-        return None
-    return seg[: int(round(periods * sr / f))]
+        return None, 0
+    return seg[: min(len(seg), int(round(periods * sr / f)))], periods
 
 
 def bass_features_from_audio(audio: np.ndarray, sr: int) -> dict[str, float | None]:
@@ -662,8 +692,7 @@ def bass_features_from_audio(audio: np.ndarray, sr: int) -> dict[str, float | No
     gate = knee_gate(x, sr, int(round(COARSE_ENV_MS * sr / 1000.0)))
     if gate is None:
         return out
-    a, b = _window(gate, sr)
-    low = period_hz(x[a:b], sr) if b - a >= 16 else None
+    a, b, low = stationary(x, gate, sr)
     if low is None:
         return out
     # 2. a period longer than 25 ms ripples that envelope: repeat over one period
@@ -672,7 +701,7 @@ def bass_features_from_audio(audio: np.ndarray, sr: int) -> dict[str, float | No
         gate = knee_gate(x, sr, period)
         if gate is None:
             return out
-        a, b = _window(gate, sr)
+        a, b, _ = stationary(x, gate, sr)
         if b - a < 16:
             return out
     out["gate_ms"] = round(gate / sr * 1000.0, 3)
@@ -690,17 +719,18 @@ def bass_features_from_audio(audio: np.ndarray, sr: int) -> dict[str, float | No
     note = period_hz(x[a:b], sr)
     if note is None or (b - a) * note / sr < NOTE_MIN_PERIODS:
         return out
-    out["note_hz"] = round(note, 3)
+    out["note_hz"] = round(float(note), 3)
     seg = x[a:b]
-    whole = _whole_periods(seg, sr, note, even=True)
-    if whole is not None and len(whole) * note / sr >= HARM_MIN_PERIODS - 1e-9:
+    whole, periods = _whole_periods(seg, sr, note, even=True)
+    if whole is not None and periods >= HARM_MIN_PERIODS:
         fund = _dft_mag(whole, sr, note) ** 2
         if fund > 0.0:
             for k in (2, 3):
                 key = f"harm{k}_db"
-                out[key] = round(_db(_dft_mag(whole, sr, k * note) ** 2 / fund), 3) \
+                out[key] = round(max(HARM_FLOOR_DB,
+                                     _db(_dft_mag(whole, sr, k * note) ** 2 / fund)), 3) \
                     if k * note < sr / 2.0 else None
-    stat = _whole_periods(seg, sr, note)
+    stat, _ = _whole_periods(seg, sr, note)
     cen = _centroid(stat, sr) if stat is not None else None
     out["centroid_hz"] = round(cen, 3) if cen is not None else None
     early_n = int(round(EARLY_MS * sr / 1000.0))
