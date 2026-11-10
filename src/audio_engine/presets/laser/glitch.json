@@ -3,7 +3,7 @@
   "preset": "glitch",
   "seed": 6,
   "family": "glitch",
-  "length_ms": 700,
+  "length_ms": 1280,
   "pitch_start_hz": 4000,
   "pitch_end_hz": 250,
   "sweep_ms": 400,

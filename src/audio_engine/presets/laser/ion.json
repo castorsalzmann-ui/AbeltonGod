@@ -3,7 +3,7 @@
   "preset": "ion",
   "seed": 3,
   "family": "ion",
-  "length_ms": 1200,
+  "length_ms": 2890,
   "pitch_start_hz": 500,
   "pitch_end_hz": 2400,
   "sweep_ms": 300,

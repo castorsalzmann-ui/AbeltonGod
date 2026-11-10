@@ -96,11 +96,13 @@ def check_render(p: dict) -> np.ndarray:
 
 # SHA-256 of the 24-bit stereo WAV bytes of each preset at LASER_VERSION 0.1.0. A byte change
 # needs a LASER_VERSION bump and new hashes in the same PR (D-013).
+# #554 changed length_ms of glitch, ion, pew-wide-echo and blaster-echo (preset data, a
+# different request; the engine and its version are unchanged), so their four hashes are new.
 GOLDEN = {
-    "glitch": "8979dfe3cce60aa012e2a2d038924bcb0d5b77c4066e8b55bd0822eedeb5b0e7",
-    "ion": "e1f4ed18158b403a90ab696f4209af5a0010f754d08d6250279685240c050c68",
+    "glitch": "e80b3fbd33956564405ca3dcbc847c3163a602734d850332fb57d2ad9f868966",
+    "ion": "dd9eb35419621423f0e23e1b96066774410671c0a4e0a071c8a2e431b5660667",
     "pew": "27d5c3250d6c3ad1e0c68ac7b6a04c34a0eee10d93cb6bce90d00ace0d265eb3",
-    "pew-wide-echo": "97569e3cdb94260f7efb59d99a4e112bdef450abe106befd10a19932b2ab48ff",
+    "pew-wide-echo": "bea86c7721a9daf03be761ae08d83eca7bac834ca74fc461e9d2d0b3a2e330a6",
     "plasma": "140ca48ac75351300b8df6991ec9a144e17901a23d94f24b529ee6a15b25e349",
     "plasma-driven": "992a44f0e33466600d4fd04d5944b61c82967c2a035be97890447c19c13db500",
     "rift": "e219d1773176b87ad0dece4c3218ab4606b4fea688ab38b875d9ad2384d3b0b6",
@@ -109,7 +111,7 @@ GOLDEN = {
     "blaster": "f5b26ee5824274c8ee83558955642cc389987b44368a1b05fc41d6455d2f5a11",
     "blaster-burst5": "fd0ac80ff07cec258d099127257f4c23686a2ef1f326b7a13347969d0214f8af",
     "blaster-double": "9afff649a1ddb5a6d0046fd8801367ed0700f9248566ca3f3df8744afe038377",
-    "blaster-echo": "655829cc224ceb9f7fce49518b1b93a2a82e2b865d952062fd719c8cfb211b3d",
+    "blaster-echo": "99ecc09a2089b100e2736981fb8ff2d6d1e80e4141e6a3a999de8082769e7736",
     "blaster-reverb": "2fc1ae53aa5086a528861d6fd16d187b7205ba20f07975a0599cdce44bbb8b68",
     "blaster-triple-lrl": "cf4829fd345e7fa0f14028b6305a1e7b6fb066407494fff9c58ea3d42d8d0e68",
 }
