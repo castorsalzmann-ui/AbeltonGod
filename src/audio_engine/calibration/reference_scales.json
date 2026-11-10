@@ -1,5 +1,5 @@
 {
-  "aggregation": "method_error and seed_spread: mean over candidates; scale = max(method_error, seed_spread); weight 0 if seed_spread >= between_spread / 3",
+  "aggregation": "method_error, degrade_error and seed_spread: mean over candidates; scale = max(method_error, degrade_error, seed_spread); weight 0 if seed_spread >= between_spread / 3",
   "categories": {
     "bass": {
       "candidates": 64,
@@ -7,6 +7,20 @@
         "attack_ms": {
           "between_spread": 0.750568,
           "candidates_measured": 64,
+          "degrade_candidates": 64,
+          "degrade_error": 0.000866,
+          "degrade_error_max": 0.002585,
+          "degrade_max_by": {
+            "cut_edges": 0.001334,
+            "dc_offset": 0.0,
+            "dither_16bit": 0.000943,
+            "gain_low": 0.0,
+            "gain_over": 0.0,
+            "pad_front": 0.0,
+            "resample_44k1": 0.002585,
+            "resample_96k": 0.000994
+          },
+          "degrade_none_checks": 0,
           "method_candidates": 64,
           "method_error": 2.062743,
           "method_error_max": 2.579775,
@@ -22,6 +36,20 @@
         "centroid_hz": {
           "between_spread": 17.087955,
           "candidates_measured": 64,
+          "degrade_candidates": 64,
+          "degrade_error": 0.002712,
+          "degrade_error_max": 0.022057,
+          "degrade_max_by": {
+            "cut_edges": 0.000769,
+            "dc_offset": 0.0,
+            "dither_16bit": 0.000192,
+            "gain_low": 0.0,
+            "gain_over": 0.0,
+            "pad_front": 0.0,
+            "resample_44k1": 0.022057,
+            "resample_96k": 0.014796
+          },
+          "degrade_none_checks": 0,
           "method_candidates": 64,
           "method_error": 0.002782,
           "method_error_max": 0.022825,
@@ -37,13 +65,27 @@
         "filter_move_db": {
           "between_spread": 0.436,
           "candidates_measured": 24,
+          "degrade_candidates": 24,
+          "degrade_error": 0.08675,
+          "degrade_error_max": 0.102,
+          "degrade_max_by": {
+            "cut_edges": 0.0,
+            "dc_offset": 0.0,
+            "dither_16bit": 0.0,
+            "gain_low": 0.0,
+            "gain_over": 0.0,
+            "pad_front": 0.0,
+            "resample_44k1": 0.033,
+            "resample_96k": 0.102
+          },
+          "degrade_none_checks": 0,
           "method_candidates": 24,
           "method_error": 0.012792,
           "method_error_max": 0.033,
           "mixed_none": 0,
           "none_checks": 0,
           "provisional_scale": 1.0,
-          "scale": 0.012792,
+          "scale": 0.08675,
           "seed_spread": 0.0,
           "seed_spread_max": 0.0,
           "transform": "db",
@@ -52,6 +94,20 @@
         "gate_ms": {
           "between_spread": 1.622056,
           "candidates_measured": 64,
+          "degrade_candidates": 64,
+          "degrade_error": 0.003766,
+          "degrade_error_max": 0.040654,
+          "degrade_max_by": {
+            "cut_edges": 0.0,
+            "dc_offset": 0.0,
+            "dither_16bit": 0.0,
+            "gain_low": 0.0,
+            "gain_over": 0.0,
+            "pad_front": 0.0,
+            "resample_44k1": 0.040654,
+            "resample_96k": 0.003643
+          },
+          "degrade_none_checks": 0,
           "method_candidates": 64,
           "method_error": 0.040867,
           "method_error_max": 0.091466,
@@ -67,6 +123,20 @@
         "harm2_db": {
           "between_spread": 27.008,
           "candidates_measured": 64,
+          "degrade_candidates": 64,
+          "degrade_error": 0.007781,
+          "degrade_error_max": 0.044,
+          "degrade_max_by": {
+            "cut_edges": 0.009,
+            "dc_offset": 0.0,
+            "dither_16bit": 0.0,
+            "gain_low": 0.0,
+            "gain_over": 0.0,
+            "pad_front": 0.0,
+            "resample_44k1": 0.044,
+            "resample_96k": 0.027
+          },
+          "degrade_none_checks": 0,
           "method_candidates": 64,
           "method_error": 0.007781,
           "method_error_max": 0.045,
@@ -82,13 +152,27 @@
         "harm3_db": {
           "between_spread": 47.165,
           "candidates_measured": 64,
+          "degrade_candidates": 64,
+          "degrade_error": 0.008516,
+          "degrade_error_max": 0.06,
+          "degrade_max_by": {
+            "cut_edges": 0.018,
+            "dc_offset": 0.0,
+            "dither_16bit": 0.0,
+            "gain_low": 0.0,
+            "gain_over": 0.0,
+            "pad_front": 0.0,
+            "resample_44k1": 0.06,
+            "resample_96k": 0.013
+          },
+          "degrade_none_checks": 0,
           "method_candidates": 64,
           "method_error": 0.008187,
           "method_error_max": 0.061,
           "mixed_none": 0,
           "none_checks": 0,
           "provisional_scale": 1.5,
-          "scale": 0.008187,
+          "scale": 0.008516,
           "seed_spread": 0.0,
           "seed_spread_max": 0.0,
           "transform": "db",
@@ -97,6 +181,20 @@
         "note_hz": {
           "between_spread": 12.000177,
           "candidates_measured": 64,
+          "degrade_candidates": 64,
+          "degrade_error": 0.000199,
+          "degrade_error_max": 0.002384,
+          "degrade_max_by": {
+            "cut_edges": 0.0,
+            "dc_offset": 0.0,
+            "dither_16bit": 0.0,
+            "gain_low": 0.0,
+            "gain_over": 0.0,
+            "pad_front": 0.0,
+            "resample_44k1": 0.002384,
+            "resample_96k": 0.00053
+          },
+          "degrade_none_checks": 0,
           "method_candidates": 64,
           "method_error": 0.00386,
           "method_error_max": 0.016257,
@@ -112,6 +210,20 @@
         "release_ms": {
           "between_spread": 2.157965,
           "candidates_measured": 64,
+          "degrade_candidates": 64,
+          "degrade_error": 0.028298,
+          "degrade_error_max": 0.260866,
+          "degrade_max_by": {
+            "cut_edges": 0.009919,
+            "dc_offset": 0.0,
+            "dither_16bit": 0.000511,
+            "gain_low": 0.0,
+            "gain_over": 0.0,
+            "pad_front": 0.0,
+            "resample_44k1": 0.260866,
+            "resample_96k": 0.02837
+          },
+          "degrade_none_checks": 0,
           "method_candidates": 64,
           "method_error": 0.20759,
           "method_error_max": 0.585891,
@@ -127,20 +239,79 @@
         "sub_share": {
           "between_spread": 0.351388,
           "candidates_measured": 64,
+          "degrade_candidates": 64,
+          "degrade_error": 0.007942,
+          "degrade_error_max": 0.018459,
+          "degrade_max_by": {
+            "cut_edges": 0.018459,
+            "dc_offset": 0.0,
+            "dither_16bit": 0.001792,
+            "gain_low": 0.0,
+            "gain_over": 0.0,
+            "pad_front": 0.0,
+            "resample_44k1": 0.002168,
+            "resample_96k": 0.001162
+          },
+          "degrade_none_checks": 0,
           "method_candidates": 64,
           "method_error": 0.000296,
           "method_error_max": 0.002171,
           "mixed_none": 0,
           "none_checks": 0,
           "provisional_scale": 0.05,
-          "scale": 0.000296,
+          "scale": 0.007942,
           "seed_spread": 0.0,
           "seed_spread_max": 0.0,
           "transform": "lin",
           "weight": 1.0
         }
       },
-      "note_octave_below_nearer": 8
+      "note_octave_below_nearer": 8,
+      "self_distance": {
+        "by_degradation": {
+          "cut_edges": {
+            "max": 0.808591,
+            "median": 0.494028
+          },
+          "dc_offset": {
+            "max": 0.0,
+            "median": 0.0
+          },
+          "dither_16bit": {
+            "max": 0.075214,
+            "median": 0.0
+          },
+          "gain_low": {
+            "max": 0.0,
+            "median": 0.0
+          },
+          "gain_over": {
+            "max": 0.0,
+            "median": 0.0
+          },
+          "pad_front": {
+            "max": 0.0,
+            "median": 0.0
+          },
+          "resample_44k1": {
+            "max": 4.014627,
+            "median": 0.433259
+          },
+          "resample_96k": {
+            "max": 1.86864,
+            "median": 0.341629
+          }
+        },
+        "max": 4.014627,
+        "max_candidate": "goa-roll-short v6",
+        "max_degradation": "resample_44k1",
+        "max_feature": "centroid_hz",
+        "max_feature_distance": 7.928554,
+        "median": 0.0,
+        "p95": 0.770639,
+        "pairs": 512,
+        "pairs_with_one_sided_none": 0
+      }
     },
     "kick": {
       "candidates": 48,
@@ -148,6 +319,20 @@
         "body_energy_db": {
           "between_spread": 9.417125,
           "candidates_measured": 48,
+          "degrade_candidates": 48,
+          "degrade_error": 0.016812,
+          "degrade_error_max": 0.11,
+          "degrade_max_by": {
+            "cut_edges": 0.073,
+            "dc_offset": 0.0,
+            "dither_16bit": 0.0,
+            "gain_low": 0.0,
+            "gain_over": 0.0,
+            "pad_front": 0.0,
+            "resample_44k1": 0.048,
+            "resample_96k": 0.11
+          },
+          "degrade_none_checks": 0,
           "method_candidates": 48,
           "method_error": 0.011854,
           "method_error_max": 0.133,
@@ -163,6 +348,20 @@
         "body_hz": {
           "between_spread": 16.841076,
           "candidates_measured": 48,
+          "degrade_candidates": 48,
+          "degrade_error": 0.0,
+          "degrade_error_max": 0.0,
+          "degrade_max_by": {
+            "cut_edges": 0.0,
+            "dc_offset": 0.0,
+            "dither_16bit": 0.0,
+            "gain_low": 0.0,
+            "gain_over": 0.0,
+            "pad_front": 0.0,
+            "resample_44k1": 0.0,
+            "resample_96k": 0.0
+          },
+          "degrade_none_checks": 0,
           "method_candidates": 48,
           "method_error": 0.000125,
           "method_error_max": 0.003017,
@@ -178,6 +377,20 @@
         "click_share": {
           "between_spread": 0.126764,
           "candidates_measured": 48,
+          "degrade_candidates": 48,
+          "degrade_error": 0.001844,
+          "degrade_error_max": 0.007936,
+          "degrade_max_by": {
+            "cut_edges": 0.007936,
+            "dc_offset": 0.0,
+            "dither_16bit": 2e-06,
+            "gain_low": 0.0,
+            "gain_over": 0.0,
+            "pad_front": 0.0,
+            "resample_44k1": 0.002315,
+            "resample_96k": 0.001715
+          },
+          "degrade_none_checks": 0,
           "method_candidates": 48,
           "method_error": 0.002982,
           "method_error_max": 0.017603,
@@ -193,6 +406,20 @@
         "decay_20db_ms": {
           "between_spread": 0.788008,
           "candidates_measured": 48,
+          "degrade_candidates": 48,
+          "degrade_error": 0.006922,
+          "degrade_error_max": 0.051587,
+          "degrade_max_by": {
+            "cut_edges": 0.045462,
+            "dc_offset": 0.0,
+            "dither_16bit": 0.0,
+            "gain_low": 0.0,
+            "gain_over": 0.0,
+            "pad_front": 0.0,
+            "resample_44k1": 0.046721,
+            "resample_96k": 0.051587
+          },
+          "degrade_none_checks": 0,
           "method_candidates": 48,
           "method_error": 0.010871,
           "method_error_max": 0.049899,
@@ -208,6 +435,20 @@
         "decay_40db_ms": {
           "between_spread": 0.72385,
           "candidates_measured": 42,
+          "degrade_candidates": 42,
+          "degrade_error": 0.004405,
+          "degrade_error_max": 0.029933,
+          "degrade_max_by": {
+            "cut_edges": 0.027399,
+            "dc_offset": 0.0,
+            "dither_16bit": 0.015776,
+            "gain_low": 0.0,
+            "gain_over": 0.0,
+            "pad_front": 0.0,
+            "resample_44k1": 0.029933,
+            "resample_96k": 0.024617
+          },
+          "degrade_none_checks": 0,
           "method_candidates": 42,
           "method_error": 0.006002,
           "method_error_max": 0.029933,
@@ -223,6 +464,20 @@
         "fundamental_hz": {
           "between_spread": 4.573756,
           "candidates_measured": 48,
+          "degrade_candidates": 48,
+          "degrade_error": 0.001474,
+          "degrade_error_max": 0.005969,
+          "degrade_max_by": {
+            "cut_edges": 0.005969,
+            "dc_offset": 0.0,
+            "dither_16bit": 0.003661,
+            "gain_low": 0.0,
+            "gain_over": 0.0,
+            "pad_front": 0.0,
+            "resample_44k1": 0.0,
+            "resample_96k": 0.0
+          },
+          "degrade_none_checks": 0,
           "method_candidates": 48,
           "method_error": 0.001507,
           "method_error_max": 0.013594,
@@ -238,6 +493,20 @@
         "pitch_10ms_hz": {
           "between_spread": 15.693489,
           "candidates_measured": 48,
+          "degrade_candidates": 48,
+          "degrade_error": 0.053007,
+          "degrade_error_max": 0.364627,
+          "degrade_max_by": {
+            "cut_edges": 0.364627,
+            "dc_offset": 0.0,
+            "dither_16bit": 0.000104,
+            "gain_low": 0.0,
+            "gain_over": 0.0,
+            "pad_front": 0.0,
+            "resample_44k1": 0.034048,
+            "resample_96k": 0.056144
+          },
+          "degrade_none_checks": 0,
           "method_candidates": 48,
           "method_error": 0.123637,
           "method_error_max": 0.393997,
@@ -253,6 +522,20 @@
         "pitch_20ms_hz": {
           "between_spread": 18.176803,
           "candidates_measured": 48,
+          "degrade_candidates": 48,
+          "degrade_error": 0.022465,
+          "degrade_error_max": 0.055974,
+          "degrade_max_by": {
+            "cut_edges": 0.055974,
+            "dc_offset": 0.0,
+            "dither_16bit": 0.000271,
+            "gain_low": 0.0,
+            "gain_over": 0.0,
+            "pad_front": 0.0,
+            "resample_44k1": 0.019843,
+            "resample_96k": 0.030332
+          },
+          "degrade_none_checks": 0,
           "method_candidates": 48,
           "method_error": 0.272629,
           "method_error_max": 0.661755,
@@ -268,6 +551,20 @@
         "pitch_40ms_hz": {
           "between_spread": 16.035794,
           "candidates_measured": 48,
+          "degrade_candidates": 48,
+          "degrade_error": 0.008903,
+          "degrade_error_max": 0.045814,
+          "degrade_max_by": {
+            "cut_edges": 0.045814,
+            "dc_offset": 0.0,
+            "dither_16bit": 0.000162,
+            "gain_low": 0.0,
+            "gain_over": 0.0,
+            "pad_front": 0.0,
+            "resample_44k1": 0.004837,
+            "resample_96k": 0.007494
+          },
+          "degrade_none_checks": 0,
           "method_candidates": 48,
           "method_error": 0.088434,
           "method_error_max": 0.249947,
@@ -283,6 +580,20 @@
         "pitch_5ms_hz": {
           "between_spread": 9.020729,
           "candidates_measured": 41,
+          "degrade_candidates": 41,
+          "degrade_error": 0.082641,
+          "degrade_error_max": 0.356322,
+          "degrade_max_by": {
+            "cut_edges": 0.356322,
+            "dc_offset": 0.0,
+            "dither_16bit": 0.000114,
+            "gain_low": 0.0,
+            "gain_over": 0.0,
+            "pad_front": 0.0,
+            "resample_44k1": 0.150412,
+            "resample_96k": 0.080356
+          },
+          "degrade_none_checks": 0,
           "method_candidates": 41,
           "method_error": 0.27175,
           "method_error_max": 0.958518,
@@ -298,6 +609,20 @@
         "sub_share": {
           "between_spread": 0.630826,
           "candidates_measured": 48,
+          "degrade_candidates": 48,
+          "degrade_error": 0.000433,
+          "degrade_error_max": 0.001743,
+          "degrade_max_by": {
+            "cut_edges": 0.001743,
+            "dc_offset": 0.0,
+            "dither_16bit": 1e-06,
+            "gain_low": 0.0,
+            "gain_over": 0.0,
+            "pad_front": 0.0,
+            "resample_44k1": 0.000263,
+            "resample_96k": 8.1e-05
+          },
+          "degrade_none_checks": 0,
           "method_candidates": 48,
           "method_error": 0.000465,
           "method_error_max": 0.003241,
@@ -313,6 +638,20 @@
         "tail_harmonics_db": {
           "between_spread": 8.882625,
           "candidates_measured": 48,
+          "degrade_candidates": 48,
+          "degrade_error": 0.098854,
+          "degrade_error_max": 0.415,
+          "degrade_max_by": {
+            "cut_edges": 0.043,
+            "dc_offset": 0.0,
+            "dither_16bit": 0.415,
+            "gain_low": 0.0,
+            "gain_over": 0.0,
+            "pad_front": 0.0,
+            "resample_44k1": 0.33,
+            "resample_96k": 0.203
+          },
+          "degrade_none_checks": 0,
           "method_candidates": 48,
           "method_error": 0.066854,
           "method_error_max": 0.33,
@@ -325,10 +664,76 @@
           "transform": "db",
           "weight": 1.0
         }
+      },
+      "self_distance": {
+        "by_degradation": {
+          "cut_edges": {
+            "max": 1.244956,
+            "median": 0.177019
+          },
+          "dc_offset": {
+            "max": 0.0,
+            "median": 0.0
+          },
+          "dither_16bit": {
+            "max": 1.112866,
+            "median": 0.101639
+          },
+          "gain_low": {
+            "max": 0.0,
+            "median": 0.0
+          },
+          "gain_over": {
+            "max": 0.0,
+            "median": 0.0
+          },
+          "pad_front": {
+            "max": 0.0,
+            "median": 0.0
+          },
+          "resample_44k1": {
+            "max": 0.75201,
+            "median": 0.088148
+          },
+          "resample_96k": {
+            "max": 0.505896,
+            "median": 0.021696
+          }
+        },
+        "max": 1.244956,
+        "max_candidate": "driven v0",
+        "max_degradation": "cut_edges",
+        "max_feature": "fundamental_hz",
+        "max_feature_distance": 3.960679,
+        "median": 8.9e-05,
+        "p95": 0.65465,
+        "pairs": 384,
+        "pairs_with_one_sided_none": 0
       }
     }
   },
   "command": "PYTHONPATH=src python -m audio_engine.reference_calibration --write",
+  "degradations": {
+    "cut_edges": "CUT_SAMPLES samples cut at the start and at the end",
+    "dc_offset": "DC_OFFSET added to every sample",
+    "dither_16bit": "16 bit, TPDF dither of +-1 LSB, PCG64 with the fixed seed",
+    "gain_low": "gain of GAIN_LOW_DB, float",
+    "gain_over": "gain of GAIN_OVER_DB, float, peaks above full scale",
+    "pad_front": "PAD_FRONT_MS of silence in front",
+    "resample_44k1": "resampled to 44100 Hz (polyphase Kaiser-windowed sinc)",
+    "resample_96k": "resampled to 96000 Hz (polyphase Kaiser-windowed sinc)"
+  },
+  "degrade_constants": {
+    "CUT_SAMPLES": 8,
+    "DC_OFFSET": 0.01,
+    "DITHER_SEED": 563,
+    "GAIN_LOW_DB": -12.0,
+    "GAIN_OVER_DB": 6.0,
+    "PAD_FRONT_MS": 10.0,
+    "RESAMPLE_BETA": 8.6,
+    "RESAMPLE_CUTOFF": 0.95,
+    "RESAMPLE_ZEROS": 64
+  },
   "description": "Reference feature scales (reference steering v2, E3). Generated, do not edit by hand.",
   "engines": {
     "bass": "0.2.0",
