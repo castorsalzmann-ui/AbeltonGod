@@ -110,7 +110,11 @@ Per feature ``|T(a) - T(b)| / scale`` with the transforms of :data:`FEATURES` (s
 0. Scales and weights come from the committed calibration table
 (``calibration/reference_scales.json``, written by :mod:`audio_engine.reference_calibration`);
 a feature missing from the table uses its provisional scale (note section 3) and weight 1,
-and :func:`feature_table` marks it ``provisional``.
+and :func:`feature_table` marks it ``provisional``. A table that is missing, unreadable or
+malformed is not hidden (#563): :func:`load_calibration` raises
+:class:`CalibrationUnavailable`, :func:`calibration_status` returns ``loaded`` False with the
+reason and a German message, and :func:`feature_table` warns (:class:`CalibrationWarning`)
+while it falls back to the provisional scales.
 """
 
 from __future__ import annotations
@@ -119,6 +123,7 @@ import functools
 import json
 import math
 import struct
+import warnings
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -817,17 +822,93 @@ class FeatureScale:
     provisional: bool
 
 
+class CalibrationUnavailable(Exception):
+    """The calibration table cannot be used; ``reason`` is ``missing``, ``unreadable`` or
+    ``invalid`` and the message is German (it may be shown to the user)."""
+
+    def __init__(self, reason: str, message: str) -> None:
+        super().__init__(message)
+        self.reason = reason
+
+
+class CalibrationWarning(UserWarning):
+    """Provisional scales are in use because the calibration table is unavailable."""
+
+
+@dataclass(frozen=True)
+class CalibrationStatus:
+    """What :func:`feature_table` works with: ``loaded`` False means provisional scales."""
+    loaded: bool
+    reason: str  # "loaded", "missing", "unreadable" or "invalid"
+    message: str  # German, empty when loaded
+    path: Path
+    table: dict[str, Any]  # {} when not loaded
+
+
+def _read_calibration(path: Path) -> dict[str, Any]:
+    if not path.is_file():
+        raise CalibrationUnavailable(
+            "missing", f"Die Kalibriertabelle fehlt ({path}); es gelten vorläufige Skalen.")
+    try:
+        table = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        raise CalibrationUnavailable(
+            "unreadable", f"Die Kalibriertabelle ist nicht lesbar ({path}: {exc}); es gelten "
+                          "vorläufige Skalen.") from exc
+    try:
+        rows = [row for cat in table["categories"].values() for row in cat["features"].values()]
+        ok = bool(rows) and all(
+            math.isfinite(float(r["scale"])) and float(r["scale"]) > 0.0
+            and math.isfinite(float(r["weight"])) and float(r["weight"]) >= 0.0 for r in rows)
+    except (KeyError, TypeError, ValueError, AttributeError):
+        ok = False
+    if not ok:
+        raise CalibrationUnavailable(
+            "invalid", f"Die Kalibriertabelle hat nicht die erwartete Form ({path}); es gelten "
+                       "vorläufige Skalen.")
+    return table
+
+
 @functools.cache
-def load_calibration(path: Path = CALIBRATION_FILE) -> dict[str, Any]:
-    if not path.exists():
-        return {}
-    return json.loads(path.read_text(encoding="utf-8"))
+def _status(path: Path) -> CalibrationStatus:
+    try:
+        return CalibrationStatus(True, "loaded", "", path, _read_calibration(path))
+    except CalibrationUnavailable as exc:
+        return CalibrationStatus(False, exc.reason, str(exc), path, {})
+
+
+def calibration_status(path: Path | None = None) -> CalibrationStatus:
+    """The table (default :data:`CALIBRATION_FILE`) and whether it could be used; never
+    raises. Read once per path and process."""
+    return _status(Path(CALIBRATION_FILE if path is None else path))
+
+
+def load_calibration(path: Path | None = None) -> dict[str, Any]:
+    """The committed table. Raises :class:`CalibrationUnavailable` when it is missing,
+    unreadable or malformed (no silent ``{}``); a caller that wants to go on with provisional
+    scales asks :func:`calibration_status` and reports ``loaded`` False."""
+    status = calibration_status(path)
+    if not status.loaded:
+        raise CalibrationUnavailable(status.reason, status.message)
+    return status.table
 
 
 def feature_table(category: str, calibration: dict[str, Any] | None = None) \
         -> dict[str, FeatureScale]:
-    """Transform, scale and weight per feature: calibrated where the table has the feature."""
-    cal = load_calibration() if calibration is None else calibration
+    """Transform, scale and weight per feature: calibrated where the table has the feature.
+
+    Without ``calibration`` the committed table is used. If that table is unavailable, every
+    feature gets its provisional scale (``provisional`` True) and a
+    :class:`CalibrationWarning` is issued; :func:`calibration_status` tells the caller the
+    same without a warning.
+    """
+    if calibration is None:
+        status = calibration_status()
+        if not status.loaded:
+            warnings.warn(status.message, CalibrationWarning, stacklevel=2)
+        cal = status.table
+    else:
+        cal = calibration
     rows = cal.get("categories", {}).get(category, {}).get("features", {})
     out = {}
     for name, (kind, provisional) in FEATURES[category].items():
