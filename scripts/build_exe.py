@@ -16,8 +16,9 @@ to hide), ``AbeltonGod-cli.exe`` is a console exe for the command line and the t
 run the same entry script and share ``_internal``; the file name selects the mode.
 
 The script adds no tool code; it only collects what ``src/launcher/exe_entry.py`` dispatches
-to: all packages under ``src/`` (hidden imports), the preset JSONs, the Live scripts (loaded
-by path at run time), and ``build_info.json`` for ``--version``. Secrets are never copied:
+to: all packages under ``src/`` (hidden imports), the engine's data folders (preset JSONs and
+the reference calibration table, ``DATA_DIRS``), the Live scripts (loaded by path at run
+time), and ``build_info.json`` for ``--version``. Secrets are never copied:
 only ``.env.example``, never ``.env``.
 """
 
@@ -82,6 +83,15 @@ QT_REQUIRED = ("Qt6Core.dll", "Qt6Gui.dll", "Qt6Widgets.dll", "QtCore.pyd", "QtG
                "QtWidgets.pyd", "plugins/platforms/qwindows.dll",
                "plugins/platforms/qoffscreen.dll")
 SIDE_DIRS = ("contracts", "config")
+# Data folders the engine reads by path next to its modules (``Path(__file__).parent / ...``):
+# relative to ``src/`` in a checkout and to ``_internal/`` in the bundle. PyInstaller collects
+# only code by itself, so each folder is listed as ``datas`` (#542: the calibration table was
+# missing and ``reference_v2.load_calibration`` then returned ``{}`` without a warning).
+DATA_DIRS = ("audio_engine/presets", "audio_engine/calibration")
+# One JSON file per data folder that must be in the built folder below ``_internal`` and
+# parse, or the build fails (a missing ``datas`` entry is caught at build time).
+BUNDLE_REQUIRED = ("audio_engine/presets/centre.json",
+                   "audio_engine/calibration/reference_scales.json")
 
 
 def script_imports() -> list[str]:
@@ -149,7 +159,7 @@ COLLECT(gui, cli, a.binaries, a.datas, upx=False, name={name!r})
 
 def spec_text(info: Path) -> str:
     """The spec: one Analysis, a windowed and a console EXE, one shared COLLECT (#445)."""
-    datas = [(str(ROOT / "src" / "audio_engine" / "presets"), "audio_engine/presets"),
+    datas = [*((str(ROOT / "src" / rel), rel) for rel in DATA_DIRS),
              (str(ROOT / "scripts"), "scripts"), (str(info), ".")]
     return SPEC_TEMPLATE.format(
         src=str(ROOT / "src"), datas=datas, hidden=script_imports() + list(QT_MODULES),
@@ -214,6 +224,24 @@ def prune_qt(folder: Path, prune: tuple[str, ...] = QT_PRUNE,
     return freed, lines
 
 
+def check_bundle_data(folder: Path, required: tuple[str, ...] = BUNDLE_REQUIRED) -> list[str]:
+    """Check that every ``required`` data file is in ``folder/_internal`` and parses as JSON.
+    Returns lines for the log. Raises FileNotFoundError for a missing file and ValueError for
+    one that is not valid JSON (``json.JSONDecodeError`` is a ValueError)."""
+    base = folder / "_internal"
+    missing = [rel for rel in required if not (base / rel).is_file()]
+    if missing:
+        raise FileNotFoundError(f"required data files missing from the bundle: {missing}")
+    lines = []
+    for rel in required:
+        try:
+            json.loads((base / rel).read_text(encoding="utf-8"))
+        except ValueError as exc:
+            raise ValueError(f"bundled data file {rel} is not valid JSON: {exc}") from exc
+        lines.append(f"bundled: {rel} {(base / rel).stat().st_size} bytes")
+    return lines
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--dist", type=Path, default=ROOT / "dist")
@@ -240,6 +268,11 @@ def main(argv: list[str] | None = None) -> int:
     a.work.mkdir(parents=True, exist_ok=True)
     pyi.run(pyinstaller_args(a.dist, a.work, write_build_info(a.work)))
     folder = a.dist / NAME
+    try:
+        print("\n".join(check_bundle_data(folder)))
+    except (FileNotFoundError, ValueError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
     if (folder / "_internal" / "PySide6").is_dir():
         try:
             # the required names are the Windows ones (.dll/.pyd); the exe is built there
