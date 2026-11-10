@@ -143,22 +143,40 @@ def test_bundle_check_fails_on_a_table_that_is_not_json(build_exe, tmp_path):
         build_exe.check_bundle_data(folder)
 
 
-def test_build_fails_when_the_bundle_lacks_the_data_files(build_exe, tmp_path, monkeypatch,
-                                                         capsys):
-    """``main`` returns 1 when PyInstaller's output lacks the data files (PyInstaller itself is
-    replaced by a stub that writes an empty folder; the real run is the Windows workflow)."""
+@pytest.mark.parametrize("with_data,want", [(True, 0), (False, 1)])
+def test_build_exit_code_follows_the_bundled_data_files(build_exe, tmp_path, monkeypatch,
+                                                        capsys, with_data, want):
+    """``main`` returns 1 only because the data files are missing: PyInstaller is replaced by
+    a stub that writes both exe files (so the later "was not built" check passes) and, in the
+    good case, the data files; then ``main`` returns 0. The real run is the Windows workflow."""
     import sys
     import types
 
     dist = tmp_path / "dist"
+    suffix = ".exe" if sys.platform == "win32" else ""
+
+    def fake_pyinstaller(args):
+        folder = dist / "AbeltonGod"
+        (folder / "_internal").mkdir(parents=True)
+        for name in ("AbeltonGod", "AbeltonGod-cli"):
+            (folder / (name + suffix)).write_bytes(b"exe")
+        if with_data:
+            _data_bundle(tmp_path / "dist", {
+                "audio_engine/presets/centre.json": "{}",
+                "audio_engine/calibration/reference_scales.json": "{}"})
+
     stub = types.ModuleType("PyInstaller.__main__")
-    stub.run = lambda args: (dist / "AbeltonGod" / "_internal").mkdir(parents=True)
+    stub.run = fake_pyinstaller
     pkg = types.ModuleType("PyInstaller")
     pkg.__main__ = stub
     monkeypatch.setitem(sys.modules, "PyInstaller", pkg)
     monkeypatch.setitem(sys.modules, "PyInstaller.__main__", stub)
-    assert build_exe.main(["--dist", str(dist), "--work", str(tmp_path / "work")]) == 1
-    assert "reference_scales.json" in capsys.readouterr().err
+    assert build_exe.main(["--dist", str(dist), "--work", str(tmp_path / "work")]) == want
+    out = capsys.readouterr()
+    if with_data:
+        assert "bundled: audio_engine/calibration/reference_scales.json 2 bytes" in out.out
+    else:
+        assert "reference_scales.json" in out.err and "was not built" not in out.err
 
 
 def _pe(subsystem: int) -> bytes:
