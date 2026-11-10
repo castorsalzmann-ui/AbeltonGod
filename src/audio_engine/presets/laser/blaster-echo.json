@@ -4,7 +4,7 @@
   "seed": 25,
   "bpm": 128,
   "family": "plasma",
-  "length_ms": 2500,
+  "length_ms": 3030,
   "pitch_start_hz": 1900,
   "pitch_end_hz": 110,
   "sweep_ms": 700,
