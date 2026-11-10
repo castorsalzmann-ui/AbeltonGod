@@ -13,7 +13,10 @@ below, relative to the file's peak):
 The first two fail the bound below; glitch and blaster-echo passed it and were lengthened
 because the lead decided that every shipped laser preset is long enough for its own tail.
 The other ten presets were between -63.7 dB (subboom) and -122.8 dB. Fix: preset data only
-(``length_ms`` 2890 / 2150 / 1280 / 3030), no engine change.
+(``length_ms`` 2890 / 2160 / 1280 / 3030), no engine change. pew-wide-echo is 2160 and not
+the 2150 its tail needs: at exactly 2150 ms one 24-bit sample sat on a rounding boundary and
+the WAV bytes differed between machines (CI run 42849157745; guarded by
+``test_laser_v02.test_bytes_do_not_depend_on_last_bit_noise_of_the_voice``).
 
 End level = loudest sample (either channel) in the 20 ms before the final fade, relative to
 the loudest sample of the file. The fade is 5 ms, or 50 ms when ``reverb_mix`` is above 0

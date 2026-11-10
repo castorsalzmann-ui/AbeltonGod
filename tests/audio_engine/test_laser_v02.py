@@ -927,12 +927,18 @@ def render_laser_category_for(p: dict) -> tuple[np.ndarray, dict]:
     return laser.render_laser_category(p)
 
 
-@pytest.mark.parametrize("name", ["blaster-echo", "blaster", "blaster-reverb"])
+@pytest.mark.parametrize("name", ["blaster-echo", "blaster", "blaster-reverb",
+                                  "ion", "glitch", "pew-wide-echo"])
 def test_bytes_do_not_depend_on_last_bit_noise_of_the_voice(
     name: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Without the 2**-24 rounding before the 20 Hz high-pass loop, noise of 1e-16 changes 24-bit
-    samples of blaster-echo in about half of the seeds (measured, #429)."""
+    samples of blaster-echo in about half of the seeds (measured, #429).
+
+    ion, glitch and pew-wide-echo (#554) are schema 0.1 presets, which are not rounded
+    (contract point 15), so their pinned bytes hold only while no sample sits on a 24-bit
+    rounding boundary: pew-wide-echo at length_ms 2150 had one such sample (7 of 8 noise seeds
+    changed it, and Ubuntu CI gave another SHA-256 than Windows CI); at 2160 it has none."""
     with monkeypatch.context() as m0:
         ref = _bytes_with_ulp_noise(name, 0, m0)
     for seed in range(1, 9):

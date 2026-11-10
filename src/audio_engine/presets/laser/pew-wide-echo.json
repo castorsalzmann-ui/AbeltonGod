@@ -3,7 +3,7 @@
   "preset": "pew-wide-echo",
   "seed": 7,
   "family": "pew",
-  "length_ms": 2150,
+  "length_ms": 2160,
   "pitch_start_hz": 2600,
   "pitch_end_hz": 400,
   "sweep_ms": 100,
