@@ -15,6 +15,7 @@ import os
 import subprocess
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
@@ -23,9 +24,11 @@ from audio_engine import reference_fit as F
 from audio_engine import reference_v2 as V
 from audio_engine.bass import render_resolved as render_bass
 from audio_engine.bass import resolve_bass_params
+from audio_engine.bass_variants import make_variants as bass_variants
 from audio_engine.kick import render_resolved as render_kick
 from audio_engine.params import resolve_kick_params
-from audio_engine.presets import load_preset
+from audio_engine.presets import load_preset, preset_names
+from audio_engine.variants import make_variants as kick_variants
 
 SR = 48000
 RESOLVE = {"kick": resolve_kick_params, "bass": resolve_bass_params}
@@ -398,7 +401,7 @@ def test_report_is_json_and_complete(monkeypatch):
     assert [f["name"] for f in rep["features"]] == list(V.FEATURES["kick"])
     for f in rep["features"]:
         assert {"reference", "start", "fit", "distance_before", "distance_after", "weight",
-                "scale"} <= set(f)
+                "fit_scale", "calibrated_scale", "provisional_scale", "scale_source"} <= set(f)
     assert rep["profile"]["label"] == "Form (nur für die Suche)"
     assert {"distance_before", "distance_after"} <= set(rep["profile"])
     assert [p["name"] for p in rep["parameters"]] == [n for n, _ in F.SEARCH["kick"]]
@@ -407,7 +410,7 @@ def test_report_is_json_and_complete(monkeypatch):
         assert p["fit"] == result.params[p["name"]]
         assert p["flag"] in ("festgelegt", "von den Messwerten nicht festgelegt")
     assert rep["fit_seed"] == result.params["seed"] == result.start_params["seed"]
-    assert rep["scales"]["source"] in ("table", "mixed", "provisional")
+    assert rep["scales"]["table_loaded"] is True and rep["scales"]["table_message"] == ""
     assert {"renders", "seconds", "stop_reason", "rejected_trials", "total_before",
             "total_after", "stage1", "weak_by_design", "pitch_settles"} <= set(rep)
     # the total is the weighted features plus the profile as one feature
@@ -423,12 +426,56 @@ def test_scale_source_is_reported(monkeypatch):
     use_candidates(monkeypatch, candidate("kick", "centre"))
     _, audio = render("kick", seed=9)
     rep = F.fit_reference("kick", audio, SR, max_renders=0).report
-    assert rep["scales"] == {"source": "table", "provisional_features": []}
-    provisional = V.feature_table("kick", {})
-    monkeypatch.setattr(V, "feature_table", lambda category: provisional)
+    assert rep["scales"]["table_loaded"] is True
+    assert rep["scales"]["rule"] == "fit scale = max(calibrated scale, provisional scale)"
+    assert sorted(rep["scales"]["set_by_calibrated"] + rep["scales"]["set_by_provisional"]) \
+        == sorted(V.FEATURES["kick"])
+    message = "Die Kalibriertabelle fehlt (test); es gelten vorläufige Skalen."
+    monkeypatch.setattr(V, "calibration_status", lambda path=None: SimpleNamespace(
+        loaded=False, reason="missing", message=message, table={}))
     rep = F.fit_reference("kick", audio, SR, max_renders=0).report
-    assert rep["scales"]["source"] == "provisional"
-    assert rep["scales"]["provisional_features"] == list(V.FEATURES["kick"])
+    assert rep["scales"]["table_loaded"] is False and rep["scales"]["table_message"] == message
+    assert rep["scales"]["set_by_provisional"] == list(V.FEATURES["kick"])
+    assert all(f["calibrated_scale"] is None and f["weight"] == 1.0 for f in rep["features"])
+
+
+def fake_table(category: str, scales: dict[str, float], weights: dict[str, float]):
+    rows = {n: {"scale": scales.get(n, 1e-3), "weight": weights.get(n, 1.0)}
+            for n in V.FEATURES[category]}
+    return SimpleNamespace(loaded=True, reason="loaded", message="",
+                           table={"categories": {category: {"features": rows}}})
+
+
+def test_fit_scale_is_the_larger_of_calibrated_and_provisional(monkeypatch):
+    # provisional scales of the note's section 3: kick body_hz 2 semitones, sub_share 0.05,
+    # decay_20db_ms ln 1.25; bass attack_ms ln 1.3, note_hz 0.1 semitones
+    monkeypatch.setattr(V, "calibration_status", lambda path=None: fake_table(
+        "kick", {"body_hz": 0.00036, "sub_share": 0.2, "decay_20db_ms": math.log(1.25)},
+        {"click_share": 0.0}))
+    rows = F.fit_scales("kick").rows
+    assert rows["body_hz"].fit.scale == 2.0 and rows["body_hz"].source == "provisional"
+    assert rows["body_hz"].calibrated == 0.00036 and rows["body_hz"].provisional == 2.0
+    assert rows["sub_share"].fit.scale == 0.2 and rows["sub_share"].source == "calibrated"
+    assert rows["decay_20db_ms"].source == "calibrated"  # equal: the table's value stands
+    assert rows["click_share"].fit.weight == 0.0  # weights are the table's
+    monkeypatch.setattr(V, "calibration_status", lambda path=None: fake_table(
+        "bass", {"attack_ms": 2.062743, "note_hz": 0.00386}, {}))
+    rows = F.fit_scales("bass").rows
+    assert rows["attack_ms"].fit.scale == 2.062743 and rows["attack_ms"].source == "calibrated"
+    assert rows["note_hz"].fit.scale == pytest.approx(0.1)
+    assert rows["note_hz"].source == "provisional"
+
+
+def test_report_distances_use_the_fit_scale(monkeypatch):
+    use_candidates(monkeypatch, candidate("kick", "centre"))  # pitch_end_hz 52
+    _, audio = render("kick", pitch_end_hz=58, seed=2)
+    rep = F.fit_reference("kick", audio, SR, max_renders=0).report
+    row = next(f for f in rep["features"] if f["name"] == "fundamental_hz")
+    assert row["provisional_scale"] == 1.0 and row["calibrated_scale"] < 0.1
+    assert row["scale_source"] == "provisional" and row["fit_scale"] == 1.0
+    semitones = abs(12 * math.log2(row["reference"] / row["start"]))
+    assert 1.0 < semitones < 3.0  # 52 -> 58 Hz is 1.9 semitones
+    assert row["distance_before"] == pytest.approx(semitones / 1.0)
 
 
 def test_no_listening_or_likeness_wording():
@@ -509,3 +556,173 @@ def test_same_reference_in_two_processes():
     assert runs[0] == runs[1]
     assert runs[0]["kick"][1] > 0 and runs[0]["bass"][1] > 0
     assert len(hashlib.sha256(b"").hexdigest()) == len(runs[0]["kick"][0])
+
+
+# --- recovery of synthetic references (note section 7) ----------------------------------------
+#
+# References are renders of our own engines with known parameters, so this is an upper bound
+# for real references ("inverse crime", note "For workers"). Truth = a preset variant drawn
+# with PCG64, each searched parameter replaced: box (a) u +- 0.15 around the variant's value,
+# box (b) u uniform in [0, 1]. A truth the contract refuses is drawn again. The space below
+# (map and contract range per parameter) is written here, not read from the fit.
+
+REFERENCE_SEED = 987654  # no candidate uses it (their seeds are 1 ... 1005 plus variant offsets)
+DRAW_SEED = {("kick", "a"): 52201, ("bass", "a"): 52202, ("kick", "b"): 52203,
+             ("bass", "b"): 52204}
+BOX_COUNT = {"a": 8, "b": 4}
+BOX_B_RENDERS = 100  # box (b) asserts only after <= before; long bass notes render slowly
+SPACE = {
+    "kick": {
+        "pitch_end_hz": ("log", 30, 120), "pitch_start_hz": ("log", 60, 600),
+        "pitch_decay_ms": ("log", 2, 300), "amp_decay_ms": ("log", 20, 2000),
+        "drive": ("lin", 0, 1), "tone": ("lin", -1, 1), "click_level": ("lin", 0, 1),
+        "click_tone_hz": ("log", 500, 12000),
+    },
+    "bass": {
+        "saw_level": ("lin", 0, 1), "square_level": ("lin", 0, 1), "sine_level": ("lin", 0, 1),
+        "sub_octave_level": ("lin", 0, 1), "drive": ("lin", 0, 1), "lp_hz": ("log", 60, 4000),
+        "hp_hz": ("log", 20, 120), "lp_q": ("log", 0.5, 6), "lp_env_amount": ("lin", 0, 4),
+        "lp_env_decay_ms": ("log", 5, 800), "amp_attack_ms": ("log", 0.5, 30),
+        "gate_ms": ("log", 50, 1500), "release_ms": ("log", 5, 400),
+    },
+}
+# Tolerances, measured on the draws below (tables in the PR of #564). "rel" = |fit / truth - 1|,
+# "abs" = |fit - truth|. Tier A: every box (a) reference. Tier B: at least the stated number
+# of the 8 box (a) references. Tier C: not asserted; must be flagged or listed as weak.
+TIER_A = {
+    "kick": {"pitch_end_hz": ("rel", 0.12)},
+    "bass": {"note": ("abs", 0), "cents": ("abs", 10.0)},
+}
+TIER_B = {
+    "kick": {"pitch_start_hz": ("rel", 0.12, 6), "amp_decay_ms": ("rel", 0.12, 5),
+             "pitch_decay_ms": ("rel", 0.25, 6), "drive": ("abs", 0.12, 5)},
+    "bass": {"gate_ms": ("rel", 0.20, 7), "lp_hz": ("rel", 0.35, 6), "drive": ("abs", 0.1, 5)},
+}
+TIER_C = {
+    "kick": ("tone", "click_level", "click_tone_hz"),
+    "bass": ("saw_level", "square_level", "sine_level", "sub_octave_level", "hp_hz", "lp_q",
+             "lp_env_amount", "lp_env_decay_ms", "amp_attack_ms", "release_ms"),
+}
+
+
+def _u(kind: str, value: float, lo: float, hi: float) -> float:
+    return math.log(value / lo) / math.log(hi / lo) if kind == "log" else (value - lo) / (hi - lo)
+
+
+def _value(kind: str, u: float, lo: float, hi: float) -> float:
+    u = min(1.0, max(0.0, u))
+    return round(lo * (hi / lo) ** u if kind == "log" else lo + (hi - lo) * u, 4)
+
+
+def preset_variants(category: str) -> list[dict]:
+    make = kick_variants if category == "kick" else bass_variants
+    return [resolved_form(category, v) for name in preset_names(category)
+            for v in make(load_preset(name, category), 8)]
+
+
+def draw_references(category: str, box: str) -> list[tuple[dict, np.ndarray]]:
+    rng = np.random.Generator(np.random.PCG64(DRAW_SEED[category, box]))
+    bases = preset_variants(category)
+    out = []
+    while len(out) < BOX_COUNT[box]:
+        base = bases[int(rng.integers(len(bases)))]
+        truth = dict(base)
+        for name, (kind, lo, hi) in SPACE[category].items():
+            u = _u(kind, base[name], lo, hi) + float(rng.uniform(-0.15, 0.15)) if box == "a" \
+                else float(rng.uniform())
+            truth[name] = _value(kind, u, lo, hi)
+        if category == "bass":  # note 24 ... 55 and cents -50 ... 50 by the same rule
+            if box == "a":
+                un = (base["note"] - 24) / 31 + float(rng.uniform(-0.15, 0.15))
+                uc = (base["cents"] + 50) / 100 + float(rng.uniform(-0.15, 0.15))
+            else:
+                un, uc = float(rng.uniform()), float(rng.uniform())
+            truth["note"] = int(round(24 + 31 * min(1.0, max(0.0, un))))
+            truth["cents"] = round(-50 + 100 * min(1.0, max(0.0, uc)), 4)
+        truth["seed"] = REFERENCE_SEED
+        try:
+            truth = resolved_form(category, truth)
+        except ValueError:
+            continue
+        out.append((truth, RENDER[category](truth)))
+    return out
+
+
+def _error(mode: str, fit: float, truth: float) -> float:
+    return abs(fit / truth - 1.0) if mode == "rel" else abs(fit - truth)
+
+
+def recovery_rows(category: str, box: str, max_renders: int | None = None) -> list[dict]:
+    """One row per reference: truth, fit result and signed errors (also used for the PR
+    tables: run with ``-s`` to see them)."""
+    rows = []
+    names = list(SPACE[category]) + (["note", "cents"] if category == "bass" else [])
+    for i, (truth, audio) in enumerate(draw_references(category, box), start=1):
+        result = F.fit_reference(category, audio, SR, max_renders=max_renders,
+                                 max_seconds=GENEROUS_SECONDS)
+        rep = result.report
+        flagged = {p["name"] for p in rep["parameters"] if p["determined"] is False}
+        cells = []
+        for n in names:
+            kind = SPACE[category].get(n, ("lin",))[0]
+            cell = f"{(result.params[n] / truth[n] - 1) * 100:+.0f} %" if kind == "log" \
+                else f"{result.params[n] - truth[n]:+.2f}"
+            cells.append(cell + ("*" if n in flagged else ""))
+        print(f"| {i} | {rep['total_before']:.2f} -> {rep['total_after']:.2f} | "
+              f"{rep['renders']} | {rep['seconds']:.1f} | {rep['stop_reason']} | "
+              + " | ".join(cells) + " |")
+        rows.append({"index": i, "truth": truth, "result": result})
+    return rows
+
+
+@pytest.mark.parametrize("category", ["kick", "bass"])
+def test_recovery_near_presets_box_a(category):
+    rows = recovery_rows(category, "a")
+    assert len(rows) >= 8
+    problems = []
+    for row in rows:
+        truth, result, rep = row["truth"], row["result"], row["result"].report
+        assert truth["seed"] != rep["fit_seed"]
+        if not rep["total_after"] <= rep["total_before"]:
+            problems.append(f"ref {row['index']}: after {rep['total_after']} > before")
+        if rep["stop_reason"] not in ("step", "renders"):
+            problems.append(f"ref {row['index']}: stop reason {rep['stop_reason']}")
+        if rep["renders"] > 300:
+            problems.append(f"ref {row['index']}: {rep['renders']} renders")
+        for name, (mode, tol) in TIER_A[category].items():
+            e = _error(mode, result.params[name], truth[name])
+            if e > tol:
+                problems.append(f"tier A ref {row['index']} {name}: fit {result.params[name]}"
+                                f", truth {truth[name]}, error {e:.3f} > {tol}")
+        flagged = {p["name"] for p in rep["parameters"] if p["determined"] is False}
+        for name in TIER_C[category]:
+            if name not in flagged and name not in rep["weak_by_design"]:
+                problems.append(f"tier C ref {row['index']} {name}: neither flagged nor weak")
+    for name, (mode, tol, need) in TIER_B[category].items():
+        hits = sum(_error(mode, r["result"].params[name], r["truth"][name]) <= tol
+                   for r in rows)
+        if hits < need:
+            problems.append(f"tier B {name}: {hits} of {len(rows)} within {tol}, need {need}")
+    assert not problems, "\n".join(problems)
+
+
+@pytest.mark.parametrize("category", ["kick", "bass"])
+def test_recovery_full_range_box_b(category):
+    rows = recovery_rows(category, "b", max_renders=BOX_B_RENDERS)
+    assert len(rows) >= 4
+    for row in rows:
+        rep = row["result"].report
+        assert rep["total_after"] <= rep["total_before"], row["index"]
+        assert rep["stop_reason"] in ("step", "renders"), row["index"]
+        assert rep["stop_label"] == F.STOP_LABEL[rep["stop_reason"]]
+        assert rep["renders"] <= BOX_B_RENDERS
+        assert resolved_form(category, row["result"].params) == row["result"].params
+
+
+def test_tiers_cover_every_searched_parameter_once():
+    for category in ("kick", "bass"):
+        tiers = [*TIER_A[category], *TIER_B[category], *TIER_C[category]]
+        searched = [n for n, _ in F.SEARCH[category]]
+        extra = ["note", "cents"] if category == "bass" else []
+        assert sorted(tiers) == sorted(searched + extra)
+        assert set(F.WEAK_BY_DESIGN[category]) == set(TIER_C[category])

@@ -7,8 +7,10 @@ a listener (D-032): the report holds measured values, distances and counts only.
 
 What is compared
 ----------------
-- The explained features of :mod:`audio_engine.reference_v2` with the scales and weights of
-  its calibration table (read at run time through :func:`reference_v2.feature_table`).
+- The explained features of :mod:`audio_engine.reference_v2` with the weights of its
+  calibration table (read at run time) and the **fit scale** of :func:`fit_scales`: per
+  feature the larger of the calibrated and the provisional scale. The report names both
+  and which one set the fit scale, and says when the table could not be loaded.
 - A spectro-temporal **profile** (note rule 2.6, :func:`profile`): energy in
   :data:`PROFILE_BANDS` log-spaced bands from 30 Hz to 16 kHz in six time zones counted from
   the onset (:data:`PROFILE_ZONES_MS`), rectangular window per zone, dB relative to the
@@ -178,8 +180,9 @@ TEXT_NOT_MEASURABLE = "nicht messbar"
 # (box (a), numbers in the PR): their fit values are start points even where the local check
 # calls them determined. Shown in every report as ``weak_by_design``.
 WEAK_BY_DESIGN: dict[str, tuple[str, ...]] = {
-    "kick": ("click_tone_hz", "tone"),
-    "bass": (),
+    "kick": ("tone", "click_level", "click_tone_hz"),
+    "bass": ("saw_level", "square_level", "sine_level", "sub_octave_level", "hp_hz", "lp_q",
+             "lp_env_amount", "lp_env_decay_ms", "amp_attack_ms", "release_ms"),
 }
 
 
@@ -267,6 +270,55 @@ def combined_total(per_feature: dict[str, float], profile_d: float,
         if wsum + PROFILE_WEIGHT > 0.0 else 0.0
 
 
+# --- fit scales (lead decision on #564, 2026-11-10) -------------------------------------------
+
+SCALE_RULE = "fit scale = max(calibrated scale, provisional scale)"
+SOURCE_CALIBRATED = "calibrated"
+SOURCE_PROVISIONAL = "provisional"
+
+
+@dataclass(frozen=True)
+class FitScale:
+    """Scales of one feature: ``fit`` is what every distance of the fit uses."""
+
+    fit: V.FeatureScale
+    calibrated: float | None  # the table's scale; None when the table has no row for it
+    provisional: float
+    source: str  # which of the two set the fit scale
+
+
+@dataclass(frozen=True)
+class FitScales:
+    rows: dict[str, FitScale]
+    table_loaded: bool
+    message: str  # German reason when the table could not be used, else ""
+
+
+def fit_scales(category: str) -> FitScales:
+    """Per feature ``max(calibrated scale, provisional scale)`` with the table's weight.
+
+    The calibrated table is the reading resolution of our own renders (kick ``body_hz``
+    0.00036 semitones). As a search objective it failed (measured for #564, comments on
+    #563: local minima with ``pitch_end_hz`` up to +25 % off in box (a)), so the fit never
+    goes below the provisional scales of ``reference_v2.FEATURES``. Those are working
+    resolutions set by hand (1 semitone, about 25 % in time, 5 points of share, 1.5-3 dB),
+    not statements about what a listener notices. Without a usable table every feature uses
+    its provisional scale with weight 1 and ``table_loaded`` is False.
+    """
+    status = V.calibration_status()
+    calibrated = V.feature_table(category, status.table if status.loaded else {})
+    rows: dict[str, FitScale] = {}
+    for name, (kind, provisional) in V.FEATURES[category].items():
+        cal = calibrated[name]
+        has_row = not cal.provisional
+        by_table = has_row and cal.scale >= provisional
+        rows[name] = FitScale(
+            V.FeatureScale(kind, max(cal.scale, provisional), cal.weight, not has_row),
+            cal.scale if has_row else None, provisional,
+            SOURCE_CALIBRATED if by_table else SOURCE_PROVISIONAL)
+    return FitScales(rows, bool(status.loaded), status.message)
+
+
 # --- candidate sets (E4 for kick and bass) ----------------------------------------------------
 
 @dataclass(frozen=True)
@@ -330,7 +382,8 @@ class _Run:
                  clock: Callable[[], float]) -> None:
         self.category = category
         self.resolve, self.render = _resolver(category)
-        self.table = V.feature_table(category)
+        self.scales = fit_scales(category)
+        self.table = {n: s.fit for n, s in self.scales.rows.items()}
         self.ref_features = V.features_from_audio(category, audio, sr)
         self.ref_profile = profile(category, audio, sr)
         self.max_renders = max_renders
@@ -628,12 +681,14 @@ def fit_reference(category: str, audio: np.ndarray, sample_rate: int, *,
         stop = "cancelled"
 
     table = run.table
-    provisional = [n for n, fs in table.items() if fs.provisional]
     features = []
     for name, fs in table.items():
         ref_value = run.ref_features.get(name)
+        row = run.scales.rows[name]
         features.append({
-            "name": name, "weight": fs.weight, "scale": fs.scale, "transform": fs.transform,
+            "name": name, "weight": fs.weight, "transform": fs.transform,
+            "fit_scale": fs.scale, "calibrated_scale": row.calibrated,
+            "provisional_scale": row.provisional, "scale_source": row.source,
             "reference": ref_value, "start": start.features.get(name),
             "fit": best.features.get(name),
             "distance_before": start.distances[name], "distance_after": best.distances[name],
@@ -644,9 +699,13 @@ def fit_reference(category: str, audio: np.ndarray, sample_rate: int, *,
         "fit_seed": best.params["seed"],
         "start_candidate": cands[index].label,
         "scales": {
-            "source": "provisional" if len(provisional) == len(table)
-            else ("mixed" if provisional else "table"),
-            "provisional_features": provisional,
+            "rule": SCALE_RULE,
+            "table_loaded": run.scales.table_loaded,
+            "table_message": run.scales.message,
+            "set_by_calibrated": [n for n, s in run.scales.rows.items()
+                                  if s.source == SOURCE_CALIBRATED],
+            "set_by_provisional": [n for n, s in run.scales.rows.items()
+                                   if s.source == SOURCE_PROVISIONAL],
         },
         "features": features,
         "profile": {
