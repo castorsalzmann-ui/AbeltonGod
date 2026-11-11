@@ -25,21 +25,21 @@ SRC = Path(__file__).resolve().parents[2] / "src"
 PINNED = {
     "default": {  # --seed 3
         "goa_lead_seed3_145bpm_4bars.mid":
-            "b217dc235f5e5b730c48c2862230cca1e3110669fcfd8a0cd6e55f70f4502c51",
+            "ee87c842b62762720d81a922107e8642bf21f87141ea26983497d3b967519b10",
         "goa_arp_seed3_145bpm_4bars.mid":
-            "5a9f87afd3328d325d92aa3a141ba107dae8ff8eca4e3c4958bf66ba595e2b76",
+            "43ab8393f7248721d852c144d8b367708aa61b04428ec5b3c7ce21c53bb7c437",
         "goa_pad_seed3_145bpm_4bars.mid":
-            "5323e98f4842e977da646ab39aace54c71483007e6a5b878de16d7ce218c6906",
+            "0a42ff5925093e8239c0eb4688dcee564af915643593ee861ef4100ea6799a78",
         "goa_pluck_seed3_145bpm_4bars.mid":
-            "9b6aaac665cab8f2852a2067d4e014b948177bee65a32400418e10c05093398a",
-        "README.md": "b0f59e892738ea4c8faa2b0de1019dd5a5369dd8aa23c3038444b52b909a3418"},
+            "80a9a87587172e555f45823a1b4b48c24fbfbb8d02e22e2401862119886c84b5",
+        "README.md": "e16de7e93e3f8099fc47ea35cf62e82294b448ee9402a679c5f6eba6d9cb3f73"},
     "custom": {  # --seed 9 --bars 2 --bpm 138 --root Bb --scale aeolian --density 0.4
                  # --register -1 --arp-pattern random --progression 0,5 --voices lead,arp
         "goa_lead_seed9_138bpm_2bars.mid":
-            "022b069adb466908bbaae4cb1da12126f73f2476a3d6d2f292abbb2bf85e4dd1",
+            "2b9d27017d6334832c313d01981f2dd72e1f1e72c923495fac50932c0bffec30",
         "goa_arp_seed9_138bpm_2bars.mid":
-            "202ac66ce6c79fae3406e1b2340a4ab7f8a5c164b2b40e2a8bb980ea8985cf37",
-        "README.md": "6e566c5667dc430c15036e3a3fe7abdfa08eb7abdfc745555938175b17c5da85"},
+            "6c6f3f6b6ffaae8f303e66209197163508e6f7bd8a56ca14db3dcd2606147f77",
+        "README.md": "ef895bbc800aef23fc22beedcd374026eac9591d9a45a860a34d6cf0ed8a3e20"},
 }
 
 # What the user types into the form for each pinned run (field -> text; optionals switched on).
@@ -310,11 +310,11 @@ def test_default_summary_has_the_known_literal_values():
     ev = GoaFormModel().evaluate()
     plan = ev.plan
     assert (plan.bars, plan.tempo, plan.key) == (4, 145.0, "A phrygian")
-    assert plan.chords == (0, 5, 6, 4)  # one chord per bar (D-035 clip rule)
-    # documented note counts at the default densities (lead 0.6 -> round(4.8)=5 per bar,
-    # arp 1 -> 16, pad 0 -> one triad per chord = 4 x 3, pluck 0.5 -> 8)
+    assert plan.chords == (0, 0, 0, 0)  # default progression: root only (#570, N8)
+    # note counts of the seed-0 default clips (#570 cell model; arp on every 16th = 64,
+    # pad root + fifth held = 2; lead and pluck depend on the seed's cell)
     assert [(c.voice, c.notes) for c in plan.clips] == [
-        ("lead", 20), ("arp", 64), ("pad", 12), ("pluck", 32)]
+        ("lead", 26), ("arp", 64), ("pad", 2), ("pluck", 56)]
     assert plan.clips[0].file_name == "goa_lead_seed0_145bpm_4bars.mid"
     assert abs(plan.seconds - 16 * 60 / 145) < 1e-9
     assert ev.kwargs["voices"] == ["lead", "arp", "pad", "pluck"]
@@ -322,7 +322,7 @@ def test_default_summary_has_the_known_literal_values():
 
 def test_summary_follows_bars_and_voices():
     plan = filled({"bars": "8", "voices": "pad,arp"}).evaluate().plan
-    assert plan.chords == (0, 0, 5, 5, 6, 6, 4, 4)
+    assert plan.chords == (0,) * 8
     assert [c.voice for c in plan.clips] == ["arp", "pad"]
 
 

@@ -117,6 +117,7 @@ MIN_PITCHES = 3
 DEFAULT_SLIDES = {"lead": 1, "arp": 0, "pluck": 2}
 DEFAULT_TIE_PERCENT = {"lead": 50, "arp": 0, "pluck": 50}
 SLIDE_MIN_VOICES = ("pluck",)  # keeps one slide per bar where a candidate step exists
+ROOT_SHARE_VOICES = ("arp", "pluck")  # root share planned over notes (table: arp and acid)
 # name: (default, lowest, highest). Working values; source classes are listed in the PR.
 INT_OPTIONS: dict[str, tuple[int, int, int]] = {
     "velocity": (84, 1, 126),            # N6 example value
@@ -344,6 +345,12 @@ def _cell_root(voice: str, register: int, rpc: int) -> tuple[int, int, int]:
     return base + (rpc - base) % 12, lo, hi
 
 
+def _notes_per_pass(density: float, length: int) -> int:
+    """Notes in one cell pass: density x length, rounded half up, in integers (density is
+    first taken to 1/1000)."""
+    return (int(density * 1000 + 0.5) * length + 500) // 1000
+
+
 def _free_steps(length: int, pa: int, pb: int, starts: Sequence[int]) -> list[int]:
     """Steps that are neither an excursion candidate nor next to one (nor a group start)."""
     taken = {pa, pb}
@@ -398,16 +405,31 @@ class _Plan:
         tones = [t for t in placed if HOVER_HI < t <= EXCURSION_HI
                  and t - neighbour <= o["max_span"]]
         pick = rng.randrange(max(1, len(tones)))
-        if octave or not tones:
-            self.excursion = 12 if self.root + 12 < self.hi else -12
+        near = {(p + d) % n for p in (pa, pb) for d in (-1, 1)}
+        self.near = near
+        # Rests fill the plain steps first (see rhythm). When there are more rests than
+        # plain steps, a step next to the excursion can rest, and then any cell tone can
+        # sound next to it: every tone is then held within the leap limit. This reads
+        # options and contour only, never the rhythm sub-seed.
+        plain = n - len({0, keep, pa, pb} | near)
+        rests = n - _notes_per_pass(o["density"][voice], n)
+        everywhere = rests > plain
+        self.everywhere = everywhere
+        # N3: the excursion goes UP. An octave that does not fit the register window, or
+        # that would be more than max_leap from the neighbour where the neighbour can sound
+        # next to it (blues: the b7 below), gives way to another excursion tone; only
+        # without one is the octave kept (taken downwards if it does not fit).
+        fits = self.root + 12 < self.hi
+        clash = everywhere and 12 - neighbour > o["max_leap"]
+        if (octave and fits and not clash) or not tones:
+            self.excursion = 12 if fits else -12
         else:
             self.excursion = tones[pick]
             hover = [t for t in hover if self.excursion - t <= o["max_span"]]
         self.is_octave = abs(self.excursion) == 12
-        near = {(p + d) % n for p in (pa, pb) for d in (-1, 1)}
 
         def allowed(step: int) -> list[int]:
-            if step in near:
+            if step in near or everywhere:
                 return [t for t in hover if abs(self.excursion - t) <= o["max_leap"]]
             return hover
 
@@ -424,7 +446,13 @@ class _Plan:
             got = _weighted(rng, options, [weight(t, cell[s - 1]) for t in options])
             cell[s] = 0 if s in self.starts else got
         cell[keep] = neighbour  # N2: the neighbour is always there (not next to an excursion)
-        need = -(-n * o["root_share"] // 100)
+        # Root share over the NOTES: for the voices in ROOT_SHARE_VOICES the cell holds
+        # enough roots that the target still holds when every rest falls on a root step.
+        notes = n - rests
+        if voice in ROOT_SHARE_VOICES:
+            need = min(n - 2, -(-notes * o["root_share"] // 100) + rests)
+        else:
+            need = -(-n * o["root_share"] // 100)
         convert = [s for s in range(1, n) if s != keep]
         rng.shuffle(convert)
         for s in convert:
@@ -438,18 +466,18 @@ class _Plan:
 
         # ---- rhythm (rhythm sub-seed): "n" note, "t" tie, "r" rest per cell step
         rng = _stream(o["sub_seeds"]["rhythm"], "rhythm", voice)
-        notes = (int(o["density"][voice] * 1000 + 0.5) * n + 500) // 1000
-
-        # The higher the rank, the later a step becomes a rest. An octave excursion goes
-        # before its neighbours do, so a sounding octave always has the neighbours the
-        # leap limit was checked against; another excursion tone is within the limit of
-        # every cell tone and is kept longer. Root step and neighbour step go last.
+        # The higher the rank, the later a step becomes a rest: plain steps, then the
+        # steps next to the excursion, the neighbour step, the excursion steps, and the
+        # root step (cell step 1) last. When every tone is within the leap limit
+        # (``everywhere``), the steps next to the excursion are plain steps too.
         def rank(s: int) -> int:
-            if s in (0, keep):
-                return 6 if s == 0 else 5
+            if s == 0:
+                return 4
             if s in (pa, pb):
-                return (1 if s == pb else 2) if self.is_octave else (3 if s == pb else 4)
-            return (3 if self.is_octave else 1) if s in near else 0
+                return 3
+            if s == keep:
+                return 2
+            return 1 if s in near and not self.everywhere else 0
 
         plain = [s for s in range(n) if rank(s) == 0]
         rng.shuffle(plain)
@@ -472,6 +500,13 @@ class _Plan:
         self.accent_cycle = coprime[pick % len(coprime)] if o["accent_cycle"] == "auto" \
             else o["accent_cycle"]
         self.accent_phase = 1 + rng.randrange(self.accent_cycle - 1)
+        # A cycle that shares a factor with the notes per pass would hit the same cell
+        # steps in every pass: then one gap per pass is changed by one note, which moves
+        # the accents through the cell. Cycle 3 waits one note longer (gaps 3 and 4:
+        # share between 1/4 and 1/3); cycle 5 one note less (gaps 5 and 4: share between
+        # 1/5 and 1/4). Both stay inside the 20-35 % band of the report.
+        rotate = math.gcd(self.accent_cycle, max(1, notes)) != 1
+        self.accent_rotate = 0 if not rotate else (1 if self.accent_cycle == 3 else -1)
 
         # ---- slide (slide sub-seed): a rank per step of the slide cycle
         rng = _stream(o["sub_seeds"]["slide"], "slide", voice)
@@ -526,8 +561,11 @@ def _cell_notes(o: Mapping[str, Any], plan: _Plan) -> list[Note]:
                 chosen = [found[0][2]]
             slides.update(chosen)
 
-        count = 0  # notes of this block so far: the accent cycle runs over notes
+        # The accent cycle runs over notes: ``wait`` = notes until the next accent.
+        wait, first = plan.accent_phase, True
         for s in range(b0, b1):
+            if plan.accent_rotate and s > b0 and (s - b0) % n == 0:
+                wait = max(0, wait + plan.accent_rotate)
             if kind(s) != "n":
                 continue
             i = (s - b0) % n
@@ -547,9 +585,9 @@ def _cell_notes(o: Mapping[str, Any], plan: _Plan) -> list[Note]:
             start = s * STEP_TICKS
             end = start + STEP_TICKS + o["slide_overlap_ticks"] if s in slides \
                 else start + ties * STEP_TICKS + gate
-            accent = count % plan.accent_cycle == plan.accent_phase \
-                or (plan.accent_cycle == 5 and count == 0)
-            count += 1
+            accent = wait == 0 or (plan.accent_cycle == 5 and first)
+            wait = plan.accent_cycle - 1 if wait == 0 else wait - 1
+            first = False
             out.append(Note(start, end, pitch, o["accent_velocity"] if accent else o["velocity"]))
     # Only with a chord change: folding into the register window can put the excursion on
     # the pitch next to it. One pitch cannot overlap itself, so that slide ends at the next

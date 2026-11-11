@@ -39,6 +39,9 @@ CLI::
         [--variation on|off] [--velocity 84] [--accent-velocity 120] [--gate 50]
         [--sub-seeds auto | pitch=1,rhythm=2,accent=3,slide=4]
 
+The options from ``--cell-length`` on exist on the command line only; the Goa page reads
+``build_parser()`` without them (no new form controls in #570) and gets their defaults.
+
 writes ``DIR/goa_<voice>_seed<N>_<BPM>bpm_<bars>bars.mid`` per voice and ``DIR/README.md``.
 Existing targets are refused before anything is written.
 """
@@ -238,7 +241,17 @@ def _map_default(values: Mapping[str, Any]) -> str:
     return ",".join(f"{k}={v}" for k, v in values.items())
 
 
-def build_parser() -> argparse.ArgumentParser:
+CELL_OPTIONS = ("cell_length", "lead_mode", "restart_bars", "grouping", "pitches",
+                "accent_cycle", "slides", "variation", "velocity", "accent_velocity", "gate",
+                "sub_seeds")
+
+
+def build_parser(cell_options: bool = False) -> argparse.ArgumentParser:
+    """The CLI parser. ``cell_options=False`` (what the Goa page reads) has the options the
+    page had before #570; the command line (:func:`main`) also has the cell-model options
+    (:data:`CELL_OPTIONS`). Left out, they take their defaults, so the page writes the
+    same bytes as the command line without them. Form controls for them are a later
+    issue (#570 scope)."""
     p = argparse.ArgumentParser(
         prog="python -m audio_engine.goa_clips",
         description="Goa lead/arp/pad/pluck clips built from repeated cells: one looping "
@@ -257,6 +270,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--progression", default="0",
                    help="comma list of scale degrees; default 0 = root only")
     p.add_argument("--voices", default=",".join(VOICES))
+    if not cell_options:
+        return p
     p.add_argument("--cell-length", default="auto",
                    help="steps per cell: auto (chosen by the seed), one of "
                         f"{','.join(map(str, goa_cells.CELL_LENGTHS))}, or voice=value,...")
@@ -302,32 +317,36 @@ def _length_value(text: str) -> Any:
 
 
 def params_from_args(a: argparse.Namespace) -> dict[str, Any]:
+    """Keyword arguments for the generator; works for both parsers of :func:`build_parser`."""
     params: dict[str, Any] = {
         "seed": a.seed, "bars": a.bars, "bpm": a.bpm, "root": a.root, "scale": a.scale,
         "arp_pattern": a.arp_pattern,
         "progression": [int(x) for x in a.progression.split(",")],
-        "voices": [v for v in a.voices.split(",") if v],
+        "voices": [v for v in a.voices.split(",") if v]}
+    if a.density is not None:
+        params["density"] = _parse_map(a.density, float, "density")
+    if a.register is not None:
+        params["register"] = _parse_map(a.register, int, "register")
+    if not hasattr(a, "cell_length"):
+        return params
+    params.update({
         "cell_length": _parse_map(a.cell_length, _length_value, "cell-length"),
         "lead_mode": a.lead_mode, "restart_bars": a.restart_bars, "grouping": a.grouping,
         "pitches": _parse_map(a.pitches, int, "pitches"),
         "accent_cycle": "auto" if a.accent_cycle == "auto" else int(a.accent_cycle),
         "slides": _parse_map(a.slides, int, "slides"),
         "variant_steps": 1 if a.variation == "on" else 0,
-        "velocity": a.velocity, "accent_velocity": a.accent_velocity, "gate": a.gate}
+        "velocity": a.velocity, "accent_velocity": a.accent_velocity, "gate": a.gate})
     if a.sub_seeds.strip() != "auto":
         sub = _parse_map(a.sub_seeds, int, "sub-seeds")
         if not isinstance(sub, dict):
             raise ValueError("sub-seeds must be auto or pitch=N,rhythm=N,accent=N,slide=N")
         params["sub_seeds"] = sub
-    if a.density is not None:
-        params["density"] = _parse_map(a.density, float, "density")
-    if a.register is not None:
-        params["register"] = _parse_map(a.register, int, "register")
     return params
 
 
 def main(argv: list[str] | None = None) -> int:
-    a = build_parser().parse_args(argv)
+    a = build_parser(cell_options=True).parse_args(argv)
     try:
         mids, readme = write_clips(a.out, **params_from_args(a))
     except (ValueError, OSError) as e:
