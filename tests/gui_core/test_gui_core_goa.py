@@ -25,14 +25,14 @@ SRC = Path(__file__).resolve().parents[2] / "src"
 PINNED = {
     "default": {  # --seed 3
         "goa_lead_seed3_145bpm_4bars.mid":
-            "ee87c842b62762720d81a922107e8642bf21f87141ea26983497d3b967519b10",
+            "82beddc3ee5b667cbe779422a9d91038b1f5d9c91f6c74f830841ea0231e51fa",
         "goa_arp_seed3_145bpm_4bars.mid":
             "43ab8393f7248721d852c144d8b367708aa61b04428ec5b3c7ce21c53bb7c437",
         "goa_pad_seed3_145bpm_4bars.mid":
             "0a42ff5925093e8239c0eb4688dcee564af915643593ee861ef4100ea6799a78",
         "goa_pluck_seed3_145bpm_4bars.mid":
             "80a9a87587172e555f45823a1b4b48c24fbfbb8d02e22e2401862119886c84b5",
-        "README.md": "e16de7e93e3f8099fc47ea35cf62e82294b448ee9402a679c5f6eba6d9cb3f73"},
+        "README.md": "95f64cb17d9c0ebe39738a2bd9962141b1785387528e50d0e36154b2936efde2"},
     "custom": {  # --seed 9 --bars 2 --bpm 138 --root Bb --scale aeolian --density 0.4
                  # --register -1 --arp-pattern random --progression 0,5 --voices lead,arp
         "goa_lead_seed9_138bpm_2bars.mid":

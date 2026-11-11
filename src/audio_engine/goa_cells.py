@@ -19,18 +19,25 @@ independent dimensions, each with its own sub-seed:
 * rhythm - which steps are notes, ties or rests,
 * accent - a velocity cycle of 3 or 5 (two velocity levels). It counts the NOTES of a
   block, not the grid steps ("an accent on every fifth note"): for a voice on every 16th
-  that is the same thing; for a voice with rests the share of accented notes then stays
-  1/3 or 1/5 whatever the rests are. With ``auto`` the cycle is one that shares no factor
-  with the number of notes per cell pass, so the accents move through the cell. Cycle 5
-  also accents the first note of every block (keeps the share at or above 1/5),
+  that is the same thing; for a voice with rests the share stays near 1/3 or 1/5 whatever
+  the rests are. With ``auto`` the cycle is one that shares no factor with the number of
+  notes per cell pass, so the accents move through the cell. A cycle that does share one
+  (only when set explicitly) changes one gap per pass by one note, so the accents still
+  move (cycle 3: gaps 3 and 4; cycle 5: gaps 5 and 4). Cycle 5 also accents the first note
+  of every block. The share then stays between 1/5 and 1/3,
 * slide  - which notes overlap the next note (cycle of ``slide_cycle`` steps).
 
 The clip seed also feeds a fifth stream, the *contour*: cell length (when ``auto``), the
-two candidate steps of the excursion, whether the excursion is the octave, the block that
-uses which candidate and the step the variant changes. Rhythm and slides read the contour
-(the excursion steps are the last to become rests; slides sit on the steps into and out of
-the excursion, where the pitch always changes), never the pitches. That is why a changed
-pitch sub-seed changes pitches only, and so on for the other three (N10).
+two candidate steps of the excursion, the step that holds the neighbour, whether the
+excursion is the octave, the block that uses which candidate and the step the variant
+changes. Rhythm and slides read the contour and the options, never the pitches: rests take
+plain steps first, then the steps next to the excursion, the excursion steps, the
+neighbour step and the root step last; slides sit on the steps into and out of the
+excursion, where the pitch changes. The pitch side reads the options and the contour,
+never the rhythm sub-seed: it plans for the worst case of the rests (enough roots for the
+root share when every rest falls on a root, and every tone within the leap limit of the
+excursion when a rest can fall next to it). That is why a changed pitch sub-seed changes
+pitches only, and so on for the other three (N10).
 
 Sub-seeds: ``sub[d] = int(sha256("goa_cells:sub:<seed>:<d>")[:8])`` for d in pitch, rhythm,
 accent, slide, unless given in ``sub_seeds``. Every random stream is
@@ -467,15 +474,16 @@ class _Plan:
         # ---- rhythm (rhythm sub-seed): "n" note, "t" tie, "r" rest per cell step
         rng = _stream(o["sub_seeds"]["rhythm"], "rhythm", voice)
         # The higher the rank, the later a step becomes a rest: plain steps, then the
-        # steps next to the excursion, the neighbour step, the excursion steps, and the
-        # root step (cell step 1) last. When every tone is within the leap limit
-        # (``everywhere``), the steps next to the excursion are plain steps too.
+        # steps next to the excursion, the excursion steps ("at most one" excursion, N3),
+        # the neighbour step and the root step (cell step 1) last (N2: root and neighbour
+        # are always there). When every tone is within the leap limit (``everywhere``),
+        # the steps next to the excursion are plain steps too.
         def rank(s: int) -> int:
             if s == 0:
                 return 4
-            if s in (pa, pb):
-                return 3
             if s == keep:
+                return 3
+            if s in (pa, pb):
                 return 2
             return 1 if s in near and not self.everywhere else 0
 

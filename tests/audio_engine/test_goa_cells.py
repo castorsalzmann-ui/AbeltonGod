@@ -600,7 +600,7 @@ def test_sub_seeds_are_derived_from_the_clip_seed_as_documented():
 
 # Pinned on Ubuntu; integer-only note maths, so Windows must give the same bytes (CI).
 GOLDEN = {
-    "lead": "4eb142db00c1b434f0d16a8b56035250ba71fcc884e3b18959693f29860f84ea",
+    "lead": "af9edd7e4c4bf42ff78546b4cbb8040c993d97b16946c773415676824213ee4c",
     "arp": "f9bfbf6917ce0bc282820b838dbf718f5de56765d5f607df1c9571493514d221",
     "pad": "420af2a8a2a9abce4539c5b8e3198b86f782c8d014b99a3dbf7c09db0e90e48c",
     "pluck": "076f6aae4769bfc2d3e8f9ed016f6d9653ce319b920d84fb0caf8ad532404ad3",
