@@ -485,6 +485,47 @@ def test_an_explicit_progression_moves_pad_and_cell_inside_the_scale():
     assert [arp[s] for s in range(16)] != [arp[s] for s in range(16, 32)]
 
 
+# ---- one root, one pitch set, a low layer (user feedback on #570, 2026-11-11) ---------------
+
+# The first five tones of the N2 ranking per scale, semitones above the root, written out.
+SHARED_5 = {"phrygian": {0, 1, 10, 7, 3}, "phrygian_dominant": {0, 1, 10, 7, 4},
+            "harmonic_minor": {0, 2, 11, 7, 3}, "double_harmonic": {0, 1, 11, 7, 4},
+            "aeolian": {0, 2, 10, 7, 3}, "dorian": {0, 2, 10, 7, 3},
+            "minor_blues": {0, 10, 7, 3, 5}, "hungarian_minor": {0, 2, 11, 7, 3}}
+
+
+@pytest.mark.parametrize("scale", ALL_SCALES)
+def test_all_four_voices_share_one_root_and_one_pitch_set_with_pad_and_arp_on_the_root(scale):
+    """Default options: every pitch of every voice comes from the same five tones; arp and
+    acid line have the root as their most frequent pitch class, the pad holds root and
+    fifth, and every restart block of every voice starts on the root."""
+    for seed in SEEDS:
+        for root in ("A", "D#"):
+            clips = exported(seed=seed, scale=scale, root=root)
+            shared = {(ROOTS[root] + s) % 12 for s in SHARED_5[scale]}
+            for voice, notes in clips.items():
+                assert {p % 12 for _, _, p, _ in notes} <= shared, (voice, seed)
+                if voice != "pad":  # the pad starts with root AND fifth (checked below)
+                    first = [p for s, _, p, _ in notes if s == 0]
+                    assert first and all(p % 12 == ROOTS[root] for p in first), (voice, seed)
+            for voice in ("arp", "pluck"):
+                top = Counter(p % 12 for _, _, p, _ in clips[voice]).most_common(1)[0][0]
+                assert top == ROOTS[root], (voice, seed)
+            assert {p % 12 for _, _, p, _ in clips["pad"]} == {
+                ROOTS[root], (ROOTS[root] + 7) % 12}
+
+
+def test_the_acid_line_is_the_low_layer():
+    """Default registers: every acid note is below middle C (60) and its median is below
+    the lowest note of every other voice (its octave excursion may reach the pad)."""
+    for scale in ALL_SCALES:
+        for seed in SEEDS:
+            clips = exported(seed=seed, scale=scale)
+            low = sorted(p for _, _, p, _ in clips["pluck"])
+            others = [p for v in ("lead", "arp", "pad") for _, _, p, _ in clips[v]]
+            assert low[-1] < 60 and low[len(low) // 2] < min(others), (scale, seed)
+
+
 # ---- voices against each other --------------------------------------------------------------
 
 def held_clashes(clips) -> list:
