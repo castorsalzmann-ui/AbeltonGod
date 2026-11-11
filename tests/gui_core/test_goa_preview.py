@@ -48,6 +48,8 @@ def test_voice_preview_deterministic_length_peak(voice):
     assert abs(len(x) - ((8 * 60 / 140 + 0.5) * SR + ECHOES[voice] * 14175)) <= 1
     assert abs(gp.preview_seconds(seed=3, bars=2, bpm=140, voices=[voice]) - len(x) / SR) < 1e-9
     assert x.dtype == np.float32 and np.all(np.isfinite(x))
+    # peak 0.8 whenever the generator wrote a note for this voice (whatever the notes are)
+    assert goa_clips.clip_notes(voice, seed=3, bars=2, bpm=140), "seed 3 gives no notes"
     assert abs(float(np.max(np.abs(x))) - 0.8) < 1e-6
     assert not x[-1].any()  # the buffer ends in exact silence
     assert len(a) == 44 + 4 * len(x)
@@ -189,20 +191,36 @@ def test_fundamental_sits_at_the_notes_frequency(voice, pitch, hz):
     assert np.max(power[below]) < 1e-3 * np.max(power[band])
 
 
-def test_pad_energy_sits_at_its_chord_tones():
-    # MIDI 48, 52, 57 = 130.81, 164.81, 220.00 Hz (written out here). The strongest bins are
-    # these fundamentals or whole multiples of them (saw partials; each line is a pair 0.4 %
-    # above and below).
-    notes = [N(p, 0, 8, 78) for p in (48, 52, 57)]
+PAD_HZ = {48: 130.81, 49: 138.59, 51: 155.56, 52: 164.81, 53: 174.61, 56: 207.65,
+          57: 220.00, 58: 233.08}  # equal temperament, written out
+
+
+@pytest.mark.parametrize("chord,absent", [
+    ((48, 52, 57), (49, 51, 53, 56, 58)),  # a triad (the first clip generator's pad)
+    ((52, 57), (49, 51, 53, 56, 58, 48))])  # root plus fifth (the cell generator's pad)
+def test_pad_energy_sits_at_its_chord_tones(chord, absent):
+    # Constructed pad notes, so the check does not depend on what a generator writes. The
+    # strongest bins are the notes' fundamentals or whole multiples of them (saw partials;
+    # each line is a pair 0.4 % above and below). At the fundamentals of notes that are NOT
+    # in the events (a semitone beside the chord tones) there is less than 1 % of the
+    # amplitude found at the weakest chord tone.
+    notes = [N(p, 0, 8, 78) for p in chord]
     x = gp.render_events("pad", notes, 145, 8)[:, 0].astype(np.float64)
     spec = np.abs(np.fft.rfft(x))
     freqs = np.fft.rfftfreq(len(x), 1 / SR)
+    tones = [PAD_HZ[p] for p in chord]
     top = sorted(freqs[np.argsort(spec)[-40:]])
-    for f0 in (130.81, 164.81, 220.00):
+    for f0 in tones:
         assert any(abs(f - f0) < 0.006 * f0 for f in top), (f0, top)
     for f in top:
-        assert any(abs(f / f0 - round(f / f0)) * f0 < 0.006 * f + 0.5
-                   for f0 in (130.81, 164.81, 220.00)), f
+        assert any(abs(f / f0 - round(f / f0)) * f0 < 0.006 * f + 0.5 for f0 in tones), f
+
+    def level(hz):
+        return float(np.max(spec[(freqs > 0.99 * hz) & (freqs < 1.01 * hz)]))
+
+    weakest = min(level(f0) for f0 in tones)
+    for p in absent:
+        assert level(PAD_HZ[p]) < 0.01 * weakest, p
 
 
 def test_accent_amount_is_the_higher_of_two_velocity_levels():
