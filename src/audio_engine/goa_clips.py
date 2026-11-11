@@ -34,7 +34,8 @@ CLI::
     python -m audio_engine.goa_clips --out DIR --seed N [--bars 4] [--bpm 145] [--root A]
         [--scale phrygian] [--density 0.6 | lead=0.5,arp=1] [--register 0 | lead=1,pad=-1]
         [--progression 0] [--voices lead,arp,pad,pluck] [--cell-length auto | 9 | arp=5,lead=11]
-        [--lead-mode own|double] [--restart-bars 4] [--grouping displaced|3+3+2|3+3+3+3+4]
+        [--lead-mode own|double] [--lead-above-arp on|off] [--restart-bars 4]
+        [--grouping displaced|3+3+2|3+3+3+3+4]
         [--pitches lead=5,arp=4,pluck=4] [--accent-cycle auto|3|5] [--slides lead=1,arp=0,pluck=2]
         [--variation on|off] [--velocity 84] [--accent-velocity 120] [--gate 50]
         [--sub-seeds auto | pitch=1,rhythm=2,accent=3,slide=4]
@@ -86,7 +87,8 @@ def bar_chords(o: Mapping[str, Any]) -> list[int]:
 def clip_notes(voice: str, **params: Any) -> list[Note]:
     """Notes of one clip in ticks (PPQ 480), sorted by (start, pitch).
 
-    The voice is generated together with the selected ``voices`` (the rule against held
+    The voice is generated together with the selected ``voices`` (the onset rule moves lead
+    and acid notes off a same-tick semitone with the arp, and the rule against held
     semitone clashes on accents looks at all of them), so it equals that voice's exported
     clip. A voice outside ``voices`` is generated together with them as well.
     """
@@ -180,7 +182,11 @@ def render_readme(names: Mapping[str, str], **params: Any) -> str:
          f"- key: {o['root']} {o['scale']}",
          f"- progression (scale degrees): {', '.join(map(str, o['progression']))}",
          "- degree per bar: " + ", ".join(str(o["progression"][s]) for s in bar_chords(o)),
-         f"- lead mode: {o['lead_mode']}", f"- grouping: {o['grouping']}",
+         f"- lead mode: {o['lead_mode']}"
+         + ("" if o["lead_mode"] != "own" else
+            ", cell one octave above the arp's" if o["lead_above_arp"] else
+            ", inside the lead window"),
+         f"- grouping: {o['grouping']}",
          f"- restart every: {o['restart_bars']} bars",
          f"- pitches per cell (at most): {_map_text(o['pitches'])}",
          f"- slides per bar (at most): {_map_text(o['slides'])}",
@@ -241,7 +247,8 @@ def _map_default(values: Mapping[str, Any]) -> str:
     return ",".join(f"{k}={v}" for k, v in values.items())
 
 
-CELL_OPTIONS = ("cell_length", "lead_mode", "restart_bars", "grouping", "pitches",
+CELL_OPTIONS = ("cell_length", "lead_mode", "lead_above_arp", "restart_bars", "grouping",
+                "pitches",
                 "accent_cycle", "slides", "variation", "velocity", "accent_velocity", "gate",
                 "sub_seeds")
 
@@ -277,6 +284,9 @@ def build_parser(cell_options: bool = False) -> argparse.ArgumentParser:
                         f"{','.join(map(str, goa_cells.CELL_LENGTHS))}, or voice=value,...")
     p.add_argument("--lead-mode", choices=goa_cells.LEAD_MODES, default="own",
                    help="own cell, or the arp doubled an octave higher")
+    p.add_argument("--lead-above-arp", choices=["on", "off"], default="on",
+                   help="own lead: cell root one octave above the arp's (its top notes "
+                        "then pass the lead window); off keeps the lead window")
     p.add_argument("--restart-bars", type=int, choices=goa_cells.RESTART_BARS, default=4,
                    help="the cell starts again every N bars")
     p.add_argument("--grouping", choices=list(goa_cells.GROUPINGS), default="displaced",
@@ -332,6 +342,7 @@ def params_from_args(a: argparse.Namespace) -> dict[str, Any]:
     params.update({
         "cell_length": _parse_map(a.cell_length, _length_value, "cell-length"),
         "lead_mode": a.lead_mode, "restart_bars": a.restart_bars, "grouping": a.grouping,
+        "lead_above_arp": 1 if a.lead_above_arp == "on" else 0,
         "pitches": _parse_map(a.pitches, int, "pitches"),
         "accent_cycle": "auto" if a.accent_cycle == "auto" else int(a.accent_cycle),
         "slides": _parse_map(a.slides, int, "slides"),

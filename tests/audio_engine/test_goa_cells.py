@@ -115,6 +115,25 @@ def slide_starts(notes) -> list[int]:
 
 
 ALL_SCALES = sorted(SCALE_STEPS)
+ALL_ROOTS = ("C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B")
+
+
+def arp_root(root: str) -> int:
+    """The arp's cell root at register 0: the lowest pitch of the root's class from 60."""
+    return 60 + ROOTS[root]
+
+
+def lead_top(root: str) -> int:
+    """Highest lead pitch in ``own`` mode: the lead's cell root is the arp's plus 12 (72-83)
+    and its tones reach up to its own octave (84-95), i.e. past the window top of 83."""
+    return arp_root(root) + 24
+
+
+def semitone_onsets(clips, voice: str) -> list:
+    """Notes of ``voice`` that start on the same tick as an arp note exactly 1 semitone
+    away."""
+    arp = {s: p for s, _, p, _ in clips["arp"]}
+    return [n for n in clips[voice] if n[0] in arp and abs(n[2] - arp[n[0]]) == 1]
 
 
 def test_scale_list_is_the_documented_one_without_major():
@@ -138,6 +157,8 @@ def test_every_pitch_is_in_the_scale_on_the_16th_grid_inside_the_window(scale):
             for voice, notes in clips.items():
                 assert notes, voice
                 lo, hi = WINDOW[voice]
+                if voice == "lead":
+                    hi = lead_top(root)
                 for s, _e, p, vel in notes:
                     assert p % 12 in allowed, (voice, seed, p)
                     assert lo <= p <= hi, (voice, seed, p)
@@ -216,22 +237,27 @@ def test_pitch_count_limits_are_enforced():
 @pytest.mark.parametrize("restart", [2, 4, 8])
 def test_repetition_at_cell_distance_between_restarts_is_at_least_80_percent(length, restart):
     """Step s equals step s - L (pitch, or no onset) inside a restart block: >= 80 % in
-    every block that has such a pair, and 100 % before the block's last bar (rule N5: the
-    one variant sits in the last bar before a restart). Default progression."""
+    every block that has such a pair, for the voices exported together. 100 % before the
+    block's last bar (rule N5: the one variant sits in the last bar before a restart) for
+    every voice generated alone and for the arp always; together, the onset rule may move
+    single lead or acid notes off a semitone with the arp. Default progression."""
     bars = 8
     for seed in SEEDS:
-        clips = exported(seed=seed, bars=bars, restart_bars=restart, cell_length=length)
+        kw = {"seed": seed, "bars": bars, "restart_bars": restart, "cell_length": length}
+        clips = exported(**kw)
         for voice in CELL_VOICES:
-            steps = by_step(clips[voice])
-            for b0 in range(0, bars * 16, restart * 16):
-                b1 = min(bars * 16, b0 + restart * 16)
-                pairs = [(s, steps.get(s) == steps.get(s - length))
-                         for s in range(b0 + length, b1)]
-                if not pairs:
-                    continue
-                share = sum(ok for _, ok in pairs) / len(pairs)
-                assert share >= 0.80, (voice, seed, b0, share)
-                assert all(ok for s, ok in pairs if s < b1 - 16), (voice, seed, b0)
+            for strict, notes in ((voice == "arp", clips[voice]), (True, solo(voice, **kw))):
+                steps = by_step(notes)
+                for b0 in range(0, bars * 16, restart * 16):
+                    b1 = min(bars * 16, b0 + restart * 16)
+                    pairs = [(s, steps.get(s) == steps.get(s - length))
+                             for s in range(b0 + length, b1)]
+                    if not pairs:
+                        continue
+                    share = sum(ok for _, ok in pairs) / len(pairs)
+                    assert share >= 0.80, (voice, seed, b0, share)
+                    if strict:
+                        assert all(ok for s, ok in pairs if s < b1 - 16), (voice, seed, b0)
 
 
 def test_the_cell_is_restarted_at_every_block_start():
@@ -543,11 +569,11 @@ def held_clashes(clips) -> list:
     return out
 
 
-# Found by search (seeds 0-199, 5 roots, 4 register sets): two moving voices meet a
-# semitone apart on an accent. At the default registers no case was found.
-CLASH_CASES = [{"seed": 43, "root": "E", "register": {"pluck": 1}},
-               {"seed": 43, "root": "A", "register": {"lead": -1}},
-               {"seed": 112, "root": "E", "register": {"pluck": 1}}]
+# Found by search (seeds 0-299, 5 roots, 6 option sets): two moving voices hold a semitone
+# for a 16th or longer on an accent. At the default registers no case was found.
+CLASH_CASES = [{"seed": 0, "root": "C", "register": {"pluck": 2}, "slides": 2},
+               {"seed": 5, "root": "C", "register": {"pluck": 2}, "slides": 2},
+               {"seed": 23, "root": "C", "register": {"pluck": 2}, "slides": 2}]
 
 
 def test_no_held_semitone_clash_between_the_moving_voices_on_accents():
@@ -567,16 +593,122 @@ def test_no_held_semitone_clash_between_the_moving_voices_on_accents():
 
 @pytest.mark.parametrize("case", CLASH_CASES)
 def test_the_clash_rule_only_removes_accents_and_single_voices_keep_theirs(case):
+    """The held-clash rule changes velocities only (accent -> base). Pitches differ from
+    the single voice only where the onset rule moved a note (checked in its own test)."""
     together = exported(**case)
     changed = 0
     for voice in CELL_VOICES:
         alone = solo(voice, **case)
-        assert [n[:3] for n in alone] == [n[:3] for n in together[voice]]
+        assert [n[0] for n in alone] == [n[0] for n in together[voice]]
         for a, t in zip(alone, together[voice], strict=True):
             if a[3] != t[3]:
                 assert (a[3], t[3]) == (ACCENT, BASE)
                 changed += 1
     assert changed >= 1, "these cases need the rule; without it they would clash"
+    without = exported(**case, clash_min_ticks=1920)  # rule looks for a whole bar: off
+    assert held_clashes(without) != []
+
+
+# ---- lead and arp apart (review of PR #573, N-1 and N-2) ------------------------------------
+
+def _mixed(seed: int) -> dict:
+    """Seed -> options that walk through every scale and every root."""
+    return {"seed": seed, "scale": ALL_SCALES[seed % 8], "root": ALL_ROOTS[(seed // 8) % 12]}
+
+
+def test_own_lead_has_at_least_3_pitches_and_its_excursion_sounds_in_1000_seeds():
+    """Before the fix (A phrygian, 4 bars, seeds 0-999): 235 lead clips had exactly 2
+    pitches a semitone apart, and the excursion sounded in 760. Now: at least 3 distinct
+    pitches and a tone 5 or more semitones from the lead's cell root in every clip of 2
+    bars or more (also 1 bar: every cell pass fits a bar)."""
+    for seed in range(1000):
+        for kw in ({"seed": seed}, dict(_mixed(seed), bars=2 + seed % 3)):
+            lead = exported(**kw)["lead"]
+            pitches = {p for _, _, p, _ in lead}
+            r = arp_root(kw.get("root", "A")) + 12
+            assert r in pitches, (kw, "lead root is the arp root + 12")
+            assert len(pitches) >= 3, (kw, sorted(pitches))
+            assert any(abs(p - r) >= 5 for p in pitches), (kw, sorted(pitches))
+    for seed in range(100):  # one bar
+        lead = solo("lead", seed=seed, bars=1)
+        assert len({p for _, _, p, _ in lead}) >= 3
+        assert any(abs(p - 81) >= 5 for _, _, p, _ in lead)
+
+
+def test_a_short_lead_cell_set_by_hand_keeps_its_excursion_before_its_neighbour():
+    """Outside the auto lengths the lead has too few notes for three pitches: 6 steps give
+    3 notes per pass (root and both excursion steps: the excursion sounds in every block),
+    5 steps give 2 (root and the first block's excursion step). The rests never take the
+    excursion first."""
+    for seed in range(200):
+        for bars in (4, 8):  # one and two restart blocks
+            lead = solo("lead", seed=seed, bars=bars, cell_length={"lead": 6})
+            for b0 in range(0, bars * BAR, 4 * BAR):
+                block = [p for s, _, p, _ in lead if b0 <= s < b0 + 4 * BAR]
+                assert any(abs(p - 81) >= 5 for p in block), (seed, bars, b0)
+        short = solo("lead", seed=seed, cell_length={"lead": 5})
+        assert any(abs(p - 81) >= 5 for _, _, p, _ in short), seed
+
+
+def test_no_same_tick_semitone_between_lead_or_acid_and_arp_in_1000_seeds_all_scales():
+    """Before (A phrygian, 4 bars, seeds 0-999): 951 clips had a lead note starting with an
+    arp note 1 semitone away (31.3 % of the lead notes, 934 clips with an accent on such
+    a pair). Now 0, for every scale and root, also when registers put the voices into one
+    octave. Minor seconds an octave or more apart are not counted (rule as decided)."""
+    needed = 0
+    for seed in range(1000):
+        cases = [{"seed": seed}, _mixed(seed)]
+        if seed % 4 == 0:
+            cases.append(dict(_mixed(seed), register={"lead": -1, "pluck": 1 + seed % 2},
+                              slides=2, lead_above_arp=seed % 8 // 4))
+        for kw in cases:
+            clips = exported(**kw)
+            assert semitone_onsets(clips, "lead") == [], kw
+            assert semitone_onsets(clips, "pluck") == [], kw
+            if seed < 200:
+                off = exported(**kw, onset_rule=0)
+                needed += bool(semitone_onsets(off, "lead") or semitone_onsets(off, "pluck"))
+    # measured 38 of the first 200 seeds' cases
+    assert needed >= 20, "the rule must be needed somewhere, or this check cannot fail"
+
+
+def test_own_lead_sits_one_octave_above_the_arp_and_shares_only_the_arps_octave_step():
+    """All 12 roots: lead cell root = arp cell root + 12. The only pitch both can play is
+    that root itself (the arp's octave excursion). The lead's tones reach up to its own
+    octave, past the window top of 83 (documented; ``lead_above_arp=0`` keeps the window,
+    then both cells have the same root pitch for 9 of 12 roots)."""
+    for root in ALL_ROOTS:
+        tops = []
+        for seed in SEEDS:
+            clips = exported(seed=seed, root=root, onset_rule=0)
+            lead = {p for _, _, p, _ in clips["lead"]}
+            arp = {p for _, _, p, _ in clips["arp"]}
+            assert root_pitch(clips["arp"], root) == arp_root(root)
+            assert root_pitch(clips["lead"], root) == arp_root(root) + 12
+            assert lead & arp <= {arp_root(root) + 12}, (root, seed)
+            assert min(lead) >= arp_root(root) + 9 and max(lead) <= lead_top(root)
+            tops.append(max(lead))
+            inside = exported(seed=seed, root=root, lead_above_arp=0)["lead"]
+            assert all(60 <= p <= 83 for _, _, p, _ in inside), (root, seed)
+        assert max(tops) > 83, root  # the stated consequence is real for every root
+
+
+def test_the_onset_rule_moves_pitch_only_and_keeps_start_and_accent():
+    """Lead forced into the arp's octave (register -1, same cell root): many notes move.
+    Each moved note keeps its start and its velocity, takes a pitch the voice already has,
+    and the voice's largest leap stays within 12."""
+    moved = 0
+    for seed in range(64):
+        kw = {"seed": seed, "register": {"lead": -1}}
+        together = exported(**kw, voices=["lead", "arp"])["lead"]
+        alone = solo("lead", **kw)
+        own = {p for _, _, p, _ in alone}
+        assert [(s, vel) for s, _, _, vel in together] == [(s, vel) for s, _, _, vel in alone]
+        assert {p for _, _, p, _ in together} <= own
+        moved += sum(a[2] != t[2] for a, t in zip(alone, together, strict=True))
+        pitches = [p for _, _, p, _ in together]
+        assert max(abs(a - b) for a, b in zip(pitches, pitches[1:], strict=False)) <= 12
+    assert moved > 100
 
 
 def test_lead_double_is_the_arp_one_octave_up_and_own_is_another_line():
@@ -617,8 +749,16 @@ def test_auto_cell_length_comes_from_the_allowed_set_and_varies_with_the_seed():
     for seed in range(48):
         for voice, info in goa_cells.describe(seed=seed).items():
             seen[voice].add(info["cell_length"])
-    assert seen["arp"] == set(CELL_LENGTHS) and seen["lead"] == set(CELL_LENGTHS)
+    assert seen["arp"] == set(CELL_LENGTHS)
+    # the lead (density 0.45) needs 4 notes per pass for root, neighbour and excursion:
+    # round(0.45 x L) >= 4 leaves 9, 11, 12, 16 (5 gives 2 notes, 6 gives 3)
+    assert seen["lead"] == {9, 11, 12, 16}
     assert seen["pluck"] == {12, 16}  # N7: the acid line has 16 or 12 steps
+    # a denser lead may use every length; an explicit length is always taken
+    dense = {goa_cells.describe(seed=s, density={"lead": 0.8})["lead"]["cell_length"]
+             for s in range(48)}
+    assert dense == set(CELL_LENGTHS)
+    assert goa_cells.describe(seed=1, cell_length={"lead": 5})["lead"]["cell_length"] == 5
     for bad in (7, 8, 4, 17, "x"):
         with pytest.raises(ValueError):
             goa_cells.normalise({"cell_length": bad})
@@ -641,7 +781,7 @@ def test_sub_seeds_are_derived_from_the_clip_seed_as_documented():
 
 # Pinned on Ubuntu; integer-only note maths, so Windows must give the same bytes (CI).
 GOLDEN = {
-    "lead": "af9edd7e4c4bf42ff78546b4cbb8040c993d97b16946c773415676824213ee4c",
+    "lead": "f353e51bc2f72f903993fb341010cadf0c1698e769f0cfce6ec494b7b0ad8fe3",
     "arp": "f9bfbf6917ce0bc282820b838dbf718f5de56765d5f607df1c9571493514d221",
     "pad": "420af2a8a2a9abce4539c5b8e3198b86f782c8d014b99a3dbf7c09db0e90e48c",
     "pluck": "076f6aae4769bfc2d3e8f9ed016f6d9653ce319b920d84fb0caf8ad532404ad3",

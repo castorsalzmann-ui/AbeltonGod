@@ -113,6 +113,10 @@ def _check_clip(voice: str, opts: dict, data: bytes) -> None:
     reg = opts.get("register", {}).get(voice, 0) if isinstance(opts.get("register"), dict) \
         else opts.get("register", 0)
     lo, hi = WINDOW[voice][0] + 12 * reg, WINDOW[voice][1] + 12 * reg
+    if voice == "lead":
+        # own lead: cell root = the arp's cell root (lowest root pitch from 60) + 12, tones
+        # up to its own octave; this passes the window top (documented in goa_cells)
+        hi = 60 + 12 * reg + rpc + 24
     double = voice == "lead" and opts.get("lead_mode") == "double"
     for s, e, pitch, vel in m["notes"]:
         assert pitch % 12 in allowed, (voice, pitch)
@@ -277,7 +281,8 @@ def test_the_page_parser_is_unchanged_and_the_cell_options_are_command_line_only
                     "arp_pattern", "progression", "voices"}
     full = {a.dest for a in goa_clips.build_parser(cell_options=True)._actions}
     assert full - page - {"help", "out"} == {
-        "cell_length", "lead_mode", "restart_bars", "grouping", "pitches", "accent_cycle",
+        "cell_length", "lead_mode", "lead_above_arp", "restart_bars", "grouping", "pitches",
+        "accent_cycle",
         "slides", "variation", "velocity", "accent_velocity", "gate", "sub_seeds"}
     # the page's argv gives the same options as the command line without the cell options
     argv = ["--out", "x", "--seed", "4", "--scale", "aeolian", "--progression", "0,6"]

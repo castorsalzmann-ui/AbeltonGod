@@ -40,7 +40,7 @@ from orchestrator.fake_model import FakeModel  # noqa: E402
 # `python -m audio_engine.goa_clips --out X --seed 3` (pinned literals, as in gui_core tests)
 SEED3_CLIPS = {
     "goa_lead_seed3_145bpm_4bars.mid":
-        "82beddc3ee5b667cbe779422a9d91038b1f5d9c91f6c74f830841ea0231e51fa",
+        "54c86d017d559361e3a6124263d2d641565df91bdd32a59dcefaa6500b6a517c",
     "goa_arp_seed3_145bpm_4bars.mid":
         "43ab8393f7248721d852c144d8b367708aa61b04428ec5b3c7ce21c53bb7c437",
     "goa_pad_seed3_145bpm_4bars.mid":
@@ -48,7 +48,7 @@ SEED3_CLIPS = {
     "goa_pluck_seed3_145bpm_4bars.mid":
         "80a9a87587172e555f45823a1b4b48c24fbfbb8d02e22e2401862119886c84b5",
 }
-SEED3_README = "95f64cb17d9c0ebe39738a2bd9962141b1785387528e50d0e36154b2936efde2"
+SEED3_README = "ebc3051b1049c6d4252173e93a190b2475f38d43ab224859b89adb233cfca599"
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -196,7 +196,7 @@ def test_goa_clip_table_follows_the_form(window):
     go(window, "goa")
     p = window.goa
     rows = [[p.table.item(r, c).text() for c in range(3)] for r in range(p.table.rowCount())]
-    assert rows == [["Lead", "26", "goa_lead_seed0_145bpm_4bars.mid"],
+    assert rows == [["Lead", "28", "goa_lead_seed0_145bpm_4bars.mid"],
                     ["Arp", "64", "goa_arp_seed0_145bpm_4bars.mid"],
                     ["Pad", "2", "goa_pad_seed0_145bpm_4bars.mid"],
                     ["Pluck", "56", "goa_pluck_seed0_145bpm_4bars.mid"]]

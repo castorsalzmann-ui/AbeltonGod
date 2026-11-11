@@ -56,17 +56,34 @@ Voices (N7)
 * arp   - the cell on (by default) every 16th.
 * pluck - the acid line: the same step model with ties, rests and slides, 12 or 16 steps
   when the length is ``auto``.
-* lead  - ``lead_mode="own"``: its own thinner cell; ``"double"``: the arp's notes
-  ``12 * (1 + register[lead])`` semitones higher (this leaves the lead's register window:
-  the lead and arp windows overlap, so an octave doubling cannot fit both).
+* lead  - ``lead_mode="own"``: its own thinner cell. It always sounds root, neighbour and
+  excursion: its rests take the excursion steps after the neighbour step, and its auto
+  length is drawn from the lengths that give 4 notes per pass at its density (9, 11, 12,
+  16 at 0.45). Its cell root is one octave above the arp's cell root
+  (``lead_above_arp``), so the two lines do not share a pitch except the arp's octave
+  step. The lead and arp register windows overlap by 21 semitones, so this cannot stay
+  inside the lead window: the lead's tones reach up to its own octave, at most 12
+  semitones above the window (pitches 69-95 over all roots instead of 60-83).
+  ``lead_above_arp=0`` keeps the window; lead and arp then have the same cell root for 9
+  of 12 roots. ``"double"``: the arp's notes ``12 * (1 + register[lead])`` semitones
+  higher (leaves the window for the same reason).
 * pad   - root plus fifth, held (never three pitch classes).
 
-The moving voices (lead, arp, pluck) generated together are checked against each other
-(not against the pad, which is the drone the scale's second sits on): where two notes of
-different voices are exactly one semitone apart and sound together for at least
-``clash_min_ticks``, an accent on either note is removed (velocity only; this can take
-the accent share of that clip below 1/5). Single-voice generation has no such step, and
-the four dimensions are independent per voice only there.
+Voices generated together are checked against each other in two steps (the pad is left
+out: it is the drone the scale's second sits on).
+
+1. Onset rule (``onset_rule``): a lead or acid note that starts on the same tick as an
+   arp note exactly one semitone away moves to the nearest pitch of its own clip that is
+   not a semitone from that arp note (the root wins a tie). Start, length and accent
+   stay. Minor seconds an octave or more apart stay.
+2. Held clash: where two notes of different moving voices are exactly one semitone apart
+   and sound together for at least ``clash_min_ticks``, an accent on either note is
+   removed (velocity only; this can take the accent share of that clip below 1/5).
+
+Single-voice generation has neither step, and the four dimensions are independent per
+voice only there: together, the arp's pitches decide which lead or acid notes move, so
+the arp's pitch sub-seed can change lead pitches, and a moved note is no longer a
+literal repeat (repetition at cell distance stays at or above 80 % per block).
 """
 
 from __future__ import annotations
@@ -125,6 +142,7 @@ DEFAULT_SLIDES = {"lead": 1, "arp": 0, "pluck": 2}
 DEFAULT_TIE_PERCENT = {"lead": 50, "arp": 0, "pluck": 50}
 SLIDE_MIN_VOICES = ("pluck",)  # keeps one slide per bar where a candidate step exists
 ROOT_SHARE_VOICES = ("arp", "pluck")  # root share planned over notes (table: arp and acid)
+LEAD_MIN_NOTES = 4  # per cell pass: root, neighbour and the two excursion candidates
 # name: (default, lowest, highest). Working values; source classes are listed in the PR.
 INT_OPTIONS: dict[str, tuple[int, int, int]] = {
     "velocity": (84, 1, 126),            # N6 example value
@@ -146,6 +164,8 @@ INT_OPTIONS: dict[str, tuple[int, int, int]] = {
     "pad_velocity": (78, 1, 127),
     "pad_gap_ticks": (30, 0, 119),       # the pad ends this long before it is struck again
     "clash_min_ticks": (STEP_TICKS, 1, BAR_TICKS),
+    "lead_above_arp": (1, 0, 1),         # own lead one octave above the arp's cell root
+    "onset_rule": (1, 0, 1),             # no same-tick semitone between lead/acid and arp
 }
 _KNOWN = {"seed", "bars", "bpm", "root", "scale", "density", "register", "arp_pattern",
           "progression", "voices", "cell_length", "lead_mode", "restart_bars", "grouping",
@@ -343,12 +363,24 @@ def _weighted(rng: random.Random, items: Sequence[int], weights: Sequence[int]) 
     raise AssertionError("unreachable")
 
 
-def _cell_root(voice: str, register: int, rpc: int) -> tuple[int, int, int]:
+def _cell_root(voice: str, register: int, rpc: int, above_arp: bool = False
+               ) -> tuple[int, int, int]:
     """(root pitch of the cell, window low, window high exclusive). The root is the lowest
-    pitch of the root's class with ``HOVER_LO`` semitones of room below it."""
+    pitch of the root's class with ``HOVER_LO`` semitones of room below it.
+
+    ``above_arp`` (the lead in ``own`` mode, option ``lead_above_arp``): the root is one
+    octave above the arp's cell root (taken at the lead's register), so the two lines do
+    not share a pitch. The lead and arp windows overlap by 21 semitones, so the upper
+    limit moves up to the cell's own octave (root + 12): 84 for root C up to 95 for B, at
+    most 12 semitones above the window. Without the octave excursion the cell (root + 8)
+    stays inside the window for C, C#, D and D#."""
     lo = WINDOW[voice][0] + 12 * register
     hi = lo + WINDOW[voice][1]
     base = lo - HOVER_LO
+    if above_arp:
+        arp_base = WINDOW["arp"][0] + 12 * register - HOVER_LO
+        root = arp_base + (rpc - arp_base) % 12 + 12
+        return root, lo, max(hi, root + 13)
     return base + (rpc - base) % 12, lo, hi
 
 
@@ -372,12 +404,20 @@ class _Plan:
     def __init__(self, o: Mapping[str, Any], voice: str) -> None:
         self.voice = voice
         rpc = root_pc(o["root"])
-        self.root, self.lo, self.hi = _cell_root(voice, o["register"][voice], rpc)
+        self.root, self.lo, self.hi = _cell_root(
+            voice, o["register"][voice], rpc,
+            above_arp=voice == "lead" and bool(o["lead_above_arp"]))
         groups = GROUPINGS[o["grouping"]]
 
         # ---- contour (clip seed)
         rng = _stream(o["seed"], "contour", voice)
-        pool = ACID_AUTO_LENGTHS if voice == "pluck" else CELL_LENGTHS
+        pool: Sequence[int] = ACID_AUTO_LENGTHS if voice == "pluck" else CELL_LENGTHS
+        if voice == "lead":
+            # The lead must sound root, neighbour and excursion: its auto length is drawn
+            # from the lengths that give LEAD_MIN_NOTES notes per pass at its density
+            # (density 0.45: 9, 11, 12, 16). All lengths if none does.
+            pool = [n for n in CELL_LENGTHS
+                    if _notes_per_pass(o["density"][voice], n) >= LEAD_MIN_NOTES] or pool
         drawn = pool[rng.randrange(len(pool))]
         if groups is not None:
             self.length = sum(groups)
@@ -434,6 +474,7 @@ class _Plan:
             self.excursion = tones[pick]
             hover = [t for t in hover if self.excursion - t <= o["max_span"]]
         self.is_octave = abs(self.excursion) == 12
+        self.tones = sorted({*hover, self.excursion})  # the cell's pitch set (offsets)
 
         def allowed(step: int) -> list[int]:
             if step in near or everywhere:
@@ -477,14 +518,19 @@ class _Plan:
         # steps next to the excursion, the excursion steps ("at most one" excursion, N3),
         # the neighbour step and the root step (cell step 1) last (N2: root and neighbour
         # are always there). When every tone is within the leap limit (``everywhere``),
-        # the steps next to the excursion are plain steps too.
+        # the steps next to the excursion are plain steps too. The lead, which rests on
+        # more than half of its steps, keeps its excursion steps longer than the
+        # neighbour step, so the excursion is never what the rests remove first. (At its
+        # auto lengths the rests never reach these steps; this matters for a short cell
+        # set explicitly: 3 notes per pass keep root and both excursion steps, 2 notes
+        # keep root and the first block's excursion step.)
         def rank(s: int) -> int:
             if s == 0:
-                return 4
+                return 6
             if s == keep:
-                return 3
+                return 2 if voice == "lead" else 5
             if s in (pa, pb):
-                return 2
+                return (4 if s == pa else 3) if voice == "lead" else 2
             return 1 if s in near and not self.everywhere else 0
 
         plain = [s for s in range(n) if rank(s) == 0]
@@ -598,12 +644,17 @@ def _cell_notes(o: Mapping[str, Any], plan: _Plan) -> list[Note]:
             first = False
             out.append(Note(start, end, pitch, o["accent_velocity"] if accent else o["velocity"]))
     # Only with a chord change: folding into the register window can put the excursion on
-    # the pitch next to it. One pitch cannot overlap itself, so that slide ends at the next
-    # note instead. On the default progression the two pitches always differ.
-    for i in range(len(out) - 1):
-        if out[i].end > out[i + 1].start and out[i].pitch == out[i + 1].pitch:
-            out[i] = Note(out[i].start, out[i + 1].start, out[i].pitch, out[i].velocity)
-    return out
+    # the pitch next to it. On the default progression the two pitches always differ.
+    return _no_self_overlap(out)
+
+
+def _no_self_overlap(notes: list[Note]) -> list[Note]:
+    """One pitch cannot overlap itself: such a slide ends at the next note instead."""
+    for i in range(len(notes) - 1):
+        if notes[i].end > notes[i + 1].start and notes[i].pitch == notes[i + 1].pitch:
+            notes[i] = Note(notes[i].start, notes[i + 1].start, notes[i].pitch,
+                            notes[i].velocity)
+    return notes
 
 
 def _fifth_above(scale: Sequence[int], degree: int) -> int:
@@ -653,9 +704,57 @@ def _remove_clashing_accents(o: Mapping[str, Any], clips: dict[str, list[Note]])
                     clips[v][i] = Note(nt.start, nt.end, nt.pitch, o["velocity"])
 
 
+def _move_off_arp_semitones(o: Mapping[str, Any], clips: dict[str, list[Note]],
+                            roots: Mapping[str, tuple[int, Sequence[int]]]) -> None:
+    """Onset rule: a lead or acid note that starts on the same tick as an arp note exactly
+    one semitone away (same octave) moves to the nearest pitch of its own clip that is not
+    a semitone from that arp note; of two equally near pitches the root wins, then the
+    lower one. Start, length and velocity (accent) stay. Pitches that would break the leap
+    limit to the voice's neighbouring notes, or repeat the pitch of a note it overlaps
+    (slide), are used only when nothing else is left. Minor seconds an octave or more
+    apart stay. ``roots``: voice -> (cell root pitch, cell tones as offsets from it)."""
+    arp = {n.start: n.pitch for n in clips["arp"]}
+    for v, (root, tones) in roots.items():
+        notes = clips[v]
+        before = [n.pitch for n in notes]
+        pool = sorted(set(before))
+
+        def choose(i: int, pool: Sequence[int], strict: bool, notes: list[Note] = notes,
+                   before: list[int] = before, root: int = root) -> int | None:
+            nt, other = notes[i], arp[notes[i].start]
+            around = [notes[j] for j in (i - 1, i + 1) if 0 <= j < len(notes)]
+            cands = [p for p in pool if abs(p - other) != 1]
+            good = [p for p in cands
+                    if all(abs(p - x.pitch) <= o["max_leap"] for x in around)
+                    and not any(x.pitch == p and min(x.end, nt.end) > max(x.start, nt.start)
+                                for x in around)]
+            if not strict:
+                good = good or cands
+            return min(good, key=lambda p: (abs(p - before[i]), p != root, p)) if good else None
+
+        moved = [i for i, nt in enumerate(notes)
+                 if nt.start in arp and abs(nt.pitch - arp[nt.start]) == 1]
+        for i in moved:
+            new = choose(i, pool, strict=False)
+            if new is not None:
+                notes[i] = Note(notes[i].start, notes[i].end, new, notes[i].velocity)
+        # A pitch can vanish when every note of it met the arp. The voice keeps at least
+        # 3 pitches (if it had them): moved notes then take the nearest tone of the
+        # voice's cell pitch set that the clip does not sound yet.
+        for i in moved:
+            have = {n.pitch for n in notes}
+            if len(have) >= min(3, len(pool)):
+                break
+            new = choose(i, [root + t for t in tones if root + t not in have], strict=True)
+            if new is not None:
+                notes[i] = Note(notes[i].start, notes[i].end, new, notes[i].velocity)
+        clips[v] = _no_self_overlap(notes)
+
+
 def clips_for(o: Mapping[str, Any], voices: Sequence[str]) -> dict[str, list[Note]]:
     """Notes of ``voices`` (generated together) for options already normalised."""
     clips: dict[str, list[Note]] = {}
+    roots: dict[str, tuple[int, Sequence[int]]] = {}
     for v in VOICES:
         if v not in voices:
             continue
@@ -669,8 +768,13 @@ def clips_for(o: Mapping[str, Any], voices: Sequence[str]) -> dict[str, list[Not
                 raise ValueError("lead_mode double: the doubled arp leaves the MIDI range; "
                                  "lower register[lead] or register[arp]")
         else:
-            notes = _cell_notes(o, _Plan(o, v))
+            plan = _Plan(o, v)
+            notes = _cell_notes(o, plan)
+            if v != "arp":
+                roots[v] = (plan.root, plan.tones)
         clips[v] = sorted(notes, key=lambda n: (n.start, n.pitch))
+    if "arp" in clips and o["onset_rule"]:
+        _move_off_arp_semitones(o, clips, roots)
     if len(clips) > 1:
         _remove_clashing_accents(o, clips)
     return clips
