@@ -1,7 +1,9 @@
-"""Goa clip mode (D-035, #546): one looping .mid per voice, no song form.
+"""Goa clip files (D-035, #546; notes from the cell model since #570): one looping .mid per
+voice, no song form.
 
-The MIDI is read back with a parser written here (not the module's writer), and scales,
-windows and note counts are written out in the test from the documented rules.
+The MIDI is read back with a parser written here (not the module's writer). Scales,
+windows, note counts and pad dyads are written out in the test from the documented rules.
+The construction checks of the cell model live in ``test_goa_cells.py``.
 """
 
 from __future__ import annotations
@@ -13,12 +15,16 @@ import pytest
 
 from audio_engine import goa_clips
 
-# Pitch classes relative to the root, written here independently of goa_melody.SCALES.
+# Pitch classes relative to the root, written here independently of goa_cells.SCALES.
 SCALE_STEPS = {
     "phrygian": {0, 1, 3, 5, 7, 8, 10},
     "phrygian_dominant": {0, 1, 4, 5, 7, 8, 10},
     "harmonic_minor": {0, 2, 3, 5, 7, 8, 11},
+    "double_harmonic": {0, 1, 4, 5, 7, 8, 11},
     "aeolian": {0, 2, 3, 5, 7, 8, 10},
+    "dorian": {0, 2, 3, 5, 7, 9, 10},
+    "minor_blues": {0, 3, 5, 6, 7, 10},
+    "hungarian_minor": {0, 2, 3, 6, 7, 8, 11},
 }
 ROOTS = {"C": 0, "C#": 1, "Db": 1, "D": 2, "D#": 3, "Eb": 3, "E": 4, "F": 5, "F#": 6,
          "Gb": 6, "G": 7, "G#": 8, "Ab": 8, "A": 9, "A#": 10, "Bb": 10, "B": 11}
@@ -76,28 +82,27 @@ def parse_smf(data: bytes) -> dict:
 
 
 def _random_options(rng: random.Random) -> dict:
-    voices = rng.sample(list(goa_clips.VOICES), rng.randint(1, 4))
+    scale = rng.choice(list(SCALE_STEPS))
     o = {"seed": rng.randint(0, 10**6), "bars": rng.randint(1, 16),
          "bpm": round(rng.uniform(135, 150), 2), "root": rng.choice(list(ROOTS)),
-         "scale": rng.choice(list(SCALE_STEPS)),
-         "arp_pattern": rng.choice(["up", "down", "updown", "random"]),
-         "progression": [rng.randint(0, 6) for _ in range(rng.randint(1, 16))],
-         "voices": voices}
+         "scale": scale, "arp_pattern": rng.choice(["up", "down", "updown", "random"]),
+         "progression": [rng.randrange(len(SCALE_STEPS[scale]))
+                         for _ in range(rng.randint(1, 16))],
+         "voices": rng.sample(list(goa_clips.VOICES), rng.randint(1, 4)),
+         "lead_mode": rng.choice(["own", "double"]), "restart_bars": rng.choice([2, 4, 8])}
     if rng.random() < 0.5:
         o["density"] = {v: rng.choice([0.0, 1.0, round(rng.random(), 3)])
                         for v in goa_clips.VOICES}
     else:
         o["density"] = round(rng.random(), 3)
     o["register"] = {v: rng.randint(-2, 2) for v in goa_clips.VOICES}
+    if o["lead_mode"] == "double":
+        o["register"]["lead"] = rng.randint(-2, 0)
     return o
 
 
-def _half_up(x: float) -> int:
-    return int(x + 0.5)
-
-
-def _check_clip(voice: str, opts: dict) -> None:
-    m = parse_smf(goa_clips.clip_to_midi(voice, **opts))
+def _check_clip(voice: str, opts: dict, data: bytes) -> None:
+    m = parse_smf(data)
     bars = opts.get("bars", 4)
     assert m["format"] == 0 and m["tracks"] == 1 and m["ppq"] == 480
     assert m["end"] == bars * 4 * 480, "loop length must be exact in ticks"
@@ -105,51 +110,26 @@ def _check_clip(voice: str, opts: dict) -> None:
     assert m["name"] == f"Goa {voice}"
     rpc = ROOTS[opts.get("root", "A")]
     allowed = {(rpc + s) % 12 for s in SCALE_STEPS[opts.get("scale", "phrygian")]}
-    reg = opts.get("register", {}).get(voice, 0)
+    reg = opts.get("register", {}).get(voice, 0) if isinstance(opts.get("register"), dict) \
+        else opts.get("register", 0)
     lo, hi = WINDOW[voice][0] + 12 * reg, WINDOW[voice][1] + 12 * reg
+    if voice == "lead":
+        # own lead: cell root = the arp's cell root (lowest root pitch from 60) + 12, tones
+        # up to its own octave; this passes the window top (documented in goa_cells)
+        hi = 60 + 12 * reg + rpc + 24
+    double = voice == "lead" and opts.get("lead_mode") == "double"
     for s, e, pitch, vel in m["notes"]:
         assert pitch % 12 in allowed, (voice, pitch)
-        assert lo <= pitch <= hi, (voice, pitch, lo, hi)
+        if not double:  # the doubled lead is the arp + 12 (documented: leaves the window)
+            assert lo <= pitch <= hi, (voice, pitch, lo, hi)
         assert 0 <= s < e <= m["end"] and 1 <= vel <= 127
-    d = opts["density"][voice] if isinstance(opts.get("density"), dict) \
-        else opts.get("density", {"lead": 0.6, "arp": 1.0, "pad": 0.0, "pluck": 0.5}[voice])
-    n = len(m["notes"])
-    if voice == "lead":
-        assert n == bars * _half_up(d * 8)
-    elif voice in ("arp", "pluck"):
-        assert n == bars * _half_up(d * 16)
-    else:
-        chord_bars = 4 - _half_up(3 * d)
-        slots = _expected_slots(bars, len(opts.get("progression", [0, 5, 6, 4])))
-        runs = [sum(1 for s in slots if s == k) for k in sorted(set(slots))]
-        assert n == 3 * sum(-(-r // chord_bars) for r in runs)  # one triad per strike
-    if voice in ("arp", "pad"):
-        prog = opts.get("progression", [0, 5, 6, 4])
-        slots = _expected_slots(bars, len(prog))
-        for s, _, pitch, _ in m["notes"]:
-            want = _triad(rpc, opts.get("scale", "phrygian"), prog[slots[s // 1920]])
-            assert pitch % 12 in want, (voice, s, pitch, want)
-
-
-def _expected_slots(bars: int, k: int) -> list[int]:
-    """Spec (coordinator, #546): spread K chords evenly over the bars; fewer bars than
-    chords -> the first `bars` chords, one per bar."""
-    if bars < k:
-        return list(range(bars))
-    out = []
-    for b in range(bars):
-        out.append(int(b * k / bars + 1e-9))  # float route, not the module's integer //
-    return out
-
-
-def _triad(rpc: int, scale: str, degree: int) -> set[int]:
-    steps = sorted(SCALE_STEPS[scale])
-    return {(rpc + steps[(degree + j) % 7]) % 12 for j in (0, 2, 4)}
+        assert s % 120 == 0, "straight 16th grid"
 
 
 @pytest.mark.parametrize("voice", goa_clips.VOICES)
 def test_default_clip_is_four_bars_in_scale(voice):
-    _check_clip(voice, {"seed": 7})
+    opts = {"seed": 7}
+    _check_clip(voice, opts, goa_clips.clip_to_midi(voice, **opts))
     assert goa_clips.clip_length_ticks(seed=7) == 7680
 
 
@@ -159,9 +139,10 @@ def test_loop_length_exact_in_ticks(bars):
         assert parse_smf(goa_clips.clip_to_midi(v, seed=1, bars=bars))["end"] == bars * 1920
 
 
-# A phrygian (A Bb C D E F G), triads written out by hand (pitch classes):
-# degree 0 = A C E, 5 = F A C, 6 = G Bb D, 4 = E G Bb
-TRIAD_A_PHRYGIAN = {0: {9, 0, 4}, 5: {5, 9, 0}, 6: {7, 10, 2}, 4: {4, 7, 10}}
+# A phrygian (A Bb C D E F G): degree -> root of the degree plus the scale tone closest to a
+# fifth above it (pitch classes), written out by hand.
+DYAD_A_PHRYGIAN = {0: {9, 4}, 5: {5, 0}, 6: {7, 2}, 4: {4, 10}}
+DEGREE_TONE_A_PHRYGIAN = {0: 9, 5: 5, 6: 7, 4: 4}  # A, F, G, E
 
 
 @pytest.mark.parametrize(("bars", "degrees_per_bar"), [
@@ -173,27 +154,31 @@ TRIAD_A_PHRYGIAN = {0: {9, 0, 4}, 5: {5, 9, 0}, 6: {7, 10, 2}, 4: {4, 7, 10}}
     (16, [0] * 4 + [5] * 4 + [6] * 4 + [4] * 4),
 ])
 @pytest.mark.parametrize("pad_density", [0.0, 0.5, 1.0])
-def test_pad_and_arp_run_through_the_progression(bars, degrees_per_bar, pad_density):
-    opts = {"seed": 2, "bars": bars, "progression": [0, 5, 6, 4],
+def test_an_explicit_progression_moves_pad_and_cell_per_bar(bars, degrees_per_bar, pad_density):
+    opts = {"seed": 2, "bars": bars, "progression": [0, 5, 6, 4], "cell_length": 16,
             "density": {"pad": pad_density, "arp": 1.0}}
     pad = parse_smf(goa_clips.clip_to_midi("pad", **opts))["notes"]
     arp = parse_smf(goa_clips.clip_to_midi("arp", **opts))["notes"]
+    first = {s: p for s, _, p, _ in arp}
     for b, deg in enumerate(degrees_per_bar):
         mid = b * 1920 + 960  # middle of bar b: which pad notes sound there?
         sounding = {p % 12 for s, e, p, _ in pad if s <= mid < e}
-        assert sounding == TRIAD_A_PHRYGIAN[deg], (b, sounding)
-        in_bar = {p % 12 for s, _, p, _ in arp if b * 1920 <= s < (b + 1) * 1920}
-        assert in_bar and in_bar <= TRIAD_A_PHRYGIAN[deg], (b, in_bar)
+        assert sounding == DYAD_A_PHRYGIAN[deg], (b, sounding)
+        # the 16-step cell starts each bar on the degree's own tone
+        assert first[b * 1920] % 12 == DEGREE_TONE_A_PHRYGIAN[deg], (b, first[b * 1920])
     text = goa_clips.render_readme({"pad": "x", "arp": "y", "lead": "z", "pluck": "w"},
                                    **opts)
-    assert "chord per bar (arp and pad): " + ", ".join(map(str, degrees_per_bar)) in text
+    assert "degree per bar: " + ", ".join(map(str, degrees_per_bar)) in text
 
 
-def test_song_mode_pad_unchanged():
-    # goa_melody keeps its own rule: density 0 -> one 4-bar chord on the first degree
+def test_default_progression_is_the_root_only_and_the_old_melody_module_is_unchanged():
+    o = goa_clips.normalise({})
+    assert o["progression"] == [0] and o["scale"] == "phrygian" and o["bpm"] == 145.0
+    assert goa_clips.bar_chords(dict(o, bars=8)) == [0] * 8
+    # goa_melody keeps its own rule: density 0 -> one 4-bar triad on the first degree
     from audio_engine import goa_melody
-    o = goa_melody.normalise({"seed": 2, "length": 4})
-    notes = goa_melody.voice_pattern("pad", o, 1.0)["notes"]
+    m = goa_melody.normalise({"seed": 2, "length": 4})
+    notes = goa_melody.voice_pattern("pad", m, 1.0)["notes"]
     assert [(n["pitch"], n["start"], n["duration"]) for n in notes] == \
         [(48, 0.0, 15.9375), (52, 0.0, 15.9375), (57, 0.0, 15.9375)]
 
@@ -208,19 +193,21 @@ def test_same_options_same_bytes_other_seed_other_bytes():
 
 def test_property_random_options_over_full_range():
     rng = random.Random(546)
-    for _ in range(60):
+    for _ in range(80):
         opts = _random_options(rng)
         clips = goa_clips.build_clips(**opts)
         assert list(clips) == [v for v in goa_clips.VOICES if v in opts["voices"]]
         for v in clips:
-            _check_clip(v, opts)
+            _check_clip(v, opts, clips[v])
+            # one voice alone, generated with the same selection, is the same file
             assert clips[v] == goa_clips.clip_to_midi(v, **opts)
 
 
 @pytest.mark.parametrize("bad", [
     {"bars": 0}, {"bars": 17}, {"bars": 2.0}, {"bars": True},
     {"sections": []}, {"energy": 1.0}, {"title": "x"}, {"length": 4},
-    {"bpm": 151}, {"scale": "dorian"}, {"density": 1.5}, {"register": 3},
+    {"bpm": 151}, {"scale": "major"}, {"scale": "ionian"}, {"density": 1.5}, {"register": 3},
+    {"progression": [7]}, {"lead_mode": "x"}, {"restart_bars": 16},
 ])
 def test_invalid_options_raise(bad):
     with pytest.raises(ValueError):
@@ -231,7 +218,8 @@ def test_write_clips_one_file_per_voice_and_refuses_existing(tmp_path):
     mids, readme = goa_clips.write_clips(tmp_path / "out", seed=5, bars=2, voices=["pad", "lead"])
     assert [p.name for p in mids] == ["goa_lead_seed5_145bpm_2bars.mid",
                                       "goa_pad_seed5_145bpm_2bars.mid"]
-    assert mids[0].read_bytes() == goa_clips.clip_to_midi("lead", seed=5, bars=2)
+    assert mids[0].read_bytes() == goa_clips.clip_to_midi("lead", seed=5, bars=2,
+                                                          voices=["pad", "lead"])
     text = readme.read_text(encoding="utf-8")
     assert "Not tested in Live" in text and "section" not in text.lower()
     before = {p: p.read_bytes() for p in (tmp_path / "out").iterdir()}
@@ -239,6 +227,16 @@ def test_write_clips_one_file_per_voice_and_refuses_existing(tmp_path):
         goa_clips.write_clips(tmp_path / "out", seed=5, bars=2, voices=["lead", "arp"])
     after = {p: p.read_bytes() for p in (tmp_path / "out").iterdir()}
     assert after == before  # the arp clip was not written either
+
+
+def test_readme_says_what_slides_and_accents_need_in_live_and_claims_no_sound():
+    text = goa_clips.render_readme({v: v for v in goa_clips.VOICES}, seed=1)
+    low = text.lower()
+    assert "monophonic" in low and "legato" in low and "glide" in low
+    assert "velocity to the filter" in low and "untested in live" in low
+    assert "120 instead of 84" in text
+    for claim in ("sounds like", "sound like goa", "sounds good", "authentic"):
+        assert claim not in low
 
 
 def test_write_failure_removes_partial_files(tmp_path, monkeypatch):
@@ -269,7 +267,48 @@ def test_cli_writes_clips(tmp_path, capsys):
     assert names == ["README.md", "goa_arp_seed9_145bpm_1bars.mid",
                      "goa_lead_seed9_145bpm_1bars.mid", "goa_pad_seed9_145bpm_1bars.mid"]
     lead = parse_smf((tmp_path / "c" / "goa_lead_seed9_145bpm_1bars.mid").read_bytes())
-    assert len(lead["notes"]) == 8 and lead["end"] == 1920
+    assert len(lead["notes"]) == 16 and lead["end"] == 1920  # density 1: every 16th
+    pad = parse_smf((tmp_path / "c" / "goa_pad_seed9_145bpm_1bars.mid").read_bytes())
+    assert [n[2] for n in pad["notes"]] == [40, 45]  # A and E one octave lower (register -1)
     assert goa_clips.main(["--out", str(tmp_path / "c"), "--seed", "9", "--bars", "1"]) == 2
     assert goa_clips.main(["--out", str(tmp_path / "d"), "--bars", "20"]) == 2
     assert "bars must be" in capsys.readouterr().err
+
+
+def test_the_page_parser_is_unchanged_and_the_cell_options_are_command_line_only():
+    page = {a.dest for a in goa_clips.build_parser()._actions} - {"help", "out"}
+    assert page == {"seed", "bars", "bpm", "root", "scale", "density", "register",
+                    "arp_pattern", "progression", "voices"}
+    full = {a.dest for a in goa_clips.build_parser(cell_options=True)._actions}
+    assert full - page - {"help", "out"} == {
+        "cell_length", "lead_mode", "lead_above_arp", "restart_bars", "grouping", "pitches",
+        "accent_cycle",
+        "slides", "variation", "velocity", "accent_velocity", "gate", "sub_seeds"}
+    # the page's argv gives the same options as the command line without the cell options
+    argv = ["--out", "x", "--seed", "4", "--scale", "aeolian", "--progression", "0,6"]
+    short = goa_clips.params_from_args(goa_clips.build_parser().parse_args(argv))
+    long = goa_clips.params_from_args(goa_clips.build_parser(cell_options=True).parse_args(argv))
+    assert goa_clips.normalise(short) == goa_clips.normalise(long)
+
+
+def test_cli_new_options_reach_the_generator():
+    args = goa_clips.build_parser(cell_options=True).parse_args([
+        "--out", "x", "--cell-length", "arp=5,lead=11", "--lead-mode", "double",
+        "--restart-bars", "8", "--grouping", "displaced", "--pitches", "3",
+        "--accent-cycle", "5", "--slides", "lead=0,arp=1,pluck=2", "--variation", "off",
+        "--velocity", "80", "--accent-velocity", "127", "--gate", "75",
+        "--sub-seeds", "pitch=1,rhythm=2"])
+    p = goa_clips.params_from_args(args)
+    assert p["cell_length"] == {"arp": 5, "lead": 11} and p["lead_mode"] == "double"
+    assert (p["restart_bars"], p["pitches"], p["accent_cycle"], p["variant_steps"]) == (
+        8, 3, 5, 0)
+    assert p["slides"] == {"lead": 0, "arp": 1, "pluck": 2}
+    assert (p["velocity"], p["accent_velocity"], p["gate"]) == (80, 127, 75)
+    assert p["sub_seeds"] == {"pitch": 1, "rhythm": 2}
+    o = goa_clips.normalise(p)
+    assert o["cell_length"] == {"lead": 11, "arp": 5, "pluck": "auto"}
+    defaults = goa_clips.params_from_args(
+        goa_clips.build_parser(cell_options=True).parse_args(["--out", "x"]))
+    assert goa_clips.normalise(defaults) == goa_clips.normalise({})
+    vel = {n[3] for n in parse_smf(goa_clips.clip_to_midi("arp", **p))["notes"]}
+    assert vel <= {80, 127}
