@@ -196,7 +196,7 @@ def _segment(v: Voice, chain: Sequence[PreviewNote], bpm: float, clip_n: int,
     glide_n = max(1, int(GLIDE_S * sr))
     pitch[:] = math.log2(dsp.midi_hz(chain[0].pitch))
     vel[:] = chain[0].velocity
-    for n, st in zip(chain[1:], starts[1:]):
+    for n, st in zip(chain[1:], starts[1:], strict=True):
         a = st - s0
         if a >= n_on:
             break
@@ -244,7 +244,7 @@ def render_voice_dry(voice: str, notes: Sequence[PreviewNote], bpm: float,
     buf = np.zeros(total_n)
     filtered = dsp.resonant_filter([s[1] for s in segs], [s[2] for s in segs], v.q,
                                    SAMPLE_RATE, v.mode)
-    for (s0, _src, _cut, gain), y in zip(segs, filtered):
+    for (s0, _src, _cut, gain), y in zip(segs, filtered, strict=True):
         buf[s0:s0 + len(y)] += y * gain
     return buf
 

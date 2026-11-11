@@ -161,7 +161,7 @@ def test_filter_stays_bounded_at_maximum_resonance(mode):
     sigs = [x for x in inputs for _ in cutoffs]
     cuts = [c for _ in inputs for c in cutoffs]
     outs = dsp.resonant_filter(sigs, cuts, dsp.Q_MAX, SR, mode)
-    for x, y in zip(sigs, outs):
+    for x, y in zip(sigs, outs, strict=True):
         assert np.all(np.isfinite(y))
         assert float(np.max(np.abs(y))) <= 2 * dsp.Q_MAX * float(np.max(np.abs(x)))
     assert max(float(np.max(np.abs(y))) for y in outs) > 1.0  # the cases do excite it

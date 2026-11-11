@@ -133,7 +133,8 @@ def resonant_filter(signals: Sequence[np.ndarray], cutoffs: Sequence[np.ndarray]
         raise ValueError("mode must be lowpass or bandpass")
     if not Q_MIN <= q <= Q_MAX:
         raise ValueError(f"q must be {Q_MIN:g}-{Q_MAX:g}")
-    if len(signals) != len(cutoffs) or any(len(s) != len(c) for s, c in zip(signals, cutoffs)):
+    if len(signals) != len(cutoffs) or any(
+            len(s) != len(c) for s, c in zip(signals, cutoffs, strict=True)):
         raise ValueError("every signal needs a cutoff array of its own length")
     cuts = [clamp_cutoff(np.asarray(c, dtype=np.float64), sr) for c in cutoffs]
     live = [i for i, s in enumerate(signals) if len(s)]
