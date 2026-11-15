@@ -15,6 +15,7 @@ import json
 import math
 import random
 import struct
+import warnings
 import wave
 
 import numpy as np
@@ -22,6 +23,7 @@ import pytest
 
 from audio_engine import ENGINE_VERSION
 from audio_engine import reference as R
+from audio_engine import reference_calibration as C
 from audio_engine import reference_v2 as V
 from audio_engine.bass import BASS_VERSION, BassParamsError, note_frequency, render_bass
 from audio_engine.bass import _schema as bass_schema
@@ -712,9 +714,30 @@ def test_the_committed_table_is_complete_and_self_consistent():
         for name, row in rows.items():
             assert row["transform"] == V.FEATURES[cat][name][0]
             assert math.isfinite(row["scale"]) and row["scale"] > 0.0, (cat, name)
-            assert row["scale"] == max(row["method_error"], row["seed_spread"]), (cat, name)
+            assert row["scale"] == max(row["method_error"], row["degrade_error"],
+                                       row["seed_spread"]), (cat, name)
             want = 0.0 if row["seed_spread"] >= row["between_spread"] / 3 else 1.0
             assert row["weight"] == want, (cat, name)
+
+
+def test_the_committed_table_holds_the_degrade_error_of_every_feature():
+    table = _table()
+    assert set(table["degradations"]) == set(C.DEGRADATIONS)
+    assert table["degrade_constants"] == C.DEGRADE_CONSTANTS, "re-run " + table["command"]
+    assert "degrade_error" in table["aggregation"]
+    for cat in ("kick", "bass"):
+        for name, row in table["categories"][cat]["features"].items():
+            assert set(row["degrade_max_by"]) == set(C.DEGRADATIONS), (cat, name)
+            assert row["degrade_candidates"] > 0, (cat, name)
+            assert row["degrade_none_checks"] >= 0
+            assert 0.0 <= row["degrade_error"] <= row["degrade_error_max"], (cat, name)
+            assert row["degrade_error_max"] == max(row["degrade_max_by"].values()), (cat, name)
+        sd = table["categories"][cat]["self_distance"]
+        assert sd["pairs"] == table["categories"][cat]["candidates"] * len(C.DEGRADATIONS)
+        assert 0.0 <= sd["median"] <= sd["p95"] <= sd["max"]
+        assert sd["max_feature"] in V.FEATURES[cat]
+        assert sd["max_degradation"] in C.DEGRADATIONS
+        assert sd["max"] == max(d["max"] for d in sd["by_degradation"].values())
 
 
 def test_the_distance_uses_the_committed_scales():
@@ -725,3 +748,47 @@ def test_the_distance_uses_the_committed_scales():
     per = V.feature_distances("bass", {"note_hz": 110.0}, {"note_hz": 100.0})
     assert per["note_hz"] == pytest.approx(12 * math.log2(1.1) / rows["note_hz"]["scale"])
     assert V.feature_table("bass", {})["note_hz"] == V.FeatureScale("semitone", 0.1, 1.0, True)
+
+
+def test_the_committed_table_loads_without_a_warning():
+    status = V.calibration_status()
+    assert (status.loaded, status.reason, status.message) == (True, "loaded", "")
+    assert status.path == V.CALIBRATION_FILE
+    assert V.load_calibration() == _table()
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        assert not any(s.provisional for s in V.feature_table("kick").values())
+
+
+def _bad_tables(tmp_path):
+    garbage = tmp_path / "garbage.json"
+    garbage.write_text("{not json", encoding="utf-8")
+    zero = json.loads(json.dumps(_table()))
+    zero["categories"]["kick"]["features"]["body_hz"]["scale"] = 0.0
+    zero_scale = tmp_path / "zero_scale.json"
+    zero_scale.write_text(json.dumps(zero), encoding="utf-8")
+    shape = tmp_path / "shape.json"
+    shape.write_text("{}", encoding="utf-8")
+    return [(tmp_path / "absent.json", "missing", "fehlt"), (garbage, "unreadable", "lesbar"),
+            (zero_scale, "invalid", "Form"), (shape, "invalid", "Form")]
+
+
+def test_a_missing_or_broken_table_is_loud(tmp_path, monkeypatch):
+    for path, reason, word in _bad_tables(tmp_path):
+        with pytest.raises(V.CalibrationUnavailable, match=word) as err:
+            V.load_calibration(path)
+        assert err.value.reason == reason
+        status = V.calibration_status(path)
+        assert (status.loaded, status.reason, status.table) == (False, reason, {})
+        assert word in status.message and "vorläufige Skalen" in status.message
+        assert str(path) in status.message
+        # the default table: feature_table falls back to the provisional scales and says so
+        monkeypatch.setattr(V, "CALIBRATION_FILE", path)
+        with pytest.warns(V.CalibrationWarning, match="vorläufige Skalen"):
+            fs = V.feature_table("kick")
+        assert {n: (s.scale, s.weight, s.provisional) for n, s in fs.items()} == \
+            {n: (prov, 1.0, True) for n, (_, prov) in V.FEATURES["kick"].items()}
+        with pytest.raises(V.CalibrationUnavailable):
+            V.load_calibration()
+        with pytest.warns(V.CalibrationWarning):  # the distance does not hide it either
+            V.feature_distances("kick", {"body_hz": 50.0}, {"body_hz": 50.0})
