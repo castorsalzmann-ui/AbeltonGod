@@ -5,7 +5,7 @@ For the next **lead** session. Read this, then `CLAUDE.md`, the top block of `do
 ## Repo state
 
 - `main` = the commit that carries this file (after 8d33e0e), CI timeout raised to 30 min (the Windows job needs about 18).
-- **Open PR:** #576 (fit core kick/bass, #564). Reviewer: APPROVE-READY (round 1). Its Windows CI hit the old 20-minute limit. Next step: update the branch, wait for green CI on both OSes, squash-merge (the user ordered "merge alles" on 2026-11-15), then add one line to `docs/CURRENT_STATE.md`. Do not call kick `pitch_start_hz` / `pitch_decay_ms` recovered (#577).
+- **No open PRs.** #576 (fit core kick/bass, #564) is merged (4ac5bbb). Do not call kick `pitch_start_hz` / `pitch_decay_ms` recovered (#577).
 - Latest Windows build: Build exe run 43729550861 on 8d33e0e (artifact `AbeltonGod-windows`). It contains the new Goa clips and preview. The cloud session cannot download artifacts.
 - Merging: on 2026-11-10 the permission system refused the lead's merge; after the user's explicit "merge" on 2026-11-15 it worked. Without such a message, ask him.
 
@@ -19,7 +19,7 @@ For the next **lead** session. Read this, then `CLAUDE.md`, the top block of `do
 
 ## Next work (lead decides; 1-3 agents)
 
-- #576 merge (above), then #577 (fit follow-ups) before any GUI use of the fit (G1 of the reference note).
+- #577 (fit follow-ups) before any GUI use of the fit (G1 of the reference note).
 - Goa follow-ups: #575 (preview render off the GUI thread; re-check lead register 79-93; reverb only if the user asks), #574 (page texts, dead "Arp-Muster" field, later page controls for the new options).
 - Side findings: #568 (kick `body_hz` seed jump), #569 (laser 0.1 rounding boundary), #537, #534, #527.
 - Parking lot: #521, #519, #539.
