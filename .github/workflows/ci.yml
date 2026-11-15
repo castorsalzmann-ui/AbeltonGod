@@ -15,7 +15,9 @@ jobs:
     # Normal runs take 2-3 min. A hanging test (e.g. a poll loop that never
     # ends, found in the PR #97 review) must fail the job instead of blocking
     # it for GitHub's 6 h default.
-    timeout-minutes: 20
+    # 2026-11-15: 20 -> 30. The Windows job took 18 min on main 8d33e0e (Test step 9 min) and
+    # hit 20 min with the reference-fit tests of #576 (about 200 s serial).
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:

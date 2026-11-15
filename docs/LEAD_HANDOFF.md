@@ -1,38 +1,29 @@
-# Lead handoff (2026-11-09 evening)
+# Lead handoff (2026-11-15)
 
-For the next **lead** session. Read this, then `CLAUDE.md`, the top block of `docs/CURRENT_STATE.md`, and `docs/DECISIONS.md` D-032 to D-035. Lead-owned file; replace it at the next handoff.
+For the next **lead** session. Read this, then `CLAUDE.md`, the top block of `docs/CURRENT_STATE.md`, and `docs/DECISIONS.md` D-035 to D-037. Lead-owned file; replace it at the next handoff.
 
 ## Repo state
 
-- `main` = 42e9161 or later, CI green. **No open PRs.**
-- Latest Windows build: Build exe run 42628586313 (artifact `AbeltonGod-windows`). The user downloads it from the Actions page; this cloud session cannot download artifacts (blob storage is blocked by the proxy).
-- The user tested on his own PC for the first time on 2026-11-09. All his feedback from that test is merged (D-035). His checklist is `docs/USER_GUIDE.md`, items 20–24.
+- `main` = the commit that carries this file (after 8d33e0e), CI timeout raised to 30 min (the Windows job needs about 18).
+- **Open PR:** #576 (fit core kick/bass, #564). Reviewer: APPROVE-READY (round 1). Its Windows CI hit the old 20-minute limit. Next step: update the branch, wait for green CI on both OSes, squash-merge (the user ordered "merge alles" on 2026-11-15), then add one line to `docs/CURRENT_STATE.md`. Do not call kick `pitch_start_hz` / `pitch_decay_ms` recovered (#577).
+- Latest Windows build: Build exe run 43729550861 on 8d33e0e (artifact `AbeltonGod-windows`). It contains the new Goa clips and preview. The cloud session cannot download artifacts.
+- Merging: on 2026-11-10 the permission system refused the lead's merge; after the user's explicit "merge" on 2026-11-15 it worked. Without such a message, ask him.
 
 ## Waiting on the user (ask again only if he raises it)
 
-1. **#556, noise on all samples.** Engine files and the 16-bit preview copy measure clean. Only the default bass has about -80 dBFS above 4 kHz. Two questions to him are still unanswered:
-   - Does he hear it in Live or another player too?
-   - Does it stop when nothing is playing?
-2. **Listening feedback** on items 20–24: Goa preview, volume, loop preview, Acid preview, Blaster tail. Also: is the riser build now too slow (start at -60 dB)?
-3. If the Acid preview is still silent on his PC: the status line under the play buttons now shows the reason. Ask him for that text.
-4. Old optional items: #484 (Live warp), choice-log B6. He may delete the branches `tmp/laser-dbg` and `tmp/screens-b64`.
+1. **Goa in the exe** (checklist item 25 in `docs/USER_GUIDE.md`): does it sound like the listening pack of 2026-11-15 ("hört sich top an")? Does the window freeze annoy him (#575)? Clips in Live on his own synths?
+2. Optional detail on the pack: favourite of A/B/C, variants 09-12 (major third, lead doubles the arp, 3+3+2 grouping, chord change), reverb, delay amount.
+3. #556 noise on all samples: heard in Live or another player too? Does it stop when nothing plays?
+4. Listening feedback on items 20-24; Acid preview status text if still silent; #484; choice-log B6.
+5. A side-finding from the review of #567 is not filed (bass `sub_share` depends on the file length for notes near 100 Hz); the user was asked whether to file it and has not answered.
 
-## Next work (lead decides; 1–3 agents)
+## Next work (lead decides; 1-3 agents)
 
-- **Reference steering v2, step E6, the fit** (note `docs/research/2026-11-08_reference-steering-v2.md` §4, §7, §10; slice 1 merged in #541).
-  - Lead decision: feature scales come from the method error measured on degraded copies (resampling, 16-bit with dither, gain, DC, small trim), with the provisional scale only as a fallback. No floor at the provisional scale.
-  - First categories: kick and bass.
-- Side findings:
-  - #554: blaster presets ion and pew-wide-echo cut their own echo.
-  - #542: the exe does not bundle `calibration/reference_scales.json`. This is needed before the GUI uses v2.
-  - #537: smoke-runner checks do not fit seamless atmos loops.
-  - #534: the atmos contract text says MIDI 36 = C2; Live calls it C1.
-  - #527: flaky live-import test.
-- Parking lot: #521 (planner takes over the Goa form options), #519 (copilot reads the Live tempo), #539 (copilot cap on atmos render time).
-- Nits:
-  - The Acid status line keeps saying "Spielt: …" after Stop.
-  - The main-window nav entry still says "Goa-Melodie"; it could become "Goa-Clips".
-  - The launcher has no `goa-clips` entry.
+- #576 merge (above), then #577 (fit follow-ups) before any GUI use of the fit (G1 of the reference note).
+- Goa follow-ups: #575 (preview render off the GUI thread; re-check lead register 79-93; reverb only if the user asks), #574 (page texts, dead "Arp-Muster" field, later page controls for the new options).
+- Side findings: #568 (kick `body_hz` seed jump), #569 (laser 0.1 rounding boundary), #537, #534, #527.
+- Parking lot: #521, #519, #539.
+- Scratch material in the lead's clone, untracked: `reports/`, `research_notes/` (the Goa research; the report is in the repo as `docs/research/2026-11-10_klassische-goa-leads-und-melodien.md`).
 
 ## User rules (binding)
 

@@ -68,6 +68,10 @@ Download: GitHub → Actions → „Build exe“ → neuester Lauf auf `main` �
 23. Acid-Fenster: Abspielen oben links: hörst du die grobe Vorschau? Falls nicht: welcher Text steht darunter?
 24. Blaster: 5er-Salve: klingt der letzte Schuss ganz aus?
 
+**Neu seit 2026-11-15:**
+
+25. Goa neu (D-037): „Alle vorhören“ mit 8 Takten: klingt es in der exe wie im Hörpaket vom 15.11.? Friert das Fenster beim Vorhören störend ein? „MIDI exportieren“ und die vier Clips in Live auf eigene Synths legen (Slides brauchen Mono + Legato + Glide, Akzente Velocity auf das Filter): passt es dort auch?
+
 Jeder Punkt ist bisher nur automatisch (ohne Bildschirm bzw. gegen einen nachgebauten Live-Server) oder gar nicht geprüft; deine Rückmeldung ist der erste echte Beleg.
 
 ## Wenn du irgendwann testen willst (alles optional)
