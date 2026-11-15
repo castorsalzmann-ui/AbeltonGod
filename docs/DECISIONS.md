@@ -389,3 +389,19 @@ The researchers for 04b clusters 1 (Agent SDK behaviour) and 2 (tool-schema gene
 **Reason.** First real use on the user's machine: the Goa page produced a song plan instead of usable clips, and nothing MIDI-based could be heard.
 
 **Consequences.** Issues for the Goa clip generator + preview (audio-engineer, then GUI), the output volume, and the two playback bugs (GUI).
+
+## D-036 · 2026-11-10 · accepted — Reference fit minimises on max(calibrated, provisional) scales (lead; replaces the lead note of 2026-11-09 "no floor at the provisional scale")
+
+**Decision.** (1) The calibration table (#563) is the reading resolution of each feature: scale = max(method error, degrade error on degraded copies, seed spread), mean over candidates. (2) The fit (#564) uses per feature fit scale = max(calibrated, provisional) for stages 0-2, the determination flags and every distance in its report; the report names both values and which one applied. (3) The provisional scales are hand-set working resolutions, not listening claims.
+
+**Reason.** Measured on the same references and code: on the calibrated scales alone the coordinate search ended in local minima (kick `pitch_end_hz` beyond 8 % in 4 of 8 near-preset references, also with 3000 renders); on the provisional scales it was within 8 % in 8 of 8 and the bass note was right in 8 of 8. The degraded copies did not lift the small scales (PR #567).
+
+**Consequences.** `reference_fit.py` owns the max. Kick `body_hz` seed jump is #568. Mean vs max aggregation stays mean.
+
+## D-037 · 2026-11-11 · accepted — Goa clips use a cell model; the Goa preview may contain a small subtractive voice (user, 2026-11-10: "klingt die goa melody bisher gar nicht gut und muss komplett überarbeitet werden … wie classic goa"; 2026-11-11: "wie ein schlecht gespieltes keyboard ohne harmonie ohne tiefe"; 2026-11-15 on the listening pack: "hört sich top an"; amends D-035, keeps D-034 item 3)
+
+**Decision.** (1) Lead, arp, pad and pluck/acid clips come from `audio_engine.goa_cells` (rule set N1-N10 of `docs/research/2026-11-10_klassische-goa-leads-und-melodien.md`): a short seeded cell repeated literally, displaced lengths with a restart every 4 bars, separate accent and slide cycles, one shared root and pitch ranking, root pedal as the default progression, pad = root plus fifth, lead one octave above the arp, no same-tick semitone between lead/acid and arp. Every number is a named working value with a default. (2) Encoding: an accent is the higher of two velocities (84/120); a slide is a note that overlaps the next note of its voice. (3) The Goa preview is an offline NumPy render with saw, resonant filter (envelope, accent), glide and a 3/16 ping-pong delay, stereo; it stays the "grobe Vorschau", is never exported and is no product voice. (4) `goa_melody.py` stays for `goa_arrangement`.
+
+**Reason.** The audit measured the opposite of the documented construction in the old path (new rhythm per bar, random walk over 14 pitches, 0 of 48 repeated bars, sine-only mono preview). The user's listening result on the new version is positive.
+
+**Consequences.** No text claims the clips sound like Goa. New options are CLI-only until the page gets controls (#574). Preview render moves off the GUI thread (#575). Live behaviour of slides and accents is untested.
