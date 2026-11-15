@@ -30,13 +30,27 @@ For each category (kick, bass) the candidate set is every preset with variants 0
   The category value is the mean over candidates; the largest is ``method_error_max``.
   A check where one side is ``None`` is not counted as a deviation; such checks are counted
   in ``none_checks``.
-- **Scale** = max(method error, seed spread) (note rule 2.3); **weight** = 0 when the seed
-  spread is at least a third of the between-candidate spread, else 1 (rule 2.4 (a), see
+- **Degrade error** of a candidate (#563): the largest deviation of the feature between the
+  candidate's render and *degraded copies of the same samples* (:data:`DEGRADATIONS`: resampled
+  to 44.1 and 96 kHz, 16 bit with TPDF dither, gain below and above full scale, DC offset,
+  silence in front, a few samples cut at both ends). A user's reference is a file that went
+  through other tools; this is the reading error such a round trip adds. The category value
+  is the mean over candidates; ``degrade_error_max`` is the largest candidate value and
+  ``degrade_max_by`` the largest per degradation. A copy where the feature is measured on one
+  side and ``None`` on the other is not a deviation; it is counted in ``degrade_none_checks``.
+- **Scale** = max(method error, degrade error, seed spread) (note rule 2.3, lead decision of
+  2026-11-09: no floor at the provisional scale); **weight** = 0 when the seed spread is at
+  least a third of the between-candidate spread, else 1 (rule 2.4 (a), see
   :func:`audio_engine.reference_v2.weight_for`).
+- **Self-distance** (``self_distance`` per category): the total distance, with the new
+  scales, between each candidate and each of its degraded copies. It shows what the mean
+  aggregation leaves over: a pair above 1 is a copy of the same audio that reads as more
+  than one scale unit away.
 
 Values are rounded to 6 decimals before scale and weight are derived, so the committed table
-is consistent with itself (a test checks this). No wall clock, no random numbers: the same
-engine and NumPy build give the same table.
+is consistent with itself (a test checks this). No wall clock and no global random numbers
+(the dither uses its own ``PCG64`` generator with a fixed seed): the same engine and NumPy
+build give the same table.
 """
 
 from __future__ import annotations
@@ -100,10 +114,188 @@ def spread_stats(per_candidate: list[list[float | None]]) -> dict[str, float | i
     }
 
 
-def scale_and_weight(method_error: float, seed_spread: float, between_spread: float) \
-        -> tuple[float, float]:
+def scale_and_weight(method_error: float, degrade_error: float, seed_spread: float,
+                     between_spread: float) -> tuple[float, float]:
     """(scale, weight) of one feature from its rounded statistics (rules 2.3 and 2.4 (a))."""
-    return max(method_error, seed_spread), V.weight_for(seed_spread, between_spread)
+    return (max(method_error, degrade_error, seed_spread),
+            V.weight_for(seed_spread, between_spread))
+
+
+# --- degraded copies (#563; tested on synthetic signals) ---------------------------------------
+
+# Sinc zero crossings on each side of the resampling kernel, counted at the lower of the two
+# rates: 64 gives a 2 kHz transition band at 44.1 kHz with the window below.
+RESAMPLE_ZEROS = 64
+# Kaiser window parameter: about 90 dB stop band, below the 16-bit noise of the dither copy.
+RESAMPLE_BETA = 8.6
+# -6 dB point as a share of the lower Nyquist frequency: the transition band (20.0 to
+# 21.9 kHz for 44.1 kHz) then ends below Nyquist, so nothing folds back.
+RESAMPLE_CUTOFF = 0.95
+RESAMPLE_RATES = (44100, 96000)  # the two other rates the v2 reader takes
+DITHER_SEED = 563  # the issue number; any fixed seed gives a deterministic table
+DITHER_FULL_SCALE = 32768.0  # the reader divides 16-bit samples by this
+GAIN_LOW_DB = -12.0  # the issue's value: a file exported with headroom
+GAIN_OVER_DB = 6.0  # float copy with peaks above full scale, which the v2 reader keeps
+DC_OFFSET = 0.01  # 1 % of full scale (-40 dBFS): large for a converter offset, far below clipping
+PAD_FRONT_MS = 10.0  # silence in front; features are counted from the onset
+CUT_SAMPLES = 8  # cut at both ends (0.17 ms at 48 kHz): an edit that is not on the first sample
+
+
+def _kernel(t: np.ndarray, fc: float, half: float) -> np.ndarray:
+    """Kaiser-windowed sinc low-pass at ``fc`` (share of Nyquist), ``t`` in input samples."""
+    inside = np.abs(t) < half
+    w = np.zeros_like(t)
+    w[inside] = np.i0(RESAMPLE_BETA * np.sqrt(1.0 - (t[inside] / half) ** 2)) \
+        / np.i0(RESAMPLE_BETA)
+    return fc * np.sinc(fc * t) * w
+
+
+def resample(x: np.ndarray, sr_in: int, sr_out: int) -> np.ndarray:
+    """Band-limited resampling of the samples (polyphase windowed sinc, NumPy only).
+
+    Output sample n sits at input time n * sr_in / sr_out; the output has
+    ceil(len * sr_out / sr_in) samples. Each polyphase row is normalised to sum 1, so a
+    constant stays the same constant at every output phase. Samples outside the input count
+    as 0. Mono or ``(n, channels)``.
+    """
+    x = np.asarray(x, dtype=np.float64)
+    if x.ndim == 2:
+        return np.stack([resample(x[:, c], sr_in, sr_out) for c in range(x.shape[1])], axis=1)
+    if sr_in == sr_out:
+        return x.copy()
+    g = math.gcd(sr_in, sr_out)
+    up, down = sr_out // g, sr_in // g
+    fc = RESAMPLE_CUTOFF * min(1.0, up / down)
+    half = RESAMPLE_ZEROS / fc
+    h = math.ceil(half)
+    k = np.arange(-h + 1, h + 1, dtype=np.float64)  # taps j = i0 + k
+    phases = np.arange(up, dtype=np.float64)[:, None] / up
+    coeff = _kernel(phases - k[None, :], fc, half)
+    coeff /= np.sum(coeff, axis=1, keepdims=True)
+    n_out = -(-len(x) * up // down)
+    pos = np.arange(n_out, dtype=np.int64) * down
+    i0, phase = pos // up, pos % up
+    windows = np.lib.stride_tricks.sliding_window_view(
+        np.concatenate([np.zeros(h), x, np.zeros(h + 1)]), 2 * h)
+    out = np.empty(n_out)
+    for a in range(0, n_out, 8192):
+        b = min(a + 8192, n_out)
+        out[a:b] = np.einsum("nk,nk->n", windows[i0[a:b] + 1], coeff[phase[a:b]])
+    return out
+
+
+def dither_16bit(x: np.ndarray, seed: int = DITHER_SEED) -> np.ndarray:
+    """16-bit quantisation with TPDF dither of +-1 LSB (own ``PCG64`` generator)."""
+    x = np.asarray(x, dtype=np.float64)
+    rng = np.random.Generator(np.random.PCG64(seed))
+    tpdf = rng.random(x.shape) - rng.random(x.shape)
+    q = np.clip(np.rint(x * DITHER_FULL_SCALE + tpdf), -DITHER_FULL_SCALE,
+                DITHER_FULL_SCALE - 1.0)
+    return q / DITHER_FULL_SCALE
+
+
+def pad_front(x: np.ndarray, sr: int, ms: float = PAD_FRONT_MS) -> np.ndarray:
+    x = np.asarray(x, dtype=np.float64)
+    n = int(round(ms * sr / 1000.0))
+    return np.concatenate([np.zeros((n, *x.shape[1:])), x])
+
+
+def cut_edges(x: np.ndarray, samples: int = CUT_SAMPLES) -> np.ndarray:
+    return np.asarray(x, dtype=np.float64)[samples:len(x) - samples].copy()
+
+
+# name -> (text for the table header, function (audio, sr) -> (audio, sr))
+DEGRADATIONS: dict[str, tuple[str, Callable[[np.ndarray, int], tuple[np.ndarray, int]]]] = {
+    "resample_44k1": (
+        "resampled to 44100 Hz (polyphase Kaiser-windowed sinc)",
+        lambda x, sr: (resample(x, sr, 44100), 44100)),
+    "resample_96k": (
+        "resampled to 96000 Hz (polyphase Kaiser-windowed sinc)",
+        lambda x, sr: (resample(x, sr, 96000), 96000)),
+    "dither_16bit": (
+        "16 bit, TPDF dither of +-1 LSB, PCG64 with the fixed seed",
+        lambda x, sr: (dither_16bit(x), sr)),
+    "gain_low": (
+        "gain of GAIN_LOW_DB, float",
+        lambda x, sr: (np.asarray(x, dtype=np.float64) * 10.0 ** (GAIN_LOW_DB / 20.0), sr)),
+    "gain_over": (
+        "gain of GAIN_OVER_DB, float, peaks above full scale",
+        lambda x, sr: (np.asarray(x, dtype=np.float64) * 10.0 ** (GAIN_OVER_DB / 20.0), sr)),
+    "dc_offset": (
+        "DC_OFFSET added to every sample",
+        lambda x, sr: (np.asarray(x, dtype=np.float64) + DC_OFFSET, sr)),
+    "pad_front": (
+        "PAD_FRONT_MS of silence in front",
+        lambda x, sr: (pad_front(x, sr), sr)),
+    "cut_edges": (
+        "CUT_SAMPLES samples cut at the start and at the end",
+        lambda x, sr: (cut_edges(x), sr)),
+}
+DEGRADE_CONSTANTS = {
+    "RESAMPLE_ZEROS": RESAMPLE_ZEROS, "RESAMPLE_BETA": RESAMPLE_BETA,
+    "RESAMPLE_CUTOFF": RESAMPLE_CUTOFF, "DITHER_SEED": DITHER_SEED,
+    "GAIN_LOW_DB": GAIN_LOW_DB, "GAIN_OVER_DB": GAIN_OVER_DB, "DC_OFFSET": DC_OFFSET,
+    "PAD_FRONT_MS": PAD_FRONT_MS, "CUT_SAMPLES": CUT_SAMPLES,
+}
+
+
+def degraded_features(category: str, audio: np.ndarray, sr: int) \
+        -> dict[str, dict[str, float | None]]:
+    """Features of every degraded copy of ``audio`` (degradation name -> features)."""
+    out = {}
+    for name, (_, fn) in DEGRADATIONS.items():
+        y, rate = fn(audio, sr)
+        out[name] = V.features_from_audio(category, y, rate)
+    return out
+
+
+def degrade_deviations(category: str, base: dict[str, float | None],
+                       copies: dict[str, dict[str, float | None]]) \
+        -> tuple[dict[str, dict[str, float]], dict[str, int]]:
+    """Per feature: |T(copy) - T(base)| per degradation, and the one-sided ``None`` count."""
+    devs: dict[str, dict[str, float]] = {}
+    nones: dict[str, int] = {}
+    for n in V.FEATURES[category]:
+        b = _t(category, n, base[n])
+        devs[n], nones[n] = {}, 0
+        for name, feats in copies.items():
+            v = _t(category, n, feats[n])
+            if (v is None) != (b is None):
+                nones[n] += 1
+            elif v is not None:
+                devs[n][name] = abs(v - b)
+    return devs, nones
+
+
+def self_distance_stats(category: str, rows: dict[str, Any],
+                        pairs: list[tuple[str, dict, dict[str, dict]]]) -> dict[str, Any]:
+    """Total distance between each candidate and each degraded copy with the scales of ``rows``."""
+    table = V.feature_table(category, {"categories": {category: {"features": rows}}})
+    totals, worst, missing = [], None, 0
+    by: dict[str, list[float]] = {name: [] for name in DEGRADATIONS}
+    for label, base, copies in pairs:
+        for name, feats in copies.items():
+            per = V.feature_distances(category, base, feats, table)
+            total = V.total_distance(category, per, table)
+            totals.append(total)
+            by[name].append(total)
+            missing += any((base[n] is None) != (feats[n] is None) for n in table)
+            if worst is None or total > worst[0]:
+                feature = max((n for n in per if table[n].weight > 0), key=lambda n: per[n])
+                worst = (total, label, name, feature, per[feature])
+    return {
+        "pairs": len(totals),
+        "pairs_with_one_sided_none": missing,
+        "median": round(float(np.median(totals)), DECIMALS),
+        "p95": round(float(np.percentile(totals, 95)), DECIMALS),
+        "max": round(worst[0], DECIMALS),
+        "max_candidate": worst[1],
+        "max_degradation": worst[2],
+        "max_feature": worst[3],
+        "max_feature_distance": round(worst[4], DECIMALS),
+        "by_degradation": {name: {"median": round(float(np.median(v)), DECIMALS),
+                                  "max": round(max(v), DECIMALS)} for name, v in by.items()},
+    }
 
 
 # --- engine renders ----------------------------------------------------------------------------
@@ -187,6 +379,10 @@ def calibrate(category: str, log: Callable[[str], None] = lambda s: None) -> dic
     seed_values: dict[str, list[list[float | None]]] = {n: [] for n in names}
     method: dict[str, list[float]] = {n: [] for n in names}
     none_checks: dict[str, int] = dict.fromkeys(names, 0)
+    degrade: dict[str, list[float]] = {n: [] for n in names}
+    degrade_by: dict[str, dict[str, float]] = {n: dict.fromkeys(DEGRADATIONS, 0.0) for n in names}
+    degrade_none: dict[str, int] = dict.fromkeys(names, 0)
+    pairs: list[tuple[str, dict, dict[str, dict]]] = []
     octave = 0
     for label, p in cands:
         sr = int(p["sample_rate"])
@@ -198,6 +394,15 @@ def calibrate(category: str, log: Callable[[str], None] = lambda s: None) -> dic
             seed_values[n].append([_t(category, n, f[n]) for f in per_seed])
         audio = render(_strip(p))
         base = V.features_from_audio(category, audio, sr)
+        copies = degraded_features(category, audio, sr)
+        pairs.append((label, base, copies))
+        devs_by, nones = degrade_deviations(category, base, copies)
+        for n in names:
+            degrade_none[n] += nones[n]
+            if devs_by[n]:
+                degrade[n].append(max(devs_by[n].values()))
+            for name, d in devs_by[n].items():
+                degrade_by[n][name] = max(degrade_by[n][name], d)
         checks: list[dict[str, float | None]] = []
         for change in ({"sample_rate": 44100}, {"bit_depth": 16}):
             try:
@@ -248,7 +453,8 @@ def calibrate(category: str, log: Callable[[str], None] = lambda s: None) -> dic
     for n, (kind, provisional) in names.items():
         st = spread_stats(seed_values[n])
         me = round(statistics.fmean(method[n]), DECIMALS) if method[n] else 0.0
-        scale, weight = scale_and_weight(me, st["seed_spread"], st["between_spread"])
+        de = round(statistics.fmean(degrade[n]), DECIMALS) if degrade[n] else 0.0
+        scale, weight = scale_and_weight(me, de, st["seed_spread"], st["between_spread"])
         rows[n] = {
             "transform": kind,
             "provisional_scale": round(provisional, DECIMALS),
@@ -256,11 +462,17 @@ def calibrate(category: str, log: Callable[[str], None] = lambda s: None) -> dic
             "method_error_max": round(max(method[n]), DECIMALS) if method[n] else 0.0,
             "method_candidates": len(method[n]),
             "none_checks": none_checks[n],
+            "degrade_error": de,
+            "degrade_error_max": round(max(degrade[n]), DECIMALS) if degrade[n] else 0.0,
+            "degrade_candidates": len(degrade[n]),
+            "degrade_none_checks": degrade_none[n],
+            "degrade_max_by": {k: round(v, DECIMALS) for k, v in degrade_by[n].items()},
             **st,
             "scale": scale,
             "weight": weight,
         }
-    out = {"candidates": len(cands), "features": rows}
+    out = {"candidates": len(cands), "features": rows,
+           "self_distance": self_distance_stats(category, rows, pairs)}
     if category == "bass":
         out["note_octave_below_nearer"] = octave
     return out
@@ -273,9 +485,11 @@ def build_table(log: Callable[[str], None] = lambda s: None) -> dict[str, Any]:
         "command": COMMAND,
         "seeds": list(SEEDS),
         "variants_per_preset": VARIANTS,
-        "aggregation": "method_error and seed_spread: mean over candidates; scale = "
-                       "max(method_error, seed_spread); weight 0 if seed_spread >= "
-                       "between_spread / 3",
+        "aggregation": "method_error, degrade_error and seed_spread: mean over candidates; "
+                       "scale = max(method_error, degrade_error, seed_spread); weight 0 if "
+                       "seed_spread >= between_spread / 3",
+        "degradations": {name: text for name, (text, _) in DEGRADATIONS.items()},
+        "degrade_constants": DEGRADE_CONSTANTS,
         "engines": {"kick": ENGINE_VERSION, "bass": BASS_VERSION},
         "numpy": np.__version__,
         "python": platform.python_version(),
