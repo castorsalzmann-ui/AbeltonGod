@@ -249,8 +249,22 @@ def test_preview_plays_wav_and_is_labelled_rough(win):
     win.preview_button.click()
     assert len(win.backend.played) == 1 and win.backend.header == [b"RIFF"]
     assert PREVIEW_LABEL in win.status.text() and not status_is_error(win)
+    assert win.status.text().startswith("Spielt:")
+    assert win.preview_status.text() == win.status.text()
     win.stop_button.click()
     assert win.backend.stopped == 1
+    # #578: after Stop neither line goes on saying "Spielt: ..."
+    assert win.status.text() == "Vorschau gestoppt." and not status_is_error(win)
+    assert win.preview_status.text() == "Vorschau gestoppt."
+
+
+def test_stop_keeps_an_error_line(qapp, tmp_path):
+    w = AcidWindow(out_dir=tmp_path, backend=FakeBackend(available=False))
+    w.preview_button.click()
+    w.stop_button.click()
+    assert status_is_error(w) and w.status.text() == "Keine Audioausgabe verfügbar."
+    assert w.preview_status.text() == "Keine Audioausgabe verfügbar."
+    w.close()
 
 
 def test_preview_without_audio_output_says_so(qapp, tmp_path):

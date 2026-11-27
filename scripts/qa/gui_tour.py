@@ -374,8 +374,12 @@ def _preview_and_export(name: str, panel, t: float) -> Step | None:
     rec = _RecordingBackend()
     panel.backend = rec
     try:
+        # The preview renders in a worker since #578: wait for each result before the next
+        # click (a click while a render runs is ignored).
         panel.all_button.click()
+        wait_for(lambda: panel.preview_busy is None, WAIT_S)
         panel.voice_buttons["lead"].click()
+        wait_for(lambda: panel.preview_busy is None, WAIT_S)
         panel.stop_button.click()
     finally:
         panel.backend = real

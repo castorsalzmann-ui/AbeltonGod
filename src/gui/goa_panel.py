@@ -12,7 +12,9 @@ from __future__ import annotations
 import shutil
 import tempfile
 from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 from PySide6.QtCore import QObject, Qt, Signal
 from PySide6.QtWidgets import (
@@ -37,6 +39,7 @@ from gui_core.goa import GROUPS, TITLE, VOICE_LABELS, ClipPlan, GoaFormModel, Op
 from gui_core.goa_render import GoaJob, GoaResult, GoaService
 from gui_core.paths import default_output_dir
 from gui_core.preview import PlaybackBackend
+from gui_core.tasks import start_task
 
 from .drag import PATH_ROLE, DragList
 from .tool_style import STYLE
@@ -58,6 +61,24 @@ ALL = "all"  # preview key of "Alle vorhören"
 
 class _Signals(QObject):
     done = Signal(object)
+    preview_done = Signal(object)  # _PreviewResult, from the render thread (#575)
+
+
+@dataclass(frozen=True)
+class _PreviewResult:
+    token: int  # the panel's preview counter at the click; an older result is dropped
+    which: str
+    bars: int
+    data: bytes | None = None
+    error: Exception | None = None
+
+
+def render_preview_bytes(which: str, kwargs: dict[str, Any]) -> bytes:
+    """WAV bytes of the rough preview of one voice or of all chosen voices (:data:`ALL`).
+    Plain function without Qt: the page calls it in a worker thread."""
+    if which == ALL:
+        return goa_preview.mix_preview_wav_bytes(**kwargs)
+    return goa_preview.voice_preview_wav_bytes(which, **kwargs)
 
 
 class OptionForm(QWidget):
@@ -130,7 +151,8 @@ class OptionForm(QWidget):
             edit.setFixedWidth(em * 12)
             row.setSpacing(8)
         row.addWidget(edit, 0 if is_number else 1, top)
-        hint = muted(spec.range_text if isinstance(edit, StepEdit | QLineEdit) else "")
+        hint = muted(self.model.hint(spec.dest)
+                     if isinstance(edit, StepEdit | QLineEdit) else "")
         hint.setVisible(isinstance(edit, StepEdit | QLineEdit))
         self.hints[spec.dest] = hint
         if is_number:
@@ -160,14 +182,17 @@ class OptionForm(QWidget):
         if spec.kind == "enum":
             # A segmented row cannot wrap: only for a few short choices (the four arp patterns
             # made the form 41 M wide, too wide at half the screen width, #517).
-            if len(spec.choices) <= 4 and sum(len(c) for c in spec.choices) <= 12:
-                seg = Segmented(list(spec.choices))
+            if len(spec.labels) <= 4 and sum(len(c) for c in spec.labels) <= 12:
+                seg = Segmented(list(spec.labels))
                 seg.chosen.connect(
                     lambda i, d=spec.dest, s=spec: self._edited(d, s.choices[i]))
                 seg.setAccessibleName(spec.label)
                 return seg
-            chips = PresetChips(list(spec.choices))
-            chips.chosen.connect(lambda text, d=spec.dest: self._edited(d, text))
+            # The buttons show spec.labels (German texts for the cell options, #578); the
+            # model keeps the CLI value.
+            chips = PresetChips(list(spec.labels))
+            chips.chosen.connect(lambda text, d=spec.dest, s=spec: self._edited(
+                d, s.choices[s.labels.index(text)]))
             chips.setAccessibleName(spec.label)
             return chips
         if spec.dest == "bpm":
@@ -222,7 +247,8 @@ class OptionForm(QWidget):
                 elif isinstance(edit, PresetChips) and edit.multi:
                     edit.set_selected([v for v in text.split(",") if v])
                 elif isinstance(edit, PresetChips):
-                    edit.set_current(text)
+                    edit.set_current(spec.labels[spec.choices.index(text)]
+                                     if text in spec.choices else "")
                 elif isinstance(edit, Toggle):
                     edit.setChecked(text == "ja")
                 elif isinstance(edit, QLineEdit) and edit.text() != text:
@@ -245,8 +271,8 @@ class OptionForm(QWidget):
                 edit.style().polish(edit)
             edit.setToolTip(problems[dest] if bad else self.model.spec(dest).help)
             if dest in self.hints and isinstance(edit, QLineEdit):
-                spec = self.model.spec(dest)
-                self.hints[dest].setText(problems[dest] if bad else spec.range_text)
+                # the degree hint follows the chosen scale (#574)
+                self.hints[dest].setText(problems[dest] if bad else self.model.hint(dest))
 
 
 class GoaPanel(QWidget):
@@ -275,8 +301,17 @@ class GoaPanel(QWidget):
         self._folder_auto = True
         self._signals = _Signals()
         self._signals.done.connect(self._on_done)
+        self._signals.preview_done.connect(self._on_preview_done)
         self.result: GoaResult | None = None
         self.playing: str | None = None  # voice or ALL of the last started preview
+        # Preview render in a worker thread (#575). ``preview_busy`` is the voice or ALL being
+        # rendered; ``_preview_token`` changes on Stop and on shutdown, so a late result is
+        # dropped; ``preview_render`` is the function the worker calls (tests replace it).
+        self.preview_busy: str | None = None
+        self._preview_token = 0
+        self._closed = False
+        self.preview_render: Callable[[str, dict[str, Any]], bytes] = render_preview_bytes
+        self.last_preview: bytes | None = None  # the bytes handed to the sound output
         self._tmp = Path(tempfile.mkdtemp(prefix="abeltongod-goa-"))
 
         # Form and result side by side while they fit, else the result below the form (#517:
@@ -441,9 +476,10 @@ class GoaPanel(QWidget):
         ev = self.model.evaluate()
         self.export_button.setEnabled(ev.ok and not self.running)
         chosen = set(ev.kwargs["voices"]) if ev.ok else set()
+        idle = self.preview_busy is None  # no second render while one runs (#575)
         for v, b in self.voice_buttons.items():
-            b.setEnabled(v in chosen)
-        self.all_button.setEnabled(ev.ok)
+            b.setEnabled(v in chosen and idle)
+        self.all_button.setEnabled(ev.ok and idle)
         if not self.running:
             if ev.ok:
                 if self.status.property("level") == "error" and self.status.text().startswith(
@@ -460,7 +496,7 @@ class GoaPanel(QWidget):
             return
         self.summary.setText(
             f"Je Clip {plan.bars} Takte ({plan.seconds:.1f} s bei {plan.tempo:g} BPM), "
-            f"Tonart {plan.key}. Akkord je Takt (Arp und Pad): "
+            f"Tonart {plan.key}. Stufe je Takt (0 = Grundton): "
             f"{', '.join(map(str, plan.chords))}.")
         self.table.setRowCount(len(plan.clips))
         for r, c in enumerate(plan.clips):
@@ -482,8 +518,13 @@ class GoaPanel(QWidget):
 
     # --- preview -------------------------------------------------------------------------
     def preview(self, which: str) -> bool:
-        """Play the rough preview of one voice (``lead`` ...) or of all chosen voices
-        (:data:`ALL`). Never writes into the output folder."""
+        """Start the rough preview of one voice (``lead`` ...) or of all chosen voices
+        (:data:`ALL`). The render runs in a worker thread (#575: 16 bars take over a second
+        and used to freeze the window); the result comes back by a signal and is played on
+        the GUI thread. Returns True when a render was started. A click while a render runs
+        is ignored. Never writes into the output folder."""
+        if self.preview_busy is not None:
+            return False
         ev = self.model.evaluate()
         if not ev.ok:
             self.set_status("Vorhören nicht möglich: " + ev.problem, error=True)
@@ -492,29 +533,64 @@ class GoaPanel(QWidget):
             self.set_status("Keine Audioausgabe verfügbar.", error=True)
             return False
         self.stop_preview()
-        try:
-            if which == ALL:
-                data = goa_preview.mix_preview_wav_bytes(**ev.kwargs)
-            else:
-                data = goa_preview.voice_preview_wav_bytes(which, **ev.kwargs)
-            path = self._tmp / f"goa_preview_{which}.wav"
-            path.write_bytes(data)
-            self.play_file(path)
-        except (ValueError, OSError, RuntimeError) as exc:
-            self.set_status(f"Vorhören fehlgeschlagen: {exc}", error=True)
-            return False
-        self.playing = which
-        what = "alle Stimmen" if which == ALL else VOICE_LABELS[which]
-        self.set_status(f"Spielt: {what}, {goa_preview.PREVIEW_LABEL} "
-                        f"({ev.plan.bars} Takte, ein Durchlauf).")
+        self._preview_token += 1
+        token, bars, kwargs, render = (self._preview_token, ev.plan.bars, dict(ev.kwargs),
+                                       self.preview_render)
+        self._set_busy(which)
+        self.set_status("Vorschau wird berechnet …")
+
+        def work() -> _PreviewResult:
+            try:
+                return _PreviewResult(token, which, bars, data=render(which, kwargs))
+            except Exception as exc:  # noqa: BLE001 - shown in the status line
+                return _PreviewResult(token, which, bars, error=exc)
+
+        # The worker never touches a widget: it only emits the signal (queued to the GUI
+        # thread). If the panel is already deleted the emit raises; start_task swallows it.
+        start_task(work, lambda h: self._signals.preview_done.emit(h.result),
+                   name="goa-preview")
         return True
+
+    def _set_busy(self, which: str | None) -> None:
+        """Busy state of the play buttons: the clicked one shows " …", none can be clicked."""
+        self.preview_busy = which
+        for v, b in self.voice_buttons.items():
+            b.setText(VOICE_LABELS[v] + (" …" if which == v else ""))
+        self.all_button.setText("Alle vorhören" + (" …" if which == ALL else ""))
+        self.refresh()
+
+    def _on_preview_done(self, res: _PreviewResult) -> None:
+        if self._closed or res is None or res.token != self._preview_token:
+            return  # stopped, closed or replaced meanwhile: a late result plays nothing
+        self._set_busy(None)
+        if res.error is not None:
+            self.set_status(f"Vorhören fehlgeschlagen: {res.error}", error=True)
+            return
+        try:
+            path = self._tmp / f"goa_preview_{res.which}.wav"
+            path.write_bytes(res.data)
+            self.play_file(path)
+        except Exception as exc:  # noqa: BLE001 - the windowed exe has no console (#543)
+            self.set_status(f"Vorhören fehlgeschlagen: {exc}", error=True)
+            return
+        self.last_preview = res.data
+        self.playing = res.which
+        what = "alle Stimmen" if res.which == ALL else VOICE_LABELS[res.which]
+        self.set_status(f"Spielt: {what}, {goa_preview.PREVIEW_LABEL} "
+                        f"({res.bars} Takte, ein Durchlauf).")
 
     def play_file(self, path: Path) -> None:
         """The one place the Goa preview reaches the sound output (16-bit WAV)."""
         self.backend.play(path)
 
     def stop_preview(self) -> None:
+        """Stop the sound; a render that is still running is dropped (its result is ignored)."""
         self.playing = None
+        if self.preview_busy is not None:
+            self._preview_token += 1
+            self._set_busy(None)
+        if self.status.text().startswith(("Spielt:", "Vorschau wird berechnet")):
+            self.set_status("")
         try:
             self.backend.stop()
         except Exception:  # noqa: BLE001
@@ -563,6 +639,7 @@ class GoaPanel(QWidget):
 
     def shutdown(self) -> None:
         self.stop_preview()
+        self._closed = True  # a preview still rendering is not waited for; its result is ignored
         if self.handle is not None:
             self.handle.wait(30)
         shutil.rmtree(self._tmp, ignore_errors=True)
