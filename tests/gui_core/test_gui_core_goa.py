@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pytest
 
-from audio_engine import goa_clips
+from audio_engine import goa_cells, goa_clips
 from gui_core import goa
 from gui_core.goa import GoaFormModel
 from gui_core.goa_render import GoaJob, GoaService, run_goa_job
@@ -47,9 +47,8 @@ FORM_RUNS = {
     "default": {"seed": "3"},
     "custom": {
         "seed": "9", "bars": "2", "bpm": "138", "root": "Bb", "scale": "aeolian",
-        "density": "0.4", "register": "-1", "arp_pattern": "random", "progression": "0,5",
-        "voices": "lead,arp"},
-}
+        "density": "0.4", "register": "-1", "progression": "0,5", "voices": "lead,arp"},
+}  # "custom" without --arp-pattern: the page has no such field since #578 (it has no effect)
 
 # Song-form flags: of the removed arrangement mode and of goa_melody's sections.
 SONG_FLAGS = ("--roll=gallop", "--kick-preset=default", "--intro-bars=8", "--breakdowns=1",
@@ -103,13 +102,85 @@ def smf_info(data: bytes) -> tuple[int, int, str, int]:
 
 # --- every CLI option is in the form --------------------------------------------------------
 
-def test_every_cli_option_has_a_form_field():
-    parser = goa_clips.build_parser()
-    cli = {a.dest: a.option_strings[0] for a in parser._actions
-           if a.dest not in ("help", "out")}
+# The page's options and their CLI flags, written out (#578): the options the page had before
+# the cell model, without --arp-pattern (no effect since #570), plus --lead-mode and --grouping.
+FORM_FLAGS = {
+    "seed": "--seed", "bars": "--bars", "bpm": "--bpm", "root": "--root", "scale": "--scale",
+    "density": "--density", "register": "--register", "progression": "--progression",
+    "voices": "--voices", "lead_mode": "--lead-mode", "grouping": "--grouping"}
+
+
+def test_the_form_has_exactly_the_pinned_cli_options():
     form = {s.dest: s.flag for s in GoaFormModel().specs}
-    assert form == cli
+    assert form == FORM_FLAGS
+    # every one is an option of the real command line, and the rest of the command line
+    # (cell options the page does not show) is not in the form
+    cli = {a.dest: a.option_strings[0]
+           for a in goa_clips.build_parser(cell_options=True)._actions}
+    assert set(form.items()) <= set(cli.items())
+    assert "arp_pattern" in cli and "arp_pattern" not in form
     assert GoaFormModel().argv("X")[0] == "--out=X"
+
+
+def test_default_form_sends_the_cli_defaults_of_the_two_cell_options():
+    m = GoaFormModel()
+    assert (m.text["lead_mode"], m.text["grouping"]) == ("own", "displaced")
+    assert m.spec("lead_mode").choices == ("own", "double")
+    assert m.spec("lead_mode").labels == ("eigene Linie", "doppelt den Arp")
+    assert m.spec("grouping").choices == ("displaced", "3+3+2", "3+3+3+3+4")
+    assert m.spec("grouping").labels == (
+        "wandert gegen den Takt", "Gruppen 3+3+2", "Gruppen 3+3+3+3+4")
+    assert m.spec("scale").labels == m.spec("scale").choices  # no German text: the CLI value
+    assert not m.spec("lead_mode").optional and not m.spec("grouping").optional
+
+
+def test_the_two_cell_controls_change_the_export_and_match_the_cli(tmp_path):
+    """#578: every combination of Lead and Muster, on seeded random other options, writes
+    the folder the real command line writes with the same options; and each non-default
+    choice changes at least one clip against the default."""
+    rng = random.Random(20261127)
+    n = 0
+    for lead_mode in ("own", "double"):
+        for grouping in ("displaced", "3+3+2", "3+3+3+3+4"):
+            seed, bars = rng.randrange(10**6), rng.choice([1, 2, 4, 8, 16])
+            scale = rng.choice(sorted(goa_cells.SCALES))
+            base = {"seed": str(seed), "bars": str(bars), "scale": scale}
+            cli = tmp_path / f"cli{n}"
+            assert goa_clips.main([
+                f"--out={cli}", f"--seed={seed}", f"--bars={bars}", f"--scale={scale}",
+                f"--lead-mode={lead_mode}", f"--grouping={grouping}"]) == 0
+            gui = tmp_path / f"gui{n}"
+            model = filled({**base, "lead_mode": lead_mode, "grouping": grouping})
+            res = run_goa_job(GoaJob(tuple(model.argv(str(gui)))))
+            assert res.ok, res.error
+            assert tree(gui) == tree(cli), (lead_mode, grouping, seed)
+            if (lead_mode, grouping) != ("own", "displaced"):
+                plain = tmp_path / f"plain{n}"
+                assert run_goa_job(GoaJob(tuple(filled(base).argv(str(plain))))).ok
+                mids = {k: v for k, v in tree(gui).items() if k.endswith(".mid")}
+                assert mids != {k: v for k, v in tree(plain).items() if k.endswith(".mid")}
+            n += 1
+    assert n == 6
+
+
+def test_arp_pattern_is_still_accepted_by_the_export_job_and_changes_nothing(tmp_path):
+    """The field is gone from the page; an older call with --arp-pattern still works."""
+    a, b = tmp_path / "a", tmp_path / "b"
+    assert run_goa_job(GoaJob((f"--out={a}", "--seed=5", "--arp-pattern=random"))).ok
+    assert run_goa_job(GoaJob((f"--out={b}", "--seed=5"))).ok
+    assert tree(a) == tree(b)
+
+
+@pytest.mark.parametrize("scale,top", [("phrygian", 6), ("minor_blues", 5)])
+def test_progression_hint_names_the_degrees_of_the_chosen_scale(scale, top):
+    m = filled({"scale": scale})
+    hint = m.hint("progression")
+    assert f"Stufen 0 bis {top} ({scale})" in hint and "Standard 0: nur der Grundton" in hint
+    # the hint is true: the top degree is accepted, the next one refused by the generator
+    m.set_text("progression", f"0,{top}")
+    assert m.evaluate().ok, m.evaluate().problem
+    m.set_text("progression", f"0,{top + 1}")
+    assert not m.evaluate().ok and "progression" in m.evaluate().problem
 
 
 def test_form_argv_with_every_optional_switched_on_is_accepted_by_the_cli_parser():
@@ -155,7 +226,7 @@ def test_no_gui_module_imports_the_goa_arrangement_generator():
 def test_the_form_has_clip_options_only():
     dests = {s.dest for s in GoaFormModel().specs}
     assert dests == {"seed", "bars", "bpm", "root", "scale", "density", "register",
-                     "arp_pattern", "progression", "voices"}
+                     "lead_mode", "grouping", "progression", "voices"}
     assert GoaFormModel().spec("voices").choices == ("lead", "arp", "pad", "pluck")
     assert GoaFormModel().text["bars"] == "4"
 

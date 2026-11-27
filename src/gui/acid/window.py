@@ -525,6 +525,11 @@ class AcidWindow(OnTopWindow, QWidget):
             self.backend.stop()
         except Exception:  # noqa: BLE001
             pass
+        # The line must not go on saying "Spielt: ..." after Stop (#578). An error stays.
+        if self.status.text().startswith("Spielt:"):
+            self.set_status("Vorschau gestoppt.")
+        if self.preview_status.text().startswith("Spielt:"):
+            self.preview_status.setText("Vorschau gestoppt.")
 
     def set_animation(self, on: bool) -> None:
         for w in (self.header, self.footer, self.grid):

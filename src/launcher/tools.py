@@ -62,6 +62,9 @@ TOOLS: tuple[Tool, ...] = (
          "audio_engine.goa_arrangement", out_mode="new"),
     Tool("goa-melody", "Goa-Melodien (Lead/Arp/Pad/Pluck) als MIDI + README",
          "audio_engine.goa_melody", out_mode="new"),
+    # What the page "Goa-Clips" writes (D-035): one looping .mid per voice (#578).
+    Tool("goa-clips", "Goa-Clips (Lead/Arp/Pad/Pluck, je Stimme ein Loop) als MIDI + README",
+         "audio_engine.goa_clips", out_mode="new"),
     Tool("goa-patterns", "Goa-Bass- und Rhythmus-Muster als MIDI",
          "audio_engine.goa_patterns"),
     Tool("arrangement-midi", "Arrangement-JSON in eine MIDI-Datei umwandeln",

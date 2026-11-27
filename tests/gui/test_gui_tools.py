@@ -8,6 +8,7 @@ from __future__ import annotations
 import hashlib
 import os
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -26,7 +27,8 @@ from live_helpers import (  # noqa: E402
     write_wav,
     writes,
 )
-from PySide6.QtWidgets import QLabel, QPushButton  # noqa: E402
+from PySide6.QtCore import QTimer  # noqa: E402
+from PySide6.QtWidgets import QApplication, QLabel, QPushButton  # noqa: E402
 
 from audio_engine import goa_clips  # noqa: E402
 from guard import Guard  # noqa: E402
@@ -121,11 +123,13 @@ def test_tool_pages_replace_the_render_column_and_the_kick_page_brings_it_back(w
 # --- Goa page -------------------------------------------------------------------------------
 
 def test_goa_page_makes_clips_without_song_form(window):
-    """D-035 (1): the page "Goa-Melodie" makes MIDI clips: no timeline, no section table, no
+    """D-035 (1): the page "Goa-Clips" makes MIDI clips: no timeline, no section table, no
     energy, no song length, no arrangement / drum / bass option anywhere on it."""
     go(window, "goa")
     p = window.goa
-    assert window.categories.currentItem().text() == "Goa-Melodie"
+    assert window.categories.currentItem().text() == "Goa-Clips"  # nav entry (#578)
+    assert "GOA-CLIPS" in [x.text() for x in p.findChildren(QLabel)]  # the page heading
+    assert not any("melodie" in x.text().lower() for x in p.findChildren(QLabel))
     assert not hasattr(p, "mode_seg") and not hasattr(p, "forms")
     assert not hasattr(p, "timeline")
     assert not (ROOT / "src" / "gui" / "timeline_widget.py").exists()
@@ -142,10 +146,16 @@ def test_goa_page_makes_clips_without_song_form(window):
         "Lead", "Arp", "Pad", "Pluck", "Alle vorhören", "Stopp", "MIDI exportieren"}
 
 
-def test_goa_form_has_a_widget_for_every_cli_option(window):
+def test_goa_form_has_a_widget_for_every_page_option(window):
+    """#578: the options of before the cell model without "Arp-Muster" (no effect since
+    #570), plus "Lead" and "Muster"."""
     form = window.goa.form
-    dests = {a.dest for a in goa_clips.build_parser()._actions if a.dest not in ("help", "out")}
+    dests = {"seed", "bars", "bpm", "root", "scale", "density", "register", "progression",
+             "voices", "lead_mode", "grouping"}
     assert set(form.edits) == dests
+    labels = {x.text() for x in form.findChildren(QLabel)}
+    assert {"Lead", "Muster", "Akkordfolge (Stufen)"} <= labels and "Arp-Muster" not in labels
+    assert "arp_pattern" in {a.dest for a in goa_clips.build_parser()._actions}  # CLI keeps it
     for dest in dests:
         assert form.edits[dest].accessibleName() or isinstance(form.edits[dest], NumberControl)
     # optional options have a switch, the others do not
@@ -227,19 +237,206 @@ def test_goa_preview_plays_the_rough_preview_per_voice_and_for_all(window, tmp_p
     p.backend = Recorder()
     out = Path(p.folder_edit.text())
     p.voice_buttons["arp"].click()
-    assert played[-1][0] == "play" and p.playing == "arp"
+    # the render runs in a worker (#575): the sound starts when the result arrives
+    assert wait_for(QApplication.instance(), lambda: p.playing == "arp")
+    assert played[-1][0] == "play" and p.preview_busy is None
     assert played[-1][1] == goa_preview.voice_preview_wav_bytes("arp", seed=0)
     assert "Spielt: Arp" in p.status.text() and "grobe Vorschau" in p.status.text()
     p.all_button.click()
-    assert played[-2] == ("stop", b"")  # the previous sound stops first
+    assert played[-1] == ("stop", b"")  # the previous sound stops at the click
+    assert wait_for(QApplication.instance(), lambda: p.playing == "all")
     assert played[-1][1] == goa_preview.mix_preview_wav_bytes(seed=0)
     p.stop_button.click()
     assert played[-1] == ("stop", b"") and p.playing is None
+    assert "Spielt" not in p.status.text()  # not "Spielt: ..." after Stop
     assert not out.exists()  # previewing writes nothing into the output folder
     p.backend = FakeBackend()
     p.backend.available = False
     p.voice_buttons["lead"].click()
     assert "Keine Audioausgabe" in p.status.text()
+
+
+# --- Goa preview worker (#575) --------------------------------------------------------------
+
+class PlayRecorder(FakeBackend):
+    def __init__(self):
+        self.played: list[bytes] = []
+        self.stops = 0
+
+    def play(self, wav_path):
+        self.played.append(Path(wav_path).read_bytes())
+
+    def stop(self):
+        self.stops += 1
+
+
+class Gate:
+    """A render the test holds open: it blocks in the worker until ``release`` is set."""
+
+    def __init__(self, result=b"RIFFfake", error: Exception | None = None):
+        self.entered, self.release = threading.Event(), threading.Event()
+        self.calls: list[tuple[str, dict]] = []
+        self.threads: list[str] = []
+        self.result, self.error = result, error
+
+    def __call__(self, which, kwargs):
+        self.calls.append((which, kwargs))
+        self.threads.append(threading.current_thread().name)
+        self.entered.set()
+        assert self.release.wait(60)
+        if self.error is not None:
+            raise self.error
+        return self.result
+
+
+def test_goa_16_bar_preview_leaves_the_event_loop_running_and_plays_the_same_bytes(
+        qapp, window):
+    """#575: the real 16-bar render of all voices. While it runs, a 10 ms timer of the GUI
+    thread keeps firing (the window used to be frozen for the whole render), and the bytes
+    handed to the sound output are the bytes of the synchronous render."""
+    go(window, "goa")
+    p = window.goa
+    p.backend = PlayRecorder()
+    type_text(p.form.edits["bars"], "16")
+    type_text(p.form.edits["seed"], "4")
+    ticks_while_busy = []
+    timer = QTimer()
+    timer.setInterval(10)
+    timer.timeout.connect(lambda: ticks_while_busy.append(1) if p.preview_busy else None)
+    timer.start()
+    p.all_button.click()
+    assert p.preview_busy == "all" and p.backend.played == []
+    assert "Vorschau wird berechnet" in p.status.text()
+    assert p.all_button.text() == "Alle vorhören …" and not p.all_button.isEnabled()
+    assert wait_for(qapp, lambda: p.playing == "all", seconds=120)
+    timer.stop()
+    expected = goa_preview.mix_preview_wav_bytes(seed=4, bars=16)  # synchronous, in this thread
+    assert p.backend.played == [expected] and p.last_preview == expected
+    assert len(expected) > 16 * 4 * 60 / 145 * 44100 * 4  # really 16 bars of 16-bit stereo
+    # The event loop ran many times while the worker rendered (no wall-clock limit here: a
+    # count of timer ticks does not depend on how loaded the machine is).
+    assert len(ticks_while_busy) >= 5, len(ticks_while_busy)
+    assert p.preview_busy is None and p.all_button.isEnabled()
+    assert p.all_button.text() == "Alle vorhören"
+    assert "Spielt: alle Stimmen" in p.status.text() and "16 Takte" in p.status.text()
+
+
+def test_goa_preview_renders_in_a_worker_thread_and_ignores_a_second_click(qapp, window):
+    go(window, "goa")
+    p = window.goa
+    p.backend = PlayRecorder()
+    gate = Gate(result=b"RIFFone")
+    p.preview_render = gate
+    assert p.preview("lead") is True
+    assert gate.entered.wait(30)
+    assert gate.threads == ["goa-preview"]  # not the GUI thread
+    assert p.voice_buttons["lead"].text() == "Lead …"
+    assert not any(b.isEnabled() for b in (*p.voice_buttons.values(), p.all_button))
+    # second click, by button and by call: ignored, no second render
+    p.voice_buttons["arp"].click()
+    p.all_button.click()
+    assert p.preview("arp") is False
+    type_text(p.form.edits["seed"], "9")  # a form change must not re-enable the buttons
+    assert not p.all_button.isEnabled() and p.preview_busy == "lead"
+    gate.release.set()
+    assert wait_for(qapp, lambda: p.playing == "lead")
+    assert len(gate.calls) == 1 and gate.calls[0][0] == "lead"
+    assert gate.calls[0][1]["seed"] == 0  # the options at the click
+    assert p.backend.played == [b"RIFFone"]
+    assert p.voice_buttons["lead"].text() == "Lead" and p.all_button.isEnabled()
+
+
+def test_goa_preview_error_from_the_worker_is_shown_and_the_buttons_come_back(qapp, window):
+    go(window, "goa")
+    p = window.goa
+    p.backend = PlayRecorder()
+    gate = Gate(error=MemoryError("zu wenig Speicher"))
+    p.preview_render = gate
+    assert p.preview("all") is True
+    gate.release.set()
+    assert wait_for(qapp, lambda: p.preview_busy is None)
+    assert p.status.text() == "Vorhören fehlgeschlagen: zu wenig Speicher"
+    assert p.status.property("level") == "error"
+    assert p.backend.played == [] and p.playing is None
+    assert p.all_button.isEnabled() and p.all_button.text() == "Alle vorhören"
+
+    class Broken(PlayRecorder):
+        def play(self, wav_path):
+            raise OSError("Gerät belegt")
+
+    p.backend = Broken()
+    p.preview_render = lambda which, kwargs: b"RIFFx"
+    assert p.preview("lead") is True
+    assert wait_for(qapp, lambda: p.preview_busy is None)
+    assert p.status.text() == "Vorhören fehlgeschlagen: Gerät belegt" and p.playing is None
+
+
+def test_goa_stop_or_close_during_a_render_drops_the_late_result(qapp, window, tmp_path):
+    go(window, "goa")
+    p = window.goa
+    p.backend = PlayRecorder()
+    gate = Gate()
+    p.preview_render = gate
+    assert p.preview("all") is True
+    assert gate.entered.wait(30)
+    p.stop_button.click()  # Stop while rendering: nothing will play
+    assert p.preview_busy is None and p.all_button.isEnabled() and p.status.text() == ""
+    # an export during a render still running in the background works
+    type_text(p.form.edits["seed"], "3")
+    p.export_button.click()
+    assert wait_for(qapp, lambda: not p.running)
+    assert p.result.ok and len(p.result.mid_paths) == 4
+    status = p.status.text()
+    gate.release.set()
+    assert wait_for(qapp, lambda: threading.active_count() and not any(
+        t.name == "goa-preview" for t in threading.enumerate()))
+    for _ in range(20):
+        qapp.processEvents()
+    assert p.backend.played == [] and p.playing is None and p.status.text() == status
+
+    # closing the window during a render: the late result arrives at a shut-down panel
+    gate2 = Gate()
+    p.preview_render = gate2
+    assert p.preview("lead") is True
+    assert gate2.entered.wait(30)
+    window.close()
+    gate2.release.set()
+    assert wait_for(qapp, lambda: not any(
+        t.name == "goa-preview" for t in threading.enumerate()))
+    for _ in range(20):
+        qapp.processEvents()
+    assert p.backend.played == []
+
+
+def test_goa_lead_and_muster_buttons_set_the_cli_values_and_change_the_clips(window):
+    go(window, "goa")
+    p = window.goa
+    lead, muster = p.form.edits["lead_mode"], p.form.edits["grouping"]
+    assert [b.text() for b in lead.buttons] == ["eigene Linie", "doppelt den Arp"]
+    assert [b.text() for b in muster.buttons] == [
+        "wandert gegen den Takt", "Gruppen 3+3+2", "Gruppen 3+3+3+3+4"]
+    assert lead.current() == "eigene Linie" and muster.current() == "wandert gegen den Takt"
+    before = [p.table.item(r, 1).text() for r in range(p.table.rowCount())]
+    lead.buttons[1].click()
+    assert p.model.text["lead_mode"] == "double" and "--lead-mode=double" in p.model.argv()
+    assert p.model.evaluate().kwargs["lead_mode"] == "double"
+    after = [p.table.item(r, 1).text() for r in range(p.table.rowCount())]
+    assert after[0] == after[1] == "64" and before[0] == "28"  # the lead doubles the arp
+    muster.buttons[1].click()
+    assert p.model.text["grouping"] == "3+3+2" and "--grouping=3+3+2" in p.model.argv()
+    assert p.export_button.isEnabled()
+
+
+def test_goa_degree_hint_follows_the_scale_and_the_summary_says_degree(window):
+    go(window, "goa")
+    p = window.goa
+    assert "Stufe je Takt (0 = Grundton): 0, 0, 0, 0." in p.summary.text()
+    assert "Akkord" not in p.summary.text()
+    hint = p.form.hints["progression"]
+    assert "Stufen 0 bis 6 (phrygian)" in hint.text()
+    scale = p.form.edits["scale"]
+    scale.buttons[scale.items.index("minor_blues")].click()
+    assert "Stufen 0 bis 5 (minor_blues)" in hint.text()
 
 
 def test_goa_export_writes_the_shown_folder_and_offers_each_clip_for_drag(
@@ -495,8 +692,8 @@ def test_every_goa_switch_and_button_row_reflects_the_model(window):
             if dest in form.model.active:  # a switched-off optional shows its first choice
                 assert edit.items[edit.index()] == form.model.text[dest]
         elif isinstance(edit, PresetChips) and not edit.multi:
-            if dest in form.model.active:
-                assert edit.current() == form.model.text[dest]
+            if dest in form.model.active:  # the button shows the label of the model's value
+                assert edit.current() == spec.labels[spec.choices.index(form.model.text[dest])]
         elif isinstance(edit, Toggle):
             assert edit.isChecked() == (form.model.text[dest] == "ja")
         assert edit.isEnabled() == (dest in form.model.active), (dest, spec.kind)

@@ -73,7 +73,7 @@ def test_window_builds_with_categories(window):
     assert [i.text() for i in items] == [
         "Kick", "Hi-Hat", "Snare", "Clap", "Rim", "Bass", "Laser", "Perc", "FX", "Atmos",
         "Bibliothek",
-        "Goa-Melodie", "Arrangement-Planer", "Live-Import", "Copilot", "Referenz",
+        "Goa-Clips", "Arrangement-Planer", "Live-Import", "Copilot", "Referenz",
     ]
     for it in items:
         assert it.flags() & Qt.ItemFlag.ItemIsEnabled

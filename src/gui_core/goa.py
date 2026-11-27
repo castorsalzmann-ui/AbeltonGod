@@ -7,8 +7,11 @@ planner, D-033). ``audio_engine.goa_arrangement`` is not imported here.
 
 This module does not copy the generator's rules:
 
-* The option list (names, choices, defaults) is read from the CLI's own ``build_parser()``;
-  a test enumerates every parser option and fails when the form misses one.
+* The option list (names, choices, defaults) is read from the CLI's own
+  ``build_parser(cell_options=True)``. The page shows the options in :data:`FORM_DESTS`
+  (#578): the ones it had before the cell model, without ``arp_pattern`` (accepted by the CLI,
+  without effect since #570), plus ``lead_mode`` and ``grouping``. Every other cell option
+  keeps the CLI's default; a test pins the list.
 * The form turns its state into the same ``--flag=value`` list a user would type, and the CLI's
   parser reads it back (:func:`parse_argv`), so choices and types are checked by the CLI itself.
 * The namespace becomes keyword arguments with the CLI's own ``params_from_args``
@@ -23,25 +26,41 @@ import argparse
 from dataclasses import dataclass
 from typing import Any
 
-from audio_engine import goa_clips, goa_melody
+from audio_engine import goa_cells, goa_clips, goa_melody
 
 from .form import parse_number
 
-TITLE = "Goa-Melodie"  # same as the main window's page name (main_window.TOOL_PAGES)
+TITLE = "Goa-Clips"  # same as the main window's page name (main_window.TOOL_PAGES)
 
 SKIPPED_DESTS = ("help", "out")  # --out is the folder row of the page
+# The options the page shows, of everything the command line has (#578).
+FORM_DESTS = ("seed", "bars", "bpm", "root", "scale", "density", "register",
+              "lead_mode", "grouping", "progression", "voices")
 
 LABELS_DE: dict[str, str] = {
     "seed": "Seed", "bars": "Clip-Länge (Takte)", "bpm": "Tempo", "root": "Grundton",
     "scale": "Tonleiter", "voices": "Stimmen", "density": "Dichte",
-    "register": "Register (Oktaven)", "arp_pattern": "Arp-Muster",
-    "progression": "Akkordfolge (Stufen)",
+    "register": "Register (Oktaven)", "lead_mode": "Lead", "grouping": "Muster",
+    "progression": "Akkordfolge (Stufen)",  # label kept (docs/qa/GUI_CONTROLS.md lists it)
+}
+# German button texts of the two cell options (value -> text); the value goes to the CLI.
+CHOICE_LABELS: dict[str, dict[str, str]] = {
+    "lead_mode": {"own": "eigene Linie", "double": "doppelt den Arp"},
+    "grouping": {"displaced": "wandert gegen den Takt", "3+3+2": "Gruppen 3+3+2",
+                 "3+3+3+3+4": "Gruppen 3+3+3+3+4"},
+}
+HELP_DE = {
+    "lead_mode": "Eigene Zelle für den Lead, oder der Lead spielt den Arp eine Oktave höher mit.",
+    "grouping": "Die Zelle wandert gegen den Takt, oder Gruppen füllen den Takt und jede "
+                "Gruppe beginnt auf dem Grundton.",
+    "progression": "Tonleiterstufe je Takt, auf die die Zellen verschoben werden. "
+                   "0 = Grundton bleibt liegen.",
 }
 UNITS = {"bpm": "BPM", "bars": "Takte"}
 GROUP_OF: dict[str, str] = {}
 for _d in ("bars", "bpm", "root", "scale", "seed"):
     GROUP_OF[_d] = "Clip"
-for _d in ("voices", "density", "register", "arp_pattern", "progression"):
+for _d in ("voices", "density", "register", "lead_mode", "grouping", "progression"):
     GROUP_OF[_d] = "Stimmen"
 GROUPS = ("Clip", "Stimmen")
 INT_DESTS = ("bpm",)  # whole BPM in the GUI (the CLI takes a float; 145 -> "145bpm")
@@ -50,7 +69,7 @@ INT_DESTS = ("bpm",)  # whole BPM in the GUI (the CLI takes a float; 145 -> "145
 HINTS = {
     "density": "0 bis 1, oder je Stimme: lead=0.5,arp=1",
     "register": "-2 bis 2, oder je Stimme: lead=1,pad=-1",
-    "progression": "Stufen 0 bis 6, durch Komma getrennt, z. B. 0,5,6,4",
+    "progression": "Stufen durch Komma getrennt, z. B. 0,3,4. Standard 0: nur der Grundton",
     "root": "A bis G, optional mit # oder b",
     "bars": f"{goa_clips.MIN_BARS} bis {goa_clips.MAX_BARS} Takte",
 }
@@ -70,6 +89,12 @@ class OptionSpec:
     help: str
     group: str
     unit: str = ""
+    choice_labels: tuple[str, ...] = ()  # German button texts, same order as ``choices``
+
+    @property
+    def labels(self) -> tuple[str, ...]:
+        """What the buttons of an enum show (the CLI values where there is no German text)."""
+        return self.choice_labels or self.choices
 
     @property
     def range_text(self) -> str:
@@ -110,8 +135,10 @@ def _spec(action: argparse.Action) -> OptionSpec:
     return OptionSpec(
         dest=dest, flag=action.option_strings[0], label=LABELS_DE.get(dest, dest), kind=kind,
         choices=choices, default="" if optional else _default_text(default),
-        optional=optional and kind != "flag", help=action.help or "",
+        optional=optional and kind != "flag", help=HELP_DE.get(dest, action.help or ""),
         group=GROUP_OF.get(dest, "Clip"), unit=UNITS.get(dest, ""),
+        choice_labels=tuple(CHOICE_LABELS[dest][c] for c in choices)
+        if dest in CHOICE_LABELS else (),
     )
 
 
@@ -122,13 +149,24 @@ def _default_text(value: Any) -> str:
 
 
 def parser_of() -> argparse.ArgumentParser:
-    return goa_clips.build_parser()
+    """The command line's own parser, cell options included (what ``goa_clips.main`` uses)."""
+    return goa_clips.build_parser(cell_options=True)
 
 
 def option_specs() -> list[OptionSpec]:
-    """One spec per CLI option (except ``--out``), in the order of :data:`GROUPS`."""
-    specs = [_spec(a) for a in parser_of()._actions if a.dest not in SKIPPED_DESTS]
-    return sorted(specs, key=lambda s: GROUPS.index(s.group))
+    """One spec per option the page shows (:data:`FORM_DESTS`), in that order."""
+    by = {a.dest: a for a in parser_of()._actions}
+    return [_spec(by[d]) for d in FORM_DESTS]
+
+
+def progression_hint(scale: str) -> str:
+    """Hint of the "Akkordfolge (Stufen)" field for the chosen scale: the highest degree is the
+    scale's length minus one (``minor_blues`` has six tones: 0 to 5; #574)."""
+    tones = goa_cells.SCALES.get(scale)
+    if tones is None:
+        return HINTS["progression"]
+    return (f"Stufen 0 bis {len(tones) - 1} ({scale}), durch Komma getrennt, z. B. 0,3,4. "
+            "Standard 0: nur der Grundton")
 
 
 # --- argv <-> namespace -> call --------------------------------------------------------------
@@ -173,7 +211,7 @@ class ClipPlan:
     bars: int
     tempo: float
     key: str
-    chords: tuple[int, ...]  # scale degree per bar (arp and pad)
+    chords: tuple[int, ...]  # scale degree per bar (moves every cell voice; 0 = root)
     clips: tuple[VoiceClip, ...]  # selected voices, fixed order
 
     @property
@@ -209,6 +247,12 @@ class GoaFormModel:
 
     def spec(self, dest: str) -> OptionSpec:
         return self._by[dest]
+
+    def hint(self, dest: str) -> str:
+        """The line below a text field; for the degrees it follows the chosen scale."""
+        if dest == "progression":
+            return progression_hint(self.text["scale"].strip())
+        return self._by[dest].range_text
 
     def set_text(self, dest: str, text: str) -> None:
         self._by[dest]

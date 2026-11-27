@@ -15,7 +15,7 @@ from launcher.tools import BY_NAME, TOOLS, Tool
 EXPECTED_TOOLS = {
     "kick", "hat", "snare", "clap", "rim", "bass", "laser", "perc", "fx", "atmos",
     "goa-arrangement",
-    "goa-melody",
+    "goa-melody", "goa-clips",
     "goa-patterns", "arrangement-midi", "live-import", "kick-to-live", "bridge-check",
     "arrangement-check", "install-abletonosc", "als-inspect", "plan", "chat",
 }
@@ -37,6 +37,31 @@ def test_laser_and_perc_render_like_python_m(tmp_path: Path, name, preset):
     assert len(wa) == 1 and [p.name for p in wa] == [p.name for p in wb]
     assert hashlib.sha256(wa[0].read_bytes()).digest() == hashlib.sha256(
         wb[0].read_bytes()).digest()
+
+
+def test_goa_clips_through_the_launcher_writes_what_python_m_writes(tmp_path: Path):
+    """#578: ``goa-clips`` is the page's generator; same folder content as the module's own
+    main, cell options included."""
+    from audio_engine import goa_clips
+
+    args = ["--seed", "6", "--bars", "2", "--lead-mode", "double", "--grouping", "3+3+2"]
+    a, b = tmp_path / "launcher", tmp_path / "direct"
+    assert tools.run_tool(BY_NAME["goa-clips"], [*args, "--out", str(a)]) == 0
+    assert goa_clips.main([*args, "--out", str(b)]) == 0
+    names = sorted(p.name for p in a.iterdir())
+    assert names == ["README.md", "goa_arp_seed6_145bpm_2bars.mid",
+                     "goa_lead_seed6_145bpm_2bars.mid", "goa_pad_seed6_145bpm_2bars.mid",
+                     "goa_pluck_seed6_145bpm_2bars.mid"]
+    assert [(a / n).read_bytes() for n in names] == [(b / n).read_bytes() for n in names]
+
+
+def test_menu_offers_goa_clips_and_writes_a_new_subfolder(tmp_path: Path):
+    n = [t.name for t in TOOLS].index("goa-clips") + 1
+    lines = iter([str(n), str(tmp_path), "", ""])
+    out = io.StringIO()
+    assert cli.main(["--menu"], read=lambda prompt: next(lines), out=out) == 0
+    assert "goa-clips" in out.getvalue()
+    assert len(list((tmp_path / "goa-clips").glob("*.mid"))) == 4
 
 
 def test_table_has_exactly_the_expected_tools():
