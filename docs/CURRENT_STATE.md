@@ -2,6 +2,14 @@
 
 _Last updated: 2026-11-05 (Endstand-Zeile unten) (Stand-Block unten, ältere Einträge teils historisch) · Written only by the lead session on `main` after a merge. Parallel tracks: `docs/ROADMAP.md` → Pipeline._
 
+## ENDSTAND 2026-11-27 (Lead): letzter Durchgang vor dem Ende des Abos (Nutzer: „mach das projekt ganz fertig bis morgen … ich will eine exe“)
+
+- **Finale exe:** Build exe [46000221142](https://github.com/castorsalzmann-ui/AbeltonGod/actions/runs/46000221142) auf `c08af3a`, grün, Artefakt `AbeltonGod-windows` (190 MB, läuft am 2027-02-25 ab). Kein öffentliches Release angelegt (Nutzer wurde gefragt, Antwort stand aus); neu bauen und Release: `docs/ENDSTAND.md`.
+- **Gemergt:** #579 (Goa-Vorschau im Hintergrund-Thread, Regler „Lead“ und „Muster“, Feld „Arp-Muster“ entfernt, Texte, Acid-Status nach Stop, Menü „Goa-Clips“, Starter-Eintrag `goa-clips`; #578, #575, #574). Unabhängig reviewt (APPROVE-READY, Stresstests: sofort schließen, sofort stoppen, Mehrfachklicks, Render-Fehler; 70 Prozessenden mit laufendem Worker ohne Hänger), CI Ubuntu + Windows grün vor und nach dem Merge. Standard-Export byte-gleich.
+- **Für den Nutzer:** `docs/ENDSTAND.md` (was die exe kann, was nie geprüft wurde, wie es ohne Claude weitergeht).
+- **Offen:** #577 (Fit-Nachträge; Fit ohne Oberfläche), #556 (Rauschen, Antwort fehlt), #568, #569, #522, #521, #519, #537, #534, #527, #484, #356. Review-Rest #579: `work()` fängt nur `Exception` (ein `KeyboardInterrupt` im Render ließe die Knöpfe bis „Stop“ gesperrt; kein realer Pfad gefunden). `docs/qa/GUI_CONTROLS.md` nennt die Seite noch „Goa-Melodie“.
+- **Nicht geprüft:** die finale exe auf dem PC des Nutzers (Start, Ton über den neuen Vorschau-Weg, Aussehen der neuen Regler, Schließen während des Renderns), alles in Live, nichts gehört außer dem Goa-Hörpaket vom 15.11.
+
 ## Stand 2026-11-15 (Lead): Goa neu gebaut, erstes positives Hörergebnis (D-036, D-037)
 
 - **Nutzer:** 10.11. „goa melody klingt gar nicht gut … komplett überarbeiten … wie classic goa“; 11.11. „wie ein schlecht gespieltes keyboard ohne harmonie ohne tiefe“. 15.11. zum Hörpaket (neue Noten + neue Vorschau, 12 WAVs, Seeds 1–3): **„hört sich top an“**, danach „merge alles mach die exe ready“. Welche Variante (A/B/C, 09–12) und ob Hall fehlt, ist offen.

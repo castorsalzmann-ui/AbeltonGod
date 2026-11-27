@@ -1,5 +1,7 @@
 # AbeltonGod – Anleitung (Stand 2026-11-05)
 
+**Endstand vom 2026-11-27: `docs/ENDSTAND.md`.**
+
 Eine Seite: was es gibt, was du startest, was nicht verifiziert ist. Alle Befehle werden im Projektordner in der venv ausgeführt (`pip install -e ".[dev]"`, Einrichtung unter Windows: README).
 
 ## Ehrlicher Status
@@ -14,7 +16,7 @@ Eine Seite: was es gibt, was du startest, was nicht verifiziert ist. Alle Befehl
 | --- | --- | --- |
 | Programm mit Oberfläche | `AbeltonGod.exe` (Windows, ohne Python): Doppelklick öffnet das Hauptfenster mit allen Kategorien einschließlich Laser, Bibliothek, Goa, Live-Import, Copilot und Knöpfen für die Fenster Goa, Acid-Linie und Laser-Blaster. Aus Quelltext: `python -m gui` | `docs/setup/EXE.md`; Aussehen unter Windows, Drag-and-drop, Klang auf deinem Gerät und ein Lauf der exe bei dir sind nicht geprüft (die CI startet die Oberfläche nur ohne Bildschirm) |
 | Samples | Kick, Hat, Snare, Clap, Rim, Bass, Laser: Presets und Varianten als WAV + Sidecar-JSON | `python -m audio_engine.kick --list-presets`, weitere Kategorien: `src/audio_engine/` (Module `hat`, `snare`, `clap`, `rim`, `bass`), Presets in `src/audio_engine/presets/` |
-| Goa-Melodie | Lead, Arp, Pad, Pluck als MIDI, alles einstellbar; Seite „Goa-Melodie“ und Goa-Fenster machen nur Melodien (D-033), arrangiert wird im Arrangement-Planer | `python -m audio_engine.goa_melody --out <Ordner> --seed 1 --bpm 145` |
+| Goa-Clips | Lead, Arp, Pad, Acid-Linie als kurze MIDI-Clips nach dem Zellenmodell (D-037), mit grober Vorschau; Seite „Goa-Clips“ und Goa-Fenster; arrangiert wird im Arrangement-Planer (D-033) | `python -m audio_engine.goa_melody --out <Ordner> --seed 1 --bpm 145` |
 | Goa-Arrangement (nur Kommandozeile, D-033) | Mehrspur-MIDI mit Drums und Bass; nicht mehr in der Oberfläche | `python -m audio_engine.goa_arrangement --out <Ordner> --seed 1 --bpm 145` |
 | Import in Live | WAV als Clip über AbletonOSC (Python-Remote-Script, kein Max for Live) | `python scripts/live_import.py "<Pfad der WAV>"`, Rezepte in `docs/setup/*_TO_LIVE.md` |
 | Claude-Copilot | Sprache → geprüfte Parameter → Engine → Import, mit Ressourcen-Wächter | README, Abschnitt „Ressourcen-Wächter“ |
@@ -71,6 +73,7 @@ Download: GitHub → Actions → „Build exe“ → neuester Lauf auf `main` �
 **Neu seit 2026-11-15:**
 
 25. Goa neu (D-037): „Alle vorhören“ mit 8 Takten: klingt es in der exe wie im Hörpaket vom 15.11.? Friert das Fenster beim Vorhören störend ein? „MIDI exportieren“ und die vier Clips in Live auf eigene Synths legen (Slides brauchen Mono + Legato + Glide, Akzente Velocity auf das Filter): passt es dort auch?
+26. Goa-Seite in der letzten exe (27.11.): Regler „Lead“ und „Muster“ umstellen und vorhören; während „Vorschau wird berechnet …“ steht, bleibt das Fenster bedienbar? Fenster während des Rechnens schließen: schließt es sauber?
 
 Jeder Punkt ist bisher nur automatisch (ohne Bildschirm bzw. gegen einen nachgebauten Live-Server) oder gar nicht geprüft; deine Rückmeldung ist der erste echte Beleg.
 

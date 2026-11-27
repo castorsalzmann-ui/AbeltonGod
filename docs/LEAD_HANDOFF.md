@@ -1,29 +1,26 @@
-# Lead handoff (2026-11-15)
+# Lead handoff (2026-11-27, end of the user's subscription)
 
-For the next **lead** session. Read this, then `CLAUDE.md`, the top block of `docs/CURRENT_STATE.md`, and `docs/DECISIONS.md` D-035 to D-037. Lead-owned file; replace it at the next handoff.
+For a possible later **lead** session. Read this, then `CLAUDE.md`, the top block of `docs/CURRENT_STATE.md`, `docs/ENDSTAND.md` and `docs/DECISIONS.md` D-035 to D-037. Lead-owned file; replace it at the next handoff.
 
 ## Repo state
 
-- `main` = the commit that carries this file (after 8d33e0e), CI timeout raised to 30 min (the Windows job needs about 18).
-- **No open PRs.** #576 (fit core kick/bass, #564) is merged (4ac5bbb). Do not call kick `pitch_start_hz` / `pitch_decay_ms` recovered (#577).
-- Latest Windows build: Build exe run 43729550861 on 8d33e0e (artifact `AbeltonGod-windows`). It contains the new Goa clips and preview. The cloud session cannot download artifacts.
-- Merging: on 2026-11-10 the permission system refused the lead's merge; after the user's explicit "merge" on 2026-11-15 it worked. Without such a message, ask him.
+- `main` = the commit that carries this file (code state c08af3a). **No open PRs.**
+- Final Windows build: Build exe run 46000221142 on c08af3a (artifact `AbeltonGod-windows`, expires 2027-02-25). No public release was created; the user was asked "release ja/nein" and had not answered. He can run the workflow himself with `release_tag` (see `docs/ENDSTAND.md`).
+- Merging: the user ordered "merge alles" on 2026-11-15 and "mach das projekt ganz fertig … ich will eine exe" on 2026-11-27; the lead merged #579 on that basis after APPROVE-READY and green CI. In a new session, ask him again before merging.
 
 ## Waiting on the user (ask again only if he raises it)
 
-1. **Goa in the exe** (checklist item 25 in `docs/USER_GUIDE.md`): does it sound like the listening pack of 2026-11-15 ("hört sich top an")? Does the window freeze annoy him (#575)? Clips in Live on his own synths?
-2. Optional detail on the pack: favourite of A/B/C, variants 09-12 (major third, lead doubles the arp, 3+3+2 grouping, chord change), reverb, delay amount.
-3. #556 noise on all samples: heard in Live or another player too? Does it stop when nothing plays?
-4. Listening feedback on items 20-24; Acid preview status text if still silent; #484; choice-log B6.
-5. A side-finding from the review of #567 is not filed (bass `sub_share` depends on the file length for notes near 100 Hz); the user was asked whether to file it and has not answered.
+1. The final exe on his PC: checklist items 25 and 26 in `docs/USER_GUIDE.md` (Goa sound as in the listening pack of 2026-11-15; the two new controls; closing during a render).
+2. #556 noise on all samples: heard in Live or another player too? Does it stop when nothing plays?
+3. Listening feedback on items 20-24; #484; #356; choice-log B6.
+4. Not filed: bass `sub_share` depends on the file length for notes near 100 Hz (review of #567, point 2).
 
-## Next work (lead decides; 1-3 agents)
+## Next work (if the project continues)
 
-- #577 (fit follow-ups) before any GUI use of the fit (G1 of the reference note).
-- Goa follow-ups: #575 (preview render off the GUI thread; re-check lead register 79-93; reverb only if the user asks), #574 (page texts, dead "Arp-Muster" field, later page controls for the new options).
-- Side findings: #568 (kick `body_hz` seed jump), #569 (laser 0.1 rounding boundary), #537, #534, #527.
-- Parking lot: #521, #519, #539.
-- Scratch material in the lead's clone, untracked: `reports/`, `research_notes/` (the Goa research; the report is in the repo as `docs/research/2026-11-10_klassische-goa-leads-und-melodien.md`).
+- #577 (fit follow-ups), then a GUI for the fit (G1 of `docs/research/2026-11-08_reference-steering-v2.md`).
+- Goa: reverb or lead-register tuning of the preview only if the user asks; one-line hardening from the review of #579 (`work()` catches `Exception` only); `docs/qa/GUI_CONTROLS.md` still says "Goa-Melodie".
+- Side findings: #568, #569, #537, #534, #527. Parking lot: #521, #519, #539.
+- Untracked scratch in the old lead clone only: `reports/`, `research_notes/` (the Goa report is in the repo under `docs/research/`).
 
 ## User rules (binding)
 
